@@ -94,6 +94,8 @@ func TestParsePythonQualityFindings(t *testing.T) {
 }
 
 func TestPythonQualityCommandsRunExternalToolsAndReportFindings(t *testing.T) {
+	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
+
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
 	t.Setenv(consumerRootEnv, tempDir)
@@ -116,6 +118,14 @@ func TestPythonQualityCommandsRunExternalToolsAndReportFindings(t *testing.T) {
 		maintainabilityExit = runPythonMaintainability(Config{}, []string{"pkg/app.py"})
 		vultureExit = runPythonVulture(Config{}, []string{"pkg/app.py"})
 	})
+
+	if !nativeSandboxAvailable {
+		if complexityExit == 0 || !strings.Contains(stdout, "runtime.sandbox_denial") {
+			t.Fatalf("nested sandbox output missing denial:\n%s", stdout)
+		}
+
+		return
+	}
 
 	assertPythonQualityExits(t, complexityExit, maintainabilityExit, vultureExit, stdout)
 	assertPythonQualityOutput(t, stdout)
@@ -202,6 +212,8 @@ func assertPythonQualityOutput(t *testing.T, stdout string) {
 }
 
 func TestGoToolchainCommandsRunConfiguredWorktree(t *testing.T) {
+	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
+
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
 	t.Setenv(consumerRootEnv, tempDir)
@@ -251,7 +263,12 @@ exit 2
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv(hookOutputFormatEnv, hookOutputFormatTOON)
 
-	if got := runGoVet(Config{}, []string{"go/main.go"}); got != 0 {
+	got := runGoVet(Config{}, []string{"go/main.go"})
+	if !nativeSandboxAvailable && got != 0 {
+		return
+	}
+
+	if got != 0 {
 		t.Fatalf("runGoVet() = %d, want 0", got)
 	}
 
@@ -951,6 +968,8 @@ func TestPathWithoutHookGitShimsRemovesRuntimeAndLocalShims(t *testing.T) {
 }
 
 func TestCatalogLintCommandsRunExternalToolsAndParseFindings(t *testing.T) {
+	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
+
 	tempDir := setupGitHookTestRepo(t)
 	bundleRoot := writeManagedToolchainBundle(t, tempDir)
 	t.Chdir(tempDir)
@@ -959,6 +978,19 @@ func TestCatalogLintCommandsRunExternalToolsAndParseFindings(t *testing.T) {
 
 	writeCatalogLintFixtures(t)
 	writeCatalogLintTools(t, tempDir)
+
+	if !nativeSandboxAvailable {
+		stdout := captureStdout(t, func() {
+			if got := runHadolint(Config{}, []string{"Dockerfile"}); got == 0 {
+				t.Fatal("runHadolint() succeeded inside unavailable nested sandbox")
+			}
+		})
+		if !strings.Contains(stdout, "runtime.sandbox_denial") {
+			t.Fatalf("nested sandbox output missing denial:\n%s", stdout)
+		}
+
+		return
+	}
 
 	stdout := captureStdout(t, func() {
 		assertCatalogCommand(t, "hadolint", runHadolint, "Dockerfile")

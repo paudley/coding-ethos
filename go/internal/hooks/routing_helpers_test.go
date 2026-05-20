@@ -23,7 +23,10 @@ func TestGitWrapperRoutingRewritesOrdinaryGit(t *testing.T) {
 	command, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok || !strings.Contains(
 		command,
-		"'/repo/bin/coding-ethos-run' policy-git 'status' '--short'",
+		"'/repo/bin/coding-ethos-run' agent-shell --rewrite --",
+	) || !strings.Contains(
+		command,
+		"git status --short && echo ok",
 	) {
 		t.Fatalf("rewritten command = %#v", result.HookSpecificOutput.UpdatedInput)
 	}

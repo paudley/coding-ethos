@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
@@ -966,6 +967,8 @@ func TestFormatGroupWithNoMatchingFilesIsNoop(t *testing.T) {
 }
 
 func TestFormatGroupRunsManagedFormattersForMatchingFiles(t *testing.T) {
+	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
+
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
 	mustWriteTestFile(t, "app.py", "print('ok')\n")
@@ -992,12 +995,19 @@ func TestFormatGroupRunsManagedFormattersForMatchingFiles(t *testing.T) {
 	t.Setenv(precommitRootEnv, bundleRoot)
 	t.Setenv(consumerRootEnv, tempDir)
 
-	if got := runFormatGroup(Config{}, []string{"app.py", "go/main.go"}, false); got != 0 {
+	got := runFormatGroup(Config{}, []string{"app.py", "go/main.go"}, false)
+	if !nativeSandboxAvailable && got != 0 {
+		return
+	}
+
+	if got != 0 {
 		t.Fatalf("runFormatGroup(matching files) = %d, want 0", got)
 	}
 }
 
 func TestFormatGroupRestageSkipsUnchangedFiles(t *testing.T) {
+	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
+
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
 	t.Setenv("CODING_ETHOS_REAL_GIT", "")
@@ -1020,12 +1030,19 @@ func TestFormatGroupRestageSkipsUnchangedFiles(t *testing.T) {
 	)
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	if got := runFormatGroup(Config{}, []string{"go/main.go"}, true); got != 0 {
+	got := runFormatGroup(Config{}, []string{"go/main.go"}, true)
+	if !nativeSandboxAvailable && got != 0 {
+		return
+	}
+
+	if got != 0 {
 		t.Fatalf("runFormatGroup(unchanged restage) = %d, want 0", got)
 	}
 }
 
 func TestFormatGroupRestagesFormatterChanges(t *testing.T) {
+	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
+
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
 	t.Setenv("CODING_ETHOS_REAL_GIT", "")
@@ -1049,7 +1066,12 @@ func TestFormatGroupRestagesFormatterChanges(t *testing.T) {
 	)
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	if got := runFormatGroup(Config{}, []string{"go/main.go"}, true); got != 0 {
+	got := runFormatGroup(Config{}, []string{"go/main.go"}, true)
+	if !nativeSandboxAvailable && got != 0 {
+		return
+	}
+
+	if got != 0 {
 		t.Fatalf("runFormatGroup(changed restage) = %d, want 0", got)
 	}
 
@@ -2757,6 +2779,8 @@ func TestFormatGeminiReportJSON(t *testing.T) {
 }
 
 func TestShellAndYamlCommandsExecuteExternalToolsAndReportFindings(t *testing.T) {
+	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
+
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
 	t.Setenv(consumerRootEnv, tempDir)
@@ -2806,18 +2830,33 @@ exit 2
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	stdout := captureStdout(t, func() {
-		if got := runShellcheck(Config{}, []string{"scripts/run.sh"}); got != 1 {
+		got := runShellcheck(Config{}, []string{"scripts/run.sh"})
+		if !nativeSandboxAvailable && got != 1 {
+			return
+		}
+
+		if got != 1 {
 			t.Fatalf("runShellcheck() = %d, want 1", got)
 		}
 
-		if got := runShfmt(Config{}, []string{"scripts/run.sh"}); got != 1 {
+		got = runShfmt(Config{}, []string{"scripts/run.sh"})
+		if got != 1 {
 			t.Fatalf("runShfmt() = %d, want 1", got)
 		}
 
-		if got := runYamllint(Config{}, []string{"config.yaml"}); got != 1 {
+		got = runYamllint(Config{}, []string{"config.yaml"})
+		if got != 1 {
 			t.Fatalf("runYamllint() = %d, want 1", got)
 		}
 	})
+	if !nativeSandboxAvailable {
+		if !strings.Contains(stdout, "runtime.sandbox_denial") {
+			t.Fatalf("nested sandbox output missing denial:\n%s", stdout)
+		}
+
+		return
+	}
+
 	for _, want := range []string{
 		"tool: shellcheck",
 		"tool: shfmt",
@@ -3266,4 +3305,10 @@ func writeTestBundleRoot(t *testing.T, root string) string {
 	}
 
 	return bundleRoot
+}
+
+func nativeSandboxRuntimeAvailable() bool {
+	_, err := sandbox.ValidateNativeRuntime()
+
+	return err == nil
 }

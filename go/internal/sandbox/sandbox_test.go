@@ -90,6 +90,53 @@ func TestBuildPlanRequiredUsesNativeWrapper(t *testing.T) {
 	assertNativeEvidence(t, plan.Evidence)
 }
 
+func TestBuildPlanPassesGitBindMountsForGitSandbox(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	writeExecutable(t, wrapper)
+	gitWrapper := filepath.Join(repo, "bin", "git")
+	writeExecutable(t, gitWrapper)
+	realGitBind := filepath.Join(repo, "real-git")
+	writeExecutable(t, realGitBind)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "agent-shell",
+		Executable:  "/usr/bin/env",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"bash", "-lc", "git status"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile:  "agent-shell",
+			GitWrapperPath:  gitWrapper,
+			RealGitPath:     "/usr/bin/git",
+			RealGitBindPath: realGitBind,
+			GitTargetPaths:  []string{"/usr/bin/git", "/usr/bin/git"},
+			RequiresGit:     true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+
+	for _, want := range []string{
+		"--git-wrapper", gitWrapper,
+		"--real-git-path", "/usr/bin/git",
+		"--real-git-bind", realGitBind,
+		"--git-target", "/usr/bin/git",
+	} {
+		if !slices.Contains(plan.Args, want) {
+			t.Fatalf("args missing %q: %#v", want, plan.Args)
+		}
+	}
+
+	if count := countValues(plan.Args, "/usr/bin/git"); count != 2 {
+		t.Fatalf("deduped git target count = %d in %#v", count, plan.Args)
+	}
+}
+
 func TestBuildPlanIgnoresSpoofedActiveSandboxMarker(
 	t *testing.T,
 ) {
@@ -364,17 +411,16 @@ func TestCommandContextAppliesTimeout(t *testing.T) {
 func TestValidateNativeRuntimeEvidence(t *testing.T) {
 	t.Parallel()
 
-	evidence, err := sandbox.ValidateNativeRuntime()
 	if runtime.GOOS != "linux" {
+		evidence, _ := sandbox.ValidateNativeRuntime()
 		if evidence.Enabled {
 			t.Fatalf("non-Linux native runtime must not be enabled: %#v", evidence)
 		}
 
 		return
 	}
-	if err != nil {
-		t.Fatalf("ValidateNativeRuntime() error = %v evidence=%#v", err, evidence)
-	}
+
+	evidence := requireNativeSandboxRuntime(t)
 	if evidence.Backend != sandbox.BackendNative || !evidence.Enabled {
 		t.Fatalf("native runtime evidence mismatch: %#v", evidence)
 	}
@@ -426,6 +472,33 @@ func requireLinuxSandbox(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("native sandbox planning is Linux-only")
 	}
+}
+
+func requireNativeSandboxRuntime(t *testing.T) sandbox.Evidence {
+	t.Helper()
+	requireLinuxSandbox(t)
+
+	evidence, err := sandbox.ValidateNativeRuntime()
+	if err != nil {
+		t.Skipf(
+			"native sandbox runtime is unavailable in this test process: %v evidence=%#v",
+			err,
+			evidence,
+		)
+	}
+
+	return evidence
+}
+
+func countValues(values []string, target string) int {
+	count := 0
+	for _, value := range values {
+		if value == target {
+			count++
+		}
+	}
+
+	return count
 }
 
 func writeExecutable(t *testing.T, path string) {

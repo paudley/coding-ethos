@@ -72,12 +72,14 @@ type ShellCommandInput struct {
 
 type EventInput struct {
 	TranscriptPath   string   `json:"transcript_path"`
+	ActiveTodo       string   `json:"active_todo"`
 	Matcher          string   `json:"matcher"`
 	Mode             string   `json:"mode"`
 	Provider         string   `json:"provider"`
 	Scope            string   `json:"scope"`
 	SessionID        string   `json:"session_id"`
 	Source           string   `json:"source"`
+	StrategicIntent  string   `json:"strategic_intent"`
 	Tool             string   `json:"tool"`
 	Name             string   `json:"name"`
 	ToolInputKeys    []string `json:"tool_input_keys"`
@@ -316,6 +318,8 @@ type ActivationInput struct {
 	Provider           string
 	Mode               string
 	SessionID          string
+	StrategicIntent    string
+	ActiveTodo         string
 	ProtectedBranches  []string
 	Findings           []FindingActivation
 	ToolResponseKeys   []string
@@ -452,6 +456,8 @@ func eventInputSchema() []string {
 			"source",
 			"matcher",
 			"session_id",
+			"active_todo",
+			"strategic_intent",
 			"transcript_path",
 			"tool_input_keys",
 			"tool_response_keys",
@@ -1110,6 +1116,7 @@ func activationEventInput(input ActivationInput) EventInput {
 	return EventInput{
 		HasToolInput:     input.HasToolInput,
 		HasToolResponse:  input.HasToolResponse,
+		ActiveTodo:       input.ActiveTodo,
 		IsClaude:         provider == "claude",
 		IsCodex:          provider == "codex",
 		IsGemini:         provider == "gemini",
@@ -1121,6 +1128,7 @@ func activationEventInput(input ActivationInput) EventInput {
 		Scope:            input.Scope,
 		SessionID:        input.SessionID,
 		Source:           input.EventSource,
+		StrategicIntent:  input.StrategicIntent,
 		Tool:             input.Tool,
 		ToolInputKeys:    cleanStringValues(input.ToolInputKeys),
 		ToolResponseKeys: cleanStringValues(input.ToolResponseKeys),

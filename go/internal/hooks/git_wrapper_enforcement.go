@@ -23,11 +23,18 @@ const (
 	tokenCommand       = "command"
 	tokenEnv           = "env"
 	wrappedToolArgs    = 2
+	cerunRunnerName    = "cerun"
 	wrapperRunnerName  = "coding-ethos-run"
 	wrapperRunnerPath  = "bin/coding-ethos-run"
 	agentToolClaude    = "claude"
 	agentToolCodex     = "codex"
 	agentToolGemini    = "gemini"
+)
+
+const (
+	agentShellCommandMinArgs        = 3
+	agentShellCommandNameIndex      = 0
+	agentShellRunnerSubcommandIndex = 1
 )
 
 const (
@@ -52,19 +59,30 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
-	rewritten, rewrite, routeOK := rewriteGitCommandChain(command)
+	rewrittenCommand, rewrite, routeOK := rewriteGitCommandChain(command)
 	if rewrite && routeOK {
+		updatedCommand := agentShellRewriteCommand(command)
+		if agentShellRewriteInspection(event) {
+			updatedCommand = rewrittenCommand
+		}
+
 		return InspectionRoute{
 			UpdatedInput: updatedBashInput(
 				event.ToolInput,
-				rewritten,
+				updatedCommand,
 			),
-			Reason:  "Routed raw git through the approved git path.",
-			Rewrite: true,
+			BlockPolicyID:      gitWrapperPolicyID,
+			Reason:             "Routed shell command through the approved runner path.",
+			RemediationCommand: cerunRemediation(command),
+			Rewrite:            true,
 		}
 	}
 
 	if routeOK && managedGitCommandChain(command) {
+		return InspectionRoute{}
+	}
+
+	if routeOK && managedAgentShellCommand(command) {
 		return InspectionRoute{}
 	}
 
@@ -79,6 +97,12 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 	}
 
 	return InspectionRoute{}
+}
+
+func agentShellRewriteInspection(event Event) bool {
+	value, ok := event.ToolInput["agent_shell_rewrite"].(bool)
+
+	return ok && value
 }
 
 func gitRouteBlocksCommand(command string, routeOK bool) bool {
@@ -148,6 +172,23 @@ func shellCommandHasDynamicExecutable(parsed shellparse.Command) bool {
 	return shellWordHasExpansion(parsed.Argv[0])
 }
 
+func cerunRemediation(command string) string {
+	return "cerun --rewrite -- " + shellQuote(command)
+}
+
+func agentShellRewriteCommand(command string) string {
+	return strings.Join(
+		[]string{
+			shellQuote(runnerCommand()),
+			"agent-shell",
+			"--rewrite",
+			"--",
+			shellQuote(command),
+		},
+		" ",
+	)
+}
+
 func shellWordHasExpansion(word string) bool {
 	return strings.Contains(word, "$")
 }
@@ -162,19 +203,23 @@ func updatedBashInput(original map[string]any, command string) map[string]any {
 }
 
 func wrapperCommand(args []string) string {
-	runner := strings.TrimSpace(os.Getenv("CODING_ETHOS_RUN_GO_HOOK"))
-	if runner == "" {
-		runner = wrapperRunnerPath
-	}
-
 	parts := make([]string, 0, len(args)+wrapperBaseArgc)
-	parts = append(parts, shellQuote(runner), "policy-git")
+	parts = append(parts, shellQuote(runnerCommand()), "policy-git")
 
 	for _, arg := range args {
 		parts = append(parts, shellQuote(arg))
 	}
 
 	return strings.Join(parts, " ")
+}
+
+func runnerCommand() string {
+	runner := strings.TrimSpace(os.Getenv("CODING_ETHOS_RUN_GO_HOOK"))
+	if runner == "" {
+		return wrapperRunnerPath
+	}
+
+	return runner
 }
 
 func rewriteGitCommandChain(command string) (string, bool, bool) {
@@ -250,6 +295,84 @@ func managedGitCommandChain(command string) bool {
 	return false
 }
 
+func managedAgentShellCommand(command string) bool {
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK || len(tokens) < 3 {
+		return false
+	}
+
+	if slices.ContainsFunc(tokens, isShellControlToken) {
+		return false
+	}
+
+	return agentShellSegment(tokens)
+}
+
+func agentShellSegment(segment []string) bool {
+	if len(segment) < agentShellCommandMinArgs {
+		return false
+	}
+
+	switch filepath.Base(segment[agentShellCommandNameIndex]) {
+	case cerunRunnerName:
+		return cerunAgentShellSegment(segment)
+	case wrapperRunnerName:
+		return codingEthosAgentShellSegment(segment)
+	default:
+		return false
+	}
+}
+
+func cerunAgentShellSegment(segment []string) bool {
+	args := segment[1:]
+	if len(args) == 0 {
+		return false
+	}
+
+	switch args[0] {
+	case "git", "python", "lint":
+		return len(args) > 1
+	case "--", "--rewrite", "--check":
+		return agentShellArgsHaveCommand(args)
+	default:
+		return strings.HasPrefix(args[0], "--intent") && agentShellArgsHaveCommand(args)
+	}
+}
+
+func codingEthosAgentShellSegment(segment []string) bool {
+	if !isTrustedRunnerCommand(segment[agentShellCommandNameIndex]) ||
+		segment[agentShellRunnerSubcommandIndex] != "agent-shell" {
+		return false
+	}
+
+	return agentShellArgsHaveCommand(segment[2:])
+}
+
+func agentShellArgsHaveCommand(args []string) bool {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch {
+		case arg == "--":
+			return index+1 < len(args)
+		case arg == "--rewrite" || arg == "--check":
+			continue
+		case arg == "--intent":
+			index++
+			if index >= len(args) || strings.TrimSpace(args[index]) == "" {
+				return false
+			}
+		case strings.HasPrefix(arg, "--intent="):
+			if strings.TrimSpace(strings.TrimPrefix(arg, "--intent=")) == "" {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+
+	return false
+}
+
 func rewriteGitSegment(segment []string) (string, bool) {
 	if len(segment) == 0 {
 		return "", true
@@ -259,9 +382,19 @@ func rewriteGitSegment(segment []string) (string, bool) {
 		return "", true
 	}
 
+	if agentShellSegment(segment) {
+		return "", true
+	}
+
+	hasEnvPrelude := len(segment) > 0 && isShellEnvAssignment(segment[0])
 	commandSegment := trimLeadingEnvAssignments(segment)
+
 	if len(commandSegment) == 0 {
 		return "", true
+	}
+
+	if agentShellSegment(commandSegment) {
+		return "", !hasEnvPrelude
 	}
 
 	if filepath.Base(commandSegment[0]) == wrapperRunnerName {
@@ -363,13 +496,23 @@ func isTrustedRunnerCommand(command string) bool {
 		return true
 	}
 
-	for _, resolved := range resolvedRunnerCommandPaths(command) {
-		if slices.Contains(trustedRunnerPaths(), resolved) {
-			return true
-		}
+	if filepath.IsAbs(command) {
+		return slices.Contains(trustedRunnerPaths(), cleaned)
 	}
 
-	return false
+	if !strings.Contains(command, "/") &&
+		!strings.Contains(command, string(os.PathSeparator)) {
+		return false
+	}
+
+	cwd := os.Getenv("INVOCATION_CWD")
+	if cwd == "" {
+		return false
+	}
+
+	abs := filepath.ToSlash(filepath.Join(cwd, command))
+
+	return slices.Contains(trustedRunnerPaths(), abs)
 }
 
 func trustedRunnerPaths() []string {
@@ -381,37 +524,6 @@ func trustedRunnerPaths() []string {
 			"bin",
 			"coding-ethos-run",
 		),
-	}
-
-	cleaned := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-
-		cleaned = append(cleaned, filepath.ToSlash(filepath.Clean(candidate)))
-	}
-
-	return cleaned
-}
-
-func resolvedRunnerCommandPaths(command string) []string {
-	candidates := []string{}
-	if filepath.IsAbs(command) {
-		candidates = append(candidates, command)
-	}
-
-	if !filepath.IsAbs(command) {
-		for _, root := range []string{
-			os.Getenv("INVOCATION_CWD"),
-			os.Getenv("CODE_ETHOS_CONSUMER_ROOT"),
-		} {
-			if root == "" {
-				continue
-			}
-
-			candidates = append(candidates, filepath.Join(root, command))
-		}
 	}
 
 	cleaned := make([]string, 0, len(candidates))
@@ -735,9 +847,14 @@ func routeBlockDecision(
 	decision.Severity = modeBlock
 
 	decision.Message = reason
-	if policyDef.Suggestion != "" {
+
+	switch {
+	case policyDef.Suggestion != "":
 		decision.Suggestion = policyDef.Suggestion
-	} else {
+	case policyID == shellFileToolPolicyID:
+		decision.Suggestion = "Use the provider Read, Edit, Write, or equivalent file " +
+			"tool instead of Bash file access."
+	default:
 		decision.Suggestion = gitWrapperUseManagedSuggestion
 	}
 

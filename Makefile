@@ -78,6 +78,7 @@ GIT_HOOKS := pre-commit pre-push commit-msg prepare-commit-msg
 GIT_LFS_HOOKS := post-commit post-merge post-checkout
 GO_TOOLS_BIN_DIR ?= $(LOCAL_BIN_DIR)
 GO_TOOL_CMDS := \
+	cerun \
 	coding-ethos-agent-hooks \
 	coding-ethos-code-intel \
 	coding-ethos-policy \
@@ -566,6 +567,7 @@ _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 	@$(call print_step,Syncing parent hook runtime artifacts)
 	@mkdir -p "$(PARENT_HOOK_BIN_DIR)" "$(PARENT_POLICY_DIR)"
 	@cp "$(GO_TOOLS_BIN_DIR)"/coding-ethos-* "$(PARENT_HOOK_BIN_DIR)/"
+	@cp "$(GO_TOOLS_BIN_DIR)/cerun" "$(PARENT_HOOK_BIN_DIR)/cerun"
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" compile \
 		--primary "$(LOCAL_REPO_ROOT)/coding_ethos.yml" \
 		--repo-ethos "$(LOCAL_REPO_ROOT)/repo_ethos.yml" \

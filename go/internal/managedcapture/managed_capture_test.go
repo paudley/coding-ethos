@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 	"blackcat.ca/coding-ethos/go/lintcapture"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
@@ -543,6 +544,7 @@ func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
 	if runtime.GOOS == windowsGOOS {
 		t.Skip("shell fixture uses POSIX sh")
 	}
+	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
 
 	consumerParent := t.TempDir()
 	consumerRoot := filepath.Join(consumerParent, "consumer")
@@ -576,8 +578,9 @@ func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
 	t.Setenv("UV", uvFixture)
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 
+	exitCode := 0
 	output := captureStdout(t, func() {
-		exitCode := Run(Options{
+		exitCode = Run(Options{
 			Tool:          "ruff",
 			EthosRoot:     ethosRoot,
 			ConsumerRoot:  consumerRoot,
@@ -594,13 +597,28 @@ func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
 				),
 			},
 		})
-		if exitCode != 1 {
-			t.Fatalf("exit code = %d, want 1", exitCode)
-		}
 	})
+	if !nativeSandboxAvailable {
+		if exitCode != 2 || !strings.Contains(output, "SANDBOX_DENIED") {
+			t.Fatalf("nested sandbox exit = %d, output:\n%s", exitCode, output)
+		}
+
+		return
+	}
+
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1:\n%s", exitCode, output)
+	}
+
 	if !strings.Contains(output, "lbox-platform/lib/python/tests/app.py") {
 		t.Fatalf("output missing repo-relative file:\n%s", output)
 	}
+}
+
+func nativeSandboxRuntimeAvailable() bool {
+	_, err := sandbox.ValidateNativeRuntime()
+
+	return err == nil
 }
 
 func managedCaptureUVFixture() string {

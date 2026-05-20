@@ -128,7 +128,7 @@ func TestDecideInspectionBlocksRewriteForUnknownProvider(t *testing.T) {
 	}
 }
 
-func TestDecideInspectionClearsRewriteForUnsupportedProvider(t *testing.T) {
+func TestDecideInspectionBlocksRewriteForUnsupportedProvider(t *testing.T) {
 	t.Parallel()
 
 	decision := DecideInspection(
@@ -142,13 +142,17 @@ func TestDecideInspectionClearsRewriteForUnsupportedProvider(t *testing.T) {
 		},
 	)
 
-	if decision.Status != hookStatusAllowed || len(decision.Policies) != 0 {
+	if decision.Status != hookStatusBlocked || len(decision.Policies) != 1 {
 		t.Fatalf("decision mismatch: %#v", decision)
+	}
+
+	if decision.Policies[0].PolicyID != "hook.provider_required" {
+		t.Fatalf("policy = %#v", decision.Policies[0])
 	}
 
 	if decision.Route.Rewrite || len(decision.Route.UpdatedInput) > 0 {
 		t.Fatalf(
-			"unsupported provider inspection must clear route rewrite: %#v",
+			"blocked unsupported provider inspection must clear route rewrite: %#v",
 			decision.Route,
 		)
 	}

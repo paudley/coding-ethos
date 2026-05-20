@@ -372,6 +372,64 @@ func TestSyncSettingsWritesMCPServersForAllProviders(t *testing.T) {
 	}
 }
 
+func TestSyncCodexTrustStateWritesExpectedProjectHookHashes(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	userConfig := filepath.Join(t.TempDir(), "config.toml")
+
+	err := agenthooks.SyncSettings(root, testHookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	err = agenthooks.SyncCodexTrustState(root, testHookCommand, userConfig)
+	if err != nil {
+		t.Fatalf("sync Codex trust: %v", err)
+	}
+
+	err = agenthooks.VerifyCodexTrustState(root, testHookCommand, userConfig)
+	if err != nil {
+		t.Fatalf("verify Codex trust: %v", err)
+	}
+
+	payload, err := os.ReadFile(userConfig)
+	if err != nil {
+		t.Fatalf("read Codex user config: %v", err)
+	}
+
+	config := string(payload)
+	projectConfig := filepath.Join(root, ".codex", "config.toml")
+	for _, expected := range []string{
+		`[hooks.state]`,
+		`[hooks.state."` + projectConfig + `:pre_tool_use:0:0"]`,
+		`[hooks.state."` + projectConfig + `:session_start:0:0"]`,
+		`trusted_hash = "sha256:`,
+	} {
+		if !strings.Contains(config, expected) {
+			t.Fatalf("Codex trust config missing %s:\n%s", expected, config)
+		}
+	}
+}
+
+func TestVerifyCodexTrustStateRejectsMissingTrust(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	userConfig := filepath.Join(t.TempDir(), "config.toml")
+
+	inlineErr := os.WriteFile(userConfig, []byte("[hooks.state]\n"), 0o600)
+	if inlineErr != nil {
+		t.Fatalf("write Codex user config: %v", inlineErr)
+	}
+
+	err := agenthooks.VerifyCodexTrustState(root, testHookCommand, userConfig)
+	if err == nil ||
+		!strings.Contains(err.Error(), "does not trust generated project hooks") {
+		t.Fatalf("VerifyCodexTrustState error = %v", err)
+	}
+}
+
 func providerSettingsSection(
 	t *testing.T,
 	output string,
@@ -1019,6 +1077,35 @@ func fakeAgentHookCommand(t *testing.T) string {
 	}
 
 	runner := filepath.Join(binDir, "coding-ethos-run")
+	script := `#!/bin/sh
+payload=$(cat)
+case "$payload" in
+  *'"provider": "claude"'*'git status --short'*)
+    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"coding-ethos-run agent-shell --rewrite -- '\''pwd && git status --short 2>&1'\''"}}}'
+    exit 0
+    ;;
+  *'"provider": "gemini-cli"'*'git status --short'*)
+    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"coding-ethos-run agent-shell --rewrite -- '\''git status --short'\''"}}}'
+    exit 0
+    ;;
+  *'"provider": "codex"'*)
+    printf '%s\n' '{"decision":"block","reason":"CODING-ETHOS EMPLOYMENT VIOLATION may result in termination","hookSpecificOutput":{"permissionDecisionReason":"CODING-ETHOS EMPLOYMENT VIOLATION may result in termination"}}'
+    exit 2
+    ;;
+  *'"provider": "gemini-cli"'*)
+    printf '%s\n' '{"decision":"deny","systemMessage":"blocked"}'
+    exit 2
+    ;;
+  *)
+    printf '%s\n' '{"decision":"block","systemMessage":"blocked"}'
+    exit 2
+    ;;
+esac
+`
+	err = os.WriteFile(runner, []byte(script), 0o700)
+	if err != nil {
+		t.Fatalf("write fake runner: %v", err)
+	}
 
 	return "'" + strings.ReplaceAll(runner, "'", "'\\''") + "' agent-hook"
 }

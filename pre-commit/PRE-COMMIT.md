@@ -72,6 +72,40 @@ digest verification, archive extraction, and installed-manifest writes.
 prepends managed tool directories to `PATH`, and Go hook commands resolve
 managed absolute paths; host-global linter installs are not a runtime contract.
 
+Agent shell remediation uses the short `cerun --rewrite -- <command>` binary.
+`cerun` delegates to `coding-ethos-run agent-shell --rewrite -- <command>` so
+blocked providers can resubmit unmanaged shell commands through the
+coding-ethos runtime boundary and command rewrite rules without copying a long
+command prefix.
+Use `cerun --check -- <command>` to run the same policy preflight without
+executing the command. The runner records preflight and execution attempts in
+`.coding-ethos/code-intel.db`, carries `--intent <text>` or the
+`CODING_ETHOS_STRATEGIC_INTENT`/Gemini update-topic environment into sandbox
+evidence and CEL event facts, emits SARIF `agent_remediation` for blocked
+runner commands, and blocks command argv that appears to contain secrets or
+local-machine paths before host execution.
+
+`cerun git <args>` and `cerun python <args>` are short forms for
+`cerun --rewrite -- git <args>` and `cerun --rewrite -- python <args>`;
+`cerun lint <args>` dispatches to the managed policy-lint path. Recursive
+runner invocations are rejected at the runtime edge, so the accepted shape is a
+single `cerun` boundary around the real target command.
+
+Claude Bash hooks must not emulate file tools with shell commands. `cat`,
+`sed`, `awk`, `tee`, and `echo`/`printf` write redirection are blocked in Bash
+events so file reads and edits stay on provider file tools where hooks receive
+structured file paths. Claude `/permissions` allowlists should grant only the
+literal runner boundary, for example `Bash(cerun -- *)` and
+`Bash(cerun --check -- *)`; direct Git, absolute Git, shell file tools, nested
+runner commands, and inline environment preludes remain policy violations even
+when a provider permission prompt would otherwise allow Bash.
+
+Provider-owned memory and permission request systems are integration inputs,
+not alternate enforcement paths. coding-ethos records blocked command context,
+SARIF remediation, active TodoWrite context, strategic intent, runtime
+duration, and code-intelligence events for provider memory/MCP consumers, while
+the hook and runner boundary remain the fail-closed enforcement floor.
+
 ## Run
 
 From the bundle repo root:

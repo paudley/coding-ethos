@@ -19,13 +19,21 @@ import (
 
 var (
 	errLandlockParentFDRange = errors.New("landlock parent fd out of range")
-	errSymlinkWritePath      = errors.New("sandbox write path contains symlink")
-	errWritePathNotAllowed   = errors.New("sandbox write path is not a file or directory")
+	errRealGitBindPair       = errors.New(
+		"real git bind requires both --real-git-path and --real-git-bind",
+	)
+	errSymlinkWritePath    = errors.New("sandbox write path contains symlink")
+	errWritePathNotAllowed = errors.New("sandbox write path is not a file or directory")
+	errGitTargetAbsolute   = errors.New("git target must be absolute")
+	errGitTargetRequired   = errors.New("at least one git target is required")
+	errExecutableAbsolute  = errors.New("executable path must be absolute")
+	errExecutableInvalid   = errors.New("executable path is not executable")
 )
 
 const (
 	privateDirMode      = 0o700
 	writableFileMode    = 0o600
+	mountInfoFieldCount = 6
 	landlockWriteAccess = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
 		unix.LANDLOCK_ACCESS_FS_REMOVE_DIR |
 		unix.LANDLOCK_ACCESS_FS_REMOVE_FILE |
@@ -43,6 +51,11 @@ const (
 )
 
 func applyFilesystemPolicy(options options) error {
+	err := applyGitBindMounts(options)
+	if err != nil {
+		return err
+	}
+
 	writePaths, err := prepareWritablePaths(options)
 	if err != nil {
 		return err
@@ -54,6 +67,249 @@ func applyFilesystemPolicy(options options) error {
 	}
 
 	return nil
+}
+
+func applyGitBindMounts(options options) error {
+	if strings.TrimSpace(options.gitWrapper) == "" && len(options.gitTargets) == 0 {
+		return nil
+	}
+
+	realGitPath, realGitBind, err := validatedRealGitBindPair(options)
+	if err != nil {
+		return err
+	}
+
+	wrapper, err := validatedGitWrapper(options.gitWrapper)
+	if err != nil {
+		return err
+	}
+
+	targets, err := validatedGitTargets(options.gitTargets)
+	if err != nil {
+		return err
+	}
+
+	err = isolateMountPropagation()
+	if err != nil {
+		return err
+	}
+
+	if realGitPath != "" && realGitBind != "" {
+		err = bindRealGit(options.realGitPath, options.realGitBind)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = bindGitWrapperTargets(wrapper, targets)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func bindGitWrapperTargets(wrapper string, targets []string) error {
+	for _, target := range targets {
+		err := unix.Mount(wrapper, target, "", unix.MS_BIND, "")
+		if err != nil {
+			return fmt.Errorf("bind managed git wrapper over %s: %w", target, err)
+		}
+
+		err = remountReadOnlyBind(target)
+		if err != nil {
+			return fmt.Errorf("remount managed git wrapper read-only over %s: %w", target, err)
+		}
+	}
+
+	return nil
+}
+
+func validatedRealGitBindPair(options options) (string, string, error) {
+	realGitPath := strings.TrimSpace(options.realGitPath)
+	realGitBind := strings.TrimSpace(options.realGitBind)
+
+	if (realGitPath == "") != (realGitBind == "") {
+		return "", "", errRealGitBindPair
+	}
+
+	return realGitPath, realGitBind, nil
+}
+
+func isolateMountPropagation() error {
+	err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, "")
+	if err == nil {
+		return nil
+	}
+
+	if !isMountPropagationPermissionError(err) {
+		return fmt.Errorf("make sandbox mount namespace private: %w", err)
+	}
+
+	mountInfo, readErr := os.ReadFile("/proc/self/mountinfo")
+	if readErr != nil {
+		return fmt.Errorf(
+			"make sandbox mount namespace private: %w; inspect mount propagation: %w",
+			err,
+			readErr,
+		)
+	}
+
+	// Some rootless CI namespaces deny the propagation-change syscall while
+	// already exposing only non-shared mounts. Preserve the invariant instead
+	// of requiring one specific kernel operation to prove it.
+	if mountInfoHasSharedPropagation(string(mountInfo)) {
+		return fmt.Errorf(
+			"make sandbox mount namespace private: %w; shared mount propagation remains",
+			err,
+		)
+	}
+
+	return nil
+}
+
+func isMountPropagationPermissionError(err error) bool {
+	return errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES)
+}
+
+func mountInfoHasSharedPropagation(content string) bool {
+	for line := range strings.Lines(content) {
+		fields := strings.Fields(line)
+		if len(fields) <= mountInfoFieldCount {
+			continue
+		}
+
+		for _, field := range fields[mountInfoFieldCount:] {
+			if field == "-" {
+				break
+			}
+
+			if strings.HasPrefix(field, "shared:") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func bindRealGit(sourcePath, targetPath string) error {
+	source, err := validatedExecutablePath(sourcePath, "real git source")
+	if err != nil {
+		return err
+	}
+
+	target, err := validatedExecutablePath(targetPath, "real git bind target")
+	if err != nil {
+		return err
+	}
+
+	err = unix.Mount(source, target, "", unix.MS_BIND, "")
+	if err != nil {
+		return fmt.Errorf("bind real git at %s: %w", target, err)
+	}
+
+	err = remountReadOnlyBind(target)
+	if err != nil {
+		return fmt.Errorf("remount real git read-only at %s: %w", target, err)
+	}
+
+	return nil
+}
+
+func remountReadOnlyBind(target string) error {
+	var stat unix.Statfs_t
+
+	err := unix.Statfs(target, &stat)
+	if err != nil {
+		return fmt.Errorf("stat mount flags: %w", err)
+	}
+
+	flags := uintptr(unix.MS_BIND | unix.MS_REMOUNT | unix.MS_RDONLY)
+	if stat.Flags&unix.ST_NOSUID != 0 {
+		flags |= unix.MS_NOSUID
+	}
+
+	if stat.Flags&unix.ST_NODEV != 0 {
+		flags |= unix.MS_NODEV
+	}
+
+	if stat.Flags&unix.ST_NOEXEC != 0 {
+		flags |= unix.MS_NOEXEC
+	}
+
+	err = unix.Mount(target, target, "", flags, "")
+	if err != nil {
+		return fmt.Errorf("remount read-only bind %s: %w", target, err)
+	}
+
+	return nil
+}
+
+func validatedGitWrapper(path string) (string, error) {
+	return validatedExecutablePath(path, "git wrapper")
+}
+
+func validatedGitTargets(paths []string) ([]string, error) {
+	targets := []string{}
+	seen := map[string]struct{}{}
+
+	for _, path := range paths {
+		target := filepath.Clean(strings.TrimSpace(path))
+		if target == "." {
+			continue
+		}
+
+		if !filepath.IsAbs(target) {
+			return nil, fmt.Errorf("%w: %s", errGitTargetAbsolute, path)
+		}
+
+		resolved, err := filepath.EvalSymlinks(target)
+		if err == nil {
+			target = filepath.Clean(resolved)
+		}
+
+		if _, found := seen[target]; found {
+			continue
+		}
+
+		target, err = validatedExecutablePath(target, "git target")
+		if err != nil {
+			return nil, err
+		}
+
+		seen[target] = struct{}{}
+		targets = append(targets, target)
+	}
+
+	if len(targets) == 0 {
+		return nil, errGitTargetRequired
+	}
+
+	return targets, nil
+}
+
+func validatedExecutablePath(path, label string) (string, error) {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	if cleaned == "." || !filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf(
+			"%w: %s must be absolute: %s",
+			errExecutableAbsolute,
+			label,
+			path,
+		)
+	}
+
+	info, err := os.Stat(cleaned)
+	if err != nil {
+		return "", fmt.Errorf("stat %s %s: %w", label, cleaned, err)
+	}
+
+	if info.IsDir() || info.Mode().Perm()&0o111 == 0 {
+		return "", fmt.Errorf("%w: %s: %s", errExecutableInvalid, label, cleaned)
+	}
+
+	return cleaned, nil
 }
 
 func prepareWritablePaths(options options) ([]string, error) {

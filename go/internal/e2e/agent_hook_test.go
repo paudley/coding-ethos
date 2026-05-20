@@ -52,7 +52,7 @@ func agentHookFixtureCases() []agentHookFixtureCase {
 				`"hookSpecificOutput"`,
 				`"permissionDecision": "allow"`,
 				`"updatedInput"`,
-				`policy-git`,
+				`agent-shell --rewrite --`,
 			},
 		},
 		{
@@ -61,16 +61,24 @@ func agentHookFixtureCases() []agentHookFixtureCase {
 			wantStdout: []string{
 				`"decision": "allow"`,
 				`"updatedInput"`,
-				`policy-git`,
+				`agent-shell --rewrite --`,
 			},
 		},
 		{
-			name:            "codex pretool git rewrite suppression",
-			fixture:         "codex-pretool-git-status.json",
-			wantStdoutExact: "{}",
+			name:     "codex pretool git rewrite suppression",
+			fixture:  "codex-pretool-git-status.json",
+			wantExit: 2,
+			wantStdout: []string{
+				`"decision": "block"`,
+				`"permissionDecision": "deny"`,
+				`git.wrapper_required`,
+			},
 			wantStdoutMissing: []string{
 				`"updatedInput"`,
 				`policy-git`,
+			},
+			wantStderr: []string{
+				`git.wrapper_required`,
 			},
 		},
 		{

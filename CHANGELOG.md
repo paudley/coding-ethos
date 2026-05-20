@@ -11,6 +11,37 @@ and this project follows
 
 ## [Unreleased]
 
+### Added
+
+- Added the `cerun` agent shell entrypoint and `coding-ethos-run agent-shell`
+  dispatch path so blocked providers can resubmit shell commands through the
+  coding-ethos runtime boundary and command rewrite rules with a short prefix.
+- Routed Linux `agent-shell` execution through the native sandbox helper with
+  managed Git bind mounts so absolute and directory-relative host Git paths
+  resolve to `policy-git` inside the runner boundary.
+- Added `cerun` preflight checks, structured SARIF remediation for blocked
+  runner commands, argv-edge secret/local-path blocking, strategic intent
+  capture as a CEL/event/sandbox fact, and code-intelligence records for runner
+  executions.
+- Added `cerun git`, `cerun python`, and `cerun lint` shortcuts plus active
+  TodoWrite CEL facts and hook runtime timing so agent-shell traces include
+  the active task context and slow hook evidence.
+
+### Fixed
+
+- Synced and verified Codex's user-level hook trust state for generated project
+  hooks so `.codex/config.toml` is not reported valid while Codex would ignore
+  the hooks as untrusted.
+- Rewrote supported-provider Git commands into `agent-shell --rewrite` instead
+  of returning host-shell `policy-git` rewrites, and rejected runner commands
+  with inline environment preludes.
+- Block hook rewrites for agent providers that cannot apply rewritten tool
+  input, preventing raw Git commands from running after a managed
+  `policy-git` rewrite is dropped.
+- Block Bash file-tool emulation with `cat`, `sed`, `awk`, `tee`, or shell
+  write redirection so Claude-style file reads and writes stay on provider
+  file-tool surfaces, and reject recursive `cerun`/`agent-shell` invocations.
+
 ## [0.2.1] - 2026-05-03
 
 ### Fixed

@@ -61,19 +61,17 @@ func isReadOnlyInspectionStep(command shellparse.Command) bool {
 
 func readOnlyInspectionName(name string) bool {
 	return slices.Contains([]string{
-		"cat",
 		"cut",
 		"file",
 		"find",
 		"grep",
 		"head",
 		"jq",
-		"git",
+		tokenGit,
 		"ls",
 		"nl",
 		"pwd",
 		"rg",
-		"sed",
 		"sort",
 		"stat",
 		"tail",
@@ -106,7 +104,7 @@ func readOnlyInspectionRedirects(redirects []string) bool {
 }
 
 func readOnlyInspectionArgs(command shellparse.Command) bool {
-	if command.Name == "git" {
+	if command.Name == tokenGit {
 		return readOnlyGitInspectionArgs(command.Argv[1:])
 	}
 

@@ -7,6 +7,50 @@ import "fmt"
 
 const defaultCITimeoutMinutes = 30
 
+const githubGoToolsInstallStep = "" +
+	"      - name: Build shared Go tools\n" +
+	"        run: make go-tools-install\n" +
+	"\n"
+
+const githubSandboxAppArmorStep = "" +
+	"      - name: Install coding-ethos sandbox AppArmor profile\n" +
+	"        run: |\n" +
+	"          set -euo pipefail\n" +
+	"          profile=/etc/apparmor.d/coding-ethos-sandbox\n" +
+	"          run_path=\"${GITHUB_WORKSPACE}/bin/coding-ethos-run\"\n" +
+	"          sandbox_path=\"${GITHUB_WORKSPACE}/bin/coding-ethos-sandbox\"\n" +
+	"          toolchain_path=\"${GITHUB_WORKSPACE}/bin/coding-ethos-toolchain\"\n" +
+	"          sudo tee \"$profile\" >/dev/null <<EOF\n" +
+	"          # GitHub Ubuntu runners apply AppArmor user-namespace mediation.\n" +
+	"          # This profile grants the sandbox helper userns/mount setup while\n" +
+	"          # leaving filesystem enforcement to coding-ethos Landlock policy.\n" +
+	"          abi <abi/4.0>,\n" +
+	"          include <tunables/global>\n" +
+	"\n" +
+	"          \"$run_path\" flags=(unconfined) {\n" +
+	"            userns,\n" +
+	"            capability sys_admin,\n" +
+	"            mount,\n" +
+	"            remount,\n" +
+	"          }\n" +
+	"\n" +
+	"          \"$sandbox_path\" flags=(unconfined) {\n" +
+	"            userns,\n" +
+	"            capability sys_admin,\n" +
+	"            mount,\n" +
+	"            remount,\n" +
+	"          }\n" +
+	"\n" +
+	"          \"$toolchain_path\" flags=(unconfined) {\n" +
+	"            userns,\n" +
+	"            capability sys_admin,\n" +
+	"            mount,\n" +
+	"            remount,\n" +
+	"          }\n" +
+	"          EOF\n" +
+	"          sudo apparmor_parser -r \"$profile\"\n" +
+	"\n"
+
 const githubCgroupDelegationStep = "" +
 	"      - name: Delegate Linux cgroup v2 controllers\n" +
 	"        run: |\n" +
@@ -38,6 +82,27 @@ const githubCgroupDelegationStep = "" +
 	"          fi\n" +
 	"          kill \"$verify_pid\" 2>/dev/null || true\n" +
 	"          wait \"$verify_pid\" 2>/dev/null || true\n"
+
+const githubSandboxDiagnosticStep = "" +
+	"      - name: Validate sandbox runtime preflight\n" +
+	"        run: |\n" +
+	"          set +e\n" +
+	"          bin/coding-ethos-toolchain validate-sandbox-runtime\n" +
+	"          status=$?\n" +
+	"          if [ \"$status\" -ne 0 ]; then\n" +
+	"            echo \"::group::AppArmor status\"\n" +
+	"            sudo aa-status || true\n" +
+	"            echo \"::endgroup::\"\n" +
+	"            echo \"::group::Loaded sandbox profiles\"\n" +
+	"            sudo grep -E 'coding-ethos-(run|sandbox|toolchain)|unprivileged' \\\n" +
+	"              /sys/kernel/security/apparmor/profiles || true\n" +
+	"            echo \"::endgroup::\"\n" +
+	"            echo \"::group::Recent AppArmor denials\"\n" +
+	"            sudo dmesg | tail -n 200 | grep -i apparmor || true\n" +
+	"            echo \"::endgroup::\"\n" +
+	"            exit \"$status\"\n" +
+	"          fi\n" +
+	"\n"
 
 const githubSARIFWorkflowTemplate = `name: Coding Ethos SARIF Gate
 
@@ -90,7 +155,7 @@ jobs:
         with:
           enable-cache: true
 
-%s
+%s%s%s%s
       - name: Build coding-ethos runtime
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -161,7 +226,10 @@ func renderGitHubSARIFWorkflow(config configMap) (string, error) {
 		settings.GateCommand,
 		settings.SARIFPath,
 		settings.SARIFCategory,
+		githubGoToolsInstallStep,
+		githubSandboxAppArmorStep,
 		githubCgroupDelegationStep,
+		githubSandboxDiagnosticStep,
 		settings.ArtifactName,
 	), nil
 }

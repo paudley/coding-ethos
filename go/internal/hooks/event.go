@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	providerClaude = "claude"
-	providerCodex  = "codex"
-	providerGemini = "gemini"
+	providerClaude      = "claude"
+	providerCodex       = "codex"
+	providerCodingEthos = "coding-ethos"
+	providerGemini      = "gemini"
 )
 
 const (
@@ -40,6 +41,8 @@ type Event struct {
 func (event Event) Provider() string {
 	providerHint := strings.ToLower(strings.TrimSpace(event.ProviderHint))
 	switch {
+	case strings.Contains(providerHint, providerCodingEthos):
+		return providerCodingEthos
 	case strings.Contains(providerHint, providerGemini):
 		return providerGemini
 	case strings.Contains(providerHint, providerCodex):
@@ -50,6 +53,8 @@ func (event Event) Provider() string {
 
 	source := strings.ToLower(strings.TrimSpace(event.Source))
 	switch {
+	case strings.Contains(source, providerCodingEthos):
+		return providerCodingEthos
 	case strings.Contains(source, providerGemini):
 		return providerGemini
 	case strings.Contains(source, providerCodex):
@@ -88,6 +93,65 @@ func (event Event) Command() string {
 	}
 
 	return command
+}
+
+func (event Event) StrategicIntent() string {
+	if event.ToolInput == nil {
+		return ""
+	}
+
+	for _, key := range []string{"strategic_intent", "update_topic", "intent"} {
+		value, ok := event.ToolInput[key].(string)
+		if ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+
+	return ""
+}
+
+func (event Event) ActiveTodo() string {
+	if event.ToolInput == nil {
+		return ""
+	}
+
+	todos, ok := event.ToolInput["todos"].([]any)
+	if !ok {
+		return ""
+	}
+
+	firstTodo := ""
+
+	for _, item := range todos {
+		todo, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		content := strings.TrimSpace(stringMapValue(todo, "content"))
+		if content == "" {
+			continue
+		}
+
+		if firstTodo == "" {
+			firstTodo = content
+		}
+
+		if strings.EqualFold(stringMapValue(todo, "status"), "in_progress") {
+			return content
+		}
+	}
+
+	return firstTodo
+}
+
+func stringMapValue(values map[string]any, key string) string {
+	value, ok := values[key].(string)
+	if !ok {
+		return ""
+	}
+
+	return value
 }
 
 func (event Event) Files() []string {

@@ -55,7 +55,7 @@ func TestEncodeProviderResultIncludesUpdatedInputForSupportedProviders(t *testin
 			for _, expected := range []string{
 				`"hookSpecificOutput"`,
 				`"updatedInput"`,
-				`policy-git`,
+				`agent-shell --rewrite --`,
 			} {
 				if !strings.Contains(output, expected) {
 					t.Fatalf("missing %q in provider output: %s", expected, output)
@@ -65,7 +65,7 @@ func TestEncodeProviderResultIncludesUpdatedInputForSupportedProviders(t *testin
 	}
 }
 
-func TestEncodeProviderResultDoesNotEmitCodexUpdatedInput(t *testing.T) {
+func TestEncodeProviderResultBlocksCodexUnsupportedUpdatedInput(t *testing.T) {
 	t.Parallel()
 
 	output := encodedProviderOutput(
@@ -89,11 +89,17 @@ func TestEncodeProviderResultDoesNotEmitCodexUpdatedInput(t *testing.T) {
 		}
 	}
 
-	if strings.TrimSpace(output) != "{}" {
-		t.Fatalf(
-			"Codex allowed rewrite fallback should emit empty output, got: %s",
-			output,
-		)
+	if decoded["decision"] != "block" {
+		t.Fatalf("Codex unsupported rewrite must block, got: %s", output)
+	}
+
+	reason, _ := decoded["reason"].(string)
+	if !strings.Contains(reason, "git.wrapper_required") {
+		t.Fatalf("Codex block reason must identify wrapper policy, got: %s", output)
+	}
+
+	if !strings.Contains(reason, "cerun --") {
+		t.Fatalf("Codex block reason must include cerun remediation, got: %s", output)
 	}
 }
 

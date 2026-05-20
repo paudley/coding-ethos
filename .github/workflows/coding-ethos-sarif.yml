@@ -54,6 +54,46 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Build shared Go tools
+        run: make go-tools-install
+
+      - name: Install coding-ethos sandbox AppArmor profile
+        run: |
+          set -euo pipefail
+          profile=/etc/apparmor.d/coding-ethos-sandbox
+          run_path="${GITHUB_WORKSPACE}/bin/coding-ethos-run"
+          sandbox_path="${GITHUB_WORKSPACE}/bin/coding-ethos-sandbox"
+          toolchain_path="${GITHUB_WORKSPACE}/bin/coding-ethos-toolchain"
+          sudo tee "$profile" >/dev/null <<EOF
+          # GitHub Ubuntu runners apply AppArmor user-namespace mediation.
+          # This profile grants the sandbox helper userns/mount setup while
+          # leaving filesystem enforcement to coding-ethos Landlock policy.
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          "$run_path" flags=(unconfined) {
+            userns,
+            capability sys_admin,
+            mount,
+            remount,
+          }
+
+          "$sandbox_path" flags=(unconfined) {
+            userns,
+            capability sys_admin,
+            mount,
+            remount,
+          }
+
+          "$toolchain_path" flags=(unconfined) {
+            userns,
+            capability sys_admin,
+            mount,
+            remount,
+          }
+          EOF
+          sudo apparmor_parser -r "$profile"
+
       - name: Delegate Linux cgroup v2 controllers
         run: |
           set -euo pipefail
@@ -84,6 +124,25 @@ jobs:
           fi
           kill "$verify_pid" 2>/dev/null || true
           wait "$verify_pid" 2>/dev/null || true
+      - name: Validate sandbox runtime preflight
+        run: |
+          set +e
+          bin/coding-ethos-toolchain validate-sandbox-runtime
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::group::AppArmor status"
+            sudo aa-status || true
+            echo "::endgroup::"
+            echo "::group::Loaded sandbox profiles"
+            sudo grep -E 'coding-ethos-(run|sandbox|toolchain)|unprivileged' \
+              /sys/kernel/security/apparmor/profiles || true
+            echo "::endgroup::"
+            echo "::group::Recent AppArmor denials"
+            sudo dmesg | tail -n 200 | grep -i apparmor || true
+            echo "::endgroup::"
+            exit "$status"
+          fi
+
 
       - name: Build coding-ethos runtime
         env:

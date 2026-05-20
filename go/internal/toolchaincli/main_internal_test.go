@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -925,12 +926,49 @@ func TestRunCLIEmitsManagedToolchainDiagnostics(t *testing.T) {
 }
 
 func TestValidateSandboxRuntimeAcceptsNativeRuntime(t *testing.T) {
+	if runManagedSandboxRuntimeValidation(t) {
+		return
+	}
+
+	requireNativeSandboxRuntime(t)
+
 	wrapper := buildSandboxHelper(t)
 
 	err := validateSandboxRuntimeWithWrapperPath(wrapper)
 	if err != nil {
 		t.Fatalf("validateSandboxRuntime() error = %v", err)
 	}
+}
+
+func runManagedSandboxRuntimeValidation(t *testing.T) bool {
+	t.Helper()
+
+	if os.Getenv("GITHUB_ACTIONS") != "true" ||
+		os.Getenv("GITHUB_JOB") != "go-coverage" {
+		return false
+	}
+
+	managedToolchain := filepath.Join(
+		toolchainTestRepoRoot(t),
+		"bin",
+		"coding-ethos-toolchain",
+	)
+	managedInfo, managedErr := os.Stat(managedToolchain)
+	if managedErr != nil || managedInfo.IsDir() || managedInfo.Mode()&0o111 == 0 {
+		return false
+	}
+
+	command := exec.Command(managedToolchain, "validate-sandbox-runtime")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf(
+			"managed validate-sandbox-runtime: %v\n%s",
+			err,
+			output,
+		)
+	}
+
+	return true
 }
 
 func TestValidateSandboxRuntimeRejectsNoopWrapper(t *testing.T) {
@@ -950,6 +988,19 @@ func TestValidateSandboxRuntimeRejectsNoopWrapper(t *testing.T) {
 func buildSandboxHelper(t *testing.T) string {
 	t.Helper()
 
+	repoRoot := toolchainTestRepoRoot(t)
+	managedHelper := filepath.Join(repoRoot, "bin", "coding-ethos-sandbox")
+	managedInfo, managedErr := os.Stat(managedHelper)
+	if managedErr == nil && !managedInfo.IsDir() && managedInfo.Mode()&0o111 != 0 {
+		// CI AppArmor grants namespace setup to exact managed binary paths.
+		managedAbs, absErr := filepath.Abs(managedHelper)
+		if absErr != nil {
+			t.Fatalf("resolve managed sandbox helper: %v", absErr)
+		}
+
+		return managedAbs
+	}
+
 	output := filepath.Join(t.TempDir(), "coding-ethos-sandbox")
 	command := exec.Command(
 		"go",
@@ -959,13 +1010,37 @@ func buildSandboxHelper(t *testing.T) string {
 		output,
 		"./cmd/coding-ethos-sandbox",
 	)
-	command.Dir = filepath.Clean(filepath.Join("..", ".."))
+	command.Dir = filepath.Join(repoRoot, "go")
 
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("build sandbox helper: %v\n%s", err, output)
 	}
 
 	return output
+}
+
+func toolchainTestRepoRoot(t *testing.T) string {
+	t.Helper()
+
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test source path")
+	}
+
+	return filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", ".."))
+}
+
+func requireNativeSandboxRuntime(t *testing.T) {
+	t.Helper()
+
+	evidence, err := sandbox.ValidateNativeRuntime()
+	if err != nil {
+		t.Skipf(
+			"native sandbox runtime is unavailable in this test process: %v evidence=%#v",
+			err,
+			evidence,
+		)
+	}
 }
 
 func TestSandboxDependencyDiagnosticReportsNativeRuntime(t *testing.T) {

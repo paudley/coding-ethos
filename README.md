@@ -1260,6 +1260,25 @@ and a sanitized `event.json` for agent-hook executions. Add
 structured debug events in `debug.log` and stderr for that run. The trace
 records provider, event, tool, cwd, referenced files, command preview and hash,
 policy IDs, status, and output shape without dumping raw provider input.
+Each hook result records runtime duration, and debug traces emit a slow-hook
+event when inspection exceeds the managed budget. CEL event facts also include
+the active TodoWrite item when a provider supplies one, so policies can connect
+shell activity to the agent's current task without reading provider memory.
+
+Agent shell commands are accepted through one runner boundary. `cerun -- ...`
+executes the target command under the managed runtime, `cerun --check -- ...`
+performs a non-executing preflight, `cerun git ...` and `cerun python ...`
+apply managed rewrites before execution, and `cerun lint ...` runs the managed
+policy-lint path. Nested `cerun`/`agent-shell` invocations are rejected because
+the first boundary is the enforcement point.
+
+Claude Bash file-tool emulation is blocked. Commands such as `cat README.md`,
+`sed -n '1,20p' README.md`, `awk '{print}' README.md`, `tee README.md`, and
+`echo text > README.md` must use provider file tools instead, preserving
+structured file targets for policy evaluation. Claude `/permissions` entries
+should allow only the literal runner forms such as `Bash(cerun -- *)` and
+`Bash(cerun --check -- *)`; provider permission prompts do not weaken the
+coding-ethos hook and runner checks.
 
 ### Cutover
 

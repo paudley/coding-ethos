@@ -104,6 +104,17 @@ func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
 			syscall.CLONE_NEWNS |
 			syscall.CLONE_NEWUTS |
 			syscall.CLONE_NEWIPC)
+		attributes.UidMappings = []syscall.SysProcIDMap{{
+			ContainerID: 0,
+			HostID:      os.Getuid(),
+			Size:        1,
+		}}
+		attributes.GidMappings = []syscall.SysProcIDMap{{
+			ContainerID: 0,
+			HostID:      os.Getgid(),
+			Size:        1,
+		}}
+		attributes.GidMappingsEnableSetgroups = false
 
 		if !evidence.RequiresNetwork {
 			attributes.Cloneflags |= syscall.CLONE_NEWNET

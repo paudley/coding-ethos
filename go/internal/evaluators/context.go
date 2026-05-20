@@ -21,6 +21,8 @@ type Context struct {
 	Provider           string
 	Scope              string
 	SessionID          string
+	StrategicIntent    string
+	ActiveTodo         string
 	Tool               string
 	Content            string
 	Command            string

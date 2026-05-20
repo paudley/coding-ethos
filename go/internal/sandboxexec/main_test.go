@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestParseOptionsNormalizesPathsAndPreservesCommand(t *testing.T) {
@@ -21,6 +23,10 @@ func TestParseOptionsNormalizesPathsAndPreservesCommand(t *testing.T) {
 	parsed, err := parseOptions([]string{
 		"--cwd", root,
 		"--repo-root", root,
+		"--git-wrapper", "/tmp/git-wrapper",
+		"--real-git-path", "/usr/bin/git",
+		"--real-git-bind", "/tmp/real-git",
+		"--git-target", "/usr/bin/git",
 		"--write-path", ".coding-ethos/cache",
 		"--",
 		"/bin/true",
@@ -35,6 +41,12 @@ func TestParseOptionsNormalizesPathsAndPreservesCommand(t *testing.T) {
 	}
 	if !slices.Equal(parsed.writePaths, []string{".coding-ethos/cache"}) {
 		t.Fatalf("write paths = %#v", parsed.writePaths)
+	}
+	if parsed.gitWrapper != "/tmp/git-wrapper" ||
+		parsed.realGitPath != "/usr/bin/git" ||
+		parsed.realGitBind != "/tmp/real-git" ||
+		!slices.Equal(parsed.gitTargets, []string{"/usr/bin/git"}) {
+		t.Fatalf("git bind options = %#v", parsed)
 	}
 	if !slices.Equal(parsed.commandArgv, []string{"/bin/true", "--flag"}) {
 		t.Fatalf("command argv = %#v", parsed.commandArgv)
@@ -97,6 +109,26 @@ func TestSandboxExecEnvRemovesGitOverrides(t *testing.T) {
 		if !slices.Contains(got, kept) {
 			t.Fatalf("environment missing %q: %#v", kept, got)
 		}
+	}
+}
+
+func TestApplyGitBindMountsRequiresRealGitPair(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	wrapper := filepath.Join(root, "wrapper-git")
+	target := filepath.Join(root, "target-git")
+	writeTestFile(t, wrapper, 0o700)
+	writeTestFile(t, target, 0o700)
+
+	err := applyGitBindMounts(options{
+		gitWrapper:  wrapper,
+		gitTargets:  []string{target},
+		realGitPath: "/usr/bin/git",
+	})
+	if err == nil ||
+		!strings.Contains(err.Error(), "--real-git-path and --real-git-bind") {
+		t.Fatalf("applyGitBindMounts() error = %v, want paired real git flags", err)
 	}
 }
 
@@ -294,5 +326,170 @@ func TestJoinPolicyErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "first") ||
 		!strings.Contains(err.Error(), "second") {
 		t.Fatalf("joinPolicyErrors() = %v", err)
+	}
+}
+
+func TestValidatedExecutablePathRequiresAbsoluteExecutableFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	executable := filepath.Join(root, "tool")
+	writeTestFile(t, executable, 0o700)
+
+	got, err := validatedExecutablePath(executable, "test tool")
+	if err != nil {
+		t.Fatalf("validatedExecutablePath() error = %v", err)
+	}
+	if got != executable {
+		t.Fatalf("validatedExecutablePath() = %q, want %q", got, executable)
+	}
+
+	_, err = validatedExecutablePath("relative-tool", "test tool")
+	if !errors.Is(err, errExecutableAbsolute) {
+		t.Fatalf("relative executable error = %v, want absolute-path error", err)
+	}
+
+	nonExecutable := filepath.Join(root, "not-executable")
+	writeTestFile(t, nonExecutable, 0o600)
+
+	_, err = validatedExecutablePath(nonExecutable, "test tool")
+	if !errors.Is(err, errExecutableInvalid) {
+		t.Fatalf("non-executable error = %v, want invalid-executable error", err)
+	}
+
+	_, err = validatedExecutablePath(root, "test tool")
+	if !errors.Is(err, errExecutableInvalid) {
+		t.Fatalf("directory executable error = %v, want invalid-executable error", err)
+	}
+}
+
+func TestValidatedGitTargetsRequiresAbsoluteExecutableTargets(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	target := filepath.Join(root, "git")
+	duplicate := filepath.Join(root, "git-duplicate")
+	writeTestFile(t, target, 0o700)
+	if err := os.Symlink(target, duplicate); err != nil {
+		t.Fatalf("create git target symlink fixture: %v", err)
+	}
+
+	got, err := validatedGitTargets([]string{"", target, duplicate})
+	if err != nil {
+		t.Fatalf("validatedGitTargets() error = %v", err)
+	}
+	if !slices.Equal(got, []string{target}) {
+		t.Fatalf("validatedGitTargets() = %#v, want %#v", got, []string{target})
+	}
+
+	_, err = validatedGitTargets([]string{"git"})
+	if !errors.Is(err, errGitTargetAbsolute) {
+		t.Fatalf("relative git target error = %v, want absolute-target error", err)
+	}
+
+	_, err = validatedGitTargets([]string{"", " "})
+	if !errors.Is(err, errGitTargetRequired) {
+		t.Fatalf("empty git targets error = %v, want required-target error", err)
+	}
+}
+
+func TestValidatedGitWrapperDelegatesExecutableValidation(t *testing.T) {
+	t.Parallel()
+
+	wrapper := filepath.Join(t.TempDir(), "policy-git")
+	writeTestFile(t, wrapper, 0o700)
+
+	got, err := validatedGitWrapper(wrapper)
+	if err != nil {
+		t.Fatalf("validatedGitWrapper() error = %v", err)
+	}
+	if got != wrapper {
+		t.Fatalf("validatedGitWrapper() = %q, want %q", got, wrapper)
+	}
+}
+
+func TestMountInfoHasSharedPropagation(t *testing.T) {
+	t.Parallel()
+
+	shared := "36 25 0:32 / / rw,relatime shared:1 - ext4 /dev/root rw\n"
+	if !mountInfoHasSharedPropagation(shared) {
+		t.Fatal("mountInfoHasSharedPropagation() did not detect shared propagation")
+	}
+
+	private := "36 25 0:32 / / rw,relatime master:1 - ext4 /dev/root rw\n" +
+		"37 36 0:33 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw\n"
+	if mountInfoHasSharedPropagation(private) {
+		t.Fatal("mountInfoHasSharedPropagation() reported non-shared mounts as shared")
+	}
+
+	if mountInfoHasSharedPropagation("malformed\n") {
+		t.Fatal("mountInfoHasSharedPropagation() reported malformed mount info as shared")
+	}
+}
+
+func TestIsMountPropagationPermissionError(t *testing.T) {
+	t.Parallel()
+
+	for _, err := range []error{unix.EPERM, unix.EACCES} {
+		if !isMountPropagationPermissionError(err) {
+			t.Fatalf("isMountPropagationPermissionError(%v) = false", err)
+		}
+	}
+
+	if isMountPropagationPermissionError(os.ErrNotExist) {
+		t.Fatal("isMountPropagationPermissionError() accepted unrelated error")
+	}
+}
+
+func TestLandlockAllowedWriteAccessSeparatesDirectoriesAndFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	filePath := filepath.Join(root, "state.db")
+	writeTestFile(t, filePath, 0o600)
+
+	dirInfo, err := os.Stat(root)
+	if err != nil {
+		t.Fatalf("stat directory fixture: %v", err)
+	}
+	if got := landlockAllowedWriteAccess(dirInfo); got != landlockWriteAccess {
+		t.Fatalf("directory write access = %d, want %d", got, landlockWriteAccess)
+	}
+
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		t.Fatalf("stat file fixture: %v", err)
+	}
+	if got := landlockAllowedWriteAccess(fileInfo); got != landlockFileWriteAccess {
+		t.Fatalf("file write access = %d, want %d", got, landlockFileWriteAccess)
+	}
+}
+
+func TestLandlockParentFDReturnsOpenFileDescriptor(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "state.db")
+	writeTestFile(t, path, 0o600)
+
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open file fixture: %v", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	got, err := landlockParentFD(file)
+	if err != nil {
+		t.Fatalf("landlockParentFD() error = %v", err)
+	}
+	if got != int32(file.Fd()) {
+		t.Fatalf("landlockParentFD() = %d, want %d", got, file.Fd())
+	}
+}
+
+func writeTestFile(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
+
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), mode); err != nil {
+		t.Fatalf("create file fixture %s: %v", path, err)
 	}
 }
