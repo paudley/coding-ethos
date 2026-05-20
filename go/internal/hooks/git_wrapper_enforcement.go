@@ -212,19 +212,19 @@ func shellWordHasParameterExpansion(word string) bool {
 			continue
 		}
 
-		next := word[index+1]
-		if next == '(' {
-			continue
-		}
-
-		if next == '_' ||
-			(next >= 'A' && next <= 'Z') ||
-			(next >= 'a' && next <= 'z') {
+		if shellParameterExpansionByte(word[index+1]) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func shellParameterExpansionByte(next byte) bool {
+	return strings.ContainsRune("(_*@#?$!-", rune(next)) ||
+		(next >= '0' && next <= '9') ||
+		(next >= 'A' && next <= 'Z') ||
+		(next >= 'a' && next <= 'z')
 }
 
 func updatedBashInput(original map[string]any, command string) map[string]any {

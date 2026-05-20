@@ -288,6 +288,8 @@ func TestProxyPostToolOutputRecordsAllowLedger(t *testing.T) {
 	event := proxied.Events[0]
 	if event.Decision != proxyDecisionAllow ||
 		event.TokenUsage.OutputTokens <= 0 ||
+		event.TokenUsage.TotalTokens !=
+			event.TokenUsage.InputTokens+event.TokenUsage.OutputTokens ||
 		event.Metadata["coding_ethos.token_budget.source"] != tokenBudgetSourceFallback ||
 		event.Metadata["coding_ethos.token_budget.max_tokens"] !=
 			fmt.Sprint(defaultHookOutputMaxTokens) {
@@ -324,7 +326,8 @@ func TestProxyPostToolOutputRecordsEmptyOutputLedger(t *testing.T) {
 		event.InputHash != agentproxy.HashText("printf ''") ||
 		event.Payload.Bytes != 0 ||
 		event.TokenUsage.InputTokens <= 0 ||
-		event.TokenUsage.OutputTokens != 0 {
+		event.TokenUsage.OutputTokens != 0 ||
+		event.TokenUsage.TotalTokens != event.TokenUsage.InputTokens {
 		t.Fatalf("unexpected empty-output ledger event: %#v", event)
 	}
 }

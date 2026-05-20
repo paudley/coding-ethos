@@ -20,7 +20,16 @@ func TestCommandHasDynamicExecutableBlocksParameterExecutable(t *testing.T) {
 
 	for _, command := range []string{
 		"$GIT status",
+		"$(which git) status",
 		"${A}${B}${C} status",
+		"$1 status",
+		"$@ status",
+		"$* status",
+		"$# status",
+		"$? status",
+		"$$ status",
+		"$! status",
+		"$- status",
 	} {
 		if !commandHasDynamicExecutable(command) {
 			t.Fatalf("dynamic executable %q was not detected", command)

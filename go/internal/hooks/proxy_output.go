@@ -540,6 +540,9 @@ func proxyToolOutputEvents(
 	outputHash := agentproxy.HashText(proxied.Text)
 	inputHash := agentproxy.HashText(input)
 	eventID := proxyToolOutputEventID(event, inputHash, recordedAt)
+	tokenizer := agentproxy.ApproximateTokenizer{}
+	inputTokens := tokenizer.Count(input)
+	outputTokens := tokenizer.Count(proxied.Text)
 
 	return []agentproxy.ProviderEvent{{
 		ID:            eventID,
@@ -568,9 +571,9 @@ func proxyToolOutputEvents(
 			Lines: lineCount(proxied.Text),
 		},
 		TokenUsage: agentproxy.TokenUsage{
-			InputTokens:  agentproxy.ApproximateTokenizer{}.Count(input),
-			OutputTokens: agentproxy.ApproximateTokenizer{}.Count(proxied.Text),
-			TotalTokens:  agentproxy.ApproximateTokenizer{}.Count(proxied.Text),
+			InputTokens:  inputTokens,
+			OutputTokens: outputTokens,
+			TotalTokens:  inputTokens + outputTokens,
 		},
 		Metadata:   cloneStringMetadata(proxied.Metadata),
 		Transforms: proxied.Records,
