@@ -36,14 +36,23 @@ func agentShellToolExecutable(path string) (string, error) {
 		return source, nil
 	}
 
-	sum := sha256.Sum256([]byte(source))
-
 	err = os.MkdirAll(toolDir, agentShellToolDirMode)
 	if err != nil {
 		return "", fmt.Errorf("create agent-shell tool directory %s: %w", toolDir, err)
 	}
 
-	target := filepath.Join(
+	target := agentShellToolTarget(toolDir, source)
+	if reusableAgentShellToolTarget(target, info) {
+		return target, nil
+	}
+
+	return installAgentShellToolExecutable(source, target, info)
+}
+
+func agentShellToolTarget(toolDir, source string) string {
+	sum := sha256.Sum256([]byte(source))
+
+	return filepath.Join(
 		toolDir,
 		fmt.Sprintf(
 			"tool-%x-%s",
@@ -51,18 +60,19 @@ func agentShellToolExecutable(path string) (string, error) {
 			filepath.Base(source),
 		),
 	)
+}
 
-	if reusableAgentShellToolTarget(target, info) {
-		return target, nil
-	}
-
+func installAgentShellToolExecutable(
+	source, target string,
+	info os.FileInfo,
+) (string, error) {
 	// #nosec G703 -- source is the managed tool executable selected by policy.
 	payload, err := os.ReadFile(source)
 	if err != nil {
 		return "", fmt.Errorf("read agent-shell tool executable %s: %w", source, err)
 	}
 
-	temp, err := os.CreateTemp(toolDir, ".tool-*")
+	temp, err := os.CreateTemp(filepath.Dir(target), ".tool-*")
 	if err != nil {
 		return "", fmt.Errorf("create temporary agent-shell tool executable: %w", err)
 	}
