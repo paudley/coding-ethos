@@ -34,6 +34,7 @@ func proxySearchReplaceEditDecisions(
 	}
 
 	policyDef := proxySearchReplacePolicy(bundle)
+
 	switch event.ToolName {
 	case toolWrite:
 		return proxyWriteDecisions(event, policyDef)
