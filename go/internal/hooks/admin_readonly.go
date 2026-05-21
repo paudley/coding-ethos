@@ -22,6 +22,11 @@ func readOnlyInspectionEvent(event Event, adminApproved bool) bool {
 		return false
 	}
 
+	provider := event.Provider()
+	if provider != "" && provider != providerCodex {
+		return false
+	}
+
 	return ReadOnlyInspectionCommand(event.Command())
 }
 

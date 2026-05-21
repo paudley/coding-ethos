@@ -43,6 +43,33 @@ func TestGitCommandRejectsConfiguredCodingEthosShim(t *testing.T) {
 	}
 }
 
+func TestGitCommandRejectsLookalikeAgentShellRealGit(t *testing.T) {
+	root := t.TempDir()
+	lookalikeDir := filepath.Join(
+		root,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"run-test",
+	)
+	if err := os.MkdirAll(lookalikeDir, 0o700); err != nil {
+		t.Fatalf("create lookalike agent-shell dir: %v", err)
+	}
+	lookalike := writeExecutableGit(
+		t,
+		lookalikeDir,
+		"real-git",
+		"#!/usr/bin/env sh\nprintf 'not git\\n'\n",
+	)
+	t.Setenv(RealGitEnv, lookalike)
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+
+	cmd := GitCommand("", "status")
+	if cmd.Path == lookalike {
+		t.Fatal("gitCommand must not execute lookalike agent-shell real-git paths")
+	}
+}
+
 func writeExecutableGit(t *testing.T, dir, name, payload string) string {
 	t.Helper()
 

@@ -14,6 +14,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
@@ -111,8 +112,6 @@ func TestReadBundleAndMaybePrintJSON(t *testing.T) {
 }
 
 func TestRunCheckOnlyAllowedCommand(t *testing.T) {
-	t.Parallel()
-
 	bundlePath := writeGitTestBundle(t)
 
 	output := captureGitStdout(t, func() {
@@ -134,8 +133,6 @@ func TestRunCheckOnlyAllowedCommand(t *testing.T) {
 }
 
 func TestRunWithArgsCheckOnlyJSONSuppressesHumanOutput(t *testing.T) {
-	t.Parallel()
-
 	bundlePath := writeGitTestBundle(t)
 
 	output := captureGitStdout(t, func() {
@@ -159,16 +156,18 @@ func TestRunWithArgsCheckOnlyJSONSuppressesHumanOutput(t *testing.T) {
 }
 
 func TestExecuteGitWithPostChecksRunsResolvedGitAndPostPolicy(t *testing.T) {
-	t.Parallel()
+	fixture := t.TempDir()
+	marker := filepath.Join(fixture, "git-ran")
 
-	root := t.TempDir()
-	marker := filepath.Join(root, "git-ran")
-
-	realGit := filepath.Join(root, "git")
+	realGit := filepath.Join(fixture, "git")
 
 	inlineErr0 := os.WriteFile(
 		realGit,
-		[]byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+marker+"\n"),
+		[]byte(
+			"#!/bin/sh\n"+
+				"if [ \"$1\" = \"--version\" ]; then printf 'git version fake\\n'; exit 0; fi\n"+
+				"printf '%s\\n' \"$@\" > "+marker+"\n",
+		),
 		0o600,
 	)
 	if inlineErr0 != nil {
@@ -180,18 +179,25 @@ func TestExecuteGitWithPostChecksRunsResolvedGitAndPostPolicy(t *testing.T) {
 		t.Fatalf("chmod fake git: %v", inlineErr1)
 	}
 
-	err := executeGitWithPostChecks(
-		policy.ExampleBundle(),
-		realGit,
-		gitwrap.Options{
-			Cwd:  root,
-			Argv: []string{"status", "--short"},
-		},
-		false,
-	)
-	if err != nil {
-		t.Fatalf("executeGitWithPostChecks() error = %v", err)
-	}
+	runOutsideGitWorkTree(t, func() {
+		cwd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("get outside-worktree cwd: %v", err)
+		}
+
+		err = executeGitWithPostChecks(
+			policy.ExampleBundle(),
+			realGit,
+			gitwrap.Options{
+				Cwd:  cwd,
+				Argv: []string{"status", "--short"},
+			},
+			false,
+		)
+		if err != nil {
+			t.Fatalf("executeGitWithPostChecks() error = %v", err)
+		}
+	})
 
 	data, err := os.ReadFile(marker)
 	if err != nil {
@@ -203,9 +209,23 @@ func TestExecuteGitWithPostChecksRunsResolvedGitAndPostPolicy(t *testing.T) {
 	}
 }
 
-func TestRunUsesProcessArgs(t *testing.T) {
-	t.Parallel()
+func TestExposeRealGitForPolicyEvaluationRestoresEnvironment(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-git-env")
 
+	t.Setenv(realgit.Env, "/previous/git")
+
+	restore := exposeRealGitForPolicyEvaluation("/real/git")
+	if got := os.Getenv(realgit.Env); got != "/real/git" {
+		t.Fatalf("%s = %q, want real git", realgit.Env, got)
+	}
+
+	restore()
+	if got := os.Getenv(realgit.Env); got != "/previous/git" {
+		t.Fatalf("%s = %q, want restored", realgit.Env, got)
+	}
+}
+
+func TestRunUsesProcessArgs(t *testing.T) {
 	bundlePath := writeGitTestBundle(t)
 	testlock.ProcessState(t, "coding-ethos-git")
 
@@ -296,6 +316,25 @@ func writeGitTestBundle(t *testing.T) string {
 func runOutsideGitWorkTree(t *testing.T, run func()) {
 	t.Helper()
 
+	root := policyGitCheckoutRoot(t)
+	previousCeiling, ceilingExisted := os.LookupEnv("GIT_CEILING_DIRECTORIES")
+	if err := os.Setenv("GIT_CEILING_DIRECTORIES", root); err != nil {
+		t.Fatalf("set GIT_CEILING_DIRECTORIES: %v", err)
+	}
+	defer func() {
+		if ceilingExisted {
+			if err := os.Setenv("GIT_CEILING_DIRECTORIES", previousCeiling); err != nil {
+				t.Fatalf("restore GIT_CEILING_DIRECTORIES: %v", err)
+			}
+
+			return
+		}
+
+		if err := os.Unsetenv("GIT_CEILING_DIRECTORIES"); err != nil {
+			t.Fatalf("unset GIT_CEILING_DIRECTORIES: %v", err)
+		}
+	}()
+
 	original, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("get cwd: %v", err)
@@ -314,6 +353,35 @@ func runOutsideGitWorkTree(t *testing.T, run func()) {
 	}()
 
 	run()
+}
+
+func policyGitCheckoutRoot(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+
+	for {
+		if policyGitFileExists(filepath.Join(dir, "coding_ethos.yml")) &&
+			policyGitFileExists(filepath.Join(dir, "config.yaml")) {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("coding-ethos checkout root not found from %s", dir)
+		}
+
+		dir = parent
+	}
+}
+
+func policyGitFileExists(path string) bool {
+	info, err := os.Stat(path)
+
+	return err == nil && !info.IsDir()
 }
 
 func captureGitStdout(t *testing.T, run func()) string {

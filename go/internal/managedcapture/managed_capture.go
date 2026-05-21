@@ -312,10 +312,12 @@ func sandboxCapabilities(
 	spec := tool.CapabilitySpec()
 	writePaths := append([]string(nil), spec.WritePaths...)
 	writePaths = append(writePaths, config.SandboxReadWritePaths()...)
+	readPaths := append([]string(nil), spec.ReadPaths...)
+	readPaths = append(readPaths, writePaths...)
 
 	return sandbox.Capabilities{
 		Tags:               append([]string(nil), spec.Tags...),
-		ReadPaths:          append([]string(nil), spec.ReadPaths...),
+		ReadPaths:          readPaths,
 		WritePaths:         writePaths,
 		SandboxProfile:     spec.SandboxProfile,
 		TimeoutSeconds:     spec.TimeoutSeconds,
@@ -338,6 +340,10 @@ func sandboxCapabilitiesForRequest(
 	args []string,
 ) (sandbox.Capabilities, error) {
 	capabilities := sandboxCapabilities(tool, config)
+	if tool.Name == goTestTool {
+		capabilities.RequiresGit = true
+		capabilities.Tags = requestCapabilityTagsRequireGit(capabilities.Tags)
+	}
 
 	writePaths, err := toolSandboxWritePaths(tool, consumerRoot, captureCwd, args)
 	if err != nil {
@@ -348,8 +354,33 @@ func sandboxCapabilitiesForRequest(
 		capabilities.WritePaths,
 		writePaths...,
 	)
+	capabilities.ReadPaths = append(capabilities.ReadPaths, writePaths...)
 
 	return capabilities, nil
+}
+
+func requestCapabilityTagsRequireGit(tags []string) []string {
+	updated := make([]string, 0, len(tags)+1)
+	hasGit := false
+
+	for _, tag := range tags {
+		switch tag {
+		case "git":
+			hasGit = true
+
+			updated = append(updated, tag)
+		case "no-git":
+			continue
+		default:
+			updated = append(updated, tag)
+		}
+	}
+
+	if !hasGit {
+		updated = append(updated, "git")
+	}
+
+	return updated
 }
 
 func toolSandboxWritePaths(
@@ -835,7 +866,14 @@ func enforceManagedToolArgs(
 		return enforceFirstCommandArgs(
 			args,
 			"test",
-			[]string{"-json", "-cover", "-buildvcs=false", "-timeout=30s", "-short"},
+			[]string{
+				"-json",
+				"-cover",
+				"-buildvcs=false",
+				"-count=1",
+				"-timeout=30s",
+				"-short",
+			},
 		)
 	default:
 		return enforceCatalogConfigArgs(tool, args, consumerRoot)

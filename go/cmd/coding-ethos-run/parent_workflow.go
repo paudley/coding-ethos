@@ -580,6 +580,8 @@ func buildParentGoTool(paths runtimePaths, tool string) error {
 	)
 	command.Dir = paths.ToolsSource
 
+	command.Env = append(os.Environ(), "GOWORK=off")
+
 	output, err := command.CombinedOutput()
 	if err != nil {
 		detail := strings.TrimSpace(string(output))

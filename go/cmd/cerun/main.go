@@ -13,6 +13,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/execguard"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
@@ -47,6 +48,7 @@ func runCerunWithRunner(args []string, runner string) int {
 	command.Stdin = os.Stdin
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
+	command.Env = cerunEnvironment()
 
 	err := command.Run()
 	if err != nil {
@@ -89,6 +91,39 @@ func cerunExitCode(err error) int {
 	}
 
 	return processstatus.ExitCode(err, 1)
+}
+
+func cerunEnvironment() []string {
+	env := os.Environ()
+	if os.Getenv(realgit.Env) != "" {
+		return env
+	}
+
+	gitPath, err := realgit.Resolve(context.Background(), "git")
+	if err != nil {
+		gitPath = systemGitPath()
+		if gitPath == "" {
+			return env
+		}
+	}
+
+	return append(env, realgit.Env+"="+gitPath)
+}
+
+func systemGitPath() string {
+	for _, candidate := range []string{
+		"/usr/bin/git",
+		"/bin/git",
+		"/usr/local/bin/git",
+		"/opt/homebrew/bin/git",
+	} {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0 {
+			return candidate
+		}
+	}
+
+	return ""
 }
 
 func siblingRunner() (string, error) {

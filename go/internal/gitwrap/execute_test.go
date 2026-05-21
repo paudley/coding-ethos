@@ -108,6 +108,10 @@ func TestExecuteLeavesPushCertificateOptional(t *testing.T) {
 }
 
 func TestExecuteCreatesSignedCommitWithDisposableKey(t *testing.T) {
+	if testing.Short() {
+		t.Skip("GPG agent integration is excluded from short managed hook runs")
+	}
+
 	gitPath, err := realgit.Resolve(context.Background(), "git")
 	if err != nil {
 		t.Fatalf("resolve git: %v", err)
@@ -170,12 +174,28 @@ func initGitwrapRepo(t *testing.T) string {
 	runGitwrapGit(t, repo, "config", "user.email", "test@example.com")
 	runGitwrapGit(t, repo, "config", "user.name", "Test User")
 
-	err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("initial\n"), 0o600)
+	hooksPath := filepath.Join(repo, "no-hooks")
+	err := os.Mkdir(hooksPath, 0o700)
+	if err != nil {
+		t.Fatalf("create empty hooks path: %v", err)
+	}
+	runGitwrapGit(t, repo, "config", "core.hooksPath", hooksPath)
+
+	err = os.WriteFile(
+		filepath.Join(repo, ".gitignore"),
+		[]byte(".coding-ethos/\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write .gitignore: %v", err)
+	}
+
+	err = os.WriteFile(filepath.Join(repo, "file.txt"), []byte("initial\n"), 0o600)
 	if err != nil {
 		t.Fatalf("write file: %v", err)
 	}
 
-	runGitwrapGit(t, repo, "add", "file.txt")
+	runGitwrapGit(t, repo, "add", ".gitignore", "file.txt")
 	runGitwrapGit(t, repo, "commit", "-m", "initial")
 
 	return repo

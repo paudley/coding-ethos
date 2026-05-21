@@ -137,17 +137,17 @@ func TestCleanPolicyPathStaysInsideRepo(t *testing.T) {
 
 	root := t.TempDir()
 
-	path, ok := cleanPolicyPath(root, "pkg/../.coding-ethos/cache")
+	path, ok := cleanPolicyPath(root, "pkg/../.coding-ethos/cache", false)
 	if !ok || path != filepath.Join(root, ".coding-ethos", "cache") {
 		t.Fatalf("cleanPolicyPath relative = %q %t", path, ok)
 	}
 
-	outside, ok := cleanPolicyPath(root, filepath.Dir(root))
+	outside, ok := cleanPolicyPath(root, filepath.Dir(root), false)
 	if ok || outside == "" {
 		t.Fatalf("cleanPolicyPath outside = %q %t", outside, ok)
 	}
 
-	nullDevice, ok := cleanPolicyPath(root, os.DevNull)
+	nullDevice, ok := cleanPolicyPath(root, os.DevNull, false)
 	if !ok || nullDevice != os.DevNull {
 		t.Fatalf("cleanPolicyPath dev null = %q %t", nullDevice, ok)
 	}
@@ -185,6 +185,99 @@ func TestPrepareWritablePathsFiltersGitAndCreatesRelativePaths(t *testing.T) {
 	}
 	if slices.Contains(paths, filepath.Join(root, ".git", "config")) {
 		t.Fatalf(".git write path leaked through: %#v", paths)
+	}
+}
+
+func TestPrepareWritablePathsAllowsExplicitGitWrites(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gitDir := filepath.Join(root, ".git")
+	if err := os.Mkdir(gitDir, 0o700); err != nil {
+		t.Fatalf("create git dir fixture: %v", err)
+	}
+
+	paths, err := prepareWritablePaths(options{
+		paths:          &sandboxPaths{repoRoot: root},
+		writePaths:     []string{gitDir},
+		allowGitWrites: true,
+	})
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() error = %v", err)
+	}
+	if !slices.Contains(paths, gitDir) {
+		t.Fatalf("git write path missing: %#v", paths)
+	}
+}
+
+func TestPrepareWritablePathsAllowsLinkedWorktreeGitCommonDir(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	repo := filepath.Join(parent, "worktree")
+	worktreeGitDir := filepath.Join(parent, ".git", "worktrees", "feature")
+	gitCommonDir := filepath.Join(
+		parent,
+		".git",
+		"modules",
+		"coding-ethos",
+	)
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatalf("create repo: %v", err)
+	}
+	if err := os.MkdirAll(worktreeGitDir, 0o700); err != nil {
+		t.Fatalf("create linked worktree git dir: %v", err)
+	}
+	if err := os.MkdirAll(gitCommonDir, 0o700); err != nil {
+		t.Fatalf("create linked worktree git common dir: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(repo, ".git"),
+		[]byte("gitdir: "+worktreeGitDir+"\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write linked worktree .git file: %v", err)
+	}
+
+	paths, err := prepareWritablePaths(options{
+		paths:          &sandboxPaths{repoRoot: repo},
+		writePaths:     []string{gitCommonDir},
+		allowGitWrites: true,
+	})
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() error = %v", err)
+	}
+	if !slices.Contains(paths, gitCommonDir) {
+		t.Fatalf("linked worktree git common dir missing: %#v", paths)
+	}
+}
+
+func TestPrepareWritablePathsRejectsUnrelatedGitMetadata(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o700); err != nil {
+		t.Fatalf("create git dir fixture: %v", err)
+	}
+
+	unrelated := filepath.Join(t.TempDir(), ".git", "config")
+	if err := os.MkdirAll(filepath.Dir(unrelated), 0o700); err != nil {
+		t.Fatalf("create unrelated git dir fixture: %v", err)
+	}
+	if err := os.WriteFile(unrelated, []byte("[core]\n"), 0o600); err != nil {
+		t.Fatalf("write unrelated git config fixture: %v", err)
+	}
+
+	paths, err := prepareWritablePaths(options{
+		paths:          &sandboxPaths{repoRoot: root},
+		writePaths:     []string{unrelated},
+		allowGitWrites: true,
+	})
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() error = %v", err)
+	}
+	if slices.Contains(paths, unrelated) {
+		t.Fatalf("unrelated git metadata write path leaked through: %#v", paths)
 	}
 }
 

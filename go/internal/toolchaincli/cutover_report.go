@@ -188,7 +188,10 @@ func installGitShim(destDir, realGit, runner string) error {
 	payload := strings.Join([]string{
 		"#!/usr/bin/env bash",
 		"set -euo pipefail",
-		"export CODING_ETHOS_REAL_GIT=" + shellQuote(realGit),
+		`if [[ "${CODING_ETHOS_AGENT_SHELL_SANDBOX:-}" != "1" || ` +
+			`-z "${CODING_ETHOS_REAL_GIT:-}" ]]; then`,
+		"  export CODING_ETHOS_REAL_GIT=" + shellQuote(realGit),
+		"fi",
 		"exec " + shellQuote(runner) + ` policy-git "$@"`,
 		"",
 	}, "\n")
@@ -624,6 +627,15 @@ func filesEqual(left, right string) (bool, error) {
 }
 
 func writeExecutableFile(path string, payload []byte) error {
+	matches, err := executableFileMatches(path, payload)
+	if err != nil {
+		return err
+	}
+
+	if matches {
+		return nil
+	}
+
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp.")
 	if err != nil {
 		return fmt.Errorf("create temporary file for %s: %w", path, err)
@@ -658,6 +670,32 @@ func writeExecutableFile(path string, payload []byte) error {
 	}
 
 	return nil
+}
+
+func executableFileMatches(path string, payload []byte) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("stat %s: %w", path, err)
+	}
+
+	if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return false, nil
+	}
+
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	if len(existing) != len(payload) {
+		return false, nil
+	}
+
+	return subtle.ConstantTimeCompare(existing, payload) == 1, nil
 }
 
 func shellQuote(value string) string {

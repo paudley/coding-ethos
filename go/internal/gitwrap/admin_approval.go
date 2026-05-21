@@ -65,8 +65,12 @@ func IsCodingEthosRepo(cwd string) bool {
 	}
 
 	for {
-		if codingEthosRepoMarker(current) {
-			return true
+		if runtimeScratchPath(current) {
+			return false
+		}
+
+		if filepath.Base(current) == "coding-ethos" {
+			return codingEthosRepoMarker(current)
 		}
 
 		parent := filepath.Dir(current)
@@ -96,6 +100,17 @@ func codingEthosRepoMarker(path string) bool {
 	}
 
 	return true
+}
+
+func runtimeScratchPath(path string) bool {
+	clean := filepath.Clean(path)
+	base := filepath.Base(clean)
+
+	if base == "sandbox-tmp" || base == ".coding-ethos" {
+		return true
+	}
+
+	return filepath.Base(filepath.Dir(clean)) == ".code-ethos" && base == "cache"
 }
 
 func processAncestryApproved(pid int, path string) (bool, error) {

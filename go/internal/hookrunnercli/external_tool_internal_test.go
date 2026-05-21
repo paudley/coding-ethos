@@ -15,6 +15,8 @@ import (
 func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	shimDir := t.TempDir()
 	shimPath := filepath.Join(shimDir, "git")
+	repo := t.TempDir()
+	t.Chdir(repo)
 
 	writeErr := os.WriteFile(
 		shimPath,
@@ -30,13 +32,18 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("GIT_CONFIG_KEY_0", "user.email")
 	t.Setenv("GIT_CONFIG_VALUE_0", "test@example.com")
+	t.Setenv("CODING_ETHOS_REAL_GIT", "/tmp/hook-real-git")
+	t.Setenv("GOCACHE", "/tmp/host-go-cache")
 	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+"/usr/bin")
-	t.Setenv(consumerRootEnv, "/tmp/repo")
+	t.Setenv(consumerRootEnv, repo)
 	t.Setenv(hookGroupChildEnv, hookPlanBoolTrue)
 	t.Setenv(hookGroupResultPathEnv, "/tmp/result.json")
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
 
-	env := externalToolEnv([]string{"KEEP_EXTRA=1"})
+	env, err := externalToolEnv([]string{"KEEP_EXTRA=1"})
+	if err != nil {
+		t.Fatalf("externalToolEnv() returned error: %v", err)
+	}
 
 	for _, item := range env {
 		name, _, found := strings.Cut(item, "=")
@@ -51,6 +58,32 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 
 	if !slices.Contains(env, "GIT_OPTIONAL_LOCKS=0") {
 		t.Fatalf("externalToolEnv did not disable optional git locks: %#v", env)
+	}
+
+	if !slices.Contains(env, "CODING_ETHOS_REAL_GIT=/tmp/hook-real-git") {
+		t.Fatalf("externalToolEnv dropped approved real git binding: %#v", env)
+	}
+
+	if !slices.Contains(
+		env,
+		"GOCACHE="+filepath.Join(repo, ".coding-ethos/cache/go-build"),
+	) ||
+		slices.Contains(env, "GOCACHE=/tmp/host-go-cache") {
+		t.Fatalf("externalToolEnv did not replace host Go cache: %#v", env)
+	}
+
+	if !slices.Contains(
+		env,
+		"GOTMPDIR="+filepath.Join(repo, ".coding-ethos/cache/go-tmp"),
+	) {
+		t.Fatalf("externalToolEnv did not set Go build temp dir: %#v", env)
+	}
+
+	if !slices.Contains(
+		env,
+		"TMPDIR="+filepath.Join(repo, ".coding-ethos/cache/go-tmp"),
+	) {
+		t.Fatalf("externalToolEnv did not set process temp dir: %#v", env)
 	}
 
 	for _, item := range env {
@@ -70,6 +103,58 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	}
 
 	t.Fatalf("externalToolEnv omitted PATH: %#v", env)
+}
+
+func TestExternalToolEnvAddsUsablePathWhenInheritedPathMissing(t *testing.T) {
+	original, hadOriginal := os.LookupEnv("PATH")
+	if err := os.Unsetenv("PATH"); err != nil {
+		t.Fatalf("unset PATH: %v", err)
+	}
+	t.Cleanup(func() {
+		if hadOriginal {
+			_ = os.Setenv("PATH", original)
+		} else {
+			_ = os.Unsetenv("PATH")
+		}
+	})
+
+	env, err := externalToolEnv(nil)
+	if err != nil {
+		t.Fatalf("externalToolEnv() returned error: %v", err)
+	}
+
+	for _, item := range env {
+		name, value, ok := strings.Cut(item, "=")
+		if !ok || name != "PATH" {
+			continue
+		}
+
+		pathEntries := filepath.SplitList(value)
+		if !slices.Contains(pathEntries, "/usr/bin") &&
+			!slices.Contains(pathEntries, "/bin") {
+			t.Fatalf("externalToolEnv PATH lacks system executable dirs: %#v", env)
+		}
+
+		return
+	}
+
+	t.Fatalf("externalToolEnv omitted PATH: %#v", env)
+}
+
+func TestExternalToolCacheEnvFailsWhenCacheDirsCannotBeCreated(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(root, ".coding-ethos"),
+		[]byte("file\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write blocking cache path: %v", err)
+	}
+
+	_, err := externalToolCacheEnv(root)
+	if err == nil {
+		t.Fatal("externalToolCacheEnv() error = nil, want cache creation failure")
+	}
 }
 
 func TestRunExternalToolCapturesStdoutAndStderrSeparately(t *testing.T) {

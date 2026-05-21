@@ -39,13 +39,14 @@ func (paths *repeatedPaths) Set(value string) error {
 }
 
 type options struct {
-	paths       *sandboxPaths
-	gitTargets  []string
-	realGitPath string
-	realGitBind string
-	gitWrapper  string
-	writePaths  []string
-	commandArgv []string
+	paths          *sandboxPaths
+	realGitPath    string
+	realGitBind    string
+	gitWrapper     string
+	gitTargets     []string
+	writePaths     []string
+	commandArgv    []string
+	allowGitWrites bool
 }
 
 type sandboxPaths struct {
@@ -106,6 +107,12 @@ func parseOptions(args []string) (options, error) {
 	flags.StringVar(&parsed.realGitBind, "real-git-bind", "", "Real git bind target")
 	flags.Var(&gitTargets, "git-target", "Git path to bind")
 	flags.Var(&writePaths, "write-path", "Writable repository path")
+	flags.BoolVar(
+		&parsed.allowGitWrites,
+		"allow-git-writes",
+		false,
+		"Allow declared Git metadata write paths",
+	)
 
 	err := flags.Parse(args)
 	if err != nil {
@@ -180,7 +187,7 @@ func pathWithin(root, path string) bool {
 		(!strings.HasPrefix(relative, ".."+string(os.PathSeparator)) && relative != "..")
 }
 
-func cleanPolicyPath(repoRoot, path string) (string, bool) {
+func cleanPolicyPath(repoRoot, path string, allowGitWrites bool) (string, bool) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", false
@@ -192,12 +199,71 @@ func cleanPolicyPath(repoRoot, path string) (string, bool) {
 			return clean, true
 		}
 
+		if allowGitWrites && allowedGitMetadataWritePath(repoRoot, clean) {
+			return clean, true
+		}
+
 		return clean, pathWithin(repoRoot, clean)
 	}
 
 	clean := filepath.Clean(filepath.Join(repoRoot, path))
 
 	return clean, pathWithin(repoRoot, clean)
+}
+
+func allowedGitMetadataWritePath(repoRoot, path string) bool {
+	for _, root := range gitMetadataRoots(repoRoot) {
+		if pathWithin(root, path) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func gitMetadataRoots(repoRoot string) []string {
+	dotGit := filepath.Join(repoRoot, ".git")
+
+	info, err := os.Stat(dotGit)
+	if err == nil && info.IsDir() {
+		return []string{dotGit}
+	}
+
+	content, err := os.ReadFile(dotGit)
+	if err != nil {
+		return nil
+	}
+
+	gitDir, found := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir:")
+	if !found {
+		return nil
+	}
+
+	gitDir = strings.TrimSpace(gitDir)
+	if gitDir == "" {
+		return nil
+	}
+
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(repoRoot, gitDir)
+	}
+
+	gitDir = filepath.Clean(gitDir)
+
+	roots := []string{gitDir}
+	if strings.Contains(filepath.ToSlash(gitDir), "/.git/worktrees/") {
+		for current := gitDir; current != filepath.Dir(current); {
+			if filepath.Base(current) == "worktrees" {
+				roots = append(roots, filepath.Dir(current))
+
+				break
+			}
+
+			current = filepath.Dir(current)
+		}
+	}
+
+	return roots
 }
 
 func allowedSystemWritePath(path string) bool {

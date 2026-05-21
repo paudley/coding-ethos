@@ -78,6 +78,33 @@ func TestRunAllowsAdminReadOnlyGitDiffWithoutRewrite(t *testing.T) {
 	}
 }
 
+func TestRunRoutesCodingEthosGitRewriteInsideAdminCheckout(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		AdminApproved: stubAdminApprovedForCWD(true),
+		Event: Event{
+			Cwd:           "/workspace/coding-ethos",
+			HookEventName: "PreToolUse",
+			ProviderHint:  "coding-ethos",
+			ToolName:      "Bash",
+			ToolInput: map[string]any{
+				"agent_shell_rewrite": true,
+				"command":             "git status",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != hookStatusAllowed ||
+		result.HookSpecificOutput == nil ||
+		result.HookSpecificOutput.UpdatedInput["command"] == "git status" {
+		t.Fatalf("expected coding-ethos rewrite inside admin checkout: %#v", result)
+	}
+}
+
 func TestRunAllowsAdminReadOnlyRedirectCapture(t *testing.T) {
 	t.Parallel()
 

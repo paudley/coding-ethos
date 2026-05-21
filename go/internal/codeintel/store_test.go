@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -23,6 +22,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 const (
@@ -616,6 +616,46 @@ func TestRefreshRepositoryHonorsGitIgnore(t *testing.T) {
 
 	if !found || file.Language != "python" {
 		t.Fatalf("tracked file = %#v, found = %v", file, found)
+	}
+}
+
+func TestRefreshRepositoryHonorsGitIgnoreInAllIgnoredRepo(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelGit(t, root, "init", "--initial-branch", "main")
+
+	writeFile(t, filepath.Join(root, ".gitignore"), []byte("*\n"))
+	writeFile(
+		t,
+		filepath.Join(root, "generated.py"),
+		[]byte("def generated():\n    return 1\n"),
+	)
+
+	summary, err := RefreshRepository(ctx, root, []string{"."})
+	if err != nil {
+		t.Fatalf("refresh repository: %v", err)
+	}
+	if summary.CodeIndex.FilesIndexed != 0 {
+		t.Fatalf(
+			"files indexed = %d, want no indexed ignored files",
+			summary.CodeIndex.FilesIndexed,
+		)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	_, found, err := store.GetCodeFile(ctx, "generated.py")
+	if err != nil {
+		t.Fatalf("get ignored file: %v", err)
+	}
+	if found {
+		t.Fatal("generated.py should not be indexed in all-ignored repo")
 	}
 }
 
@@ -3706,8 +3746,9 @@ func runCodeIntelGit(t *testing.T, dir string, args ...string) {
 func runCodeIntelGitOutput(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 
-	command := exec.CommandContext(context.Background(), "git", args...)
+	command := realgit.Command(context.Background(), false, args...)
 	command.Dir = dir
+	command.Env = cleanCodeIntelGitEnv()
 
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -3715,6 +3756,17 @@ func runCodeIntelGitOutput(t *testing.T, dir string, args ...string) string {
 	}
 
 	return string(output)
+}
+
+func cleanCodeIntelGitEnv() []string {
+	env := realgit.CleanGitLocalEnv(os.Environ())
+
+	return append(
+		env,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"XDG_CONFIG_HOME="+os.DevNull,
+	)
 }
 
 func hookTracePayloadForProvider(t *testing.T, provider string) []byte {

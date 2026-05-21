@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,6 +37,7 @@ const (
 	agentShellCacheDirMode = 0o700
 	agentShellAssetMode    = 0o700
 	agentShellFileMode     = 0o600
+	agentShellInjectedEnv  = 3
 )
 
 var (
@@ -88,9 +90,10 @@ func (defaultRuntimeExecutor) execAgentShell(paths runtimePaths, command string)
 	executable := shellPath
 	execArgs := args
 	cwd := paths.InvocationCWD
+	processEnv := os.Environ()
 
 	if runtime.GOOS == linuxGOOS {
-		plan, clean, err := agentShellSandboxPlan(paths, shellPath, args)
+		plan, agentEnv, clean, err := agentShellSandboxPlan(paths, shellPath, args)
 		if err != nil {
 			exitErr(err)
 		}
@@ -105,6 +108,7 @@ func (defaultRuntimeExecutor) execAgentShell(paths runtimePaths, command string)
 
 		executable = plan.Executable
 		execArgs = plan.Args
+		processEnv = agentEnv
 	} else {
 		debuglog.Debug(
 			"agent-shell.sandbox.unavailable",
@@ -119,6 +123,7 @@ func (defaultRuntimeExecutor) execAgentShell(paths runtimePaths, command string)
 	process.Stdin = os.Stdin
 	process.Stdout = os.Stdout
 	process.Stderr = os.Stderr
+	process.Env = processEnv
 
 	if runtime.GOOS == linuxGOOS {
 		process.SysProcAttr = sandbox.SysProcAttr(nil, sandbox.Evidence{
@@ -161,10 +166,43 @@ func agentShellSandboxPlan(
 	paths runtimePaths,
 	executable string,
 	args []string,
-) (sandbox.Plan, func(), error) {
-	gitWrapper, realGitBind, cleanup, err := agentShellGitWrapper(paths)
+) (sandbox.Plan, []string, func(), error) {
+	realGitPath, err := agentShellRealGitPath(paths)
 	if err != nil {
-		return sandbox.Plan{}, cleanup, err
+		return sandbox.Plan{}, nil, func() {}, err
+	}
+
+	gitWrapper, realGitBind, cleanup, err := agentShellGitWrapper(paths, realGitPath)
+	if err != nil {
+		return sandbox.Plan{}, nil, cleanup, err
+	}
+
+	agentWriteDirs := []string{
+		filepath.Join(paths.Root, sandbox.SandboxTempWritePath),
+		filepath.Join(paths.Root, ".coding-ethos", "cache"),
+		filepath.Join(paths.Root, ".coding-ethos", "state"),
+		filepath.Join(paths.Root, ".coding-ethos", "lint-runs"),
+	}
+
+	agentWritePaths, err := agentShellWorktreeWritePaths(paths.Root)
+	if err != nil {
+		cleanup()
+
+		return sandbox.Plan{}, nil, func() {}, err
+	}
+
+	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
+	for _, dir := range agentWriteDirs {
+		err = os.MkdirAll(dir, agentShellCacheDirMode)
+		if err != nil {
+			cleanup()
+
+			return sandbox.Plan{}, nil, func() {}, fmt.Errorf(
+				"create agent-shell write directory %s: %w",
+				dir,
+				err,
+			)
+		}
 	}
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
@@ -177,25 +215,99 @@ func agentShellSandboxPlan(
 		Capabilities: sandbox.Capabilities{
 			SandboxProfile:  "agent-shell",
 			StrategicIntent: agentShellStrategicIntent(),
-			GitWrapperPath:  gitWrapper,
-			RealGitPath:     paths.RealGit,
-			RealGitBindPath: realGitBind,
-			GitTargetPaths:  agentShellGitTargets(paths),
+			WritePaths:      append([]string{paths.GitCommonDir}, agentWritePaths...),
+			AllowGitWrites:  true,
 			RequiresGit:     true,
 			RequiresNetwork: true,
-			Tags:            []string{"agent-shell", "git-bind"},
+			Tags:            []string{"agent-shell", "path-git-wrapper"},
 		},
 	})
 	if err != nil {
 		cleanup()
 
-		return sandbox.Plan{}, func() {}, fmt.Errorf("build agent-shell sandbox: %w", err)
+		return sandbox.Plan{}, nil, func() {}, fmt.Errorf(
+			"build agent-shell sandbox: %w",
+			err,
+		)
 	}
 
-	return plan, cleanup, nil
+	return plan, agentShellProcessEnv(gitWrapper, realGitBind), cleanup, nil
 }
 
-func agentShellGitWrapper(paths runtimePaths) (string, string, func(), error) {
+func agentShellWorktreeWritePaths(root string) ([]string, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, fmt.Errorf("read agent-shell worktree root %s: %w", root, err)
+	}
+
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if protectedAgentShellWorktreeEntry(name) {
+			continue
+		}
+
+		paths = append(paths, filepath.Join(root, name))
+	}
+
+	return paths, nil
+}
+
+func protectedAgentShellWorktreeEntry(name string) bool {
+	return name == ".git" ||
+		name == ".coding-ethos" ||
+		name == ".code-ethos"
+}
+
+func agentShellProcessEnv(gitWrapper, realGitBind string) []string {
+	env := os.Environ()
+	wrapperDir := filepath.Dir(gitWrapper)
+	pathValue := wrapperDir + string(os.PathListSeparator) + os.Getenv("PATH")
+
+	filtered := make([]string, 0, len(env)+agentShellInjectedEnv)
+	for _, item := range env {
+		if strings.HasPrefix(item, "PATH=") ||
+			strings.HasPrefix(item, realgit.Env+"=") ||
+			strings.HasPrefix(item, "CODING_ETHOS_AGENT_SHELL_SANDBOX=") {
+			continue
+		}
+
+		filtered = append(filtered, item)
+	}
+
+	return append(
+		filtered,
+		"PATH="+pathValue,
+		realgit.Env+"="+realGitBind,
+		"CODING_ETHOS_AGENT_SHELL_SANDBOX=1",
+	)
+}
+
+func agentShellRealGitPath(paths runtimePaths) (string, error) {
+	if realgit.UsableCandidate(paths.RunBinary, paths.RealGit) {
+		return paths.RealGit, nil
+	}
+
+	for _, candidate := range []string{
+		"/usr/bin/git",
+		"/bin/git",
+		"/usr/local/bin/git",
+		"/opt/homebrew/bin/git",
+	} {
+		if realgit.UsableCandidate(paths.RunBinary, candidate) {
+			return candidate, nil
+		}
+	}
+
+	return "", apperror.StaticError(
+		"agent-shell could not resolve a non-wrapper host git executable",
+	)
+}
+
+func agentShellGitWrapper(
+	paths runtimePaths,
+	realGitPath string,
+) (string, string, func(), error) {
 	tempRoot := filepath.Join(paths.Root, ".coding-ethos", "cache", "agent-shell")
 
 	err := os.MkdirAll(tempRoot, agentShellCacheDirMode)
@@ -216,22 +328,11 @@ func agentShellGitWrapper(paths runtimePaths) (string, string, func(), error) {
 	realGitBind := filepath.Join(tempDir, "real-git")
 	wrapper := filepath.Join(tempDir, "git")
 
-	file, err := os.OpenFile(
-		realGitBind,
-		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
-		agentShellAssetMode,
-	)
+	err = copyExecutableFile(realGitPath, realGitBind, agentShellAssetMode)
 	if err != nil {
 		cleanup()
 
 		return "", "", func() {}, fmt.Errorf("create real git bind target: %w", err)
-	}
-
-	closeErr := file.Close()
-	if closeErr != nil {
-		cleanup()
-
-		return "", "", func() {}, fmt.Errorf("close real git bind target: %w", closeErr)
 	}
 
 	script := "#!/usr/bin/env bash\n" +
@@ -258,6 +359,35 @@ func agentShellGitWrapper(paths runtimePaths) (string, string, func(), error) {
 	}
 
 	return wrapper, realGitBind, cleanup, nil
+}
+
+func copyExecutableFile(source, destination string, mode os.FileMode) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return fmt.Errorf("open source executable %s: %w", source, err)
+	}
+
+	defer func() {
+		_ = input.Close()
+	}()
+
+	output, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return fmt.Errorf("open destination executable %s: %w", destination, err)
+	}
+
+	_, copyErr := io.Copy(output, input)
+	closeErr := output.Close()
+
+	if copyErr != nil {
+		return fmt.Errorf("copy executable %s to %s: %w", source, destination, copyErr)
+	}
+
+	if closeErr != nil {
+		return fmt.Errorf("close destination executable %s: %w", destination, closeErr)
+	}
+
+	return nil
 }
 
 func agentShellSandboxProfile(goos string) string {
@@ -316,46 +446,6 @@ func writeExecutableFile(path string, content []byte) error {
 	}
 
 	return nil
-}
-
-func agentShellGitTargets(paths runtimePaths) []string {
-	targets := []string{paths.RealGit}
-	for _, candidate := range realgit.Candidates(paths.RunBinary) {
-		if realgit.LooksLikeCodingEthosShim(candidate, paths.RunBinary) {
-			continue
-		}
-
-		targets = append(targets, candidate)
-	}
-
-	return uniqueCleanPaths(targets)
-}
-
-func uniqueCleanPaths(paths []string) []string {
-	cleaned := make([]string, 0, len(paths))
-	seen := map[string]struct{}{}
-
-	for _, path := range paths {
-		normalized := strings.TrimSpace(path)
-		if normalized == "" {
-			continue
-		}
-
-		resolved, err := filepath.EvalSymlinks(normalized)
-		if err == nil {
-			normalized = resolved
-		}
-
-		normalized = filepath.Clean(normalized)
-		if _, found := seen[normalized]; found {
-			continue
-		}
-
-		seen[normalized] = struct{}{}
-		cleaned = append(cleaned, normalized)
-	}
-
-	return cleaned
 }
 
 func shellSingleQuote(value string) string {

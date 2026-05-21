@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 func TestPyupgradeFlagForVersion(t *testing.T) {
@@ -124,6 +126,14 @@ python_version = 3.12
 
 	t.Chdir(tempDir)
 
+	_, _, consumer, err := loadPythonVersionConsistencySettings()
+	if err != nil {
+		t.Fatalf("loadPythonVersionConsistencySettings() error = %v", err)
+	}
+	if consumer != tempDir {
+		t.Fatalf("python version consumer root = %q, want %q", consumer, tempDir)
+	}
+
 	output := captureStderr(t, func() {
 		if got := checkPythonVersionConsistencyCommand(Config{}, nil); got != 1 {
 			t.Fatalf("checkPythonVersionConsistencyCommand() = %d, want 1", got)
@@ -194,7 +204,12 @@ func pythonVersionConsumerFixture(t *testing.T) string {
 	t.Helper()
 
 	tempDir := t.TempDir()
-	cmd := exec.CommandContext(context.Background(), "/usr/bin/git", "init")
+	gitPath, err := realgit.Resolve(context.Background(), "git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	cmd := exec.CommandContext(context.Background(), gitPath, "init")
 	cmd.Dir = tempDir
 	cmd.Env = cleanGitTestEnv()
 

@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -76,6 +77,87 @@ func TestManagedGitCommitWorkflowPreservesUserFacingFailures(t *testing.T) {
 	}
 }
 
+func TestParentRuntimeCerunGitAddAndCommitUseInstalledArtifacts(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("real parent runtime e2e is skipped in short mode")
+	}
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("real parent runtime e2e uses POSIX paths")
+	}
+
+	sourceRoot := repoRootFromWorkingDirectory(t)
+	e2e.RequireRuntime(t, sourceRoot)
+
+	parentRepo := t.TempDir()
+	e2e.Run(t, parentRepo, realGitPath(t), "init", "--initial-branch", "main").
+		RequireExit(t, 0)
+	e2e.Run(t, parentRepo, realGitPath(t), "config", "user.email", "test@example.invalid").
+		RequireExit(t, 0)
+	e2e.Run(t, parentRepo, realGitPath(t), "config", "user.name", "Test User").
+		RequireExit(t, 0)
+	e2e.Run(t, parentRepo, realGitPath(t), "config", "commit.gpgsign", "false").
+		RequireExit(t, 0)
+
+	writeParentRuntimeFile(t, parentRepo, "repo_config.yaml", managedGitCommitRepoConfig())
+	writeParentRuntimeFile(
+		t,
+		parentRepo,
+		".gitignore",
+		".code-ethos/cache/\n.coding-ethos/\n",
+	)
+	writeParentRuntimeFile(t, parentRepo, "README.md", "# parent runtime e2e\n")
+	e2e.Run(t, parentRepo, realGitPath(t), "add", ".gitignore", "README.md", "repo_config.yaml").
+		RequireExit(t, 0)
+	e2e.Run(t, parentRepo, realGitPath(t), "commit", "-m", "test(repo): initialize parent runtime e2e").
+		RequireExit(t, 0)
+	e2e.Run(t, parentRepo, realGitPath(t), "switch", "-c", "feature/parent-runtime-e2e").
+		RequireExit(t, 0)
+
+	parentBin := installParentRuntimeArtifacts(t, sourceRoot, parentRepo)
+	parentCerun := filepath.Join(parentBin, "cerun")
+
+	writeParentRuntimeFile(
+		t,
+		parentRepo,
+		"runtime-add.txt",
+		"exercise parent cerun git add\n",
+	)
+
+	if err := os.Chmod(parentBin, 0o500); err != nil {
+		t.Fatalf("make parent runtime bin read-only: %v", err)
+	}
+	add := e2e.Run(
+		t,
+		parentRepo,
+		parentCerun,
+		"--rewrite",
+		"--",
+		"git",
+		"add",
+		"runtime-add.txt",
+	)
+	if err := os.Chmod(parentBin, 0o700); err != nil {
+		t.Fatalf("restore parent runtime bin permissions: %v", err)
+	}
+	add.RequireExit(t, 0)
+
+	commit := e2e.Run(
+		t,
+		parentRepo,
+		parentCerun,
+		"--rewrite",
+		"--",
+		"git",
+		"commit",
+		"-m",
+		"test(repo): exercise installed parent runtime",
+	)
+	commit.RequireExit(t, 0)
+	assertNoCommitHeadPolicyLeak(t, commit)
+}
+
 func preparedManagedGitCommitRepo(t *testing.T) e2e.Repo {
 	t.Helper()
 
@@ -99,6 +181,151 @@ func preparedManagedGitCommitRepo(t *testing.T) e2e.Repo {
 	repo.ResetTraces(t)
 
 	return repo
+}
+
+func writeParentRuntimeFile(t *testing.T, repoRoot, relativePath, content string) {
+	t.Helper()
+
+	path := filepath.Join(repoRoot, filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("create parent runtime file directory: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write parent runtime file %s: %v", relativePath, err)
+	}
+}
+
+func installParentRuntimeArtifacts(t *testing.T, sourceRoot, parentRepo string) string {
+	t.Helper()
+
+	gitCommonDir := e2e.Run(
+		t,
+		parentRepo,
+		realGitPath(t),
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	)
+	gitCommonDir.RequireExit(t, 0)
+
+	runtimeRoot := filepath.Join(
+		strings.TrimSpace(gitCommonDir.Stdout),
+		"coding-ethos-hooks",
+	)
+	parentBin := filepath.Join(runtimeRoot, "bin")
+	policyDir := filepath.Join(runtimeRoot, "policy")
+	buildPolicyDir := filepath.Join(runtimeRoot, "build", "policy")
+	if err := os.MkdirAll(parentBin, 0o700); err != nil {
+		t.Fatalf("create parent runtime bin: %v", err)
+	}
+	if err := os.MkdirAll(policyDir, 0o700); err != nil {
+		t.Fatalf("create parent runtime policy dir: %v", err)
+	}
+	if err := os.MkdirAll(buildPolicyDir, 0o700); err != nil {
+		t.Fatalf("create parent runtime build policy dir: %v", err)
+	}
+
+	sourceBinaries, err := filepath.Glob(
+		filepath.Join(sourceRoot, "bin", "coding-ethos-*"),
+	)
+	if err != nil {
+		t.Fatalf("list source runtime binaries: %v", err)
+	}
+	sourceBinaries = append(sourceBinaries, filepath.Join(sourceRoot, "bin", "cerun"))
+	for _, source := range sourceBinaries {
+		copyRuntimeFile(t, source, filepath.Join(parentBin, filepath.Base(source)))
+	}
+
+	compile := e2e.Run(
+		t,
+		parentRepo,
+		filepath.Join(parentBin, "coding-ethos-run"),
+		"policy",
+		"compile",
+		"--primary",
+		filepath.Join(sourceRoot, "coding_ethos.yml"),
+		"--repo-ethos",
+		filepath.Join(sourceRoot, "repo_ethos.yml"),
+		"--config",
+		filepath.Join(sourceRoot, "config.yaml"),
+		"--repo-config",
+		filepath.Join(parentRepo, "repo_config.yaml"),
+		"--out-dir",
+		policyDir,
+	)
+	compile.RequireExit(t, 0)
+	copyRuntimeTree(
+		t,
+		filepath.Join(sourceRoot, "pre-commit"),
+		filepath.Join(runtimeRoot, "pre-commit"),
+	)
+	copyRuntimeTree(
+		t,
+		filepath.Join(sourceRoot, "build", "toolchain"),
+		filepath.Join(runtimeRoot, "build", "toolchain"),
+	)
+	copyRuntimeFile(
+		t,
+		filepath.Join(sourceRoot, "config.yaml"),
+		filepath.Join(runtimeRoot, "config.yaml"),
+	)
+	for _, artifact := range []string{"policy-bundle.json", "policy-metadata.json"} {
+		copyRuntimeFile(
+			t,
+			filepath.Join(policyDir, artifact),
+			filepath.Join(buildPolicyDir, artifact),
+		)
+	}
+
+	hooksDir := e2e.Run(
+		t,
+		parentRepo,
+		realGitPath(t),
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-path",
+		"hooks",
+	)
+	hooksDir.RequireExit(t, 0)
+
+	runner := filepath.Join(parentBin, "coding-ethos-run")
+	toolchain := filepath.Join(parentBin, "coding-ethos-toolchain")
+	e2e.Run(
+		t,
+		parentRepo,
+		toolchain,
+		"install-git-hooks",
+		"--hooks-dir",
+		strings.TrimSpace(hooksDir.Stdout),
+		"--runner",
+		runner,
+	).RequireExit(t, 0)
+	e2e.Run(
+		t,
+		parentRepo,
+		toolchain,
+		"install-git-shim",
+		"--dest-dir",
+		parentBin,
+		"--real-git",
+		realGitPath(t),
+		"--runner",
+		runner,
+	).RequireExit(t, 0)
+	e2e.Run(
+		t,
+		parentRepo,
+		filepath.Join(parentBin, "coding-ethos-lint"),
+		"--install-shims",
+		"--tools-bin-dir",
+		parentBin,
+		"--runner",
+		runner,
+		"--ethos-root",
+		sourceRoot,
+	).RequireExit(t, 0)
+
+	return parentBin
 }
 
 func syncManagedGitGeneratedFixtures(t *testing.T, repo e2e.Repo) {
@@ -375,6 +602,43 @@ func copyRuntimeFile(t *testing.T, source, target string) {
 	}
 	if err := os.WriteFile(target, payload, info.Mode().Perm()); err != nil {
 		t.Fatalf("write runtime binary %s: %v", target, err)
+	}
+}
+
+func copyRuntimeTree(t *testing.T, sourceRoot, targetRoot string) {
+	t.Helper()
+
+	err := filepath.WalkDir(
+		sourceRoot,
+		func(source string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+
+			relative, err := filepath.Rel(sourceRoot, source)
+			if err != nil {
+				return err
+			}
+
+			target := filepath.Join(targetRoot, relative)
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+
+			if entry.IsDir() {
+				return os.MkdirAll(target, info.Mode().Perm())
+			}
+			if !info.Mode().IsRegular() {
+				return nil
+			}
+
+			copyRuntimeFile(t, source, target)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("copy runtime tree %s -> %s: %v", sourceRoot, targetRoot, err)
 	}
 }
 

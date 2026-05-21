@@ -84,6 +84,11 @@ func TestBuildPlanRequiredUsesNativeWrapper(t *testing.T) {
 			t.Fatalf("args missing %q: %#v", want, plan.Args)
 		}
 	}
+	for _, want := range []string{"pkg", ".coding-ethos/cache", sandbox.SandboxTempWritePath} {
+		if !slices.Contains(plan.Evidence.ReadPaths, want) {
+			t.Fatalf("read paths missing %q: %#v", want, plan.Evidence.ReadPaths)
+		}
+	}
 	if slices.Contains(plan.Args, ".git/config") {
 		t.Fatalf(".git write path must not be passed to sandbox helper: %#v", plan.Args)
 	}
@@ -137,6 +142,85 @@ func TestBuildPlanPassesGitBindMountsForGitSandbox(t *testing.T) {
 	}
 }
 
+func TestBuildPlanAllowsExplicitGitWritesForManagedGitSandbox(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	writeExecutable(t, wrapper)
+	gitWrapper := filepath.Join(repo, "bin", "git")
+	writeExecutable(t, gitWrapper)
+	realGitBind := filepath.Join(repo, "real-git")
+	writeExecutable(t, realGitBind)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "agent-shell",
+		Executable:  "/usr/bin/env",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"bash", "-lc", "git add file.txt"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile:  "agent-shell",
+			GitWrapperPath:  gitWrapper,
+			RealGitPath:     "/usr/bin/git",
+			RealGitBindPath: realGitBind,
+			GitTargetPaths:  []string{"/usr/bin/git"},
+			WritePaths:      []string{filepath.Join(repo, ".git")},
+			AllowGitWrites:  true,
+			RequiresGit:     true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+
+	if !slices.Contains(plan.Args, filepath.Join(repo, ".git")) {
+		t.Fatalf("git metadata write path missing: %#v", plan.Args)
+	}
+	if plan.Evidence.GitReadOnly {
+		t.Fatalf("managed git write sandbox reported read-only git: %#v", plan.Evidence)
+	}
+}
+
+func TestBuildPlanAllowsGitPolicyWithoutNativeGitBinding(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	writeExecutable(t, wrapper)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "agent-shell",
+		Executable:  "/usr/bin/env",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"bash", "-lc", "git status"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "agent-shell",
+			WritePaths:     []string{filepath.Join(repo, ".git")},
+			AllowGitWrites: true,
+			RequiresGit:    true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+
+	for _, unwanted := range []string{"--git-wrapper", "--real-git-path", "--git-target"} {
+		if slices.Contains(plan.Args, unwanted) {
+			t.Fatalf("git bind flag %q should not be present: %#v", unwanted, plan.Args)
+		}
+	}
+	if !plan.Evidence.RequiresGit || plan.Evidence.GitReadOnly {
+		t.Fatalf("git policy evidence not preserved: %#v", plan.Evidence)
+	}
+	if !slices.Contains(plan.Args, "--allow-git-writes") {
+		t.Fatalf("git write policy flag missing: %#v", plan.Args)
+	}
+}
+
 func TestBuildPlanIgnoresSpoofedActiveSandboxMarker(
 	t *testing.T,
 ) {
@@ -169,6 +253,131 @@ func TestBuildPlanIgnoresSpoofedActiveSandboxMarker(
 	}
 	if !plan.Evidence.Enabled || !plan.Evidence.TimeoutEnforced {
 		t.Fatalf("spoofed active marker disabled sandbox evidence: %#v", plan.Evidence)
+	}
+}
+
+func TestBuildPlanRejectsForgeableAgentShellSandboxMarker(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	writeExecutable(t, wrapper)
+	realGitBind := filepath.Join(
+		repo,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"run-1",
+		"real-git",
+	)
+	if err := os.MkdirAll(filepath.Dir(realGitBind), 0o700); err != nil {
+		t.Fatalf("create real git bind dir: %v", err)
+	}
+	writeExecutable(t, realGitBind)
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_REAL_GIT", realGitBind)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "golangci-lint-format",
+		Executable:  "/usr/bin/env",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"true"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "lint-offline",
+			WritePaths:     []string{".coding-ethos/cache"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+	if plan.Executable != wrapper || plan.Evidence.BackendPath != wrapper {
+		t.Fatalf("forgeable agent-shell marker bypassed wrapper %q: %#v", wrapper, plan)
+	}
+	if !plan.Evidence.Enabled || !plan.Evidence.NamespaceEnforced {
+		t.Fatalf("forgeable agent-shell marker disabled sandbox evidence: %#v", plan.Evidence)
+	}
+}
+
+func TestBuildPlanRejectsMissingAgentShellRealGitBind(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	writeExecutable(t, wrapper)
+	realGitBind := filepath.Join(
+		repo,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"run-1",
+		"real-git",
+	)
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_REAL_GIT", realGitBind)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "golangci-lint-format",
+		Executable:  "/usr/bin/env",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"true"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "lint-offline",
+			WritePaths:     []string{".coding-ethos/cache"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+	if plan.Executable != wrapper ||
+		plan.Evidence.Reason == "reusing active agent-shell sandbox" {
+		t.Fatalf("missing real-git bind reused sandbox: %#v", plan)
+	}
+}
+
+func TestBuildPlanRejectsAgentShellRealGitBindOutsideRepo(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	repo := t.TempDir()
+	otherRepo := t.TempDir()
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	writeExecutable(t, wrapper)
+	realGitBind := filepath.Join(
+		otherRepo,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"run-1",
+		"real-git",
+	)
+	if err := os.MkdirAll(filepath.Dir(realGitBind), 0o700); err != nil {
+		t.Fatalf("create real git bind dir: %v", err)
+	}
+	writeExecutable(t, realGitBind)
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_REAL_GIT", realGitBind)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "golangci-lint-format",
+		Executable:  "/usr/bin/env",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"true"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "lint-offline",
+			WritePaths:     []string{".coding-ethos/cache"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+	if plan.Executable != wrapper ||
+		plan.Evidence.Reason == "reusing active agent-shell sandbox" {
+		t.Fatalf("outside real-git bind reused sandbox: %#v", plan)
 	}
 }
 

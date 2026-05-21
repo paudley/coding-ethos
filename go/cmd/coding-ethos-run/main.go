@@ -11,10 +11,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/execguard"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hooklog"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 const (
@@ -239,7 +241,51 @@ func resolveRuntimeGitCommonDir(realGit, root, hooksDir string) string {
 		return gitCommonDir
 	}
 
+	gitCommonDir, err = resolveGitCommonDirFromDotGitFile(root)
+	if err == nil && strings.TrimSpace(gitCommonDir) != "" {
+		return gitCommonDir
+	}
+
 	return filepath.Dir(hooksDir)
+}
+
+func resolveGitCommonDirFromDotGitFile(root string) (string, error) {
+	dotGit := filepath.Join(root, ".git")
+
+	info, err := os.Stat(dotGit)
+	if err != nil {
+		return "", fmt.Errorf("stat .git path: %w", err)
+	}
+
+	if info.IsDir() {
+		return dotGit, nil
+	}
+
+	// #nosec G703 -- dotGit is the repo-root .git metadata file.
+	content, err := os.ReadFile(dotGit)
+	if err != nil {
+		return "", fmt.Errorf("read .git file: %w", err)
+	}
+
+	gitDir, ok := strings.CutPrefix(strings.TrimSpace(string(content)), "gitdir:")
+	if !ok {
+		return "", apperror.StaticError("invalid .git file")
+	}
+
+	gitDir = strings.TrimSpace(gitDir)
+	if gitDir == "" {
+		return "", apperror.StaticError("empty gitdir in .git file")
+	}
+
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(root, gitDir)
+	}
+
+	if filepath.Base(filepath.Dir(gitDir)) == "worktrees" {
+		return filepath.Dir(filepath.Dir(gitDir)), nil
+	}
+
+	return gitDir, nil
 }
 
 func runtimePathSet(inputs runtimePathInputs) runtimePaths {
@@ -291,12 +337,45 @@ func runtimePathSet(inputs runtimePathInputs) runtimePaths {
 }
 
 func resolveRuntimeGit() (string, error) {
+	envGit, hadEnvGit := os.LookupEnv(realgit.Env)
+	_ = os.Unsetenv(realgit.Env)
+
+	defer func() {
+		if hadEnvGit {
+			_ = os.Setenv(realgit.Env, envGit)
+
+			return
+		}
+
+		_ = os.Unsetenv(realgit.Env)
+	}()
+
 	resolvedGit, err := gitwrap.ResolveRealGit("git")
-	if err != nil {
-		return "", fmt.Errorf("resolve runtime git: %w", err)
+	if err == nil {
+		return resolvedGit, nil
 	}
 
-	return resolvedGit, nil
+	systemGit := resolveSystemGitCandidate()
+	if systemGit != "" {
+		return systemGit, nil
+	}
+
+	return "", fmt.Errorf("resolve runtime git: %w", err)
+}
+
+func resolveSystemGitCandidate() string {
+	for _, candidate := range []string{
+		"/usr/bin/git",
+		"/bin/git",
+		"/usr/local/bin/git",
+		"/opt/homebrew/bin/git",
+	} {
+		if realgit.UsableCandidate(os.Args[0], candidate) {
+			return candidate
+		}
+	}
+
+	return ""
 }
 
 func (paths runtimePaths) export() {
@@ -333,6 +412,11 @@ func (paths runtimePaths) export() {
 
 func exitErr(err error) {
 	fmt.Fprintln(os.Stderr, err)
+
+	var coded interface{ ExitCode() int }
+	if errors.As(err, &coded) {
+		requestRuntimeExit(coded.ExitCode())
+	}
 
 	var exitError *exec.ExitError
 	if errors.As(err, &exitError) {

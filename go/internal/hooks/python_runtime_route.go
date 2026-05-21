@@ -134,6 +134,10 @@ func pythonRuntimeRoot(cwd string) string {
 	cwd = normalizedPythonRuntimeCwd(cwd)
 
 	if root := gitRootFromPath(cwd); root != "" {
+		if gitPathIgnored(root, cwd) {
+			return ""
+		}
+
 		if pythonRuntimeAvailable(root) {
 			return root
 		}

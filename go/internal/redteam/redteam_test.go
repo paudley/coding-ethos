@@ -26,9 +26,11 @@ func TestDefaultScenariosBlockKnownBypassClasses(t *testing.T) {
 		t.Fatalf("init isolated git repo: %v\n%s", inlineErrA, output)
 	}
 
-	realGit := realgit.Executable(context.Background(), false)
-
 	bundle := compileRepoBundle(t)
+	realGit, err := realgit.Resolve(context.Background(), "git")
+	if err != nil {
+		t.Fatalf("resolve real git: %v", err)
+	}
 
 	results, err := redteam.RunScenarios(
 		bundle,

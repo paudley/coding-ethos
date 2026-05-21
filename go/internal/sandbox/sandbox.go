@@ -114,13 +114,14 @@ type Capabilities struct {
 	GitWrapperPath     string   `json:"git_wrapper_path,omitempty"`
 	RealGitPath        string   `json:"real_git_path,omitempty"`
 	RealGitBindPath    string   `json:"real_git_bind_path,omitempty"`
-	GitTargetPaths     []string `json:"git_target_paths,omitempty"`
 	Tags               []string `json:"tags,omitempty"`
+	GitTargetPaths     []string `json:"git_target_paths,omitempty"`
 	ReadPaths          []string `json:"read_paths,omitempty"`
 	WritePaths         []string `json:"write_paths,omitempty"`
 	CPUQuotaPercent    int      `json:"cpu_quota_percent,omitempty"`
 	MemoryMB           int      `json:"memory_mb,omitempty"`
 	TimeoutSeconds     int      `json:"timeout_seconds,omitempty"`
+	AllowGitWrites     bool     `json:"allow_git_writes,omitempty"`
 	RequiresNetwork    bool     `json:"requires_network,omitempty"`
 	RequiresGit        bool     `json:"requires_git,omitempty"`
 	RequiresEnv        bool     `json:"requires_env,omitempty"`
@@ -140,8 +141,8 @@ type Request struct {
 
 type Plan struct {
 	Executable string
-	Args       []string
 	ExtraFiles []*os.File
+	Args       []string
 	Evidence   Evidence
 }
 
@@ -631,11 +632,14 @@ func (request Request) evidence() Evidence {
 		request.RepoRoot,
 		request.Cwd,
 		request.Capabilities.WritePaths,
+		request.Capabilities.AllowGitWrites,
 	)
 	writePaths = append(writePaths, SandboxTempWritePath)
 	writePaths = append(writePaths, SandboxGoCachePath)
 	writePaths = append(writePaths, SandboxGolangCIPath)
 	writePaths = append(writePaths, nativeSystemWritePaths()...)
+	readPaths := append([]string(nil), request.Capabilities.ReadPaths...)
+	readPaths = append(readPaths, writePaths...)
 
 	return Evidence{
 		Mode:              ModeRequired,
@@ -644,7 +648,7 @@ func (request Request) evidence() Evidence {
 		Tool:              request.Tool,
 		Command:           append([]string{request.Executable}, request.Args...),
 		Tags:              append([]string(nil), request.Capabilities.Tags...),
-		ReadPaths:         append([]string(nil), request.Capabilities.ReadPaths...),
+		ReadPaths:         readPaths,
 		WritePaths:        writePaths,
 		TimeoutSeconds:    request.Capabilities.TimeoutSeconds,
 		MemoryMB:          request.Capabilities.MemoryMB,
@@ -655,7 +659,7 @@ func (request Request) evidence() Evidence {
 		RequiresProcesses: request.Capabilities.RequiresProcesses,
 		SeccompProfile:    request.Capabilities.SeccompProfile,
 		StrategicIntent:   request.Capabilities.StrategicIntent,
-		GitReadOnly:       true,
+		GitReadOnly:       !request.Capabilities.AllowGitWrites,
 		RepoReadOnly:      true,
 		NetworkIsolated: !request.Capabilities.RequiresProcesses &&
 			!request.Capabilities.RequiresNetwork,
@@ -704,14 +708,18 @@ func safeCgroupRune(character rune) rune {
 	return '-'
 }
 
-func sandboxWritePaths(repoRoot, cwd string, paths []string) []string {
+func sandboxWritePaths(
+	repoRoot, cwd string,
+	paths []string,
+	allowGitWrites bool,
+) []string {
 	root := filepath.Clean(firstNonEmpty(repoRoot, cwd, "."))
 	gitDir := filepath.Join(root, ".git")
 	writable := []string{}
 
 	for _, path := range paths {
 		bind := normalizedBindPath(root, path)
-		if bind == "" || isWithinPath(bind, gitDir) {
+		if bind == "" || (!allowGitWrites && isWithinPath(bind, gitDir)) {
 			continue
 		}
 
@@ -839,17 +847,23 @@ func nativeWrapperArgs(request Request, writePaths []string) []string {
 	}
 
 	if request.Capabilities.RequiresGit {
-		args = append(args, "--git-wrapper", request.Capabilities.GitWrapperPath)
+		if gitBindingRequested(request.Capabilities, gitTargets) {
+			args = append(args, "--git-wrapper", request.Capabilities.GitWrapperPath)
 
-		args = append(
-			args,
-			"--real-git-path",
-			request.Capabilities.RealGitPath,
-			"--real-git-bind",
-			request.Capabilities.RealGitBindPath,
-		)
-		for _, path := range gitTargets {
-			args = append(args, "--git-target", path)
+			args = append(
+				args,
+				"--real-git-path",
+				request.Capabilities.RealGitPath,
+				"--real-git-bind",
+				request.Capabilities.RealGitBindPath,
+			)
+			for _, path := range gitTargets {
+				args = append(args, "--git-target", path)
+			}
+		}
+
+		if request.Capabilities.AllowGitWrites {
+			args = append(args, "--allow-git-writes")
 		}
 	}
 
@@ -857,6 +871,13 @@ func nativeWrapperArgs(request Request, writePaths []string) []string {
 	args = append(args, request.Args...)
 
 	return args
+}
+
+func gitBindingRequested(capabilities Capabilities, gitTargets []string) bool {
+	return strings.TrimSpace(capabilities.GitWrapperPath) != "" ||
+		strings.TrimSpace(capabilities.RealGitPath) != "" ||
+		strings.TrimSpace(capabilities.RealGitBindPath) != "" ||
+		len(gitTargets) > 0
 }
 
 func normalizedGitTargetPaths(paths []string) []string {

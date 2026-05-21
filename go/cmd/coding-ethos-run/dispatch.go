@@ -112,7 +112,7 @@ func runAgentShellHandler(paths runtimePaths, rest []string) error {
 		return err
 	}
 
-	requirePolicyBundle(paths)
+	requireRuntimeFile(hookPolicyBundlePath(paths), "compiled policy bundle")
 
 	if decision, blocked := agentShellEdgeDecision(request.Command); blocked {
 		result := agentShellBlockedResult(decision)
@@ -298,7 +298,9 @@ func inspectAgentShellCommand(
 	paths runtimePaths,
 	request agentShellRequest,
 ) (hooks.Result, error) {
-	bundleFile, err := os.Open(paths.PolicyBundle)
+	bundlePath := hookPolicyBundlePath(paths)
+
+	bundleFile, err := os.Open(bundlePath)
 	if err != nil {
 		return hooks.Result{}, fmt.Errorf("open policy bundle: %w", err)
 	}
@@ -682,16 +684,20 @@ func runCodeIntelHandler(paths runtimePaths, rest []string) error {
 }
 
 func runPolicyGitHandler(paths runtimePaths, rest []string) error {
-	requirePolicyBundle(paths)
+	bundlePath := hookPolicyBundlePath(paths)
+	requireRuntimeFile(bundlePath, "compiled policy bundle")
 
-	if !agentShellNativeGitBindActive(paths) {
+	realGitPath := paths.RealGit
+	if agentShellNativeGitBindActive(paths) {
+		realGitPath = strings.TrimSpace(os.Getenv(realgit.Env))
+	} else {
 		installGitWrapperShim(paths)
 	}
 
 	runtimeExecTool(
 		paths,
 		"coding-ethos-git",
-		append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
+		append([]string{"--bundle", bundlePath, "--real-git", realGitPath}, rest...)...)
 
 	return nil
 }
@@ -706,13 +712,12 @@ func agentShellNativeGitBindActive(paths runtimePaths) bool {
 		return false
 	}
 
-	resolvedBind, err := filepath.EvalSymlinks(realGitBind)
-	if err != nil {
+	resolvedBind := filepath.Clean(realGitBind)
+	if !executableFile(resolvedBind) {
 		debuglog.Debug(
 			"agent-shell.git-bind.inactive",
-			zap.String("reason", "resolve_bind"),
-			zap.String("path", realGitBind),
-			zap.Error(err),
+			zap.String("reason", "not_executable"),
+			zap.String("path", resolvedBind),
 		)
 
 		return false
@@ -752,6 +757,18 @@ func agentShellNativeGitBindActive(paths runtimePaths) bool {
 	}
 
 	return true
+}
+
+func executableFile(path string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	if cleaned == "" || !filepath.IsAbs(cleaned) {
+		return false
+	}
+
+	// #nosec G703 -- cleaned is only probed as an absolute executable path.
+	info, err := os.Stat(cleaned)
+
+	return err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0
 }
 
 func pathInside(root, candidate string) bool {

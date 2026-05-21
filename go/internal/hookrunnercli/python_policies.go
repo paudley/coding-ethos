@@ -254,7 +254,12 @@ func loadBundleConsumerAndConfig() (string, string, map[string]any, error) {
 		return "", "", nil, err
 	}
 
-	return bundleRoot, consumerRoot(filepath.Dir(bundleRoot)), rootConfig, nil
+	ethosRoot, err := filepath.Abs(filepath.Dir(bundleRoot))
+	if err != nil {
+		return "", "", nil, fmt.Errorf("resolve bundle owner root: %w", err)
+	}
+
+	return bundleRoot, consumerRoot(ethosRoot), rootConfig, nil
 }
 
 func pythonLanguage() *ts.Language {
@@ -907,7 +912,13 @@ func runPytestCommand(settings pytestGateSettings) (pytestRunResult, error) {
 		settings.TestCommand[1:]...,
 	)
 	cmd.Dir = settings.ConsumerRoot
-	cmd.Env = externalToolEnv(nil)
+
+	env, envErr := externalToolEnv(nil)
+	if envErr != nil {
+		return result, envErr
+	}
+
+	cmd.Env = env
 
 	var (
 		stdout bytes.Buffer

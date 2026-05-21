@@ -20,12 +20,15 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 )
 
 var (
 	errExternalToolCommandEmpty = apperror.StaticError("external tool command is empty")
 	errExternalToolTimedOut     = apperror.StaticError("external tool timed out")
 )
+
+const externalToolCacheDirMode = 0o700
 
 type externalToolRequest struct {
 	Name           string
@@ -67,9 +70,17 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 	)
 	defer cancel()
 
+	env, envErr := externalToolEnv(request.Env)
+	if envErr != nil {
+		return externalToolResult{
+			ExitCode:      1,
+			RunnerFailure: fmt.Errorf("%s: %w", request.Name, envErr),
+		}
+	}
+
 	cmd := execabs.CommandContext(ctx, request.Command[0], request.Command[1:]...)
 	cmd.Dir = request.Dir
-	cmd.Env = externalToolEnv(request.Env)
+	cmd.Env = env
 
 	var (
 		stdout bytes.Buffer
@@ -168,8 +179,15 @@ func externalToolCombinedOutput(stdout, stderr string) string {
 	}
 }
 
-func externalToolEnv(extra []string) []string {
+func externalToolEnv(extra []string) ([]string, error) {
 	env := make([]string, 0, len(os.Environ())+len(extra))
+	hasPath := false
+
+	cacheEnv, err := externalToolCacheEnv(repoRoot())
+	if err != nil {
+		return nil, err
+	}
+
 	for _, item := range os.Environ() {
 		if externalToolEnvBlocked(item) {
 			continue
@@ -177,17 +195,96 @@ func externalToolEnv(extra []string) []string {
 
 		name, value, found := strings.Cut(item, "=")
 		if found && name == "PATH" {
+			hasPath = true
+
 			env = append(env, name+"="+externalToolPathWithoutGitShim(value))
 
+			continue
+		}
+
+		if found && cacheEnv.overrides(name) {
 			continue
 		}
 
 		env = append(env, item)
 	}
 
-	env = append(env, "GIT_OPTIONAL_LOCKS=0")
+	if !hasPath {
+		env = append(env, "PATH="+externalToolPathWithoutGitShim(""))
+	}
 
-	return append(env, extra...)
+	env = append(env, "GIT_OPTIONAL_LOCKS=0")
+	env = append(env, "GIT_CONFIG_NOSYSTEM=1")
+	env = append(env, "GIT_CONFIG_GLOBAL="+os.DevNull)
+	env = append(env, "XDG_CONFIG_HOME="+os.DevNull)
+	env = append(env, cacheEnv.items()...)
+
+	return append(env, extra...), nil
+}
+
+type externalToolCacheEnvironment struct {
+	GoTemp          string
+	GoCache         string
+	GolangCILintDir string
+}
+
+func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
+	if strings.TrimSpace(root) == "" || root == "." {
+		return externalToolCacheEnvironment{}, nil
+	}
+
+	goTemp := filepath.Join(root, ".coding-ethos", "cache", "go-tmp")
+	goCache := filepath.Join(root, sandbox.SandboxGoCachePath)
+	golangCILintDir := filepath.Join(root, sandbox.SandboxGolangCIPath)
+
+	for _, dir := range []string{goTemp, goCache, golangCILintDir} {
+		err := os.MkdirAll(dir, externalToolCacheDirMode)
+		if err != nil {
+			return externalToolCacheEnvironment{}, fmt.Errorf(
+				"create external tool cache directory %s: %w",
+				dir,
+				err,
+			)
+		}
+	}
+
+	return externalToolCacheEnvironment{
+		GoTemp:          goTemp,
+		GoCache:         goCache,
+		GolangCILintDir: golangCILintDir,
+	}, nil
+}
+
+func (environment externalToolCacheEnvironment) overrides(name string) bool {
+	return environment.value(name) != ""
+}
+
+func (environment externalToolCacheEnvironment) items() []string {
+	items := []string{}
+
+	for _, name := range []string{"TMPDIR", "GOTMPDIR", "GOCACHE", "GOLANGCI_LINT_CACHE"} {
+		value := environment.value(name)
+		if value != "" {
+			items = append(items, name+"="+value)
+		}
+	}
+
+	return items
+}
+
+func (environment externalToolCacheEnvironment) value(name string) string {
+	switch name {
+	case "TMPDIR":
+		return environment.GoTemp
+	case "GOTMPDIR":
+		return environment.GoTemp
+	case "GOCACHE":
+		return environment.GoCache
+	case "GOLANGCI_LINT_CACHE":
+		return environment.GolangCILintDir
+	default:
+		return ""
+	}
 }
 
 func externalToolPathWithoutGitShim(pathValue string) string {
@@ -201,7 +298,26 @@ func externalToolPathWithoutGitShim(pathValue string) string {
 		kept = append(kept, entry)
 	}
 
+	for _, entry := range externalToolSystemPathCandidates() {
+		if slices.Contains(kept, entry) {
+			continue
+		}
+
+		kept = append(kept, entry)
+	}
+
 	return strings.Join(kept, string(os.PathListSeparator))
+}
+
+func externalToolSystemPathCandidates() []string {
+	return []string{
+		"/usr/local/sbin",
+		"/usr/local/bin",
+		"/usr/sbin",
+		"/usr/bin",
+		"/sbin",
+		"/bin",
+	}
 }
 
 func externalToolPathEntryHasCodingEthosGitShim(entry string) bool {
@@ -223,7 +339,7 @@ func externalToolEnvBlocked(item string) bool {
 	}
 
 	if strings.HasPrefix(name, "CODE_ETHOS_") ||
-		strings.HasPrefix(name, "CODING_ETHOS_") {
+		(strings.HasPrefix(name, "CODING_ETHOS_") && name != "CODING_ETHOS_REAL_GIT") {
 		return true
 	}
 

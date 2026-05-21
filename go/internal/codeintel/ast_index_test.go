@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 func TestASTIndexerSkipsUnchangedFiles(t *testing.T) {
@@ -54,6 +55,45 @@ func TestASTIndexerSkipsUnchangedFiles(t *testing.T) {
 
 	if len(summary2.Skipped) != 1 || summary2.Skipped[0] != "app.py" {
 		t.Fatalf("expected 1 skipped (app.py), got %v", summary2.Skipped)
+	}
+}
+
+func TestASTIndexerIndexesExplicitTempRootUnderIgnoredWorktree(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	parent := t.TempDir()
+	initCommand := realgit.Command(ctx, false, "-C", parent, "init")
+	initCommand.Env = realgit.CleanGitLocalEnv(os.Environ())
+	if output, err := initCommand.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+
+	err := os.WriteFile(
+		filepath.Join(parent, ".gitignore"),
+		[]byte("sandbox-tmp/\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write gitignore: %v", err)
+	}
+
+	root := filepath.Join(parent, "sandbox-tmp", "case")
+	err = os.MkdirAll(root, 0o700)
+	if err != nil {
+		t.Fatalf("mkdir temp root: %v", err)
+	}
+	writeIndexedTestFile(t, root, "app.py", "def hello():\n    print('hello')\n")
+
+	store := openTestStore(t, ctx)
+	indexer := NewASTIndexer(store)
+	summary, err := indexer.IndexPaths(ctx, root, []string{root})
+	if err != nil {
+		t.Fatalf("index ignored temp root: %v", err)
+	}
+
+	if summary.FilesIndexed != 1 {
+		t.Fatalf("expected explicit temp root to index 1 file, got %d", summary.FilesIndexed)
 	}
 }
 

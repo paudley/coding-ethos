@@ -12,6 +12,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 const blockedExitCode = 2
@@ -65,6 +66,9 @@ func runWithArgs(args []string) error {
 		return startAdminBranch(*realGit, cwd, argv[1:], *adminApproved)
 	}
 
+	restoreRealGit := exposeRealGitForPolicyEvaluation(*realGit)
+	defer restoreRealGit()
+
 	options, err := gitOptions(argv, cwd, *adminApproved)
 	if err != nil {
 		return err
@@ -82,14 +86,36 @@ func runWithArgs(args []string) error {
 
 	if result.Blocked() {
 		printBlocked(result)
-		os.Exit(blockedExitCode)
+
+		return gitwrap.ExitCodeError{Code: blockedExitCode}
 	}
 
 	if *checkOnly {
-		return printAllowedCheck(*jsonOutput)
+		printAllowedCheck(*jsonOutput)
+
+		return nil
 	}
 
 	return executeGitWithPostChecks(bundle, *realGit, options, *jsonOutput)
+}
+
+func exposeRealGitForPolicyEvaluation(path string) func() {
+	if path == "" {
+		return func() {}
+	}
+
+	previous, existed := os.LookupEnv(realgit.Env)
+	_ = os.Setenv(realgit.Env, path)
+
+	return func() {
+		if existed {
+			_ = os.Setenv(realgit.Env, previous)
+
+			return
+		}
+
+		_ = os.Unsetenv(realgit.Env)
+	}
 }
 
 func readValidatedBundle(bundlePath string) (policy.Bundle, error) {
@@ -110,12 +136,10 @@ func readValidatedBundle(bundlePath string) (policy.Bundle, error) {
 	return bundle, nil
 }
 
-func printAllowedCheck(jsonOutput bool) error {
+func printAllowedCheck(jsonOutput bool) {
 	if !jsonOutput {
 		fmt.Fprintln(os.Stdout, "git policy check allowed")
 	}
-
-	return nil
 }
 
 func startAdminBranch(
@@ -233,7 +257,8 @@ func executeGitWithPostChecks(
 
 	if postResult.Blocked() {
 		printBlocked(postResult)
-		os.Exit(blockedExitCode)
+
+		return gitwrap.ExitCodeError{Code: blockedExitCode}
 	}
 
 	return nil

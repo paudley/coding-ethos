@@ -812,10 +812,14 @@ type gitIgnoreMatcher struct {
 
 func newGitIgnoreMatcher(ctx context.Context, root string) gitIgnoreMatcher {
 	allowedPaths, allowedDirs := gitTrackedAndUnignoredPaths(ctx, root)
+	if !gitIgnoreMatcherUsesAllowedSet(allowedPaths, allowedDirs) {
+		allowedPaths = nil
+		allowedDirs = nil
+	}
 
 	return gitIgnoreMatcher{
 		root:        root,
-		active:      gitWorkTreeAvailable(ctx, root),
+		active:      gitIgnoreMatcherActive(ctx, root),
 		allowedPath: allowedPaths,
 		allowedDir:  allowedDirs,
 	}
@@ -870,13 +874,26 @@ func gitWorkTreeAvailable(ctx context.Context, root string) bool {
 		"-C",
 		root,
 		"rev-parse",
-		"--is-inside-work-tree",
+		"--show-toplevel",
 	)
 	command.Env = realgit.CleanGitLocalEnv(os.Environ())
 
 	output, err := command.Output()
+	if err != nil {
+		return false
+	}
 
-	return err == nil && strings.TrimSpace(string(output)) == "true"
+	topLevel, err := filepath.Abs(strings.TrimSpace(string(output)))
+	if err != nil {
+		return false
+	}
+
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+
+	return filepath.Clean(topLevel) == filepath.Clean(absoluteRoot)
 }
 
 func (matcher gitIgnoreMatcher) ignoredFile(ctx context.Context, path string) bool {
@@ -890,6 +907,10 @@ func (matcher gitIgnoreMatcher) ignoredFile(ctx context.Context, path string) bo
 	}
 
 	relativePath = filepath.ToSlash(relativePath)
+	if relativePath == ".." || strings.HasPrefix(relativePath, "../") {
+		return false
+	}
+
 	if matcher.allowedPath != nil {
 		return !matcher.allowedPath[relativePath]
 	}
@@ -909,6 +930,10 @@ func (matcher gitIgnoreMatcher) ignoredDir(ctx context.Context, path string) boo
 
 	relativePath = filepath.ToSlash(filepath.Clean(relativePath))
 	if relativePath == "." {
+		return false
+	}
+
+	if relativePath == ".." || strings.HasPrefix(relativePath, "../") {
 		return false
 	}
 
