@@ -448,46 +448,6 @@ func writeExecutableFile(path string, content []byte) error {
 	return nil
 }
 
-func agentShellGitTargets(paths runtimePaths) []string {
-	targets := []string{paths.RealGit}
-	for _, candidate := range realgit.Candidates(paths.RunBinary) {
-		if realgit.LooksLikeCodingEthosShim(candidate, paths.RunBinary) {
-			continue
-		}
-
-		targets = append(targets, candidate)
-	}
-
-	return uniqueCleanPaths(targets)
-}
-
-func uniqueCleanPaths(paths []string) []string {
-	cleaned := make([]string, 0, len(paths))
-	seen := map[string]struct{}{}
-
-	for _, path := range paths {
-		normalized := strings.TrimSpace(path)
-		if normalized == "" {
-			continue
-		}
-
-		resolved, err := filepath.EvalSymlinks(normalized)
-		if err == nil {
-			normalized = resolved
-		}
-
-		normalized = filepath.Clean(normalized)
-		if _, found := seen[normalized]; found {
-			continue
-		}
-
-		seen[normalized] = struct{}{}
-		cleaned = append(cleaned, normalized)
-	}
-
-	return cleaned
-}
-
 func shellSingleQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

@@ -1407,24 +1407,6 @@ func TestWriteExecutableFileCreatesRunnablePrivateFile(t *testing.T) {
 	}
 }
 
-func TestUniqueCleanPathsDeduplicatesResolvedPaths(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	target := filepath.Join(root, "git")
-	writeExecutableFixture(t, target, "#!/usr/bin/env sh\nexit 0\n")
-
-	link := filepath.Join(root, "link-git")
-	if err := os.Symlink(target, link); err != nil {
-		t.Fatalf("create symlink: %v", err)
-	}
-
-	got := uniqueCleanPaths([]string{"", target, link, filepath.Join(root, ".", "git")})
-	if !slices.Equal(got, []string{target}) {
-		t.Fatalf("uniqueCleanPaths() = %#v, want %#v", got, []string{target})
-	}
-}
-
 func TestAgentShellCommandParsesCheckAndIntent(t *testing.T) {
 	t.Parallel()
 
