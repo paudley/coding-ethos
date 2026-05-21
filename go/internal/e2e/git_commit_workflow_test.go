@@ -84,6 +84,9 @@ func TestParentRuntimeCerunGitAddAndCommitUseInstalledArtifacts(t *testing.T) {
 	parentRepo := fixture.Root
 	parentBin := fixture.Bin
 	parentCerun := fixture.Cerun
+	t.Cleanup(func() {
+		_ = os.Chmod(parentBin, 0o700)
+	})
 
 	writeParentRuntimeFile(
 		t,
