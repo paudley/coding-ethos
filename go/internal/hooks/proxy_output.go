@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -48,9 +49,10 @@ const (
 )
 
 type proxiedToolOutput struct {
-	Text    string
-	Records []agentproxy.TransformRecord
-	Events  []agentproxy.ProviderEvent
+	Metadata map[string]string
+	Text     string
+	Records  []agentproxy.TransformRecord
+	Events   []agentproxy.ProviderEvent
 }
 
 func proxyPostToolOutput(event Event, output string) proxiedToolOutput {
@@ -63,10 +65,11 @@ func proxyPostToolOutput(event Event, output string) proxiedToolOutput {
 		compressed := compressToolOutputWithRecords(event, proxied.Text)
 		proxied.Text = compressed.Text
 		proxied.Records = append(proxied.Records, compressed.Records...)
+		proxied.Metadata = mergeStringMetadata(proxied.Metadata, compressed.Metadata)
 	}
 
 	proxied = enrichDirectoryListingToolOutput(event, proxied)
-	proxied.Events = proxyToolOutputEvents(event, normalized, proxied)
+	proxied.Events = proxyToolOutputEvents(event, event.Command(), proxied)
 
 	return proxied
 }
@@ -95,7 +98,8 @@ func paginateFileReadToolOutput(
 	}
 
 	pageEnd := semanticFileReadPageEnd(root, targetPath, proxied.Text)
-	options := loadHookOutputCompressionOptions(event.Cwd)
+	options := loadHookOutputCompressionOptions(event)
+	tokenBudget := resolveHookTokenBudget(event, options)
 
 	output, err := agentproxy.NewPipeline(
 		nil,
@@ -105,13 +109,16 @@ func paginateFileReadToolOutput(
 			PageEnd:   pageEnd,
 		},
 		agentproxy.ToolOutputTokenBudgetTransform{
-			MaxTokens:  options.MaxTokens,
+			MaxTokens:  tokenBudget.MaxTokens,
 			HeadTokens: options.HeadTokens,
 			TailTokens: options.TailTokens,
 		},
 	).Apply(
 		context.Background(),
-		agentproxy.TransformInput{Text: proxied.Text},
+		agentproxy.TransformInput{
+			Metadata: tokenBudget.metadata(),
+			Text:     proxied.Text,
+		},
 	)
 	if err != nil {
 		return proxied
@@ -119,6 +126,7 @@ func paginateFileReadToolOutput(
 
 	proxied.Text = output.Text
 	proxied.Records = append(proxied.Records, output.Records...)
+	proxied.Metadata = mergeStringMetadata(proxied.Metadata, output.Metadata)
 
 	return proxied
 }
@@ -472,7 +480,8 @@ func repoRelativeListingPath(root, cwd, path string) (string, bool) {
 }
 
 func compressToolOutputWithRecords(event Event, output string) proxiedToolOutput {
-	options := loadHookOutputCompressionOptions(event.Cwd)
+	options := loadHookOutputCompressionOptions(event)
+	tokenBudget := resolveHookTokenBudget(event, options)
 
 	compressed, err := agentproxy.NewPipeline(
 		nil,
@@ -486,21 +495,25 @@ func compressToolOutputWithRecords(event Event, output string) proxiedToolOutput
 			Tail:     options.TailLines,
 		},
 		agentproxy.ToolOutputTokenBudgetTransform{
-			MaxTokens:  options.MaxTokens,
+			MaxTokens:  tokenBudget.MaxTokens,
 			HeadTokens: options.HeadTokens,
 			TailTokens: options.TailTokens,
 		},
 	).Apply(
 		context.Background(),
-		agentproxy.TransformInput{Text: output},
+		agentproxy.TransformInput{
+			Metadata: tokenBudget.metadata(),
+			Text:     output,
+		},
 	)
 	if err != nil {
 		return proxiedToolOutput{Text: output}
 	}
 
 	return proxiedToolOutput{
-		Text:    compressed.Text,
-		Records: compressed.Records,
+		Text:     compressed.Text,
+		Records:  compressed.Records,
+		Metadata: compressed.Metadata,
 	}
 }
 
@@ -527,12 +540,16 @@ func proxyToolOutputEvents(
 	outputHash := agentproxy.HashText(proxied.Text)
 	inputHash := agentproxy.HashText(input)
 	eventID := proxyToolOutputEventID(event, inputHash, recordedAt)
+	tokenizer := agentproxy.ApproximateTokenizer{}
+	inputTokens := tokenizer.Count(input)
+	outputTokens := tokenizer.Count(proxied.Text)
 
 	return []agentproxy.ProviderEvent{{
 		ID:            eventID,
 		SessionID:     sessionID,
 		Kind:          agentproxy.EventToolOutput,
 		Provider:      event.Provider(),
+		Model:         strings.TrimSpace(event.Model),
 		Tool:          event.ToolName,
 		RecordedAtUTC: recordedAt,
 		RepoRoot:      root,
@@ -554,10 +571,11 @@ func proxyToolOutputEvents(
 			Lines: lineCount(proxied.Text),
 		},
 		TokenUsage: agentproxy.TokenUsage{
-			InputTokens:  agentproxy.WhitespaceTokenizer{}.Count(input),
-			OutputTokens: agentproxy.WhitespaceTokenizer{}.Count(proxied.Text),
-			TotalTokens:  agentproxy.WhitespaceTokenizer{}.Count(proxied.Text),
+			InputTokens:  inputTokens,
+			OutputTokens: outputTokens,
+			TotalTokens:  inputTokens + outputTokens,
 		},
+		Metadata:   cloneStringMetadata(proxied.Metadata),
 		Transforms: proxied.Records,
 	}}
 }
@@ -629,6 +647,38 @@ func proxyToolOutputTraceID(event Event, inputHash string) string {
 	)
 }
 
+func mergeStringMetadata(
+	base map[string]string,
+	additional map[string]string,
+) map[string]string {
+	merged := cloneStringMetadata(base)
+
+	for key, value := range additional {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+
+		if merged == nil {
+			merged = map[string]string{}
+		}
+
+		merged[key] = value
+	}
+
+	return merged
+}
+
+func cloneStringMetadata(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make(map[string]string, len(values))
+	maps.Copy(cloned, values)
+
+	return cloned
+}
+
 func stableHookID(prefix string, values ...string) string {
 	hash := sha256.New()
 	_, _ = hash.Write([]byte(prefix))
@@ -642,20 +692,21 @@ func stableHookID(prefix string, values ...string) string {
 }
 
 type hookOutputCompressionOptions struct {
-	MaxLines       int
-	HeadLines      int
-	TailLines      int
-	MaxTokens      int
-	HeadTokens     int
-	TailTokens     int
-	MaxDiagnostics int
+	MaxTokensSource string
+	MaxLines        int
+	HeadLines       int
+	TailLines       int
+	MaxTokens       int
+	HeadTokens      int
+	TailTokens      int
+	MaxDiagnostics  int
 }
 
-func loadHookOutputCompressionOptions(cwd string) hookOutputCompressionOptions {
+func loadHookOutputCompressionOptions(event Event) hookOutputCompressionOptions {
 	options := defaultHookOutputCompressionOptions()
 
-	if strings.TrimSpace(cwd) != "" {
-		root := gitRootFromPath(cwd)
+	if strings.TrimSpace(event.Cwd) != "" {
+		root := gitRootFromPath(event.Cwd)
 		if root != "" {
 			options = options.withRepoConfig(root)
 		}
@@ -666,13 +717,14 @@ func loadHookOutputCompressionOptions(cwd string) hookOutputCompressionOptions {
 
 func defaultHookOutputCompressionOptions() hookOutputCompressionOptions {
 	return hookOutputCompressionOptions{
-		MaxLines:       defaultHookOutputMaxLines,
-		HeadLines:      defaultHookOutputHeadLines,
-		TailLines:      defaultHookOutputTailLines,
-		MaxTokens:      defaultHookOutputMaxTokens,
-		HeadTokens:     defaultHookOutputHeadTokens,
-		TailTokens:     defaultHookOutputTailTokens,
-		MaxDiagnostics: defaultHookOutputDiagnostics,
+		MaxLines:        defaultHookOutputMaxLines,
+		HeadLines:       defaultHookOutputHeadLines,
+		TailLines:       defaultHookOutputTailLines,
+		MaxTokens:       defaultHookOutputMaxTokens,
+		MaxTokensSource: tokenBudgetSourceFallback,
+		HeadTokens:      defaultHookOutputHeadTokens,
+		TailTokens:      defaultHookOutputTailTokens,
+		MaxDiagnostics:  defaultHookOutputDiagnostics,
 	}
 }
 
@@ -694,7 +746,12 @@ func (options hookOutputCompressionOptions) withRepoConfig(
 	options.MaxLines = positiveConfigInt(settings, "max_lines", options.MaxLines)
 	options.HeadLines = positiveConfigInt(settings, "head_lines", options.HeadLines)
 	options.TailLines = positiveConfigInt(settings, "tail_lines", options.TailLines)
-	options.MaxTokens = positiveConfigInt(settings, "max_tokens", options.MaxTokens)
+
+	if maxTokens := positiveConfigInt(settings, "max_tokens", 0); maxTokens > 0 {
+		options.MaxTokens = maxTokens
+		options.MaxTokensSource = tokenBudgetSourceRepoConfig
+	}
+
 	options.HeadTokens = positiveConfigInt(settings, "head_tokens", options.HeadTokens)
 	options.TailTokens = positiveConfigInt(settings, "tail_tokens", options.TailTokens)
 	options.MaxDiagnostics = positiveConfigInt(
@@ -735,20 +792,38 @@ func positiveConfigInt(values configdata.Map, key string, fallback int) int {
 func (
 	options hookOutputCompressionOptions,
 ) withEnvOverrides() hookOutputCompressionOptions {
-	options.MaxTokens = hookOutputIntEnv(
+	if maxTokens := hookOutputPositiveIntEnv(
 		"CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS",
-		options.MaxTokens,
-	)
+	); maxTokens > 0 {
+		options.MaxTokens = maxTokens
+		options.MaxTokensSource = tokenBudgetSourceEnv
+	}
+
 	options.HeadTokens = hookOutputIntEnv(
 		"CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS",
 		options.HeadTokens,
 	)
+
 	options.TailTokens = hookOutputIntEnv(
 		"CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS",
 		options.TailTokens,
 	)
 
 	return options
+}
+
+func hookOutputPositiveIntEnv(name string) int {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return 0
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return 0
+	}
+
+	return parsed
 }
 
 func inferDiagnosticTool(command string) string {

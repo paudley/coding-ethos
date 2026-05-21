@@ -202,6 +202,13 @@ func installGitHooks(args []string) error {
 		return err
 	}
 
+	for _, hook := range obsoleteManagedGitHookNames() {
+		err := removeObsoleteManagedHookEntrypoint(hooksDir, runner, hook)
+		if err != nil {
+			return err
+		}
+	}
+
 	for _, hook := range gitHookNames() {
 		err := installHookEntrypoint(hooksDir, runner, hook)
 		if err != nil {
@@ -483,6 +490,30 @@ func installHookEntrypoint(hooksDir, runner, hookName string) error {
 	}, "\n")
 
 	return writeExecutableFile(target, []byte(payload))
+}
+
+func removeObsoleteManagedHookEntrypoint(hooksDir, runner, hookName string) error {
+	target := filepath.Join(hooksDir, hookName)
+
+	matches, err := hookEntrypointTargetsRunner(target, runner, hookName)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+
+		return err
+	}
+
+	if !matches {
+		return nil
+	}
+
+	err = os.Remove(target)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove obsolete managed hook %s: %w", target, err)
+	}
+
+	return nil
 }
 
 func gitHookShimFixItems(hooksDir, runner string) ([]string, error) {

@@ -26,16 +26,18 @@ const (
 )
 
 type Event struct {
-	ProviderHint   string         `json:"provider,omitempty"`
-	ToolInput      map[string]any `json:"tool_input,omitempty"`
-	ToolResponse   map[string]any `json:"tool_response,omitempty"`
-	Cwd            string         `json:"cwd,omitempty"`
-	HookEventName  string         `json:"hook_event_name"`
-	Matcher        string         `json:"matcher,omitempty"`
-	SessionID      string         `json:"session_id,omitempty"`
-	Source         string         `json:"source,omitempty"`
-	ToolName       string         `json:"tool_name,omitempty"`
-	TranscriptPath string         `json:"transcript_path,omitempty"`
+	ToolInput           map[string]any `json:"tool_input,omitempty"`
+	ToolResponse        map[string]any `json:"tool_response,omitempty"`
+	ProviderHint        string         `json:"provider,omitempty"`
+	Cwd                 string         `json:"cwd,omitempty"`
+	HookEventName       string         `json:"hook_event_name"`
+	Matcher             string         `json:"matcher,omitempty"`
+	Model               string         `json:"model,omitempty"`
+	SessionID           string         `json:"session_id,omitempty"`
+	Source              string         `json:"source,omitempty"`
+	ToolName            string         `json:"tool_name,omitempty"`
+	TranscriptPath      string         `json:"transcript_path,omitempty"`
+	ContextWindowTokens int            `json:"context_window_tokens,omitempty"`
 }
 
 func (event Event) Provider() string {

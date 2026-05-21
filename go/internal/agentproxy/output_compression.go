@@ -36,6 +36,7 @@ const (
 	defaultDiagnosticMaxFindings = 12
 	diagnosticSummaryLineSlack   = 3
 	metadataValueTrue            = "true"
+	minTokenBudgetLineFragment   = 80
 )
 
 // ToolOutputDiagnosticSummaryTransform condenses parseable compiler, linter,
@@ -355,6 +356,7 @@ func (transform ToolOutputTokenBudgetTransform) Apply(
 				PolicyID: "proxy.token_budget",
 				Decision: "allow",
 				Reason:   "tool output within token budget",
+				Metadata: cloneMetadata(input.Metadata),
 			},
 		}, nil
 	}
@@ -379,6 +381,7 @@ func (transform ToolOutputTokenBudgetTransform) Apply(
 			Decision:     "truncate",
 			Reason:       "tool output exceeded token budget",
 			EvidencePath: evidencePath,
+			Metadata:     cloneMetadata(metadata),
 		},
 	}, nil
 }
@@ -449,6 +452,10 @@ func budgetedOutput(
 	)
 
 	output := make([]string, 0, len(head)+len(tail)+1)
+	output = append(output, "[WARNING: Payload exceeded "+
+		strconv.Itoa(limits.MaxTokens)+
+		" tokens. Output truncated by proxy. "+
+		"Please use a grep tool or smaller file range.]")
 	output = append(output, head...)
 	output = append(output, "[coding-ethos: token budget hard stop; "+
 		strconv.Itoa(omittedTokens)+" tokens omitted; full output: "+
@@ -526,8 +533,13 @@ func takeHeadTokenBudget(
 			break
 		}
 
-		selected = append(selected, line)
-		used += lineTokens
+		if lineTokens > budget {
+			selected = append(selected, tokenBudgetLineHead(line, budget))
+			used = budget
+		} else {
+			selected = append(selected, line)
+			used += lineTokens
+		}
 
 		if used >= budget {
 			break
@@ -553,8 +565,13 @@ func takeTailTokenBudget(
 			break
 		}
 
-		selected = append(selected, line)
-		used += lineTokens
+		if lineTokens > budget {
+			selected = append(selected, tokenBudgetLineTail(line, budget))
+			used = budget
+		} else {
+			selected = append(selected, line)
+			used += lineTokens
+		}
 
 		if used >= budget {
 			break
@@ -564,4 +581,26 @@ func takeTailTokenBudget(
 	slices.Reverse(selected)
 
 	return selected, used
+}
+
+func tokenBudgetLineHead(line string, tokens int) string {
+	runes := []rune(line)
+	limit := max(minTokenBudgetLineFragment, tokens*approximateTokenRuneDivisor)
+
+	if len(runes) <= limit {
+		return line
+	}
+
+	return string(runes[:limit])
+}
+
+func tokenBudgetLineTail(line string, tokens int) string {
+	runes := []rune(line)
+	limit := max(minTokenBudgetLineFragment, tokens*approximateTokenRuneDivisor)
+
+	if len(runes) <= limit {
+		return line
+	}
+
+	return string(runes[len(runes)-limit:])
 }

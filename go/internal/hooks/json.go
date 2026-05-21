@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 
 	"blackcat.ca/coding-ethos/go/internal/toolaliases"
 )
@@ -43,6 +44,15 @@ func EncodeResult(writer io.Writer, result Result) error {
 
 func normalizeEvent(payload map[string]json.RawMessage) Event {
 	event := Event{
+		ContextWindowTokens: firstPositiveInt(
+			payload,
+			"context_window_tokens",
+			"contextWindowTokens",
+			"context_length",
+			"contextLength",
+			"max_context_tokens",
+			"maxContextTokens",
+		),
 		Cwd: firstString(
 			payload,
 			"cwd",
@@ -51,6 +61,7 @@ func normalizeEvent(payload map[string]json.RawMessage) Event {
 		),
 		HookEventName:  primaryHookEventName(payload),
 		Matcher:        firstString(payload, "matcher"),
+		Model:          firstString(payload, "model", "model_name", "modelName"),
 		ProviderHint:   firstString(payload, "provider", "agent", "runtime"),
 		SessionID:      firstString(payload, "session_id", "sessionID", "sessionId"),
 		Source:         firstString(payload, "source"),
@@ -303,6 +314,17 @@ func firstString(payload map[string]json.RawMessage, keys ...string) string {
 	return ""
 }
 
+func firstPositiveInt(payload map[string]json.RawMessage, keys ...string) int {
+	for _, key := range keys {
+		value, ok := decodePositiveInt(payload[key])
+		if ok {
+			return value
+		}
+	}
+
+	return 0
+}
+
 func firstMap(payload map[string]json.RawMessage, keys ...string) map[string]any {
 	for _, key := range keys {
 		value := decodeMap(payload[key])
@@ -329,6 +351,28 @@ func firstResponseMap(
 	}
 
 	return nil
+}
+
+func decodePositiveInt(raw json.RawMessage) (int, bool) {
+	value, ok := decodeNumberOrString(raw)
+	if !ok {
+		return 0, false
+	}
+
+	switch typed := value.(type) {
+	case float64:
+		integer := int(typed)
+		if integer > 0 && typed == float64(integer) {
+			return integer, true
+		}
+	case string:
+		integer, err := strconv.Atoi(typed)
+		if err == nil && integer > 0 {
+			return integer, true
+		}
+	}
+
+	return 0, false
 }
 
 func decodeString(raw json.RawMessage) (string, bool) {

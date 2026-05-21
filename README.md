@@ -438,15 +438,20 @@ Agent Bash `PostToolUse` output also passes through the proxy transform path
 before hook context is returned to the provider. Verbose shell, lint, compiler,
 and test output is summarized with known diagnostic parsers where possible,
 line-compressed, then capped by a hard token budget while preserving command
-identity and the terminal failure tail. Whenever output is removed, the runtime
-writes the full original payload to a `coding-ethos-tool-output-*.log` evidence
-file in the system temp directory and surfaces that path in
-the visible marker. When the event includes a session id, the runtime records a
-`tool_output` proxy event and ordered transform ledger in
-`.coding-ethos/code-intel.db`. Stale matching temp evidence files are pruned
-before new evidence is written. Repositories can tune this behavior with
-`proxy.output_compression` in `repo_config.yaml`; token-budget environment
-variables remain local runtime overrides.
+identity and the terminal failure tail. The token ledger uses a conservative
+UTF-8 rune estimator, records every Bash `PostToolUse` action that includes a
+session id, and stores the resolved budget source, payload measurements, token
+usage, decision, and ordered transform records in `.coding-ethos/code-intel.db`.
+Unknown model/context windows default to 2,000 output tokens; events that carry
+model context metadata use bounded tiers of 4,000 (<=32k context), 8,000
+(<=128k), 12,000 (<=256k), 24,000 (<=1M), or 32,000 (>1M), and an explicit
+`proxy.output_compression.max_tokens` repo setting wins. Whenever output is
+removed, the runtime prepends a warning, writes the full original payload to a
+`coding-ethos-tool-output-*.log` evidence file in the system temp directory,
+and surfaces that path in the visible marker. Stale matching temp evidence
+files are pruned before new evidence is written. Repositories can tune this
+behavior with `proxy.output_compression` in `repo_config.yaml`; token-budget
+environment variables remain local runtime overrides for tests and diagnostics.
 
 Parent install/check, parent lint, policy lint, policy-tool runs, and
 pre-commit/pre-push refresh the store through the compiled runner. AST rows

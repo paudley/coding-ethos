@@ -97,6 +97,9 @@ code_intel:
 proxy:
   output_compression:
     # Repo-local defaults for Bash PostToolUse output returned to agents.
+    # The token ledger records every session-scoped Bash action in code-intel.
+    # If max_tokens is omitted, coding-ethos uses model/context-window tiers
+    # when the provider supplies them, otherwise it falls back to 2,000 tokens.
     max_lines: 80
     head_lines: 32
     tail_lines: 32

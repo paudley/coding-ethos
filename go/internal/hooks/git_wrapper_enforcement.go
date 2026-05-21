@@ -169,7 +169,20 @@ func shellCommandHasDynamicExecutable(parsed shellparse.Command) bool {
 		return false
 	}
 
+	if shellCommandIsCompoundKeyword(parsed) {
+		return false
+	}
+
 	return shellWordHasExpansion(parsed.Argv[0])
+}
+
+func shellCommandIsCompoundKeyword(parsed shellparse.Command) bool {
+	switch parsed.Name {
+	case "case", "for", "if", "select", "until", "while":
+		return true
+	default:
+		return false
+	}
 }
 
 func cerunRemediation(command string) string {
@@ -190,7 +203,28 @@ func agentShellRewriteCommand(command string) string {
 }
 
 func shellWordHasExpansion(word string) bool {
-	return strings.Contains(word, "$")
+	return strings.Contains(word, "${") || shellWordHasParameterExpansion(word)
+}
+
+func shellWordHasParameterExpansion(word string) bool {
+	for index := range len(word) {
+		if word[index] != '$' || index+1 >= len(word) {
+			continue
+		}
+
+		if shellParameterExpansionByte(word[index+1]) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func shellParameterExpansionByte(next byte) bool {
+	return strings.ContainsRune("(_*@#?$!-", rune(next)) ||
+		(next >= '0' && next <= '9') ||
+		(next >= 'A' && next <= 'Z') ||
+		(next >= 'a' && next <= 'z')
 }
 
 func updatedBashInput(original map[string]any, command string) map[string]any {
