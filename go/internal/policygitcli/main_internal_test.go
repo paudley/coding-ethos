@@ -112,8 +112,6 @@ func TestReadBundleAndMaybePrintJSON(t *testing.T) {
 }
 
 func TestRunCheckOnlyAllowedCommand(t *testing.T) {
-	t.Parallel()
-
 	bundlePath := writeGitTestBundle(t)
 
 	output := captureGitStdout(t, func() {
@@ -135,8 +133,6 @@ func TestRunCheckOnlyAllowedCommand(t *testing.T) {
 }
 
 func TestRunWithArgsCheckOnlyJSONSuppressesHumanOutput(t *testing.T) {
-	t.Parallel()
-
 	bundlePath := writeGitTestBundle(t)
 
 	output := captureGitStdout(t, func() {
@@ -221,8 +217,6 @@ func TestExposeRealGitForPolicyEvaluationRestoresEnvironment(t *testing.T) {
 }
 
 func TestRunUsesProcessArgs(t *testing.T) {
-	t.Parallel()
-
 	bundlePath := writeGitTestBundle(t)
 	testlock.ProcessState(t, "coding-ethos-git")
 
@@ -313,6 +307,25 @@ func writeGitTestBundle(t *testing.T) string {
 func runOutsideGitWorkTree(t *testing.T, run func()) {
 	t.Helper()
 
+	root := policyGitCheckoutRoot(t)
+	previousCeiling, ceilingExisted := os.LookupEnv("GIT_CEILING_DIRECTORIES")
+	if err := os.Setenv("GIT_CEILING_DIRECTORIES", root); err != nil {
+		t.Fatalf("set GIT_CEILING_DIRECTORIES: %v", err)
+	}
+	defer func() {
+		if ceilingExisted {
+			if err := os.Setenv("GIT_CEILING_DIRECTORIES", previousCeiling); err != nil {
+				t.Fatalf("restore GIT_CEILING_DIRECTORIES: %v", err)
+			}
+
+			return
+		}
+
+		if err := os.Unsetenv("GIT_CEILING_DIRECTORIES"); err != nil {
+			t.Fatalf("unset GIT_CEILING_DIRECTORIES: %v", err)
+		}
+	}()
+
 	original, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("get cwd: %v", err)
@@ -331,6 +344,35 @@ func runOutsideGitWorkTree(t *testing.T, run func()) {
 	}()
 
 	run()
+}
+
+func policyGitCheckoutRoot(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+
+	for {
+		if policyGitFileExists(filepath.Join(dir, "coding_ethos.yml")) &&
+			policyGitFileExists(filepath.Join(dir, "config.yaml")) {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("coding-ethos checkout root not found from %s", dir)
+		}
+
+		dir = parent
+	}
+}
+
+func policyGitFileExists(path string) bool {
+	info, err := os.Stat(path)
+
+	return err == nil && !info.IsDir()
 }
 
 func captureGitStdout(t *testing.T, run func()) string {

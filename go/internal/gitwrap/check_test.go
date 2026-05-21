@@ -296,19 +296,73 @@ func TestCheckAllowsSigningConfigRemediationCommands(t *testing.T) {
 }
 
 func TestCheckDefersPushOutsideWorkTreeToGit(t *testing.T) {
-	t.Parallel()
+	runOutsideGitwrapWorkTree(t, func(cwd string) {
+		result, err := Check(policy.ExampleBundle(), Options{
+			Argv: []string{"push", "origin", "main"},
+			Cwd:  cwd,
+		})
+		if err != nil {
+			t.Fatalf("check git wrapper: %v", err)
+		}
 
-	result, err := Check(policy.ExampleBundle(), Options{
-		Argv: []string{"push", "origin", "main"},
-		Cwd:  t.TempDir(),
+		if result.Status != checkStatusAllowed {
+			t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
+		}
 	})
+}
+
+func runOutsideGitwrapWorkTree(t *testing.T, run func(string)) {
+	t.Helper()
+
+	root := gitwrapCheckoutRoot(t)
+	previous, existed := os.LookupEnv("GIT_CEILING_DIRECTORIES")
+	if err := os.Setenv("GIT_CEILING_DIRECTORIES", root); err != nil {
+		t.Fatalf("set GIT_CEILING_DIRECTORIES: %v", err)
+	}
+	defer func() {
+		if existed {
+			if err := os.Setenv("GIT_CEILING_DIRECTORIES", previous); err != nil {
+				t.Fatalf("restore GIT_CEILING_DIRECTORIES: %v", err)
+			}
+
+			return
+		}
+
+		if err := os.Unsetenv("GIT_CEILING_DIRECTORIES"); err != nil {
+			t.Fatalf("unset GIT_CEILING_DIRECTORIES: %v", err)
+		}
+	}()
+
+	run(t.TempDir())
+}
+
+func gitwrapCheckoutRoot(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("check git wrapper: %v", err)
+		t.Fatalf("get cwd: %v", err)
 	}
 
-	if result.Status != checkStatusAllowed {
-		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
+	for {
+		if gitwrapFileExists(filepath.Join(dir, "coding_ethos.yml")) &&
+			gitwrapFileExists(filepath.Join(dir, "config.yaml")) {
+			return dir
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("coding-ethos checkout root not found from %s", dir)
+		}
+
+		dir = parent
 	}
+}
+
+func gitwrapFileExists(path string) bool {
+	info, err := os.Stat(path)
+
+	return err == nil && !info.IsDir()
 }
 
 func TestCheckBlocksUnsignedOutgoingPush(t *testing.T) {
