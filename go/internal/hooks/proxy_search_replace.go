@@ -10,8 +10,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -57,6 +55,14 @@ func proxyWriteDecisions(event Event) []policy.Decision {
 }
 
 func proxyEditDecisions(event Event) []policy.Decision {
+	files := event.Files()
+	if len(files) > 1 {
+		return []policy.Decision{proxySearchReplaceDecision(event, map[string]any{
+			"reason":     "invalid_edit_target",
+			"file_count": len(files),
+		})}
+	}
+
 	file, foundFile := singleEventFile(event)
 	if !foundFile {
 		return nil
@@ -69,15 +75,16 @@ func proxyEditDecisions(event Event) []policy.Decision {
 
 	blocks, foundBlocks := eventSearchReplaceBlocks(event)
 	if !foundBlocks {
+		reason := "missing"
 		if event.ToolName == toolMultiEdit {
-			return []policy.Decision{proxySearchReplaceDecision(event, map[string]any{
-				"file":                 file,
-				"reason":               "malformed_multiedit",
-				"current_content_hash": agentproxy.HashText(content),
-			})}
+			reason = "malformed_multiedit"
 		}
 
-		return nil
+		return []policy.Decision{proxySearchReplaceDecision(event, map[string]any{
+			"file":                 file,
+			"reason":               reason,
+			"current_content_hash": agentproxy.HashText(content),
+		})}
 	}
 
 	result := agentproxy.ApplySearchReplacePatch(agentproxy.SearchReplacePatchRequest{
@@ -196,9 +203,7 @@ func searchReplacePath(cwd, file string) (string, error) {
 }
 
 func invalidSearchReplaceFile(file string) bool {
-	return slices.Contains([]string{"", ".", ".."}, file) ||
-		filepath.IsAbs(file) ||
-		strings.HasPrefix(file, ".."+string(filepath.Separator))
+	return file == "." || !filepath.IsLocal(file)
 }
 
 func eventSearchReplaceBlocks(event Event) ([]agentproxy.SearchReplaceBlock, bool) {

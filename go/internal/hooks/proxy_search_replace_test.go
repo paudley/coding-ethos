@@ -85,6 +85,52 @@ func TestRunAllowsExactEdit(t *testing.T) {
 	}
 }
 
+func TestRunBlocksEditWithoutSearchReplaceBlock(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	writeProxySearchReplaceFixture(t, repo, "pkg/app.py", "value = 1\n")
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "Edit",
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"file_path": "pkg/app.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	assertProxySearchReplaceBlock(t, result, "missing")
+}
+
+func TestRunBlocksEditWithAmbiguousTargetFiles(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "Edit",
+			Cwd:           t.TempDir(),
+			ToolInput: map[string]any{
+				"file_path":  "pkg/app.py",
+				"old_string": "value = 1\n",
+				"new_string": "value = 2\n",
+				"paths":      []any{"pkg/other.py"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	assertProxySearchReplaceBlock(t, result, "invalid_edit_target")
+}
+
 func TestRunBlocksEditMissingSearch(t *testing.T) {
 	t.Parallel()
 

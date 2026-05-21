@@ -41,9 +41,10 @@ func ApplySearchReplacePatch(
 	request SearchReplacePatchRequest,
 ) SearchReplacePatchResult {
 	content := request.CurrentContent
+	currentContentHash := HashText(request.CurrentContent)
 	result := SearchReplacePatchResult{
 		Path:               request.Path,
-		CurrentContentHash: HashText(request.CurrentContent),
+		CurrentContentHash: currentContentHash,
 		Blocks:             make([]SearchReplaceBlockResult, 0, len(request.Blocks)),
 	}
 
@@ -53,7 +54,11 @@ func ApplySearchReplacePatch(
 
 		if blockResult.Status != SearchReplaceStatusOK {
 			result.AppliedContent = content
-			result.AppliedContentHash = HashText(content)
+			if index == 0 {
+				result.AppliedContentHash = currentContentHash
+			} else {
+				result.AppliedContentHash = HashText(content)
+			}
 
 			return result
 		}
