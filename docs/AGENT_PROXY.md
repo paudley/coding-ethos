@@ -133,26 +133,20 @@ The cache must miss whenever the file changes, the path changes, or the session
 changes. A transparent proxy should reuse this path before returning read tool
 output to an agent so repeated reads save tokens without hiding changed source.
 
-## File Read Pagination
+## File Read Boundary
 
-Live Bash `PostToolUse` output now recognizes conservative single-file
-`cat <path>` reads through the shared shell parser before generic output
-compression runs. Successful reads inside the current repository are returned as
-a line-numbered first page instead of an unbounded file body. The transform
-writes the complete original payload to a `coding-ethos-tool-output-*.log`
-file in the system temp directory,
-surfaces that evidence path in the visible marker, and records
-`proxy.file_pagination` with the `file-read-pagination` transform in the
-provider-neutral proxy ledger.
+Provider-native file read tools are the supported live path for source reads.
+Claude-style Bash file-tool emulation such as `cat <path>`,
+`sed -n '1,20p' <path>`, `awk ... <path>`, `tee <path>`, and shell write
+redirection is blocked before execution so policy receives structured file
+targets instead of opaque shell output. That fail-closed behavior takes
+precedence over older live `cat` pagination experiments.
 
-Pagination defaults to the first 100 lines. Before choosing the final page end,
-the hook refreshes the target path in the repo-local AST index and asks
-code-intel for code chunks. When a symbol crosses the 100-line boundary and
-finishes within the semantic slack window, the page extends through the symbol
-end. When the crossing symbol is too large, the page stops before that symbol
-starts where possible. This keeps ordinary function and class signatures from
-being severed while still requiring explicit follow-up reads such as
-`sed -n '101,200p' path`.
+The `code-intel proxy-file-read` bridge remains the explicit path for
+session-scoped read-cache evidence. A future transparent proxy can still add
+pagination or cached-read transforms at the provider file-read boundary, but it
+must record `file_read` and `cache_hit` events in the provider-neutral proxy
+ledger rather than inferring file reads from shell output.
 
 ## Startup Repo Map
 

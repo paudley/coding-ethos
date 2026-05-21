@@ -47,7 +47,7 @@ Retrieve and address all review feedback proactively.
 - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown seeding, and merge helpers.
 - Gemini prompt authoring now lives under pre-commit/prompts/ as Jinja templates; the active Go runner should consume generated prompt packs instead of duplicating prompt text in code.
 - When flags, output layout, merge behavior, or overlay semantics change, update README.md, repo_ethos.example.yml, and tests/test_cli.py in the same change.
-- This repo currently exposes uv run pytest as its canonical automated verification command.
+- This repo currently exposes `make check` as its canonical automated verification gate; use `make test` or `uv run pytest` only as focused Python-test helpers.
 
 ## Overview
 Pull request feedback is not bureaucratic overhead; it is a critical

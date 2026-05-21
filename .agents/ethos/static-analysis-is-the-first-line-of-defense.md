@@ -51,7 +51,7 @@ optional tribal knowledge.
 - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown seeding, and merge helpers.
 - Gemini prompt authoring now lives under pre-commit/prompts/ as Jinja templates; the active Go runner should consume generated prompt packs instead of duplicating prompt text in code.
 - When flags, output layout, merge behavior, or overlay semantics change, update README.md, repo_ethos.example.yml, and tests/test_cli.py in the same change.
-- This repo currently exposes uv run pytest as its canonical automated verification command.
+- This repo currently exposes `make check` as its canonical automated verification gate; use `make test` or `uv run pytest` only as focused Python-test helpers.
 
 ## Overview
 We rely on linters (ruff) and type checkers (mypy) to catch errors
@@ -79,15 +79,12 @@ tribal knowledge.
   green.
 
 ## Repo Addendum
-This repo currently documents `uv run pytest` as its canonical
-automated
+This repo currently documents `make check` as its canonical automated
 gate.
 
-If lint or type-check tooling is introduced, wire it into the
-documented
-workflow, update the repo commands, and treat it as part of the
-contract
-instead of a local preference.
+Focused commands such as `make test` or `uv run pytest` are useful
+during development, but release and review readiness must use the
+documented Makefile gate instead of a local preference.
 
 This repo exists to bring consistent policy, settings, and linters to
 diverse consuming repos. Treat each consuming repo as an untrusted

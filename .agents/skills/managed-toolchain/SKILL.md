@@ -84,15 +84,12 @@ tribal knowledge.
   green.
 
 #### Repo Addendum
-This repo currently documents `uv run pytest` as its canonical
-automated
+This repo currently documents `make check` as its canonical automated
 gate.
 
-If lint or type-check tooling is introduced, wire it into the
-documented
-workflow, update the repo commands, and treat it as part of the
-contract
-instead of a local preference.
+Focused commands such as `make test` or `uv run pytest` are useful
+during development, but release and review readiness must use the
+documented Makefile gate instead of a local preference.
 
 This repo exists to bring consistent policy, settings, and linters to
 diverse consuming repos. Treat each consuming repo as an untrusted

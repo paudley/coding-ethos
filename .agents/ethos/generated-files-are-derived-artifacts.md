@@ -48,7 +48,7 @@ Edit the source ethos or renderer code first, then regenerate the checked-in age
 - The CLI should stay thin. Most behavior belongs in loaders, renderers, markdown seeding, and merge helpers.
 - Gemini prompt authoring now lives under pre-commit/prompts/ as Jinja templates; the active Go runner should consume generated prompt packs instead of duplicating prompt text in code.
 - When flags, output layout, merge behavior, or overlay semantics change, update README.md, repo_ethos.example.yml, and tests/test_cli.py in the same change.
-- This repo currently exposes uv run pytest as its canonical automated verification command.
+- This repo currently exposes `make check` as its canonical automated verification gate; use `make test` or `uv run pytest` only as focused Python-test helpers.
 
 ## Overview
 `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `ETHOS.md`,
@@ -67,6 +67,5 @@ contract
 changes, edit `coding_ethos.yml`. For output shape changes, edit the
 renderer or loader code and update tests.
 
-After any of those changes, regenerate the repo outputs with `uv run
-python
-main.py --repo .` and run `uv run pytest`.
+After any of those changes, regenerate the repo outputs with `make
+generate` and run `make check`.
