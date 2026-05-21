@@ -137,7 +137,10 @@ func stagedFiles(cwd string) ([]string, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf(
-			"list staged files: %w: %s",
+			"list staged files with %s (%s=%q): %w: %s",
+			cmd.Path,
+			RealGitEnv,
+			os.Getenv(RealGitEnv),
 			err,
 			strings.TrimSpace(string(output)),
 		)

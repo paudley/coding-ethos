@@ -5,6 +5,7 @@ package managedcapture //nolint:testpackage
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -2201,6 +2202,7 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 		"CODE_ETHOS_CONSUMER_ROOT=/repo",
 		"CODING_ETHOS_EXEC_STACK=coding-ethos-run",
 		"CODING_ETHOS_SANDBOX_ACTIVE=1",
+		"CODING_ETHOS_REAL_GIT=/usr/bin/git",
 		"GIT_DIR=/repo/.git",
 		"GIT_INDEX_FILE=/repo/.git/index",
 		"MANAGED_TOOLCHAIN_MANIFEST=/repo/build/toolchain/manifest.tsv",
@@ -2208,15 +2210,24 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 		"TMPDIR=/tmp/host",
 		"GOCACHE=/tmp/go-cache",
 		"GOLANGCI_LINT_CACHE=/tmp/golangci-cache",
+		"GOROOT=/tmp/go-root",
+		"CGO_ENABLED=0",
+		"CC=/tmp/host-cc",
+		"COMPILER_PATH=/tmp/host-compiler-path",
+		"AS=/tmp/host-as",
 	}, sandboxCacheEnvironment{
 		TempDir:         "/repo/sandbox-tmp",
 		GoCache:         "/repo/.coding-ethos/cache/go-build",
 		GolangCILintDir: "/repo/.coding-ethos/cache/golangci-lint",
+		GoRoot:          "/repo/go-root",
+		CGOEnabled:      "1",
+		CC:              "/usr/bin/gcc",
+		CompilerPath:    "/usr/bin",
+		Assembler:       "/usr/bin/as",
 	})
 
-	wantPath := "PATH=" + realDir
-	if !slices.Contains(env, wantPath) {
-		t.Fatalf("captured env = %#v, want %q", env, wantPath)
+	if !capturedEnvPathContains(env, realDir) {
+		t.Fatalf("captured env PATH = %#v, want entry %q", env, realDir)
 	}
 
 	if slices.Contains(env, "PATH="+shimDir) {
@@ -2231,6 +2242,12 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 	for _, want := range []string{
 		"GOCACHE=/repo/.coding-ethos/cache/go-build",
 		"GOLANGCI_LINT_CACHE=/repo/.coding-ethos/cache/golangci-lint",
+		"GOROOT=/repo/go-root",
+		"CGO_ENABLED=1",
+		"CC=/usr/bin/gcc",
+		"COMPILER_PATH=/usr/bin",
+		"AS=/usr/bin/as",
+		"CODING_ETHOS_REAL_GIT=/usr/bin/git",
 	} {
 		if !slices.Contains(env, want) {
 			t.Fatalf("captured env missing cache override %q: %#v", want, env)
@@ -2241,6 +2258,7 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 		"CODE_ETHOS_CONSUMER_ROOT=/repo",
 		"CODING_ETHOS_EXEC_STACK=coding-ethos-run",
 		"CODING_ETHOS_SANDBOX_ACTIVE=1",
+		"CODING_ETHOS_AGENT_SHELL_SANDBOX=1",
 		"GIT_DIR=/repo/.git",
 		"GIT_INDEX_FILE=/repo/.git/index",
 		"MANAGED_TOOLCHAIN_MANIFEST=/repo/build/toolchain/manifest.tsv",
@@ -2248,6 +2266,87 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 		if slices.Contains(env, blocked) {
 			t.Fatalf("captured env kept internal runtime variable %q: %#v", blocked, env)
 		}
+	}
+}
+
+func capturedEnvPathContains(env []string, entry string) bool {
+	for _, item := range env {
+		name, value, ok := strings.Cut(item, "=")
+		if !ok || name != "PATH" {
+			continue
+		}
+
+		return slices.Contains(filepath.SplitList(value), entry)
+	}
+
+	return false
+}
+
+func TestCapturedProcessEnvAddsUsablePathWhenInheritedPathMissing(t *testing.T) {
+	t.Parallel()
+
+	env := capturedProcessEnv([]string{"OTHER=value"}, sandboxCacheEnvironment{})
+
+	for _, item := range env {
+		name, value, ok := strings.Cut(item, "=")
+		if !ok || name != "PATH" {
+			continue
+		}
+
+		pathEntries := filepath.SplitList(value)
+		if !slices.Contains(pathEntries, "/usr/bin") &&
+			!slices.Contains(pathEntries, "/bin") {
+			t.Fatalf("captured env PATH lacks system executable dirs: %#v", env)
+		}
+
+		return
+	}
+
+	t.Fatalf("captured env omitted PATH: %#v", env)
+}
+
+func TestManagedSubprocessPathPrefixRejectsShimRealGitEnv(t *testing.T) {
+	root := t.TempDir()
+	shimDir := filepath.Join(root, "shim")
+	err := os.MkdirAll(shimDir, 0o755)
+	if err != nil {
+		t.Fatalf("create shim dir: %v", err)
+	}
+
+	shim := filepath.Join(shimDir, "git")
+	writeExecutableFixture(
+		t,
+		shim,
+		"#!/usr/bin/env sh\nexec coding-ethos-run policy-git \"$@\"\n",
+	)
+	writeExecutableFixture(
+		t,
+		filepath.Join(shimDir, "coding-ethos-run"),
+		"#!/usr/bin/env sh\nexit 0\n",
+	)
+	t.Setenv("CODING_ETHOS_REAL_GIT", shim)
+
+	realGit, err := resolvedManagedSubprocessGit(context.Background())
+	if err != nil {
+		t.Fatalf("resolvedManagedSubprocessGit() returned error: %v", err)
+	}
+
+	prefix, err := managedSubprocessPathPrefix(filepath.Join(root, "tmp"), realGit)
+	if err != nil {
+		t.Fatalf("managedSubprocessPathPrefix() returned error: %v", err)
+	}
+
+	target, err := os.Readlink(filepath.Join(prefix, "git"))
+	if err != nil {
+		t.Fatalf("read managed git link: %v", err)
+	}
+
+	if target == shim {
+		t.Fatalf("managed subprocess git used coding-ethos shim: %s", target)
+	}
+
+	if realGit == shim {
+		t.Fatalf("managed subprocess real git env used coding-ethos shim: %s", realGit)
 	}
 }
 

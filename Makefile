@@ -574,10 +574,21 @@ _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 		--config "$(LOCAL_REPO_ROOT)/config.yaml" \
 		$(if $(PARENT_REPO_CONFIG),--repo-config "$(PARENT_REPO_CONFIG)",) \
 		--out-dir "$(PARENT_POLICY_DIR)"
+	@rm -rf "$(PARENT_HOOK_RUNTIME_DIR)/pre-commit" "$(PARENT_HOOK_RUNTIME_DIR)/build/toolchain" "$(PARENT_HOOK_RUNTIME_DIR)/build/policy"
+	@mkdir -p "$(PARENT_HOOK_RUNTIME_DIR)/build" "$(PARENT_HOOK_RUNTIME_DIR)/build/policy"
+	@cp -R "$(PRECOMMIT_DIR)" "$(PARENT_HOOK_RUNTIME_DIR)/pre-commit"
+	@cp "$(LOCAL_REPO_ROOT)/config.yaml" "$(PARENT_HOOK_RUNTIME_DIR)/config.yaml"
+	@cp "$(PARENT_POLICY_DIR)"/* "$(PARENT_HOOK_RUNTIME_DIR)/build/policy/"
+	@cp -R "$(TOOLCHAIN_DIR)" "$(PARENT_HOOK_RUNTIME_DIR)/build/toolchain"
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-git-shim \
 		--dest-dir "$(PARENT_HOOK_BIN_DIR)" \
 		--real-git "$(GIT)" \
 		--runner "$(GO_HOOK)"
+	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-lint" \
+		--install-shims \
+		--tools-bin-dir "$(PARENT_HOOK_BIN_DIR)" \
+		--runner "$(PARENT_HOOK_BIN_DIR)/coding-ethos-run" \
+		--ethos-root "$(LOCAL_REPO_ROOT)"
 	@cp "$(GO_TOOLS_BIN_DIR)/coding-ethos-git-hook" "$(PARENT_HOOK_RUNTIME_DIR)/coding-ethos-git-hook"
 	@$(call print_info,runtime: $(PARENT_HOOK_RUNTIME_DIR))
 

@@ -14,6 +14,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
@@ -200,6 +201,22 @@ func TestExecuteGitWithPostChecksRunsResolvedGitAndPostPolicy(t *testing.T) {
 
 	if strings.TrimSpace(string(data)) != "status\n--short" {
 		t.Fatalf("fake git argv = %q", string(data))
+	}
+}
+
+func TestExposeRealGitForPolicyEvaluationRestoresEnvironment(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-git-env")
+
+	t.Setenv(realgit.Env, "/previous/git")
+
+	restore := exposeRealGitForPolicyEvaluation("/real/git")
+	if got := os.Getenv(realgit.Env); got != "/real/git" {
+		t.Fatalf("%s = %q, want real git", realgit.Env, got)
+	}
+
+	restore()
+	if got := os.Getenv(realgit.Env); got != "/previous/git" {
+		t.Fatalf("%s = %q, want restored", realgit.Env, got)
 	}
 }
 

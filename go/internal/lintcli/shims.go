@@ -4,6 +4,8 @@
 package lintcli
 
 import (
+	"crypto/subtle"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -75,7 +77,16 @@ func installCapturedToolShim(toolsBinDir, runner, tool string) error {
 		shellQuote(tool),
 	)
 
-	err := os.WriteFile(tmp, []byte(content), shimWriteMode)
+	matches, err := executableShimMatches(shim, []byte(content))
+	if err != nil {
+		return err
+	}
+
+	if matches {
+		return nil
+	}
+
+	err = os.WriteFile(tmp, []byte(content), shimWriteMode)
 	if err != nil {
 		return fmt.Errorf("write %s shim: %w", tool, err)
 	}
@@ -91,6 +102,32 @@ func installCapturedToolShim(toolsBinDir, runner, tool string) error {
 	}
 
 	return nil
+}
+
+func executableShimMatches(path string, payload []byte) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("stat shim %s: %w", path, err)
+	}
+
+	if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return false, nil
+	}
+
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("read shim %s: %w", path, err)
+	}
+
+	if len(existing) != len(payload) {
+		return false, nil
+	}
+
+	return subtle.ConstantTimeCompare(existing, payload) == 1, nil
 }
 
 func managedToolAvailable(tool toolcatalog.Tool, ethosRoot string) bool {

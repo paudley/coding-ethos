@@ -819,7 +819,7 @@ func TestGoCoveragePolicyConfiguredDetectsPolicyBundleBar(t *testing.T) {
 func TestGoCoverageProfilePathCreatesTemporaryFile(t *testing.T) {
 	t.Parallel()
 
-	path, cleanup, err := goCoverageProfilePath()
+	path, cleanup, err := goCoverageProfilePath(t.TempDir())
 	if err != nil {
 		t.Fatalf("goCoverageProfilePath: %v", err)
 	}

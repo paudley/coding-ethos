@@ -114,13 +114,14 @@ type Capabilities struct {
 	GitWrapperPath     string   `json:"git_wrapper_path,omitempty"`
 	RealGitPath        string   `json:"real_git_path,omitempty"`
 	RealGitBindPath    string   `json:"real_git_bind_path,omitempty"`
-	GitTargetPaths     []string `json:"git_target_paths,omitempty"`
 	Tags               []string `json:"tags,omitempty"`
+	GitTargetPaths     []string `json:"git_target_paths,omitempty"`
 	ReadPaths          []string `json:"read_paths,omitempty"`
 	WritePaths         []string `json:"write_paths,omitempty"`
 	CPUQuotaPercent    int      `json:"cpu_quota_percent,omitempty"`
 	MemoryMB           int      `json:"memory_mb,omitempty"`
 	TimeoutSeconds     int      `json:"timeout_seconds,omitempty"`
+	AllowGitWrites     bool     `json:"allow_git_writes,omitempty"`
 	RequiresNetwork    bool     `json:"requires_network,omitempty"`
 	RequiresGit        bool     `json:"requires_git,omitempty"`
 	RequiresEnv        bool     `json:"requires_env,omitempty"`
@@ -140,8 +141,8 @@ type Request struct {
 
 type Plan struct {
 	Executable string
-	Args       []string
 	ExtraFiles []*os.File
+	Args       []string
 	Evidence   Evidence
 }
 
@@ -197,6 +198,19 @@ func BuildPlan(request Request) (Plan, error) {
 	evidence.Enabled = true
 	evidence.NamespaceEnforced = !request.Capabilities.RequiresProcesses
 
+	if trustedAgentShellSandboxActive() {
+		evidence.Reason = "reusing active agent-shell sandbox"
+		evidence.NamespaceEnforced = false
+		evidence.ProcessIsolated = false
+		evidence.NetworkIsolated = false
+
+		return Plan{
+			Executable: request.Executable,
+			Args:       append([]string(nil), request.Args...),
+			Evidence:   evidence,
+		}, nil
+	}
+
 	if strings.TrimSpace(request.Capabilities.SeccompProfilePath) != "" {
 		return deniedSeccompPlan(evidence, errNativeSeccompUnsupported)
 	}
@@ -218,6 +232,26 @@ func BuildPlan(request Request) (Plan, error) {
 func sandboxRequired(request Request) bool {
 	return runtime.GOOS == "linux" &&
 		strings.TrimSpace(request.Capabilities.SandboxProfile) != ""
+}
+
+func trustedAgentShellSandboxActive() bool {
+	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") != "1" {
+		return false
+	}
+
+	realGitBind := filepath.Clean(strings.TrimSpace(os.Getenv("CODING_ETHOS_REAL_GIT")))
+	if filepath.Base(realGitBind) != "real-git" {
+		return false
+	}
+
+	if !strings.HasPrefix(filepath.Base(filepath.Dir(realGitBind)), "run-") {
+		return false
+	}
+
+	return strings.HasSuffix(
+		filepath.ToSlash(filepath.Dir(filepath.Dir(realGitBind))),
+		"/.coding-ethos/cache/agent-shell",
+	)
 }
 
 func unsandboxedPlan(request Request, evidence Evidence) Plan {
@@ -631,11 +665,14 @@ func (request Request) evidence() Evidence {
 		request.RepoRoot,
 		request.Cwd,
 		request.Capabilities.WritePaths,
+		request.Capabilities.AllowGitWrites,
 	)
 	writePaths = append(writePaths, SandboxTempWritePath)
 	writePaths = append(writePaths, SandboxGoCachePath)
 	writePaths = append(writePaths, SandboxGolangCIPath)
 	writePaths = append(writePaths, nativeSystemWritePaths()...)
+	readPaths := append([]string(nil), request.Capabilities.ReadPaths...)
+	readPaths = append(readPaths, writePaths...)
 
 	return Evidence{
 		Mode:              ModeRequired,
@@ -644,7 +681,7 @@ func (request Request) evidence() Evidence {
 		Tool:              request.Tool,
 		Command:           append([]string{request.Executable}, request.Args...),
 		Tags:              append([]string(nil), request.Capabilities.Tags...),
-		ReadPaths:         append([]string(nil), request.Capabilities.ReadPaths...),
+		ReadPaths:         readPaths,
 		WritePaths:        writePaths,
 		TimeoutSeconds:    request.Capabilities.TimeoutSeconds,
 		MemoryMB:          request.Capabilities.MemoryMB,
@@ -655,7 +692,7 @@ func (request Request) evidence() Evidence {
 		RequiresProcesses: request.Capabilities.RequiresProcesses,
 		SeccompProfile:    request.Capabilities.SeccompProfile,
 		StrategicIntent:   request.Capabilities.StrategicIntent,
-		GitReadOnly:       true,
+		GitReadOnly:       !request.Capabilities.AllowGitWrites,
 		RepoReadOnly:      true,
 		NetworkIsolated: !request.Capabilities.RequiresProcesses &&
 			!request.Capabilities.RequiresNetwork,
@@ -704,14 +741,18 @@ func safeCgroupRune(character rune) rune {
 	return '-'
 }
 
-func sandboxWritePaths(repoRoot, cwd string, paths []string) []string {
+func sandboxWritePaths(
+	repoRoot, cwd string,
+	paths []string,
+	allowGitWrites bool,
+) []string {
 	root := filepath.Clean(firstNonEmpty(repoRoot, cwd, "."))
 	gitDir := filepath.Join(root, ".git")
 	writable := []string{}
 
 	for _, path := range paths {
 		bind := normalizedBindPath(root, path)
-		if bind == "" || isWithinPath(bind, gitDir) {
+		if bind == "" || (!allowGitWrites && isWithinPath(bind, gitDir)) {
 			continue
 		}
 
@@ -850,6 +891,10 @@ func nativeWrapperArgs(request Request, writePaths []string) []string {
 		)
 		for _, path := range gitTargets {
 			args = append(args, "--git-target", path)
+		}
+
+		if request.Capabilities.AllowGitWrites {
+			args = append(args, "--allow-git-writes")
 		}
 	}
 

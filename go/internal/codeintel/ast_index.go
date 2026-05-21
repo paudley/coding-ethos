@@ -815,7 +815,7 @@ func newGitIgnoreMatcher(ctx context.Context, root string) gitIgnoreMatcher {
 
 	return gitIgnoreMatcher{
 		root:        root,
-		active:      gitWorkTreeAvailable(ctx, root),
+		active:      gitIgnoreMatcherActive(ctx, root, allowedPaths, allowedDirs),
 		allowedPath: allowedPaths,
 		allowedDir:  allowedDirs,
 	}

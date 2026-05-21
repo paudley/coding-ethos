@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +22,8 @@ const (
 	continuationFileMode  = 0o600
 	continuationLineLimit = 40
 )
+
+var errContinuationCwdIgnored = errors.New("continuation cwd is ignored by git root")
 
 type continuationRecord struct {
 	CapturedAtUTC  string   `json:"captured_at_utc"`
@@ -204,6 +207,28 @@ func continuationPath(event Event) (string, error) {
 func gitCommonDir(cwd string) (string, error) {
 	if cwd == "" {
 		cwd = "."
+	}
+
+	rootCommand := realgit.Command(
+		context.Background(),
+		false,
+		"rev-parse",
+		"--path-format=absolute",
+		"--show-toplevel",
+	)
+	rootCommand.Dir = cwd
+
+	rootOutput, rootErr := rootCommand.Output()
+	if rootErr == nil {
+		root := strings.TrimSpace(string(rootOutput))
+		if gitPathIgnored(root, cwd) {
+			return "", fmt.Errorf(
+				"resolve git common dir: %w: cwd=%s root=%s",
+				errContinuationCwdIgnored,
+				cwd,
+				root,
+			)
+		}
 	}
 
 	command := realgit.Command(

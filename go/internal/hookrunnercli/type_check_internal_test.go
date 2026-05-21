@@ -664,6 +664,7 @@ func TestStagedTypeCheckFilesBypassesCodingEthosGitShim(t *testing.T) {
 	repo := filepath.Join(tempDir, "repo")
 	pythonFile := filepath.Join(repo, "pkg", "module.py")
 	mustWriteTestFile(t, pythonFile, "value = 1\n")
+	t.Chdir(repo)
 
 	realGit := filepath.Join(tempDir, "real", "git")
 	mustWriteExecutable(

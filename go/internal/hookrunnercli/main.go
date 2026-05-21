@@ -415,11 +415,17 @@ func gitCommandOutput(cmd interface{ Output() ([]byte, error) }) string {
 
 func repoRoot() string {
 	if root := strings.TrimSpace(os.Getenv(consumerRootEnv)); root != "" {
-		return root
+		cwd, err := os.Getwd()
+		if err == nil && explicitConsumerRootApplies(root, cwd) {
+			return root
+		}
 	}
 
 	if root := gitOutput("rev-parse", "--show-toplevel"); root != "" {
-		return root
+		cwd, err := os.Getwd()
+		if err != nil || explicitConsumerRootApplies(root, cwd) {
+			return root
+		}
 	}
 
 	return "."
@@ -455,11 +461,15 @@ func resolveConsumerRoot(
 	}
 
 	if root := strings.TrimSpace(gitTopLevel); root != "" {
-		return root
+		if explicitConsumerRootApplies(root, ethosRoot) {
+			return root
+		}
 	}
 
 	if root := strings.TrimSpace(superprojectRoot); root != "" {
-		return root
+		if explicitConsumerRootApplies(root, ethosRoot) {
+			return root
+		}
 	}
 
 	return ethosRoot
@@ -478,7 +488,45 @@ func explicitConsumerRootApplies(root, ethosRoot string) bool {
 		return false
 	}
 
-	return rel == "." || !strings.HasPrefix(rel, "..")
+	if rel == "." {
+		return true
+	}
+
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+
+	if relativePathIsRuntimeScratch(rel) {
+		return false
+	}
+
+	return !gitPathIgnoredByRoot(absRoot, absEthosRoot)
+}
+
+func relativePathIsRuntimeScratch(relative string) bool {
+	rel := "/" + filepath.ToSlash(filepath.Clean(relative)) + "/"
+
+	return strings.Contains(rel, "/sandbox-tmp/") ||
+		strings.Contains(rel, "/.coding-ethos/") ||
+		strings.Contains(rel, "/.code-ethos/cache/")
+}
+
+func gitPathIgnoredByRoot(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." || rel == "" ||
+		rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+
+	cmd := evaluators.GitCommand(
+		root,
+		"check-ignore",
+		"--quiet",
+		"--",
+		filepath.ToSlash(rel),
+	)
+
+	return cmd.Run() == nil
 }
 
 func consumerRuntimeCacheDir(root string) string {
@@ -501,6 +549,14 @@ func findBundleRoot() (string, error) {
 		if isBundleRoot(envRoot) {
 			return envRoot, nil
 		}
+	}
+
+	if explicitRoot := strings.TrimSpace(os.Getenv(consumerRootEnv)); explicitRoot != "" {
+		if bundleRoot, found := findBundleRootFromRoot(explicitRoot); found {
+			return bundleRoot, nil
+		}
+
+		return "", fmt.Errorf("%w: %s", errBundleRootNotFound, explicitRoot)
 	}
 
 	root := repoRoot()

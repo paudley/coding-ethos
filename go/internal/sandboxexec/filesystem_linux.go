@@ -315,12 +315,13 @@ func validatedExecutablePath(path, label string) (string, error) {
 func prepareWritablePaths(options options) ([]string, error) {
 	paths := make([]string, 0, len(options.writePaths))
 	for _, item := range options.writePaths {
-		path, ok := cleanPolicyPath(options.paths.repoRoot, item)
+		path, ok := cleanPolicyPath(options.paths.repoRoot, item, options.allowGitWrites)
 		if !ok {
 			continue
 		}
 
-		if pathWithin(filepath.Join(options.paths.repoRoot, ".git"), path) {
+		if !options.allowGitWrites &&
+			pathWithin(filepath.Join(options.paths.repoRoot, ".git"), path) {
 			continue
 		}
 

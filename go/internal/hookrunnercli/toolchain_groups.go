@@ -16,6 +16,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/managedcapture"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 	coverageDecisionBlock    = "block"
 	coverageDecisionWarn     = "warn"
 	goCoverageGoalPolicyID   = "testing.go_coverage_goal"
+	goCoverageTempDirMode    = 0o700
 	maintainabilityThreshold = 50
 	timeoutCode              = "timeout"
 	vultureMinConfidence     = 80
@@ -207,7 +209,11 @@ func runGoTests(_ Config, paths []string) int {
 	return runManagedPolicyTool(goTestToolName, []string{worktree})
 }
 
-func runGoCoverageThreshold(_ Config, paths []string) int {
+func runGoCoverageThreshold(cfg Config, paths []string) int {
+	if cfg.HookStage == hookStagePreCommit {
+		return 0
+	}
+
 	shouldRun, exitCode := shouldRunGoCoverage(paths)
 	if !shouldRun {
 		return exitCode
@@ -218,7 +224,7 @@ func runGoCoverageThreshold(_ Config, paths []string) int {
 		return 1
 	}
 
-	coverProfile, cleanup, err := goCoverageProfilePath()
+	coverProfile, cleanup, err := goCoverageProfilePath(worktree)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
 
@@ -355,8 +361,15 @@ func reportGoCoverageToolFailure(tool string, result externalToolResult) int {
 	return 1
 }
 
-func goCoverageProfilePath() (string, func(), error) {
-	file, err := os.CreateTemp("", "coding-ethos-go-coverage-*.out")
+func goCoverageProfilePath(worktree string) (string, func(), error) {
+	tempDir := filepath.Join(worktree, sandbox.SandboxTempWritePath)
+
+	err := os.MkdirAll(tempDir, goCoverageTempDirMode)
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create Go coverage temp dir: %w", err)
+	}
+
+	file, err := os.CreateTemp(tempDir, "coding-ethos-go-coverage-*.out")
 	if err != nil {
 		return "", func() {}, fmt.Errorf("create Go coverage profile: %w", err)
 	}

@@ -4469,17 +4469,23 @@ principles:
             - staged
           message: Managed tools must declare sandbox capability posture.
           advice: >-
-            Keep managed tool runtime metadata explicit: ordinary tools need
-            no-network, no-git, sandbox profile, timeout, memory, CPU, and
-            seccomp profile declarations.
+            Keep managed tool runtime metadata explicit: ordinary tools declare
+            no-network and either git or no-git, plus sandbox profile, timeout,
+            memory, CPU, and seccomp profile declarations.
           when: >-
             tool_capabilities.exists(tool,
               tool.name != "gemini-check" &&
               (
                 tool.requires_network ||
-                tool.requires_git ||
                 !list_contains(tool.tags, "no-network") ||
-                !list_contains(tool.tags, "no-git") ||
+                (
+                  tool.requires_git &&
+                  !list_contains(tool.tags, "git")
+                ) ||
+                (
+                  !tool.requires_git &&
+                  !list_contains(tool.tags, "no-git")
+                ) ||
                 tool.sandbox_profile == "" ||
                 tool.timeout_seconds <= 0 ||
                 tool.memory_mb <= 0 ||

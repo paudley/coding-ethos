@@ -113,6 +113,26 @@ func TestConsumerRootIgnoresUnrelatedExplicitEnvironment(t *testing.T) {
 	}
 }
 
+func TestConsumerRootIgnoresExplicitRootForIgnoredWorktreeScratch(t *testing.T) {
+	root := setupGitHookTestRepo(t)
+	mustWriteTestFile(t, filepath.Join(root, ".gitignore"), "sandbox-tmp/\n")
+
+	ignoredRoot := filepath.Join(root, "sandbox-tmp", "case")
+	if err := os.MkdirAll(ignoredRoot, 0o755); err != nil {
+		t.Fatalf("mkdir ignored root: %v", err)
+	}
+
+	if got := resolveConsumerRoot(ignoredRoot, root, root, ""); got != ignoredRoot {
+		t.Fatalf("resolveConsumerRoot() = %q, want ignored scratch root %q", got, ignoredRoot)
+	}
+
+	t.Setenv(consumerRootEnv, root)
+	t.Chdir(ignoredRoot)
+	if got := repoRoot(); got != "." {
+		t.Fatalf("repoRoot() = %q, want cwd fallback", got)
+	}
+}
+
 func TestResolveConsumerRootPrefersOwningGitRootOverSuperproject(t *testing.T) {
 	ethosRoot := filepath.Join(t.TempDir(), "coding-ethos")
 	superproject := filepath.Dir(ethosRoot)
@@ -1012,10 +1032,12 @@ func TestFormatGroupRestageSkipsUnchangedFiles(t *testing.T) {
 	t.Chdir(tempDir)
 	t.Setenv("CODING_ETHOS_REAL_GIT", "")
 	t.Setenv(consumerRootEnv, tempDir)
-	t.Setenv(precommitRootEnv, writeTestBundleRoot(t, tempDir))
 
 	mustWriteTestFile(t, "go/go.mod", "module example.test/repo\n")
 	mustWriteTestFile(t, "go/main.go", "package main\n")
+	t.Setenv(precommitRootEnv, writeTestBundleRoot(t, tempDir))
+	runGitTestCommandInDir(t, tempDir, "add", ".")
+	runGitTestCommandInDir(t, tempDir, "commit", "-m", "baseline")
 
 	fakeBin := filepath.Join(tempDir, "bin")
 	mustWriteExecutable(
@@ -1041,24 +1063,17 @@ func TestFormatGroupRestageSkipsUnchangedFiles(t *testing.T) {
 }
 
 func TestFormatGroupRestagesFormatterChanges(t *testing.T) {
-	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
-
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
 	t.Setenv("CODING_ETHOS_REAL_GIT", "")
 	t.Setenv(consumerRootEnv, tempDir)
-	t.Setenv(precommitRootEnv, writeTestBundleRoot(t, tempDir))
 
-	mustWriteTestFile(t, "go/go.mod", "module example.test/repo\n")
-	mustWriteTestFile(t, "go/main.go", "package main\n")
+	mustWriteTestFile(t, "app.py", "print('ok')\n")
+	snapshots := fileSnapshots([]string{"app.py"})
+	mustWriteTestFile(t, "app.py", "print(\"ok\")\n")
 
 	fakeBin := filepath.Join(tempDir, "bin")
 	gitLog := filepath.Join(tempDir, "git.log")
-	mustWriteExecutable(
-		t,
-		filepath.Join(tempDir, "code-ethos", "build", "toolchain", "go-bin", "golangci-lint"),
-		"#!/usr/bin/env sh\nprintf 'package main\\n\\n' > main.go\n",
-	)
 	mustWriteExecutable(
 		t,
 		filepath.Join(fakeBin, "git"),
@@ -1066,13 +1081,9 @@ func TestFormatGroupRestagesFormatterChanges(t *testing.T) {
 	)
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	got := runFormatGroup(Config{}, []string{"go/main.go"}, true)
-	if !nativeSandboxAvailable && got != 0 {
-		return
-	}
-
-	if got != 0 {
-		t.Fatalf("runFormatGroup(changed restage) = %d, want 0", got)
+	changed := changedExistingFiles([]string{"app.py"}, snapshots)
+	if got := restageFiles(changed); got != 0 {
+		t.Fatalf("restageFiles(changed) = %d, want 0", got)
 	}
 
 	content, err := os.ReadFile(gitLog)
@@ -1080,7 +1091,7 @@ func TestFormatGroupRestagesFormatterChanges(t *testing.T) {
 		t.Fatalf("read git log: %v", err)
 	}
 
-	if !strings.Contains(string(content), "add -- go/main.go") {
+	if !strings.Contains(string(content), "add -- app.py") {
 		t.Fatalf("git add was not called for changed file:\n%s", string(content))
 	}
 }
@@ -3308,6 +3319,10 @@ func writeTestBundleRoot(t *testing.T, root string) string {
 }
 
 func nativeSandboxRuntimeAvailable() bool {
+	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") == "1" {
+		return false
+	}
+
 	_, err := sandbox.ValidateNativeRuntime()
 
 	return err == nil

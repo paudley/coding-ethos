@@ -224,12 +224,40 @@ func TestInstallGitShimWritesQuotedWrapper(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		`export CODING_ETHOS_REAL_GIT='/opt/git'\''s/bin/git'`,
+		`if [[ "${CODING_ETHOS_AGENT_SHELL_SANDBOX:-}" != "1" || -z "${CODING_ETHOS_REAL_GIT:-}" ]]; then`,
+		`  export CODING_ETHOS_REAL_GIT='/opt/git'\''s/bin/git'`,
+		`fi`,
 		`exec '/repo/run go hook.sh' policy-git "$@"`,
 	} {
 		if !strings.Contains(string(payload), want) {
 			t.Fatalf("git shim missing %q:\n%s", want, payload)
 		}
+	}
+}
+
+func TestInstallGitShimSkipsRewriteWhenWrapperMatches(t *testing.T) {
+	t.Parallel()
+
+	destDir := t.TempDir()
+	realGit := "/usr/bin/git"
+	runner := "/repo/bin/coding-ethos-run"
+
+	err := installGitShim(destDir, realGit, runner)
+	if err != nil {
+		t.Fatalf("install initial git shim: %v", err)
+	}
+
+	err = os.Chmod(destDir, 0o500)
+	if err != nil {
+		t.Fatalf("make shim directory read-only: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(destDir, directoryMode)
+	})
+
+	err = installGitShim(destDir, realGit, runner)
+	if err != nil {
+		t.Fatalf("matching git shim should not be rewritten: %v", err)
 	}
 }
 

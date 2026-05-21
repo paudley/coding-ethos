@@ -143,6 +143,7 @@ func TestHookReportIncludesTraceIDInAgentFormats(t *testing.T) {
 
 func TestEmitHookReportWritesTrace(t *testing.T) {
 	root := setupGitHookTestRepo(t)
+	t.Chdir(root)
 	t.Setenv(consumerRootEnv, root)
 
 	var output bytes.Buffer

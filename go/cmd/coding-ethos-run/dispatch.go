@@ -112,7 +112,7 @@ func runAgentShellHandler(paths runtimePaths, rest []string) error {
 		return err
 	}
 
-	requirePolicyBundle(paths)
+	requireRuntimeFile(hookPolicyBundlePath(paths), "compiled policy bundle")
 
 	if decision, blocked := agentShellEdgeDecision(request.Command); blocked {
 		result := agentShellBlockedResult(decision)
@@ -298,7 +298,9 @@ func inspectAgentShellCommand(
 	paths runtimePaths,
 	request agentShellRequest,
 ) (hooks.Result, error) {
-	bundleFile, err := os.Open(paths.PolicyBundle)
+	bundlePath := hookPolicyBundlePath(paths)
+
+	bundleFile, err := os.Open(bundlePath)
 	if err != nil {
 		return hooks.Result{}, fmt.Errorf("open policy bundle: %w", err)
 	}
@@ -682,18 +684,57 @@ func runCodeIntelHandler(paths runtimePaths, rest []string) error {
 }
 
 func runPolicyGitHandler(paths runtimePaths, rest []string) error {
-	requirePolicyBundle(paths)
+	bundlePath := hookPolicyBundlePath(paths)
+	requireRuntimeFile(bundlePath, "compiled policy bundle")
 
-	if !agentShellNativeGitBindActive(paths) {
+	realGitPath := paths.RealGit
+	if sandboxRealGit := agentShellSandboxRealGitBind(); sandboxRealGit != "" {
+		realGitPath = sandboxRealGit
+	} else if envRealGit := strings.TrimSpace(os.Getenv(realgit.Env)); executableFile(
+		envRealGit,
+	) {
+		realGitPath = envRealGit
+	} else if agentShellNativeGitBindActive(paths) {
+		realGitPath = strings.TrimSpace(os.Getenv(realgit.Env))
+	} else {
 		installGitWrapperShim(paths)
 	}
 
 	runtimeExecTool(
 		paths,
 		"coding-ethos-git",
-		append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
+		append([]string{"--bundle", bundlePath, "--real-git", realGitPath}, rest...)...)
 
 	return nil
+}
+
+func agentShellSandboxRealGitBind() string {
+	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") != "1" {
+		return ""
+	}
+
+	realGitBind := strings.TrimSpace(os.Getenv(realgit.Env))
+	if realGitBind == "" {
+		return ""
+	}
+
+	resolvedBind := filepath.Clean(realGitBind)
+
+	if filepath.Base(resolvedBind) != "real-git" ||
+		!strings.HasPrefix(filepath.Base(filepath.Dir(resolvedBind)), "run-") ||
+		!strings.HasSuffix(
+			filepath.ToSlash(filepath.Dir(filepath.Dir(resolvedBind))),
+			"/.coding-ethos/cache/agent-shell",
+		) {
+		return ""
+	}
+
+	info, err := os.Stat(resolvedBind)
+	if err != nil || info.IsDir() || info.Mode().Perm()&0o111 == 0 {
+		return ""
+	}
+
+	return resolvedBind
 }
 
 func agentShellNativeGitBindActive(paths runtimePaths) bool {
@@ -706,17 +747,7 @@ func agentShellNativeGitBindActive(paths runtimePaths) bool {
 		return false
 	}
 
-	resolvedBind, err := filepath.EvalSymlinks(realGitBind)
-	if err != nil {
-		debuglog.Debug(
-			"agent-shell.git-bind.inactive",
-			zap.String("reason", "resolve_bind"),
-			zap.String("path", realGitBind),
-			zap.Error(err),
-		)
-
-		return false
-	}
+	resolvedBind := filepath.Clean(realGitBind)
 
 	cacheRoot := filepath.Join(paths.Root, ".coding-ethos", "cache", "agent-shell")
 	if !pathInside(cacheRoot, resolvedBind) {

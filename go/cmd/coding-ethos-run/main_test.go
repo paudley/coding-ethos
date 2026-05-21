@@ -947,6 +947,38 @@ func TestRuntimePathResolutionKeepsSubmoduleCheckoutLocal(t *testing.T) {
 	}
 }
 
+func TestRuntimeGitCommonDirFallbackReadsLinkedWorktreeDotGitFile(t *testing.T) {
+	parent := t.TempDir()
+	commonDir := filepath.Join(parent, ".git")
+	worktreeGitDir := filepath.Join(commonDir, "worktrees", "feature")
+	worktreeRoot := filepath.Join(parent, "feature")
+
+	err := os.MkdirAll(worktreeGitDir, 0o700)
+	if err != nil {
+		t.Fatalf("create worktree git dir: %v", err)
+	}
+
+	err = os.MkdirAll(worktreeRoot, 0o700)
+	if err != nil {
+		t.Fatalf("create worktree root: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(worktreeRoot, ".git"),
+		[]byte("gitdir: "+worktreeGitDir+"\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write worktree .git file: %v", err)
+	}
+
+	hooksDir := filepath.Join(worktreeRoot, ".git", "hooks")
+	got := resolveRuntimeGitCommonDir("/missing/git", worktreeRoot, hooksDir)
+	if got != commonDir {
+		t.Fatalf("git common dir = %q, want %q", got, commonDir)
+	}
+}
+
 func TestRuntimePathsExportManagedEnvironment(t *testing.T) {
 	testlock.ProcessState(t, "coding-ethos-run-env")
 
@@ -1149,7 +1181,7 @@ func TestAgentShellCommandParsesFlagsInAnyOrder(t *testing.T) {
 
 func TestAgentShellRewriteRoutesGitToPolicyGitWithoutNestedRunner(t *testing.T) {
 	paths := runtimeTestPaths(t)
-	writePolicyBundleForTest(t, paths.PolicyBundle)
+	writePolicyBundleForTest(t, hookPolicyBundlePath(paths))
 	t.Setenv("CODING_ETHOS_RUN_GO_HOOK", paths.RunBinary)
 
 	request, err := agentShellCommand([]string{"--rewrite", "--", "git", "status"})
@@ -1204,7 +1236,7 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 		"#!/usr/bin/env sh\nexit 0\n",
 	)
 
-	plan, cleanup, err := agentShellSandboxPlan(
+	plan, env, cleanup, err := agentShellSandboxPlan(
 		paths,
 		"/usr/bin/env",
 		[]string{"bash", "-lc", "git status"},
@@ -1216,6 +1248,27 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 
 	if plan.Executable != filepath.Join(paths.BinDir, "coding-ethos-sandbox") {
 		t.Fatalf("plan executable = %q", plan.Executable)
+	}
+	if !slices.ContainsFunc(env, func(item string) bool {
+		return strings.HasPrefix(
+			item,
+			"PATH="+filepath.Join(paths.Root, ".coding-ethos", "cache", "agent-shell"),
+		)
+	}) {
+		t.Fatalf("agent-shell env does not prioritize managed git wrapper: %#v", env)
+	}
+	if !slices.Contains(env, "CODING_ETHOS_AGENT_SHELL_SANDBOX=1") {
+		t.Fatalf("agent-shell env does not mark sandbox execution: %#v", env)
+	}
+	if !slices.ContainsFunc(env, func(item string) bool {
+		return strings.HasPrefix(item, "CODING_ETHOS_REAL_GIT="+filepath.Join(
+			paths.Root,
+			".coding-ethos",
+			"cache",
+			"agent-shell",
+		)) && strings.HasSuffix(item, string(filepath.Separator)+"real-git")
+	}) {
+		t.Fatalf("agent-shell env does not expose sandbox real git bind: %#v", env)
 	}
 	for _, want := range []string{
 		"--git-wrapper",
@@ -1235,6 +1288,54 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	}
 }
 
+func TestAgentShellWorktreeWritePathsExcludeProtectedRuntimeDirs(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for _, dir := range []string{
+		"go",
+		"docs",
+		".git",
+		".coding-ethos",
+		".code-ethos",
+	} {
+		if err := os.Mkdir(filepath.Join(root, dir), 0o700); err != nil {
+			t.Fatalf("create worktree dir %s: %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "Makefile"),
+		[]byte("all:\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write root file: %v", err)
+	}
+
+	got, err := agentShellWorktreeWritePaths(root)
+	if err != nil {
+		t.Fatalf("agentShellWorktreeWritePaths() error = %v", err)
+	}
+
+	for _, want := range []string{
+		filepath.Join(root, "go"),
+		filepath.Join(root, "docs"),
+		filepath.Join(root, "Makefile"),
+	} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("worktree write paths missing %s: %#v", want, got)
+		}
+	}
+	for _, unwanted := range []string{
+		filepath.Join(root, ".git"),
+		filepath.Join(root, ".coding-ethos"),
+		filepath.Join(root, ".code-ethos"),
+	} {
+		if slices.Contains(got, unwanted) {
+			t.Fatalf("worktree write paths included protected %s: %#v", unwanted, got)
+		}
+	}
+}
+
 func TestAgentShellSandboxPlanFailsClosedWithoutNativeHelper(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("agent-shell native sandbox is Linux-only")
@@ -1242,7 +1343,7 @@ func TestAgentShellSandboxPlanFailsClosedWithoutNativeHelper(t *testing.T) {
 
 	paths := runtimeTestPaths(t)
 
-	_, cleanup, err := agentShellSandboxPlan(
+	_, _, cleanup, err := agentShellSandboxPlan(
 		paths,
 		"/usr/bin/env",
 		[]string{"bash", "-lc", "git status"},
@@ -1407,7 +1508,7 @@ func TestAgentShellCheckRecordsCodeIntelExecution(t *testing.T) {
 	paths := runtimeTestPaths(t)
 	var calls []string
 	paths.Executor = stubRuntimeOps{calls: &calls}
-	writePolicyBundleForTest(t, paths.PolicyBundle)
+	writePolicyBundleForTest(t, hookPolicyBundlePath(paths))
 
 	output := captureRuntimeStdout(t, func() {
 		err := run(paths, []string{
@@ -1472,7 +1573,8 @@ func TestPolicyGitIgnoresSpoofedAgentShellSandboxEnv(t *testing.T) {
 	}
 	if !strings.Contains(
 		got,
-		"exec:coding-ethos-git --bundle "+paths.PolicyBundle+" status",
+		"exec:coding-ethos-git --bundle "+hookPolicyBundlePath(paths)+
+			" --real-git "+paths.RealGit+" status",
 	) {
 		t.Fatalf("policy-git did not execute managed git: %#v", calls)
 	}
@@ -2254,8 +2356,15 @@ func runtimeTestPaths(t *testing.T) runtimePaths {
 		t.Fatalf("create bin dir: %v", err)
 	}
 
+	realGitPath := filepath.Join(root, "system", "git")
+	err = os.MkdirAll(filepath.Dir(realGitPath), 0o755)
+	if err != nil {
+		t.Fatalf("create real git fixture dir: %v", err)
+	}
+	writeExecutableFixture(t, realGitPath, "#!/usr/bin/env sh\nexit 0\n")
+
 	paths := runtimePaths{
-		RealGit:        "/usr/bin/git",
+		RealGit:        realGitPath,
 		InvocationCWD:  filepath.Join(root, "pkg"),
 		Root:           root,
 		GitCommonDir:   filepath.Join(root, ".git"),

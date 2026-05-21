@@ -227,6 +227,7 @@ func goTestManagedArgsCase() managedSubcommandConfigPlacementCase {
 			"-json",
 			"-cover",
 			"-buildvcs=false",
+			"-count=1",
 			"-timeout=30s",
 			"-short",
 			"go",
@@ -616,6 +617,10 @@ func TestRunManagedCaptureExecutesFromConsumerRoot(t *testing.T) {
 }
 
 func nativeSandboxRuntimeAvailable() bool {
+	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") == "1" {
+		return false
+	}
+
 	_, err := sandbox.ValidateNativeRuntime()
 
 	return err == nil
@@ -803,6 +808,9 @@ func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 		if !slices.Contains(capabilities.WritePaths, want) {
 			t.Fatalf("sandbox write paths missing %q: %#v", want, capabilities)
 		}
+		if !slices.Contains(capabilities.ReadPaths, want) {
+			t.Fatalf("sandbox read paths missing writable path %q: %#v", want, capabilities)
+		}
 	}
 }
 
@@ -835,6 +843,9 @@ func TestSandboxCapabilitiesForFormatToolIncludeOnlyTargetFiles(t *testing.T) {
 	if !slices.Contains(capabilities.WritePaths, "pkg/app.py") {
 		t.Fatalf("sandbox write paths missing target file: %#v", capabilities)
 	}
+	if !slices.Contains(capabilities.ReadPaths, "pkg/app.py") {
+		t.Fatalf("sandbox read paths missing writable target file: %#v", capabilities)
+	}
 
 	if slices.Contains(capabilities.WritePaths, "/repo/ruff.toml") ||
 		slices.Contains(capabilities.WritePaths, "README.md") {
@@ -864,6 +875,9 @@ func TestSandboxCapabilitiesForModuleFormatToolIncludeWorktree(t *testing.T) {
 	if !slices.Contains(capabilities.WritePaths, "go") {
 		t.Fatalf("sandbox write paths missing module worktree: %#v", capabilities)
 	}
+	if !slices.Contains(capabilities.ReadPaths, "go") {
+		t.Fatalf("sandbox read paths missing module worktree: %#v", capabilities)
+	}
 }
 
 func TestSandboxCapabilitiesForGoTestIncludeModuleWorktree(t *testing.T) {
@@ -887,6 +901,15 @@ func TestSandboxCapabilitiesForGoTestIncludeModuleWorktree(t *testing.T) {
 
 	if !slices.Contains(capabilities.WritePaths, "go") {
 		t.Fatalf("sandbox write paths missing module worktree: %#v", capabilities)
+	}
+	if !slices.Contains(capabilities.ReadPaths, "go") {
+		t.Fatalf("sandbox read paths missing module worktree: %#v", capabilities)
+	}
+
+	if !capabilities.RequiresGit ||
+		!slices.Contains(capabilities.Tags, "git") ||
+		slices.Contains(capabilities.Tags, "no-git") {
+		t.Fatalf("go-test sandbox capabilities do not allow real git: %#v", capabilities)
 	}
 }
 

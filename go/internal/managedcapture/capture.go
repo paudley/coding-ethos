@@ -30,6 +30,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
@@ -200,9 +201,19 @@ func buildCapturedSandboxPlan(
 	request captureRequest,
 	runArgs []string,
 ) (sandbox.Plan, error) {
+	executable, executableErr := agentShellToolExecutable(request.ToolPath)
+	if executableErr != nil {
+		return sandbox.Plan{
+			Evidence: sandbox.Evidence{
+				Denied: true,
+				Reason: executableErr.Error(),
+			},
+		}, executableErr
+	}
+
 	plan, err := sandbox.BuildPlan(sandbox.Request{
 		Tool:       request.Tool,
-		Executable: request.ToolPath,
+		Executable: executable,
 		WrapperPath: firstCaptureNonEmpty(
 			request.SandboxBackendPath,
 			captureSandboxWrapperPath(),
@@ -313,7 +324,7 @@ func startCapturedProcess(
 	}
 	defer processIO.closeReaders()
 
-	cacheEnv, cacheEnvErr := sandboxCacheEnv(request)
+	cacheEnv, cacheEnvErr := sandboxCacheEnv(ctx, request)
 	if cacheEnvErr != nil {
 		processIO.closeWriters()
 
@@ -440,6 +451,8 @@ func capturedProcessArgv(plan sandbox.Plan) []string {
 
 func capturedProcessEnv(environ []string, cacheEnv sandboxCacheEnvironment) []string {
 	out := make([]string, 0, len(environ))
+	hasPath := false
+
 	for _, item := range environ {
 		name, value, found := strings.Cut(item, "=")
 		if !found {
@@ -456,13 +469,31 @@ func capturedProcessEnv(environ []string, cacheEnv sandboxCacheEnvironment) []st
 			continue
 		}
 
-		if name == "PATH" {
-			out = append(out, name+"="+capturedProcessPath(value))
+		if name == capturedProcessPathEnv {
+			hasPath = true
+
+			out = append(
+				out,
+				name+"="+capturedProcessPathWithPrefix(
+					value,
+					cacheEnv.PathPrefix,
+				),
+			)
 
 			continue
 		}
 
 		out = append(out, item)
+	}
+
+	if !hasPath {
+		out = append(
+			out,
+			capturedProcessPathEnv+"="+capturedProcessPathWithPrefix(
+				"",
+				cacheEnv.PathPrefix,
+			),
+		)
 	}
 
 	out = append(out, cacheEnv.items()...)
@@ -475,39 +506,79 @@ type sandboxCacheEnvironment struct {
 	RuntimeDir      string
 	GoCache         string
 	GolangCILintDir string
+	GoRoot          string
+	CGOEnabled      string
+	CC              string
+	CompilerPath    string
+	Assembler       string
+	RealGit         string
+	PathPrefix      string
 	CleanupTemp     bool
 }
 
 func (environment sandboxCacheEnvironment) overrides(name string) bool {
-	return (environment.TempDir != "" && name == "TMPDIR") ||
-		(environment.RuntimeDir != "" && name == "XDG_RUNTIME_DIR") ||
-		(environment.GoCache != "" && name == "GOCACHE") ||
-		(environment.GolangCILintDir != "" && name == "GOLANGCI_LINT_CACHE")
+	return environment.value(name) != ""
 }
 
 func (environment sandboxCacheEnvironment) items() []string {
 	items := []string{}
 
-	if environment.TempDir != "" {
-		items = append(items, "TMPDIR="+environment.TempDir)
-	}
-
-	if environment.RuntimeDir != "" {
-		items = append(items, "XDG_RUNTIME_DIR="+environment.RuntimeDir)
-	}
-
-	if environment.GoCache != "" {
-		items = append(items, "GOCACHE="+environment.GoCache)
-	}
-
-	if environment.GolangCILintDir != "" {
-		items = append(items, "GOLANGCI_LINT_CACHE="+environment.GolangCILintDir)
+	for _, name := range environment.names() {
+		value := environment.value(name)
+		if value != "" {
+			items = append(items, name+"="+value)
+		}
 	}
 
 	return items
 }
 
-func sandboxCacheEnv(request captureRequest) (sandboxCacheEnvironment, error) {
+func (environment sandboxCacheEnvironment) value(name string) string {
+	switch name {
+	case "TMPDIR":
+		return environment.TempDir
+	case "XDG_RUNTIME_DIR":
+		return environment.RuntimeDir
+	case "GOCACHE":
+		return environment.GoCache
+	case "GOLANGCI_LINT_CACHE":
+		return environment.GolangCILintDir
+	case "GOROOT":
+		return environment.GoRoot
+	case "CGO_ENABLED":
+		return environment.CGOEnabled
+	case "CC":
+		return environment.CC
+	case "COMPILER_PATH":
+		return environment.CompilerPath
+	case "AS":
+		return environment.Assembler
+	case evaluators.RealGitEnv:
+		return environment.RealGit
+	default:
+		return ""
+	}
+}
+
+func (environment sandboxCacheEnvironment) names() []string {
+	return []string{
+		"TMPDIR",
+		"XDG_RUNTIME_DIR",
+		"GOCACHE",
+		"GOLANGCI_LINT_CACHE",
+		"GOROOT",
+		"CGO_ENABLED",
+		"CC",
+		"COMPILER_PATH",
+		"AS",
+		evaluators.RealGitEnv,
+	}
+}
+
+func sandboxCacheEnv(
+	ctx context.Context,
+	request captureRequest,
+) (sandboxCacheEnvironment, error) {
 	root := firstCaptureNonEmpty(request.TraceRoot, request.Cwd)
 	if strings.TrimSpace(root) == "" {
 		return sandboxCacheEnvironment{}, nil
@@ -541,6 +612,11 @@ func sandboxCacheEnv(request captureRequest) (sandboxCacheEnvironment, error) {
 		}
 	}
 
+	realGit, pathPrefix, err := managedSubprocessGitEnv(ctx, tempDir)
+	if err != nil {
+		return sandboxCacheEnvironment{}, err
+	}
+
 	goCache := filepath.Join(root, sandbox.SandboxGoCachePath)
 
 	err = os.MkdirAll(goCache, capturedPrivateDirMode)
@@ -561,13 +637,70 @@ func sandboxCacheEnv(request captureRequest) (sandboxCacheEnvironment, error) {
 		)
 	}
 
+	cCompiler := managedCCompiler()
+	assembler := managedAssembler()
+
 	return sandboxCacheEnvironment{
 		TempDir:         tempDir,
 		RuntimeDir:      runtimeDir,
 		CleanupTemp:     cleanupTemp,
 		GoCache:         goCache,
 		GolangCILintDir: golangCILintDir,
+		GoRoot:          managedGoRoot(ctx),
+		CGOEnabled:      "1",
+		CC:              cCompiler,
+		CompilerPath:    managedCompilerPath(cCompiler, assembler),
+		Assembler:       assembler,
+		RealGit:         realGit,
+		PathPrefix:      pathPrefix,
 	}, nil
+}
+
+func managedSubprocessPathPrefix(tempDir, realGit string) (string, error) {
+	err := os.MkdirAll(tempDir, capturedPrivateDirMode)
+	if err != nil {
+		return "", fmt.Errorf("create managed subprocess temp dir: %w", err)
+	}
+
+	toolDir, err := os.MkdirTemp(tempDir, "path-*")
+	if err != nil {
+		return "", fmt.Errorf("create managed subprocess path: %w", err)
+	}
+
+	gitPath := filepath.Join(toolDir, "git")
+
+	err = os.Symlink(realGit, gitPath)
+	if err != nil {
+		return "", fmt.Errorf("link managed subprocess git: %w", err)
+	}
+
+	return toolDir, nil
+}
+
+func resolvedManagedSubprocessGit(ctx context.Context) (string, error) {
+	envGit := strings.TrimSpace(os.Getenv("CODING_ETHOS_REAL_GIT"))
+	if envGit != "" {
+		self, err := os.Executable()
+		if err != nil {
+			return "", fmt.Errorf("resolve managed subprocess executable: %w", err)
+		}
+
+		resolvedSelf, err := filepath.EvalSymlinks(self)
+		if err != nil {
+			resolvedSelf = self
+		}
+
+		if realgit.UsableCandidate(resolvedSelf, envGit) {
+			return envGit, nil
+		}
+	}
+
+	realGit, err := realgit.Resolve(ctx, "git")
+	if err != nil {
+		return "", fmt.Errorf("resolve managed subprocess git: %w", err)
+	}
+
+	return realGit, nil
 }
 
 func cleanupSandboxCacheEnv(environment sandboxCacheEnvironment) {
@@ -577,23 +710,11 @@ func cleanupSandboxCacheEnv(environment sandboxCacheEnvironment) {
 }
 
 func resolvedGoTestSandboxTempDir(root string) string {
-	tempRoot, err := filepath.EvalSymlinks(os.TempDir())
-	if err != nil {
-		tempRoot = filepath.Clean(os.TempDir())
-	}
-
-	return filepath.Join(tempRoot, goTestSandboxTempName(root))
+	return filepath.Join(root, sandbox.SandboxTempWritePath, goTestSandboxTempName(root))
 }
 
 func goTestSandboxTempDir(root string) string {
-	tempRoot := os.TempDir()
-
-	resolvedTempRoot, err := filepath.EvalSymlinks(tempRoot)
-	if err == nil {
-		tempRoot = resolvedTempRoot
-	}
-
-	return filepath.Join(tempRoot, goTestSandboxTempName(root))
+	return filepath.Join(root, sandbox.SandboxTempWritePath, goTestSandboxTempName(root))
 }
 
 func goTestSandboxTempName(root string) string {
@@ -609,66 +730,6 @@ func gpgRuntimeWritePath() string {
 	}
 
 	return filepath.Join(runtimeRoot, "gnupg")
-}
-
-func capturedProcessEnvBlocked(name string) bool {
-	if strings.HasPrefix(name, "CODE_ETHOS_") ||
-		strings.HasPrefix(name, "CODING_ETHOS_") {
-		return true
-	}
-
-	if strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||
-		strings.HasPrefix(name, "GIT_CONFIG_VALUE_") {
-		return true
-	}
-
-	switch name {
-	case "GIT_HOOK_SRC_DIR",
-		"GIT_ALTERNATE_OBJECT_DIRECTORIES",
-		"GIT_COMMON_DIR",
-		"GIT_CONFIG_COUNT",
-		"GIT_CONFIG_PARAMETERS",
-		"GIT_DIR",
-		"GIT_INDEX_FILE",
-		"GIT_NAMESPACE",
-		"GIT_OBJECT_DIRECTORY",
-		"GIT_PREFIX",
-		"GIT_QUARANTINE_PATH",
-		"GIT_WORK_TREE",
-		"INVOCATION_CWD",
-		"MANAGED_TOOLCHAIN_MANIFEST",
-		"POLICY_METADATA",
-		"TOOLS_SRC_DIR":
-		return true
-	default:
-		return false
-	}
-}
-
-func capturedProcessPath(pathValue string) string {
-	kept := []string{}
-
-	for _, entry := range filepath.SplitList(pathValue) {
-		if entry == "" || pathEntryHasCodingEthosGitShim(entry) {
-			continue
-		}
-
-		kept = append(kept, entry)
-	}
-
-	return strings.Join(kept, string(os.PathListSeparator))
-}
-
-func pathEntryHasCodingEthosGitShim(entry string) bool {
-	payload, err := os.ReadFile(filepath.Join(entry, "git"))
-	if err != nil {
-		return false
-	}
-
-	text := string(payload)
-
-	return strings.Contains(text, "coding-ethos-run") &&
-		strings.Contains(text, "policy-git")
 }
 
 func copyProcessOutput(

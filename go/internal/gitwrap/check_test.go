@@ -315,11 +315,10 @@ func TestCheckBlocksUnsignedOutgoingPush(t *testing.T) {
 	t.Parallel()
 
 	repo := initGitwrapRepo(t)
-	remote := filepath.Join(t.TempDir(), "remote.git")
-	runGitwrapGit(t, "", "init", "--bare", remote)
 	runGitwrapGit(t, repo, "branch", "-M", "main")
-	runGitwrapGit(t, repo, "remote", "add", "origin", remote)
-	runGitwrapGit(t, repo, "push", "-u", "origin", "main")
+	runGitwrapGit(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+	runGitwrapGit(t, repo, "config", "branch.main.remote", "origin")
+	runGitwrapGit(t, repo, "config", "branch.main.merge", "refs/heads/main")
 
 	err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("changed\n"), 0o600)
 	if err != nil {

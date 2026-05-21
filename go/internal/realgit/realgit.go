@@ -6,6 +6,7 @@
 package realgit
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -22,7 +23,8 @@ const (
 	// Env names the validated environment setting for the host git binary.
 	Env = "CODING_ETHOS_REAL_GIT"
 
-	executableName = "git"
+	codingEthosRuntimeProbeBytes = 8192
+	executableName               = "git"
 )
 
 var errUnresolved = apperror.StaticError(
@@ -45,10 +47,14 @@ func Resolve(ctx context.Context, requested string) (string, error) {
 		resolvedSelf = self
 	}
 
-	if envValue := strings.TrimSpace(os.Getenv(Env)); envValue != "" &&
-		UsableCandidate(resolvedSelf, envValue) &&
-		reportsGitVersion(ctx, envValue) {
-		return envValue, nil
+	if envValue := strings.TrimSpace(os.Getenv(Env)); envValue != "" {
+		if UsableCandidate(resolvedSelf, envValue) && reportsGitVersion(ctx, envValue) {
+			return envValue, nil
+		}
+
+		if trustedAgentShellRealGitBind(resolvedSelf, envValue) {
+			return envValue, nil
+		}
 	}
 
 	for _, candidate := range Candidates(resolvedSelf) {
@@ -131,7 +137,8 @@ func LooksLikeCodingEthosShim(path, self string) bool {
 		return true
 	}
 
-	return dirContainsCodingEthosRuntime(filepath.Dir(path))
+	return dirContainsCodingEthosRuntime(filepath.Dir(path)) ||
+		executableReferencesCodingEthosRuntime(path)
 }
 
 func dirContainsCodingEthosRuntime(dir string) bool {
@@ -145,6 +152,51 @@ func dirContainsCodingEthosRuntime(dir string) bool {
 	info, err := os.Stat(target)
 
 	return err == nil && !info.IsDir()
+}
+
+func executableReferencesCodingEthosRuntime(path string) bool {
+	// #nosec G304,G703 -- path is a resolved executable candidate, not user data.
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+
+	defer func() {
+		_ = file.Close()
+	}()
+
+	buffer := make([]byte, codingEthosRuntimeProbeBytes)
+
+	count, err := file.Read(buffer)
+	if err != nil && count == 0 {
+		return false
+	}
+
+	return bytes.Contains(buffer[:count], []byte("coding-ethos-run"))
+}
+
+func trustedAgentShellRealGitBind(self, path string) bool {
+	cleaned := filepath.Clean(path)
+	if filepath.Base(cleaned) != "real-git" {
+		return false
+	}
+
+	parent := filepath.Base(filepath.Dir(cleaned))
+	if !strings.HasPrefix(parent, "run-") {
+		return false
+	}
+
+	cacheDir := filepath.ToSlash(filepath.Dir(filepath.Dir(cleaned)))
+	if !strings.HasSuffix(cacheDir, "/.coding-ethos/cache/agent-shell") {
+		return false
+	}
+
+	info, err := os.Stat(cleaned)
+	if err != nil || info.IsDir() || info.Size() == 0 || info.Mode().Perm()&0o111 == 0 {
+		return false
+	}
+
+	return !LooksLikeCodingEthosShim(cleaned, self)
 }
 
 func reportsGitVersion(ctx context.Context, path string) bool {

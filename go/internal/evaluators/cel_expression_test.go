@@ -1321,9 +1321,15 @@ func TestEvaluateCELExpressionAllowsManagedToolCapabilityContract(t *testing.T) 
 					tool.name != "gemini-check" &&
 					(
 						tool.requires_network ||
-						tool.requires_git ||
 						!list_contains(tool.tags, "no-network") ||
-						!list_contains(tool.tags, "no-git") ||
+						(
+							tool.requires_git &&
+							!list_contains(tool.tags, "git")
+						) ||
+						(
+							!tool.requires_git &&
+							!list_contains(tool.tags, "no-git")
+						) ||
 						tool.sandbox_profile == "" ||
 						tool.timeout_seconds <= 0 ||
 						tool.memory_mb <= 0 ||

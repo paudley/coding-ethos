@@ -116,8 +116,16 @@ func TestLooksLikeCodingEthosShimRejectsRuntimeDirectory(t *testing.T) {
 	if !realgit.LooksLikeCodingEthosShim(shim, self) {
 		t.Fatal("git beside coding-ethos-run should be treated as a shim")
 	}
-	if realgit.LooksLikeCodingEthosShim("/usr/bin/git", self) {
-		t.Fatal("system git path should not be treated as a coding-ethos shim")
+	systemGit := createNamedExecutable(
+		t,
+		filepath.Join(root, "system"),
+		"git",
+		"#!/bin/sh\nexit 0\n",
+	)
+	if realgit.LooksLikeCodingEthosShim(systemGit, self) {
+		t.Fatal(
+			"git outside the runtime and tool directories should not be treated as a coding-ethos shim",
+		)
 	}
 }
 

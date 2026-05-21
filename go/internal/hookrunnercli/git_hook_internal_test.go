@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 func TestHookFilesForPreCommitDiscoversStagedAndAllFiles(t *testing.T) {
@@ -454,7 +456,12 @@ func runGitTestCommand(t *testing.T, args ...string) {
 func runGitTestCommandInDir(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
-	cmd := exec.CommandContext(context.Background(), "/usr/bin/git", args...)
+	gitPath, err := realgit.Resolve(context.Background(), "git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	cmd := exec.CommandContext(context.Background(), gitPath, args...)
 	cmd.Dir = dir
 	cmd.Env = cleanGitTestEnv()
 
@@ -467,7 +474,12 @@ func runGitTestCommandInDir(t *testing.T, dir string, args ...string) {
 func gitTestOutput(t *testing.T, args ...string) string {
 	t.Helper()
 
-	cmd := exec.CommandContext(context.Background(), "/usr/bin/git", args...)
+	gitPath, err := realgit.Resolve(context.Background(), "git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	cmd := exec.CommandContext(context.Background(), gitPath, args...)
 	cmd.Dir = repoRoot()
 	cmd.Env = cleanGitTestEnv()
 
