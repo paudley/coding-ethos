@@ -137,9 +137,9 @@ output to an agent so repeated reads save tokens without hiding changed source.
 
 Provider-native file read tools are the supported live path for source reads.
 Claude-style Bash file-tool emulation such as `cat <path>`,
-`sed -n '1,20p' <path>`, `awk ... <path>`, `tee <path>`, and shell write
-redirection is blocked before execution so policy receives structured file
-targets instead of opaque shell output. That fail-closed behavior takes
+`sed -n '1,20p' <path>`, `awk ... <path>`, `tee <path>`, and `echo`/`printf`
+write-redirection forms are blocked before execution so policy receives
+structured file targets instead of opaque shell output. That fail-closed behavior takes
 precedence over older live `cat` pagination experiments.
 
 The `code-intel proxy-file-read` bridge remains the explicit path for

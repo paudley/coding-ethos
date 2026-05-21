@@ -427,9 +427,9 @@ file body. This is the reusable core for future transparent read interception.
 
 Provider-native file read tools are the supported path for reading source.
 Claude-style Bash file-tool emulation such as `cat <path>`,
-`sed -n '1,20p' <path>`, `awk ... <path>`, `tee <path>`, and shell write
-redirection is blocked before execution so the provider preserves structured
-file targets for policy evaluation. The `code-intel proxy-file-read` bridge
+`sed -n '1,20p' <path>`, `awk ... <path>`, `tee <path>`, and `echo`/`printf`
+write-redirection forms are blocked before execution so the provider preserves
+structured file targets for policy evaluation. The `code-intel proxy-file-read` bridge
 remains the explicit CLI path for session-scoped read-cache evidence and future
 transparent read interception.
 
