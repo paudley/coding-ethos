@@ -688,13 +688,7 @@ func runPolicyGitHandler(paths runtimePaths, rest []string) error {
 	requireRuntimeFile(bundlePath, "compiled policy bundle")
 
 	realGitPath := paths.RealGit
-	if sandboxRealGit := agentShellSandboxRealGitBind(); sandboxRealGit != "" {
-		realGitPath = sandboxRealGit
-	} else if envRealGit := strings.TrimSpace(os.Getenv(realgit.Env)); executableFile(
-		envRealGit,
-	) {
-		realGitPath = envRealGit
-	} else if agentShellNativeGitBindActive(paths) {
+	if agentShellNativeGitBindActive(paths) {
 		realGitPath = strings.TrimSpace(os.Getenv(realgit.Env))
 	} else {
 		installGitWrapperShim(paths)
@@ -708,35 +702,6 @@ func runPolicyGitHandler(paths runtimePaths, rest []string) error {
 	return nil
 }
 
-func agentShellSandboxRealGitBind() string {
-	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") != "1" {
-		return ""
-	}
-
-	realGitBind := strings.TrimSpace(os.Getenv(realgit.Env))
-	if realGitBind == "" {
-		return ""
-	}
-
-	resolvedBind := filepath.Clean(realGitBind)
-
-	if filepath.Base(resolvedBind) != "real-git" ||
-		!strings.HasPrefix(filepath.Base(filepath.Dir(resolvedBind)), "run-") ||
-		!strings.HasSuffix(
-			filepath.ToSlash(filepath.Dir(filepath.Dir(resolvedBind))),
-			"/.coding-ethos/cache/agent-shell",
-		) {
-		return ""
-	}
-
-	info, err := os.Stat(resolvedBind)
-	if err != nil || info.IsDir() || info.Mode().Perm()&0o111 == 0 {
-		return ""
-	}
-
-	return resolvedBind
-}
-
 func agentShellNativeGitBindActive(paths runtimePaths) bool {
 	if runtime.GOOS != linuxGOOS {
 		return false
@@ -748,6 +713,15 @@ func agentShellNativeGitBindActive(paths runtimePaths) bool {
 	}
 
 	resolvedBind := filepath.Clean(realGitBind)
+	if !executableFile(resolvedBind) {
+		debuglog.Debug(
+			"agent-shell.git-bind.inactive",
+			zap.String("reason", "not_executable"),
+			zap.String("path", resolvedBind),
+		)
+
+		return false
+	}
 
 	cacheRoot := filepath.Join(paths.Root, ".coding-ethos", "cache", "agent-shell")
 	if !pathInside(cacheRoot, resolvedBind) {

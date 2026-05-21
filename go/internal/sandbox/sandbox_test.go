@@ -218,7 +218,7 @@ func TestBuildPlanIgnoresSpoofedActiveSandboxMarker(
 	}
 }
 
-func TestBuildPlanReusesTrustedAgentShellSandbox(t *testing.T) {
+func TestBuildPlanRejectsForgeableAgentShellSandboxMarker(t *testing.T) {
 	requireLinuxSandbox(t)
 
 	repo := t.TempDir()
@@ -254,18 +254,11 @@ func TestBuildPlanReusesTrustedAgentShellSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sandbox.BuildPlan() error = %v", err)
 	}
-	if plan.Executable != "/usr/bin/env" {
-		t.Fatalf("plan executable = %q, want direct executable", plan.Executable)
+	if plan.Executable != wrapper || plan.Evidence.BackendPath != wrapper {
+		t.Fatalf("forgeable agent-shell marker bypassed wrapper %q: %#v", wrapper, plan)
 	}
-	if plan.Evidence.Reason != "reusing active agent-shell sandbox" {
-		t.Fatalf("plan evidence reason = %q", plan.Evidence.Reason)
-	}
-	if plan.Evidence.NamespaceEnforced || plan.Evidence.ProcessIsolated ||
-		plan.Evidence.NetworkIsolated {
-		t.Fatalf(
-			"reused active sandbox must not request nested namespaces: %#v",
-			plan.Evidence,
-		)
+	if !plan.Evidence.Enabled || !plan.Evidence.NamespaceEnforced {
+		t.Fatalf("forgeable agent-shell marker disabled sandbox evidence: %#v", plan.Evidence)
 	}
 }
 

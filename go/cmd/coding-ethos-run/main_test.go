@@ -1580,6 +1580,37 @@ func TestPolicyGitIgnoresSpoofedAgentShellSandboxEnv(t *testing.T) {
 	}
 }
 
+func TestPolicyGitIgnoresArbitraryEnvRealGitExecutable(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+	writePolicyBundleForTest(t, hookPolicyBundlePath(paths))
+
+	attackerGit := filepath.Join(t.TempDir(), "attacker-git")
+	writeExecutableFixture(t, attackerGit, "#!/usr/bin/env sh\nexit 0\n")
+	t.Setenv(realgit.Env, attackerGit)
+
+	err := run(paths, []string{"policy-git", "status"})
+	if err != nil {
+		t.Fatalf("run policy-git: %v", err)
+	}
+
+	got := strings.Join(calls, "\n")
+	if strings.Contains(got, "--real-git "+attackerGit) {
+		t.Fatalf("policy-git executed arbitrary env real git: %#v", calls)
+	}
+	if !strings.Contains(got, "direct-run:coding-ethos-toolchain install-git-shim") {
+		t.Fatalf("arbitrary env real git skipped shim install: %#v", calls)
+	}
+	if !strings.Contains(
+		got,
+		"exec:coding-ethos-git --bundle "+hookPolicyBundlePath(paths)+
+			" --real-git "+paths.RealGit+" status",
+	) {
+		t.Fatalf("policy-git did not execute managed git: %#v", calls)
+	}
+}
+
 func TestAgentShellNativeGitBindRequiresReadOnlyMountInfo(t *testing.T) {
 	t.Parallel()
 
