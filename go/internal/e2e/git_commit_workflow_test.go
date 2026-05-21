@@ -80,43 +80,10 @@ func TestManagedGitCommitWorkflowPreservesUserFacingFailures(t *testing.T) {
 func TestParentRuntimeCerunGitAddAndCommitUseInstalledArtifacts(t *testing.T) {
 	t.Parallel()
 
-	if testing.Short() {
-		t.Skip("real parent runtime e2e is skipped in short mode")
-	}
-	if runtime.GOOS == windowsGOOS {
-		t.Skip("real parent runtime e2e uses POSIX paths")
-	}
-
-	sourceRoot := repoRootFromWorkingDirectory(t)
-	e2e.RequireRuntime(t, sourceRoot)
-
-	parentRepo := t.TempDir()
-	e2e.Run(t, parentRepo, realGitPath(t), "init", "--initial-branch", "main").
-		RequireExit(t, 0)
-	e2e.Run(t, parentRepo, realGitPath(t), "config", "user.email", "test@example.invalid").
-		RequireExit(t, 0)
-	e2e.Run(t, parentRepo, realGitPath(t), "config", "user.name", "Test User").
-		RequireExit(t, 0)
-	e2e.Run(t, parentRepo, realGitPath(t), "config", "commit.gpgsign", "false").
-		RequireExit(t, 0)
-
-	writeParentRuntimeFile(t, parentRepo, "repo_config.yaml", managedGitCommitRepoConfig())
-	writeParentRuntimeFile(
-		t,
-		parentRepo,
-		".gitignore",
-		".code-ethos/cache/\n.coding-ethos/\n",
-	)
-	writeParentRuntimeFile(t, parentRepo, "README.md", "# parent runtime e2e\n")
-	e2e.Run(t, parentRepo, realGitPath(t), "add", ".gitignore", "README.md", "repo_config.yaml").
-		RequireExit(t, 0)
-	e2e.Run(t, parentRepo, realGitPath(t), "commit", "-m", "test(repo): initialize parent runtime e2e").
-		RequireExit(t, 0)
-	e2e.Run(t, parentRepo, realGitPath(t), "switch", "-c", "feature/parent-runtime-e2e").
-		RequireExit(t, 0)
-
-	parentBin := installParentRuntimeArtifacts(t, sourceRoot, parentRepo)
-	parentCerun := filepath.Join(parentBin, "cerun")
+	fixture := preparedParentRuntimeRepo(t)
+	parentRepo := fixture.Root
+	parentBin := fixture.Bin
+	parentCerun := fixture.Cerun
 
 	writeParentRuntimeFile(
 		t,
@@ -156,6 +123,113 @@ func TestParentRuntimeCerunGitAddAndCommitUseInstalledArtifacts(t *testing.T) {
 	)
 	commit.RequireExit(t, 0)
 	assertNoCommitHeadPolicyLeak(t, commit)
+}
+
+func TestParentRuntimeCerunGitAddFailsFastWithoutPolicyBundle(t *testing.T) {
+	t.Parallel()
+
+	fixture := preparedParentRuntimeRepo(t)
+	policyBundle := filepath.Join(
+		filepath.Dir(fixture.Bin),
+		"policy",
+		"policy-bundle.json",
+	)
+	if err := os.Remove(policyBundle); err != nil {
+		t.Fatalf("remove parent runtime policy bundle: %v", err)
+	}
+
+	writeParentRuntimeFile(
+		t,
+		fixture.Root,
+		"runtime-missing-policy.txt",
+		"exercise missing parent policy bundle\n",
+	)
+
+	add := e2e.Run(
+		t,
+		fixture.Root,
+		fixture.Cerun,
+		"--rewrite",
+		"--",
+		"git",
+		"add",
+		"runtime-missing-policy.txt",
+	)
+	add.RequireExit(t, 127)
+	for _, want := range []string{
+		"FATAL: coding-ethos hook runtime is missing or invalid",
+		"missing compiled policy bundle",
+		policyBundle,
+		"action: run make build",
+	} {
+		add.RequireContains(t, want)
+	}
+
+	cached := e2e.Run(
+		t,
+		fixture.Root,
+		realGitPath(t),
+		"diff",
+		"--cached",
+		"--name-only",
+	)
+	cached.RequireExit(t, 0)
+	if strings.Contains(cached.Stdout, "runtime-missing-policy.txt") {
+		t.Fatalf("missing-policy git add staged file unexpectedly:\n%s", cached.Stdout)
+	}
+}
+
+type parentRuntimeFixture struct {
+	Root  string
+	Bin   string
+	Cerun string
+}
+
+func preparedParentRuntimeRepo(t *testing.T) parentRuntimeFixture {
+	t.Helper()
+
+	if testing.Short() {
+		t.Skip("real parent runtime e2e is skipped in short mode")
+	}
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("real parent runtime e2e uses POSIX paths")
+	}
+
+	sourceRoot := repoRootFromWorkingDirectory(t)
+	e2e.RequireRuntime(t, sourceRoot)
+
+	parentRepo := t.TempDir()
+	e2e.Run(t, parentRepo, realGitPath(t), "init", "--initial-branch", "main").
+		RequireExit(t, 0)
+	e2e.Run(t, parentRepo, realGitPath(t), "config", "user.email", "test@example.invalid").
+		RequireExit(t, 0)
+	e2e.Run(t, parentRepo, realGitPath(t), "config", "user.name", "Test User").
+		RequireExit(t, 0)
+	e2e.Run(t, parentRepo, realGitPath(t), "config", "commit.gpgsign", "false").
+		RequireExit(t, 0)
+
+	writeParentRuntimeFile(t, parentRepo, "repo_config.yaml", managedGitCommitRepoConfig())
+	writeParentRuntimeFile(
+		t,
+		parentRepo,
+		".gitignore",
+		".code-ethos/cache/\n.coding-ethos/\n",
+	)
+	writeParentRuntimeFile(t, parentRepo, "README.md", "# parent runtime e2e\n")
+	e2e.Run(t, parentRepo, realGitPath(t), "add", ".gitignore", "README.md", "repo_config.yaml").
+		RequireExit(t, 0)
+	e2e.Run(t, parentRepo, realGitPath(t), "commit", "-m", "test(repo): initialize parent runtime e2e").
+		RequireExit(t, 0)
+	e2e.Run(t, parentRepo, realGitPath(t), "switch", "-c", "feature/parent-runtime-e2e").
+		RequireExit(t, 0)
+
+	parentBin := installParentRuntimeArtifacts(t, sourceRoot, parentRepo)
+
+	return parentRuntimeFixture{
+		Root:  parentRepo,
+		Bin:   parentBin,
+		Cerun: filepath.Join(parentBin, "cerun"),
+	}
 }
 
 func preparedManagedGitCommitRepo(t *testing.T) e2e.Repo {
