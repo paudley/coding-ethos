@@ -4,6 +4,7 @@
 package managedcapture
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -42,7 +43,7 @@ func agentShellToolExecutable(path string) (string, error) {
 	}
 
 	target := agentShellToolTarget(toolDir, source)
-	if reusableAgentShellToolTarget(target, info) {
+	if reusableAgentShellToolTarget(source, target, info) {
 		return target, nil
 	}
 
@@ -105,13 +106,29 @@ func installAgentShellToolExecutable(
 	return target, nil
 }
 
-func reusableAgentShellToolTarget(target string, sourceInfo os.FileInfo) bool {
+func reusableAgentShellToolTarget(source, target string, sourceInfo os.FileInfo) bool {
 	info, err := os.Stat(target)
 	if err != nil || info.IsDir() || !info.Mode().IsRegular() {
 		return false
 	}
 
-	return info.Size() == sourceInfo.Size() && info.Mode().Perm()&0o111 != 0
+	if info.Size() != sourceInfo.Size() || info.Mode().Perm()&0o111 == 0 {
+		return false
+	}
+
+	// #nosec G304,G703 -- both paths are validated managed tool executables.
+	sourcePayload, err := os.ReadFile(source)
+	if err != nil {
+		return false
+	}
+
+	// #nosec G304,G703 -- target is inside the trusted agent-shell tool directory.
+	targetPayload, err := os.ReadFile(target)
+	if err != nil {
+		return false
+	}
+
+	return bytes.Equal(sourcePayload, targetPayload)
 }
 
 func trustedAgentShellToolDir() string {

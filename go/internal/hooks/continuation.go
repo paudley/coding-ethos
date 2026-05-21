@@ -217,6 +217,7 @@ func gitCommonDir(cwd string) (string, error) {
 		"--show-toplevel",
 	)
 	rootCommand.Dir = cwd
+	rootCommand.Env = realgit.CleanGitLocalEnv(os.Environ())
 
 	rootOutput, rootErr := rootCommand.Output()
 	if rootErr == nil {
@@ -239,6 +240,7 @@ func gitCommonDir(cwd string) (string, error) {
 		"--git-common-dir",
 	)
 	command.Dir = cwd
+	command.Env = realgit.CleanGitLocalEnv(os.Environ())
 
 	output, err := command.Output()
 	if err != nil {

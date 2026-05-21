@@ -27,10 +27,14 @@ func TestDefaultScenariosBlockKnownBypassClasses(t *testing.T) {
 	}
 
 	bundle := compileRepoBundle(t)
+	realGit, err := realgit.Resolve(context.Background(), "git")
+	if err != nil {
+		t.Fatalf("resolve real git: %v", err)
+	}
 
 	results, err := redteam.RunScenarios(
 		bundle,
-		redteam.DefaultScenarios(""),
+		redteam.DefaultScenarios(realGit),
 		repoRoot,
 	)
 	if err != nil {

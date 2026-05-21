@@ -67,6 +67,55 @@ func TestAgentShellToolExecutableCopiesExecutableIntoTrustedRunDir(t *testing.T)
 	}
 }
 
+func TestAgentShellToolExecutableRefreshesSameSizeChangedExecutable(t *testing.T) {
+	root := t.TempDir()
+	runDir := filepath.Join(root, ".coding-ethos", "cache", "agent-shell", "run-test")
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
+		t.Fatalf("create run dir: %v", err)
+	}
+	realGit := filepath.Join(runDir, "real-git")
+	if err := os.WriteFile(realGit, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatalf("write real git bind: %v", err)
+	}
+
+	tool := filepath.Join(root, "tool")
+	first := []byte("#!/bin/sh\necho one\n")
+	second := []byte("#!/bin/sh\necho two\n")
+	if len(first) != len(second) {
+		t.Fatal("test payloads must have equal size")
+	}
+	if err := os.WriteFile(tool, first, 0o755); err != nil {
+		t.Fatalf("write tool: %v", err)
+	}
+
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_REAL_GIT", realGit)
+
+	copiedPath, err := agentShellToolExecutable(tool)
+	if err != nil {
+		t.Fatalf("agent shell tool executable: %v", err)
+	}
+	if err := os.WriteFile(tool, second, 0o755); err != nil {
+		t.Fatalf("rewrite tool: %v", err)
+	}
+
+	refreshedPath, err := agentShellToolExecutable(tool)
+	if err != nil {
+		t.Fatalf("agent shell tool executable after rewrite: %v", err)
+	}
+	if refreshedPath != copiedPath {
+		t.Fatalf("refreshed path = %q, want same cache path %q", refreshedPath, copiedPath)
+	}
+
+	copied, err := os.ReadFile(refreshedPath)
+	if err != nil {
+		t.Fatalf("read refreshed tool: %v", err)
+	}
+	if string(copied) != string(second) {
+		t.Fatalf("refreshed payload = %q, want %q", copied, second)
+	}
+}
+
 func TestAgentShellToolExecutableRejectsUntrustedRunDir(t *testing.T) {
 	root := t.TempDir()
 	runDir := filepath.Join(root, "cache", "agent-shell", "run-test")
