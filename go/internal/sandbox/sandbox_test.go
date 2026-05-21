@@ -183,6 +183,44 @@ func TestBuildPlanAllowsExplicitGitWritesForManagedGitSandbox(t *testing.T) {
 	}
 }
 
+func TestBuildPlanAllowsGitPolicyWithoutNativeGitBinding(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	writeExecutable(t, wrapper)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "agent-shell",
+		Executable:  "/usr/bin/env",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"bash", "-lc", "git status"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "agent-shell",
+			WritePaths:     []string{filepath.Join(repo, ".git")},
+			AllowGitWrites: true,
+			RequiresGit:    true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+
+	for _, unwanted := range []string{"--git-wrapper", "--real-git-path", "--git-target"} {
+		if slices.Contains(plan.Args, unwanted) {
+			t.Fatalf("git bind flag %q should not be present: %#v", unwanted, plan.Args)
+		}
+	}
+	if !plan.Evidence.RequiresGit || plan.Evidence.GitReadOnly {
+		t.Fatalf("git policy evidence not preserved: %#v", plan.Evidence)
+	}
+	if !slices.Contains(plan.Args, "--allow-git-writes") {
+		t.Fatalf("git write policy flag missing: %#v", plan.Args)
+	}
+}
+
 func TestBuildPlanIgnoresSpoofedActiveSandboxMarker(
 	t *testing.T,
 ) {

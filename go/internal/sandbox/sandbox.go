@@ -847,17 +847,19 @@ func nativeWrapperArgs(request Request, writePaths []string) []string {
 	}
 
 	if request.Capabilities.RequiresGit {
-		args = append(args, "--git-wrapper", request.Capabilities.GitWrapperPath)
+		if gitBindingRequested(request.Capabilities, gitTargets) {
+			args = append(args, "--git-wrapper", request.Capabilities.GitWrapperPath)
 
-		args = append(
-			args,
-			"--real-git-path",
-			request.Capabilities.RealGitPath,
-			"--real-git-bind",
-			request.Capabilities.RealGitBindPath,
-		)
-		for _, path := range gitTargets {
-			args = append(args, "--git-target", path)
+			args = append(
+				args,
+				"--real-git-path",
+				request.Capabilities.RealGitPath,
+				"--real-git-bind",
+				request.Capabilities.RealGitBindPath,
+			)
+			for _, path := range gitTargets {
+				args = append(args, "--git-target", path)
+			}
 		}
 
 		if request.Capabilities.AllowGitWrites {
@@ -869,6 +871,13 @@ func nativeWrapperArgs(request Request, writePaths []string) []string {
 	args = append(args, request.Args...)
 
 	return args
+}
+
+func gitBindingRequested(capabilities Capabilities, gitTargets []string) bool {
+	return strings.TrimSpace(capabilities.GitWrapperPath) != "" ||
+		strings.TrimSpace(capabilities.RealGitPath) != "" ||
+		strings.TrimSpace(capabilities.RealGitBindPath) != "" ||
+		len(gitTargets) > 0
 }
 
 func normalizedGitTargetPaths(paths []string) []string {

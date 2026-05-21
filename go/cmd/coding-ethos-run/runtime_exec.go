@@ -215,15 +215,11 @@ func agentShellSandboxPlan(
 		Capabilities: sandbox.Capabilities{
 			SandboxProfile:  "agent-shell",
 			StrategicIntent: agentShellStrategicIntent(),
-			GitWrapperPath:  gitWrapper,
-			RealGitPath:     realGitPath,
-			RealGitBindPath: realGitBind,
-			GitTargetPaths:  agentShellGitTargets(paths),
 			WritePaths:      append([]string{paths.GitCommonDir}, agentWritePaths...),
 			AllowGitWrites:  true,
 			RequiresGit:     true,
 			RequiresNetwork: true,
-			Tags:            []string{"agent-shell", "git-bind"},
+			Tags:            []string{"agent-shell", "path-git-wrapper"},
 		},
 	})
 	if err != nil {

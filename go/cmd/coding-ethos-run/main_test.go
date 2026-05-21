@@ -1270,18 +1270,19 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	}) {
 		t.Fatalf("agent-shell env does not expose sandbox real git bind: %#v", env)
 	}
-	for _, want := range []string{
-		"--git-wrapper",
-		"--real-git-path",
-		paths.RealGit,
-		"--git-target",
-		paths.RealGit,
-		"--",
-		"/usr/bin/env",
-		"bash",
-		"-lc",
-		"git status",
-	} {
+	if !plan.Evidence.RequiresGit {
+		t.Fatalf("agent-shell plan must preserve git-required evidence: %#v", plan.Evidence)
+	}
+	for _, unwanted := range []string{"--git-wrapper", "--real-git-path", "--git-target"} {
+		if slices.Contains(plan.Args, unwanted) {
+			t.Fatalf(
+				"agent-shell plan asked native sandbox for git bind %q: %#v",
+				unwanted,
+				plan.Args,
+			)
+		}
+	}
+	for _, want := range []string{"--", "/usr/bin/env", "bash", "-lc", "git status"} {
 		if !slices.Contains(plan.Args, want) {
 			t.Fatalf("plan args missing %q: %#v", want, plan.Args)
 		}
