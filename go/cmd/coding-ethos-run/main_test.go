@@ -1098,6 +1098,13 @@ func TestRuntimeFailuresUseStructuredExitCodes(t *testing.T) {
 			},
 			want: 7,
 		},
+		{
+			name: "policy git exit code",
+			run: func() {
+				exitErr(gitwrap.ExitCodeError{Code: 2})
+			},
+			want: 2,
+		},
 	}
 
 	for _, test := range tests {

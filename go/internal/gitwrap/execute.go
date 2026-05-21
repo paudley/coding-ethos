@@ -145,3 +145,7 @@ type ExitCodeError struct {
 func (err ExitCodeError) Error() string {
 	return fmt.Sprintf("git exited with status %d", err.Code)
 }
+
+func (err ExitCodeError) ExitCode() int {
+	return err.Code
+}

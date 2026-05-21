@@ -48,11 +48,11 @@ func Resolve(ctx context.Context, requested string) (string, error) {
 	}
 
 	if envValue := strings.TrimSpace(os.Getenv(Env)); envValue != "" {
-		if UsableCandidate(resolvedSelf, envValue) && reportsGitVersion(ctx, envValue) {
+		if UsableCandidate(resolvedSelf, envValue) && ReportsGitVersion(ctx, envValue) {
 			return envValue, nil
 		}
 
-		if trustedAgentShellRealGitBind(resolvedSelf, envValue) {
+		if trustedAgentShellRealGitBind(ctx, resolvedSelf, envValue) {
 			return envValue, nil
 		}
 	}
@@ -170,7 +170,11 @@ func executableReferencesCodingEthosRuntime(path string) bool {
 	return bytes.Contains(buffer[:count], []byte("coding-ethos-run"))
 }
 
-func trustedAgentShellRealGitBind(self, path string) bool {
+func trustedAgentShellRealGitBind(ctx context.Context, self, path string) bool {
+	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") != "1" {
+		return false
+	}
+
 	cleaned := filepath.Clean(path)
 	if filepath.Base(cleaned) != "real-git" {
 		return false
@@ -191,10 +195,11 @@ func trustedAgentShellRealGitBind(self, path string) bool {
 		return false
 	}
 
-	return !LooksLikeCodingEthosShim(cleaned, self)
+	return !LooksLikeCodingEthosShim(cleaned, self) && ReportsGitVersion(ctx, cleaned)
 }
 
-func reportsGitVersion(ctx context.Context, path string) bool {
+// ReportsGitVersion reports whether path behaves like a Git executable.
+func ReportsGitVersion(ctx context.Context, path string) bool {
 	const versionTimeout = time.Second
 
 	ctx, cancel := context.WithTimeout(ctx, versionTimeout)

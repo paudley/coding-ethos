@@ -45,10 +45,6 @@ func configuredRealGitForEvaluator() string {
 		return ""
 	}
 
-	if agentShellRealGitCandidate(candidate) {
-		return candidate
-	}
-
 	self, err := os.Executable()
 	if err != nil {
 		return ""
@@ -63,34 +59,12 @@ func configuredRealGitForEvaluator() string {
 		return ""
 	}
 
-	if executableReferencesCodingEthosRuntime(candidate) {
+	if executableReferencesCodingEthosRuntime(candidate) ||
+		!realgit.ReportsGitVersion(context.Background(), candidate) {
 		return ""
 	}
 
 	return candidate
-}
-
-func agentShellRealGitCandidate(path string) bool {
-	cleaned := filepath.Clean(path)
-	if filepath.Base(cleaned) != "real-git" {
-		return false
-	}
-
-	if !strings.HasPrefix(filepath.Base(filepath.Dir(cleaned)), "run-") {
-		return false
-	}
-
-	if !strings.HasSuffix(
-		filepath.ToSlash(filepath.Dir(filepath.Dir(cleaned))),
-		"/.coding-ethos/cache/agent-shell",
-	) {
-		return false
-	}
-
-	// #nosec G703 -- cleaned is a validated agent-shell real-git bind path.
-	info, err := os.Stat(cleaned)
-
-	return err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0
 }
 
 func executableReferencesCodingEthosRuntime(path string) bool {

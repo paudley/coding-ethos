@@ -71,6 +71,38 @@ func TestResolveIgnoresEnvironmentCandidate(t *testing.T) {
 	}
 }
 
+func TestResolveRejectsLookalikeAgentShellRealGit(t *testing.T) {
+	root := t.TempDir()
+	gitDir := filepath.Join(root, "bin")
+	lookalikeDir := filepath.Join(
+		root,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"run-test",
+	)
+	git := createExecutableGit(t, gitDir)
+	lookalike := createNamedExecutable(
+		t,
+		lookalikeDir,
+		"real-git",
+		"#!/usr/bin/env sh\nprintf 'not git\\n'\n",
+	)
+
+	t.Setenv(realgit.Env, lookalike)
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("PATH", gitDir)
+
+	got, err := realgit.Resolve(context.Background(), "git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	if got != git {
+		t.Fatalf("Resolve chose %q, want PATH git %q", got, git)
+	}
+}
+
 func TestCleanGitLocalEnvRemovesHookScopedConfiguration(t *testing.T) {
 	t.Parallel()
 

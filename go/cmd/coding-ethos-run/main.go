@@ -413,6 +413,11 @@ func (paths runtimePaths) export() {
 func exitErr(err error) {
 	fmt.Fprintln(os.Stderr, err)
 
+	var coded interface{ ExitCode() int }
+	if errors.As(err, &coded) {
+		requestRuntimeExit(coded.ExitCode())
+	}
+
 	var exitError *exec.ExitError
 	if errors.As(err, &exitError) {
 		requestRuntimeExit(exitError.ExitCode())
