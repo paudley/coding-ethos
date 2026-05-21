@@ -79,7 +79,7 @@ func validateSearchReplaceBlock(
 		}
 	}
 
-	matchCount := strings.Count(content, block.Search)
+	matchCount := countOverlappingMatches(content, block.Search)
 	switch {
 	case matchCount == 0:
 		return SearchReplaceBlockResult{
@@ -100,4 +100,21 @@ func validateSearchReplaceBlock(
 			MatchCount: matchCount,
 		}
 	}
+}
+
+func countOverlappingMatches(content, search string) int {
+	matchCount := 0
+	offset := 0
+
+	for offset < len(content) {
+		matchIndex := strings.Index(content[offset:], search)
+		if matchIndex == -1 {
+			return matchCount
+		}
+
+		matchCount++
+		offset += matchIndex + 1
+	}
+
+	return matchCount
 }

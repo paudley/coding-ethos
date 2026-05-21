@@ -187,6 +187,46 @@ func TestRunBlocksMultiEditSecondMissingSearch(t *testing.T) {
 	assertProxySearchReplaceBlock(t, result, "missing")
 }
 
+func TestRunBlocksMalformedMultiEditInputs(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]any{
+		"missing edits": nil,
+		"empty edits":   []any{},
+		"invalid edit":  []any{"not an edit object"},
+	}
+
+	for name, edits := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			repo := t.TempDir()
+			writeProxySearchReplaceFixture(t, repo, "pkg/app.py", "value = 1\n")
+
+			toolInput := map[string]any{
+				"file_path": "pkg/app.py",
+			}
+			if edits != nil {
+				toolInput["edits"] = edits
+			}
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					HookEventName: eventPreToolUse,
+					ToolName:      "MultiEdit",
+					Cwd:           repo,
+					ToolInput:     toolInput,
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			assertProxySearchReplaceBlock(t, result, "malformed_multiedit")
+		})
+	}
+}
+
 func assertProxySearchReplaceBlock(t *testing.T, result Result, reason string) {
 	t.Helper()
 

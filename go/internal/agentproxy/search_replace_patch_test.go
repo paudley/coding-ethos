@@ -71,6 +71,29 @@ func TestApplySearchReplacePatchRejectsAmbiguousSearchBlock(t *testing.T) {
 	}
 }
 
+func TestApplySearchReplacePatchRejectsOverlappingAmbiguousSearchBlock(t *testing.T) {
+	t.Parallel()
+
+	result := ApplySearchReplacePatch(SearchReplacePatchRequest{
+		CurrentContent: "aaa",
+		Blocks: []SearchReplaceBlock{
+			{Search: "aa", Replace: "b"},
+		},
+	})
+
+	if len(result.Blocks) != 1 ||
+		result.Blocks[0].Status != SearchReplaceStatusAmbiguous ||
+		result.Blocks[0].MatchCount != 2 {
+		t.Fatalf("block results = %#v", result.Blocks)
+	}
+	if result.AppliedContent != "aaa" {
+		t.Fatalf(
+			"content changed after overlapping ambiguous search: %q",
+			result.AppliedContent,
+		)
+	}
+}
+
 func TestApplySearchReplacePatchRejectsEmptySearchBlock(t *testing.T) {
 	t.Parallel()
 
