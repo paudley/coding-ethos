@@ -204,9 +204,14 @@ func evaluateDispatchedPolicies(
 	registry evaluators.Registry,
 ) ([]policy.Decision, error) {
 	event := ctx.Event
+
+	decisions := proxySearchReplaceEditDecisions(event)
+	if resultStatus(decisions) == statusBlocked {
+		return decisions, nil
+	}
+
 	entries := bundle.Dispatch.Hooks[event.HookEventName][event.ToolName]
 
-	decisions := make([]policy.Decision, 0, len(entries))
 	for _, entry := range entries {
 		policyDef, ok := bundle.Policies[entry.PolicyID]
 		if !ok {

@@ -212,6 +212,27 @@ policy or transformation:
 These properties let code scanning, MCP remediation, and code-intel queries
 join a SARIF result back to the originating proxy event.
 
+## Search/Replace Edit Enforcement
+
+The first #62 enforcement slice protects local edit tools before a full
+provider/API proxy exists:
+
+- `Write` may create a new file, but rewriting an existing regular text file is
+  blocked by `proxy.search_replace_edit`;
+- `Edit` and `MultiEdit` proposals against a readable regular text file must
+  provide non-empty search blocks;
+- each search block is evaluated sequentially against the current proposed file
+  content and must match exactly once;
+- missing and non-unique search blocks are blocked before the provider tool can
+  mutate the file;
+- policy evidence records the target file, block index, match count, reason, and
+  current content hash where available.
+
+This slice intentionally does not claim the full proxy patch roadmap. Remaining
+work includes AST affected-symbol evidence, durable proxy trace/code-intel
+storage for patch outcomes, and transactional rollback around future proxy-owned
+edit application.
+
 ## Feature Work Rules
 
 Before implementing an Agent Proxy issue, confirm that the feature uses:
