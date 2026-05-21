@@ -82,7 +82,15 @@ def test_validate_uses_policy_source_hashes_not_mtime(tmp_path: Path) -> None:
 def test_cutover_verify_resolves_consumer_without_env(tmp_path: Path) -> None:
     consumer = _prepare_consumer_repo(tmp_path)
     env = os.environ.copy()
-    env.pop("CODE_ETHOS_CONSUMER_ROOT", None)
+    for name in list(env):
+        if name.startswith(("CODE_ETHOS_", "CODING_ETHOS_")) or name in {
+            "GIT_HOOK_SRC_DIR",
+            "INVOCATION_CWD",
+            "MANAGED_TOOLCHAIN_MANIFEST",
+            "POLICY_METADATA",
+            "TOOLS_SRC_DIR",
+        }:
+            env.pop(name, None)
     result = _run(
         [
             str(REPO_ROOT / "bin" / "coding-ethos-run"),
@@ -96,8 +104,9 @@ def test_cutover_verify_resolves_consumer_without_env(tmp_path: Path) -> None:
     )
 
     output = result.stdout + result.stderr
-    assert f"repo: {consumer}" in output
-    assert f"repo: {REPO_ROOT}" not in output
+    repo_lines = [line for line in output.splitlines() if line.startswith("repo: ")]
+    assert f"repo: {consumer}" in repo_lines, output
+    assert f"repo: {REPO_ROOT}" not in repo_lines, output
 
 
 def test_git_hook_shell_shims_are_removed() -> None:

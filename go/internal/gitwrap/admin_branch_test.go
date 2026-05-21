@@ -26,18 +26,18 @@ func TestAdminStartBranchRunsApprovedBranchSequence(t *testing.T) {
 	t.Setenv("GIT_CONFIG_KEY_0", "user.email")
 	t.Setenv("GIT_CONFIG_VALUE_0", "poison@example.com")
 
-	err := AdminStartBranch(fakeGit, repo, []string{"hooks-and-crooks-take-7"})
+	err := AdminStartBranch(fakeGit, repo, []string{"fix/admin-start-branch-take-7"})
 	if err != nil {
 		t.Fatalf("admin start branch: %v", err)
 	}
 
 	log := readText(t, logPath)
 	for _, expected := range []string{
-		"check-ref-format --branch hooks-and-crooks-take-7|" + gitEnvLogSuffix,
+		"check-ref-format --branch fix/admin-start-branch-take-7|" + gitEnvLogSuffix,
 		"status --porcelain=v1 --untracked-files=all|" + gitEnvLogSuffix,
 		"checkout main|GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT=",
 		"pull --ff-only|GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT=",
-		"checkout -b hooks-and-crooks-take-7|" + gitEnvLogSuffix,
+		"checkout -b fix/admin-start-branch-take-7|" + gitEnvLogSuffix,
 	} {
 		if !strings.Contains(log, expected) {
 			t.Fatalf("missing %q in fake git log:\n%s", expected, log)
@@ -52,7 +52,7 @@ func TestAdminStartBranchRequiresCleanWorktree(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "git.log")
 	fakeGit := fakeAdminGit(t, logPath, " M file.txt\n")
 
-	err := AdminStartBranch(fakeGit, repo, []string{"hooks-and-crooks-take-7"})
+	err := AdminStartBranch(fakeGit, repo, []string{"fix/admin-start-branch-take-7"})
 	if !strings.Contains(err.Error(), "worktree must be clean") {
 		t.Fatalf("AdminStartBranch dirty error = %v", err)
 	}

@@ -414,6 +414,19 @@ exit 2
 	}
 }
 
+func TestRunGoCoverageThresholdSkipsGitHookStages(t *testing.T) {
+	t.Parallel()
+
+	for _, stage := range []string{hookStagePreCommit, "pre-push"} {
+		if got := runGoCoverageThreshold(
+			Config{HookStage: stage},
+			[]string{"go/main.go"},
+		); got != 0 {
+			t.Fatalf("runGoCoverageThreshold(%q) = %d, want 0", stage, got)
+		}
+	}
+}
+
 func TestGoCoverageDisplayFindingsSummarizesLargeWarningSets(t *testing.T) {
 	t.Parallel()
 

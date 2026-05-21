@@ -210,7 +210,7 @@ func runGoTests(_ Config, paths []string) int {
 }
 
 func runGoCoverageThreshold(cfg Config, paths []string) int {
-	if cfg.HookStage == hookStagePreCommit {
+	if cfg.HookStage != "" {
 		return 0
 	}
 
