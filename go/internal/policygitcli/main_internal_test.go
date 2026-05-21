@@ -156,16 +156,18 @@ func TestRunWithArgsCheckOnlyJSONSuppressesHumanOutput(t *testing.T) {
 }
 
 func TestExecuteGitWithPostChecksRunsResolvedGitAndPostPolicy(t *testing.T) {
-	t.Parallel()
+	fixture := t.TempDir()
+	marker := filepath.Join(fixture, "git-ran")
 
-	root := t.TempDir()
-	marker := filepath.Join(root, "git-ran")
-
-	realGit := filepath.Join(root, "git")
+	realGit := filepath.Join(fixture, "git")
 
 	inlineErr0 := os.WriteFile(
 		realGit,
-		[]byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+marker+"\n"),
+		[]byte(
+			"#!/bin/sh\n"+
+				"if [ \"$1\" = \"--version\" ]; then printf 'git version fake\\n'; exit 0; fi\n"+
+				"printf '%s\\n' \"$@\" > "+marker+"\n",
+		),
 		0o600,
 	)
 	if inlineErr0 != nil {
@@ -177,18 +179,25 @@ func TestExecuteGitWithPostChecksRunsResolvedGitAndPostPolicy(t *testing.T) {
 		t.Fatalf("chmod fake git: %v", inlineErr1)
 	}
 
-	err := executeGitWithPostChecks(
-		policy.ExampleBundle(),
-		realGit,
-		gitwrap.Options{
-			Cwd:  root,
-			Argv: []string{"status", "--short"},
-		},
-		false,
-	)
-	if err != nil {
-		t.Fatalf("executeGitWithPostChecks() error = %v", err)
-	}
+	runOutsideGitWorkTree(t, func() {
+		cwd, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("get outside-worktree cwd: %v", err)
+		}
+
+		err = executeGitWithPostChecks(
+			policy.ExampleBundle(),
+			realGit,
+			gitwrap.Options{
+				Cwd:  cwd,
+				Argv: []string{"status", "--short"},
+			},
+			false,
+		)
+		if err != nil {
+			t.Fatalf("executeGitWithPostChecks() error = %v", err)
+		}
+	})
 
 	data, err := os.ReadFile(marker)
 	if err != nil {
