@@ -269,6 +269,87 @@ func TestBuildPlanReusesTrustedAgentShellSandbox(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRejectsMissingAgentShellRealGitBind(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	repo := t.TempDir()
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	writeExecutable(t, wrapper)
+	realGitBind := filepath.Join(
+		repo,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"run-1",
+		"real-git",
+	)
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_REAL_GIT", realGitBind)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "golangci-lint-format",
+		Executable:  "/usr/bin/env",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"true"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "lint-offline",
+			WritePaths:     []string{".coding-ethos/cache"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+	if plan.Executable != wrapper ||
+		plan.Evidence.Reason == "reusing active agent-shell sandbox" {
+		t.Fatalf("missing real-git bind reused sandbox: %#v", plan)
+	}
+}
+
+func TestBuildPlanRejectsAgentShellRealGitBindOutsideRepo(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	repo := t.TempDir()
+	otherRepo := t.TempDir()
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	writeExecutable(t, wrapper)
+	realGitBind := filepath.Join(
+		otherRepo,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"run-1",
+		"real-git",
+	)
+	if err := os.MkdirAll(filepath.Dir(realGitBind), 0o700); err != nil {
+		t.Fatalf("create real git bind dir: %v", err)
+	}
+	writeExecutable(t, realGitBind)
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_REAL_GIT", realGitBind)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "golangci-lint-format",
+		Executable:  "/usr/bin/env",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"true"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "lint-offline",
+			WritePaths:     []string{".coding-ethos/cache"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+	if plan.Executable != wrapper ||
+		plan.Evidence.Reason == "reusing active agent-shell sandbox" {
+		t.Fatalf("outside real-git bind reused sandbox: %#v", plan)
+	}
+}
+
 func TestBuildPlanFailsClosedWithoutWrapper(t *testing.T) {
 	requireLinuxSandbox(t)
 

@@ -4,13 +4,16 @@
 package gitwrap_test
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/gitwrap"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 const gitEnvLogSuffix = "GIT_DIR=|GIT_INDEX_FILE=|GIT_CONFIG_COUNT="
@@ -49,17 +52,20 @@ func TestAdminStartBranchRequiresCleanWorktree(t *testing.T) {
 	t.Parallel()
 
 	repo := t.TempDir()
-	logPath := filepath.Join(t.TempDir(), "git.log")
-	fakeGit := fakeAdminGit(t, logPath, " M file.txt\n")
+	realGit := resolveRealGit(t)
 
-	err := AdminStartBranch(fakeGit, repo, []string{"fix/admin-start-branch-take-7"})
-	if !strings.Contains(err.Error(), "worktree must be clean") {
-		t.Fatalf("AdminStartBranch dirty error = %v", err)
+	runGit(t, realGit, repo, "init")
+	err := os.WriteFile(filepath.Join(repo, "file.txt"), []byte("dirty\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write dirty file: %v", err)
 	}
 
-	log := readText(t, logPath)
-	if strings.Contains(log, "checkout main") {
-		t.Fatalf("dirty worktree still ran checkout:\n%s", log)
+	err = AdminStartBranch(realGit, repo, []string{"fix/admin-start-branch-take-7"})
+	if err == nil {
+		t.Fatalf("AdminStartBranch dirty error = nil")
+	}
+	if !strings.Contains(err.Error(), "worktree must be clean") {
+		t.Fatalf("AdminStartBranch dirty error = %v", err)
 	}
 }
 
@@ -110,4 +116,26 @@ func readText(t *testing.T, path string) string {
 	}
 
 	return string(data)
+}
+
+func resolveRealGit(t *testing.T) string {
+	t.Helper()
+
+	realGit, err := realgit.Resolve(context.Background(), "git")
+	if err != nil {
+		t.Fatalf("resolve real git: %v", err)
+	}
+
+	return realGit
+}
+
+func runGit(t *testing.T, realGit, cwd string, args ...string) {
+	t.Helper()
+
+	cmd := exec.Command(realGit, args...)
+	cmd.Dir = cwd
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
 }

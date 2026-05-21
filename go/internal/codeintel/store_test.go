@@ -619,6 +619,46 @@ func TestRefreshRepositoryHonorsGitIgnore(t *testing.T) {
 	}
 }
 
+func TestRefreshRepositoryHonorsGitIgnoreInAllIgnoredRepo(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelGit(t, root, "init", "--initial-branch", "main")
+
+	writeFile(t, filepath.Join(root, ".gitignore"), []byte("*\n"))
+	writeFile(
+		t,
+		filepath.Join(root, "generated.py"),
+		[]byte("def generated():\n    return 1\n"),
+	)
+
+	summary, err := RefreshRepository(ctx, root, []string{"."})
+	if err != nil {
+		t.Fatalf("refresh repository: %v", err)
+	}
+	if summary.CodeIndex.FilesIndexed != 0 {
+		t.Fatalf(
+			"files indexed = %d, want no indexed ignored files",
+			summary.CodeIndex.FilesIndexed,
+		)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	_, found, err := store.GetCodeFile(ctx, "generated.py")
+	if err != nil {
+		t.Fatalf("get ignored file: %v", err)
+	}
+	if found {
+		t.Fatal("generated.py should not be indexed in all-ignored repo")
+	}
+}
+
 func TestRefreshRepositoryMarksOversizedSourcesInactive(t *testing.T) {
 	t.Parallel()
 

@@ -11,6 +11,12 @@ func gitIgnoreMatcherActive(
 	allowedPaths map[string]bool,
 	allowedDirs map[string]bool,
 ) bool {
-	return gitWorkTreeAvailable(ctx, root) &&
-		(len(allowedPaths) > 0 || len(allowedDirs) > 1)
+	return gitWorkTreeAvailable(ctx, root)
+}
+
+func gitIgnoreMatcherUsesAllowedSet(
+	allowedPaths map[string]bool,
+	allowedDirs map[string]bool,
+) bool {
+	return len(allowedPaths) > 0 || len(allowedDirs) > 1
 }

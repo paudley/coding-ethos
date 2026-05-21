@@ -198,7 +198,7 @@ func BuildPlan(request Request) (Plan, error) {
 	evidence.Enabled = true
 	evidence.NamespaceEnforced = !request.Capabilities.RequiresProcesses
 
-	if trustedAgentShellSandboxActive() {
+	if trustedAgentShellSandboxActive(request.RepoRoot) {
 		evidence.Reason = "reusing active agent-shell sandbox"
 		evidence.NamespaceEnforced = false
 		evidence.ProcessIsolated = false
@@ -234,12 +234,21 @@ func sandboxRequired(request Request) bool {
 		strings.TrimSpace(request.Capabilities.SandboxProfile) != ""
 }
 
-func trustedAgentShellSandboxActive() bool {
+func trustedAgentShellSandboxActive(repoRoot string) bool {
 	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") != "1" {
 		return false
 	}
 
 	realGitBind := filepath.Clean(strings.TrimSpace(os.Getenv("CODING_ETHOS_REAL_GIT")))
+	if !filepath.IsAbs(realGitBind) || !executableFileExists(realGitBind) {
+		return false
+	}
+
+	repoRoot = filepath.Clean(strings.TrimSpace(repoRoot))
+	if repoRoot == "" || !filepath.IsAbs(repoRoot) {
+		return false
+	}
+
 	if filepath.Base(realGitBind) != "real-git" {
 		return false
 	}
@@ -248,10 +257,18 @@ func trustedAgentShellSandboxActive() bool {
 		return false
 	}
 
-	return strings.HasSuffix(
-		filepath.ToSlash(filepath.Dir(filepath.Dir(realGitBind))),
-		"/.coding-ethos/cache/agent-shell",
-	)
+	expectedParent := filepath.Join(repoRoot, ".coding-ethos", "cache", "agent-shell")
+
+	return filepath.Clean(filepath.Dir(filepath.Dir(realGitBind))) == expectedParent
+}
+
+func executableFileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+
+	return info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
 }
 
 func unsandboxedPlan(request Request, evidence Evidence) Plan {
