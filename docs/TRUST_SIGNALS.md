@@ -139,13 +139,15 @@ Preparation checklist:
 
 ## Public Release Checklist
 
-- [x] Create a `v0.1.0` GitHub release.
+- [x] Create a signed GitHub release; the current public release is `v0.3.0`.
 - [ ] Attach or document generated binaries if they are part of the supported
   install path.
 - [x] Generate checksums for Python distribution artifacts.
 - [x] Confirm Python distributions have GitHub artifact attestations before
   upload to a certified PyPI account.
 - [x] Generate and attest an SPDX JSON SBOM for release artifacts.
+- [x] Attach offline `.intoto.jsonl` attestation bundles to the immutable
+  GitHub release before publication.
 - [x] Publish Python distributions via PyPI Trusted Publishing so PyPI publish
   attestations are generated and uploaded automatically.
 - [x] Link the docs landing page from the repository homepage or README.

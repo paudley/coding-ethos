@@ -16,7 +16,12 @@ This document describes the public release path for `coding-ethos`.
 - Major releases may change generated config contracts, hook behavior, or
   policy bundle compatibility.
 
-The Python package version lives in `pyproject.toml`.
+Release version metadata must stay aligned across the root Python package,
+runtime import metadata, bundled hook package, and editable lock metadata:
+`pyproject.toml`, `coding_ethos/__init__.py`,
+`pre-commit/hooks/pyproject.toml`,
+`pre-commit/hooks/coding_ethos_hooks/__init__.py`, `uv.lock`, and
+`pre-commit/hooks/uv.lock`.
 
 ## Support And Upgrade Policy
 
@@ -46,9 +51,12 @@ The normal upgrade path is:
 
 ## Pre-Release Checklist
 
-- [ ] Confirm the branch is not `main`.
+- [ ] Prepare release metadata on a release branch or use the documented
+  admin-approved maintainer path for a deliberate direct release commit on
+  `main`.
 - [ ] Update `CHANGELOG.md`.
-- [ ] Update `pyproject.toml` version when cutting a release.
+- [ ] Update all version metadata listed in the Versioning section when cutting
+  a release.
 - [ ] Run `make check`.
 - [ ] Run generated config verification for any changed config surfaces.
 - [ ] Verify the release workflow `Dynamic analysis` job passed. This job runs
@@ -106,10 +114,11 @@ The supported release path is the `.github/workflows/release.yml` workflow
 triggered by pushing a signed `v*` tag. The workflow builds and attests
 artifacts, exports offline `.intoto.jsonl` attestation bundles, creates a draft
 GitHub release with the distributions, checksums, SBOM, and attestation bundles
-already attached, publishes the release, then publishes to PyPI through the
-`pypi` GitHub environment. This ordering is required for GitHub immutable
-releases: assets must be attached before publication rather than uploaded after
-the release is published.
+already attached, publishes the release as immutable, then publishes to PyPI
+through the protected `pypi` GitHub environment after the required environment
+approval. This ordering is required for GitHub immutable releases: assets must
+be attached before publication rather than uploaded after the release is
+published.
 
 PyPI upload uses OIDC Trusted Publishing through
 `pypa/gh-action-pypi-publish`, and enables PyPI digital attestations. Configure
@@ -153,7 +162,7 @@ attestation tooling and a concrete distribution file URL from PyPI:
 ```bash
 uvx pypi-attestations verify pypi \
   --repository https://github.com/paudley/coding-ethos \
-  https://files.pythonhosted.org/.../coding_ethos-0.1.0-py3-none-any.whl
+  https://files.pythonhosted.org/.../coding_ethos-0.3.0-py3-none-any.whl
 ```
 
 If publishing compiled Go helper binaries, attach checksums and document:
@@ -216,6 +225,8 @@ Template:
 - [ ] Verify the release workflow created the GitHub release.
 - [ ] Verify GitHub release distributions, checksums, SBOM, and `.intoto.jsonl`
   attestation bundles were attached before publication by the release workflow.
+- [ ] Approve the protected `pypi` environment deployment when the GitHub
+  release job has succeeded and the release assets are present.
 - [ ] Verify PyPI shows digital attestations for the uploaded release files.
 - [ ] Verify release links from `README.md` and package metadata.
 - [ ] Update OpenSSF Scorecard and Best Practices tracking in

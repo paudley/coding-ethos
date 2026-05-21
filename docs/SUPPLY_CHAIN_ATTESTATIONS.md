@@ -74,7 +74,7 @@ Download offline attestation bundles from a release and verify them with the
 artifact they describe:
 
 ```bash
-gh release download v0.1.1 \
+gh release download v0.3.0 \
   --repo paudley/coding-ethos \
   --pattern '*.intoto.jsonl'
 gh attestation verify dist/coding_ethos-*.whl \
@@ -94,7 +94,7 @@ file URL from PyPI:
 ```bash
 uvx pypi-attestations verify pypi \
   --repository https://github.com/paudley/coding-ethos \
-  https://files.pythonhosted.org/.../coding_ethos-0.1.0-py3-none-any.whl
+  https://files.pythonhosted.org/.../coding_ethos-0.3.0-py3-none-any.whl
 ```
 
 Inspect the public Scorecard result:
@@ -114,8 +114,8 @@ The release workflow is intentionally split:
   SBOM; exports offline `.intoto.jsonl` attestation bundles; creates a draft
   GitHub release; attaches every release asset; and only then publishes the
   release.
-- `publish-pypi` downloads only the distributions and publishes through PyPI
-  Trusted Publishing from the protected `pypi` environment.
+- `publish-pypi` waits for the protected `pypi` environment approval, downloads
+  only the distributions, and publishes through PyPI Trusted Publishing.
 
 Keep these responsibilities separate. The PyPI publishing job should stay
 small, run on GitHub-hosted Ubuntu, use OIDC, and avoid unrelated build or
@@ -130,9 +130,10 @@ and artifact uploads. It intentionally skips GitHub release creation and PyPI
 publication so the release identity can be tested before creating or publishing
 a real release.
 
-## First-Release Setup
+## One-Time Release Setup
 
-Before the first PyPI release, run the local release dry run:
+Before configuring PyPI publishing for a new project or environment, run the
+local release dry run:
 
 ```bash
 make release-dry-run
@@ -150,10 +151,10 @@ Then configure a PyPI Trusted Publisher:
 - Workflow filename: `release.yml`
 - Environment: `pypi`
 
-Configure the GitHub `pypi` environment before the first public release. If the
-project has multiple maintainers, use environment reviewers to keep release
-publication as a deliberate approval step even though the credential exchange is
-automated.
+Configure the GitHub `pypi` environment before publishing through Trusted
+Publishing. If the project has multiple maintainers, use environment reviewers
+to keep release publication as a deliberate approval step even though the
+credential exchange is automated.
 
 The environment can be created from the CLI:
 
