@@ -35,6 +35,43 @@ func TestRunBlocksWriteToExistingFile(t *testing.T) {
 	assertProxySearchReplaceBlock(t, result, "write_existing_file")
 }
 
+func TestRunBlocksWriteToExistingSymlink(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	target := filepath.Join(t.TempDir(), "target.py")
+	err := os.WriteFile(target, []byte("value = 1\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write symlink target: %v", err)
+	}
+	link := filepath.Join(repo, "pkg", "link.py")
+	err = os.MkdirAll(filepath.Dir(link), 0o700)
+	if err != nil {
+		t.Fatalf("create symlink dir: %v", err)
+	}
+	err = os.Symlink(target, link)
+	if err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "Write",
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"file_path": "pkg/link.py",
+				"content":   "value = 2\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	assertProxySearchReplaceBlock(t, result, "write_existing_file")
+}
+
 func TestRunAllowsWriteToNewFile(t *testing.T) {
 	t.Parallel()
 
@@ -129,6 +166,78 @@ func TestRunBlocksEditWithAmbiguousTargetFiles(t *testing.T) {
 	}
 
 	assertProxySearchReplaceBlock(t, result, "invalid_edit_target")
+}
+
+func TestRunBlocksEditToSymlinkTarget(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	target := filepath.Join(t.TempDir(), "target.py")
+	err := os.WriteFile(target, []byte("value = 1\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write symlink target: %v", err)
+	}
+	link := filepath.Join(repo, "pkg", "link.py")
+	err = os.MkdirAll(filepath.Dir(link), 0o700)
+	if err != nil {
+		t.Fatalf("create symlink dir: %v", err)
+	}
+	err = os.Symlink(target, link)
+	if err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "Edit",
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"file_path":  "pkg/link.py",
+				"old_string": "value = 1\n",
+				"new_string": "value = 2\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	assertProxySearchReplaceBlock(t, result, "invalid_edit_target")
+}
+
+func TestRunUsesBundleProxySearchReplacePolicy(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	writeProxySearchReplaceFixture(t, repo, "pkg/app.py", "value = 1\n")
+
+	bundle := policy.ExampleBundle()
+	policyDef := bundle.Policies[policy.ProxySearchReplaceEditPolicyID]
+	policyDef.Message = "custom bundle policy message"
+	bundle.Policies[policy.ProxySearchReplaceEditPolicyID] = policyDef
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "Edit",
+			Cwd:           repo,
+			ToolInput: map[string]any{
+				"file_path":  "pkg/app.py",
+				"old_string": "missing = 1\n",
+				"new_string": "value = 2\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if !result.Blocked() || len(result.Decisions) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.Decisions[0].Message != "custom bundle policy message" {
+		t.Fatalf("decision did not use bundle policy: %#v", result.Decisions[0])
+	}
 }
 
 func TestRunBlocksEditMissingSearch(t *testing.T) {

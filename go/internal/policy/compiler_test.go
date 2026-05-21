@@ -86,6 +86,7 @@ func assertCompiledCorePolicies(t *testing.T, bundle Bundle) {
 		"repo.license_header",
 		"git.commitlint",
 		"git.commit_attribution",
+		"proxy.search_replace_edit",
 	} {
 		if _, found := bundle.Policies[policyID]; !found {
 			t.Fatalf("missing compiled file guard policy %s", policyID)

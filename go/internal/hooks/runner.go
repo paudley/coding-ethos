@@ -205,10 +205,7 @@ func evaluateDispatchedPolicies(
 ) ([]policy.Decision, error) {
 	event := ctx.Event
 
-	decisions := proxySearchReplaceEditDecisions(event)
-	if resultStatus(decisions) == statusBlocked {
-		return decisions, nil
-	}
+	decisions := proxySearchReplaceEditDecisions(bundle, event)
 
 	entries := bundle.Dispatch.Hooks[event.HookEventName][event.ToolName]
 

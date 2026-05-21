@@ -25,39 +25,52 @@ const (
 	toolWrite     = "Write"
 )
 
-func proxySearchReplaceEditDecisions(event Event) []policy.Decision {
+func proxySearchReplaceEditDecisions(
+	bundle policy.Bundle,
+	event Event,
+) []policy.Decision {
 	if event.HookEventName != eventPreToolUse || !isEditTool(event.ToolName) {
 		return nil
 	}
 
+	policyDef := proxySearchReplacePolicy(bundle)
 	switch event.ToolName {
 	case toolWrite:
-		return proxyWriteDecisions(event)
+		return proxyWriteDecisions(event, policyDef)
 	case toolEdit, toolMultiEdit:
-		return proxyEditDecisions(event)
+		return proxyEditDecisions(event, policyDef)
 	default:
 		return nil
 	}
 }
 
-func proxyWriteDecisions(event Event) []policy.Decision {
+func proxySearchReplacePolicy(bundle policy.Bundle) policy.Policy {
+	policyDef, ok := bundle.Policies[policy.ProxySearchReplaceEditPolicyID]
+	if ok {
+		return policyDef
+	}
+
+	return policy.ProxySearchReplaceEditPolicy()
+}
+
+func proxyWriteDecisions(event Event, policyDef policy.Policy) []policy.Decision {
 	file, ok := singleEventFile(event)
 	if !ok || !regularTextFileExists(event.Cwd, file) {
 		return nil
 	}
 
 	return []policy.Decision{
-		proxySearchReplaceDecision(event, map[string]any{
+		proxySearchReplaceDecision(policyDef, event, map[string]any{
 			"file":   file,
 			"reason": "write_existing_file",
 		}),
 	}
 }
 
-func proxyEditDecisions(event Event) []policy.Decision {
+func proxyEditDecisions(event Event, policyDef policy.Policy) []policy.Decision {
 	files := event.Files()
 	if len(files) > 1 {
-		return []policy.Decision{proxySearchReplaceDecision(event, map[string]any{
+		return []policy.Decision{proxySearchReplaceDecision(policyDef, event, map[string]any{
 			"reason":     "invalid_edit_target",
 			"file_count": len(files),
 		})}
@@ -68,8 +81,15 @@ func proxyEditDecisions(event Event) []policy.Decision {
 		return nil
 	}
 
-	content, ok := readSearchReplaceTextFile(event.Cwd, file)
-	if !ok {
+	content, foundText, rejected := readSearchReplaceTextFile(event.Cwd, file)
+	if rejected {
+		return []policy.Decision{proxySearchReplaceDecision(policyDef, event, map[string]any{
+			"file":   file,
+			"reason": "invalid_edit_target",
+		})}
+	}
+
+	if !foundText {
 		return nil
 	}
 
@@ -80,7 +100,7 @@ func proxyEditDecisions(event Event) []policy.Decision {
 			reason = "malformed_multiedit"
 		}
 
-		return []policy.Decision{proxySearchReplaceDecision(event, map[string]any{
+		return []policy.Decision{proxySearchReplaceDecision(policyDef, event, map[string]any{
 			"file":                 file,
 			"reason":               reason,
 			"current_content_hash": agentproxy.HashText(content),
@@ -95,7 +115,7 @@ func proxyEditDecisions(event Event) []policy.Decision {
 
 	for _, block := range result.Blocks {
 		if block.Status != agentproxy.SearchReplaceStatusOK {
-			return []policy.Decision{proxySearchReplaceDecision(event, map[string]any{
+			return []policy.Decision{proxySearchReplaceDecision(policyDef, event, map[string]any{
 				"file":                 file,
 				"reason":               block.Status,
 				"block_index":          block.Index,
@@ -108,8 +128,12 @@ func proxyEditDecisions(event Event) []policy.Decision {
 	return nil
 }
 
-func proxySearchReplaceDecision(event Event, evidence map[string]any) policy.Decision {
-	decision := policy.NewDecision("block", policy.ProxySearchReplaceEditPolicy())
+func proxySearchReplaceDecision(
+	policyDef policy.Policy,
+	event Event,
+	evidence map[string]any,
+) policy.Decision {
+	decision := policy.NewDecision("block", policyDef)
 	decision.Evidence = map[string]any{
 		"event": event.HookEventName,
 		"tool":  event.ToolName,
@@ -134,19 +158,18 @@ func singleEventFile(event Event) (string, bool) {
 }
 
 func regularTextFileExists(cwd, file string) bool {
-	path, err := searchReplacePath(cwd, file)
-	if err != nil {
-		return false
+	path, exists, regular, rejected := searchReplaceFilePath(cwd, file)
+	if rejected {
+		return true
 	}
 
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
+	if !exists || !regular {
 		return false
 	}
 
 	handle, err := os.Open(path)
 	if err != nil {
-		return false
+		return true
 	}
 	defer handle.Close()
 
@@ -154,39 +177,59 @@ func regularTextFileExists(cwd, file string) bool {
 	count, err := handle.Read(buffer)
 
 	if err != nil && !errors.Is(err, io.EOF) {
-		return false
+		return true
 	}
 
 	return !bytes.Contains(buffer[:count], []byte{0})
 }
 
-func readSearchReplaceTextFile(cwd, file string) (string, bool) {
-	content, exists, binary := readSearchReplaceFile(cwd, file)
-
-	return content, exists && !binary
-}
-
-func readSearchReplaceFile(cwd, file string) (string, bool, bool) {
-	path, err := searchReplacePath(cwd, file)
-	if err != nil {
-		return "", false, false
+func readSearchReplaceTextFile(cwd, file string) (string, bool, bool) {
+	content, exists, binary, rejected := readSearchReplaceFile(cwd, file)
+	if rejected {
+		return "", false, true
 	}
 
-	info, err := os.Stat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return "", false, false
+	return content, exists && !binary, false
+}
+
+func readSearchReplaceFile(cwd, file string) (string, bool, bool, bool) {
+	path, exists, regular, rejected := searchReplaceFilePath(cwd, file)
+	if rejected {
+		return "", true, false, true
+	}
+
+	if !exists || !regular {
+		return "", false, false, false
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", false, false
+		return "", false, false, false
 	}
 
 	if bytes.Contains(data, []byte{0}) {
-		return "", true, true
+		return "", true, true, false
 	}
 
-	return string(data), true, false
+	return string(data), true, false, false
+}
+
+func searchReplaceFilePath(cwd, file string) (string, bool, bool, bool) {
+	path, err := searchReplacePath(cwd, file)
+	if err != nil {
+		return "", false, false, false
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", false, false, false
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return path, true, false, true
+	}
+
+	return path, true, info.Mode().IsRegular(), false
 }
 
 func searchReplacePath(cwd, file string) (string, error) {
