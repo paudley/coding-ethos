@@ -10,12 +10,7 @@ import (
 	"slices"
 	"testing"
 
-	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
-)
-
-var errRealGitTestUnresolved = apperror.StaticError(
-	"real git executable could not be resolved",
 )
 
 func TestResolutionHelpers(t *testing.T) {
@@ -45,28 +40,34 @@ func TestResolutionHelpers(t *testing.T) {
 	}
 }
 
-func TestResolveRejectsShimEnvironmentCandidate(t *testing.T) {
+func TestResolveIgnoresEnvironmentCandidate(t *testing.T) {
 	root := t.TempDir()
-	selfDir, gitDir := createGitResolutionDirs(t, root)
-	self := createExecutableGit(t, selfDir)
+	selfDir := filepath.Join(root, "runtime")
+	gitDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(selfDir, 0o755); err != nil {
+		t.Fatalf("create self dir: %v", err)
+	}
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatalf("create git dir: %v", err)
+	}
 	git := createExecutableGit(t, gitDir)
-	shim := createNamedExecutable(
+	envGit := createNamedExecutable(
 		t,
 		selfDir,
-		"git-shim",
-		"#!/usr/bin/env sh\nexec /repo/bin/coding-ethos-run policy-git \"$@\"\n",
+		"env-git",
+		"#!/usr/bin/env sh\nprintf 'git version env\\n'\n",
 	)
 
-	t.Setenv(realgit.Env, shim)
-	t.Setenv("PATH", gitDir+string(os.PathListSeparator)+selfDir)
+	t.Setenv(realgit.Env, envGit)
+	t.Setenv("PATH", gitDir)
 
-	got, err := resolveWithSelfForTest(self)
+	got, err := realgit.Resolve(context.Background(), "git")
 	if err != nil {
 		t.Fatalf("resolve git: %v", err)
 	}
 
 	if got != git {
-		t.Fatalf("Resolve chose %q, want non-shim git %q", got, git)
+		t.Fatalf("Resolve chose %q, want PATH git %q", got, git)
 	}
 }
 
@@ -135,21 +136,6 @@ func TestExecutableUsesShimNameWhenRequested(t *testing.T) {
 	if got := realgit.Executable(context.Background(), true); got != "git" {
 		t.Fatalf("Executable(wantsShim=true) = %q, want git", got)
 	}
-}
-
-func resolveWithSelfForTest(self string) (string, error) {
-	if envValue := os.Getenv(realgit.Env); envValue != "" &&
-		realgit.UsableCandidate(self, envValue) {
-		return envValue, nil
-	}
-
-	for _, candidate := range realgit.Candidates(self) {
-		if realgit.UsableCandidate(self, candidate) {
-			return candidate, nil
-		}
-	}
-
-	return "", errRealGitTestUnresolved
 }
 
 func createGitResolutionDirs(t *testing.T, root string) (string, string) {

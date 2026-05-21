@@ -70,9 +70,17 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 	)
 	defer cancel()
 
+	env, envErr := externalToolEnv(request.Env)
+	if envErr != nil {
+		return externalToolResult{
+			ExitCode:      1,
+			RunnerFailure: fmt.Errorf("%s: %w", request.Name, envErr),
+		}
+	}
+
 	cmd := execabs.CommandContext(ctx, request.Command[0], request.Command[1:]...)
 	cmd.Dir = request.Dir
-	cmd.Env = externalToolEnv(request.Env)
+	cmd.Env = env
 
 	var (
 		stdout bytes.Buffer
@@ -171,10 +179,14 @@ func externalToolCombinedOutput(stdout, stderr string) string {
 	}
 }
 
-func externalToolEnv(extra []string) []string {
+func externalToolEnv(extra []string) ([]string, error) {
 	env := make([]string, 0, len(os.Environ())+len(extra))
 	hasPath := false
-	cacheEnv := externalToolCacheEnv(repoRoot())
+
+	cacheEnv, err := externalToolCacheEnv(repoRoot())
+	if err != nil {
+		return nil, err
+	}
 
 	for _, item := range os.Environ() {
 		if externalToolEnvBlocked(item) {
@@ -207,7 +219,7 @@ func externalToolEnv(extra []string) []string {
 	env = append(env, "XDG_CONFIG_HOME="+os.DevNull)
 	env = append(env, cacheEnv.items()...)
 
-	return append(env, extra...)
+	return append(env, extra...), nil
 }
 
 type externalToolCacheEnvironment struct {
@@ -216,9 +228,9 @@ type externalToolCacheEnvironment struct {
 	GolangCILintDir string
 }
 
-func externalToolCacheEnv(root string) externalToolCacheEnvironment {
+func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 	if strings.TrimSpace(root) == "" || root == "." {
-		return externalToolCacheEnvironment{}
+		return externalToolCacheEnvironment{}, nil
 	}
 
 	goTemp := filepath.Join(root, ".coding-ethos", "cache", "go-tmp")
@@ -228,7 +240,11 @@ func externalToolCacheEnv(root string) externalToolCacheEnvironment {
 	for _, dir := range []string{goTemp, goCache, golangCILintDir} {
 		err := os.MkdirAll(dir, externalToolCacheDirMode)
 		if err != nil {
-			return externalToolCacheEnvironment{}
+			return externalToolCacheEnvironment{}, fmt.Errorf(
+				"create external tool cache directory %s: %w",
+				dir,
+				err,
+			)
 		}
 	}
 
@@ -236,7 +252,7 @@ func externalToolCacheEnv(root string) externalToolCacheEnvironment {
 		GoTemp:          goTemp,
 		GoCache:         goCache,
 		GolangCILintDir: golangCILintDir,
-	}
+	}, nil
 }
 
 func (environment externalToolCacheEnvironment) overrides(name string) bool {

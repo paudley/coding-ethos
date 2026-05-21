@@ -5,6 +5,7 @@ package managedcapture
 
 import (
 	"context"
+	"os/exec"
 	"testing"
 )
 
@@ -19,6 +20,10 @@ func TestManagedGoRootResolvesRuntimeRoot(t *testing.T) {
 func TestManagedCCompilerResolvesCompiler(t *testing.T) {
 	t.Parallel()
 
+	if !anyToolAvailable("gcc", "cc", "clang") {
+		t.Skip("C compiler is not available on PATH")
+	}
+
 	if got := managedCCompiler(); got == "" {
 		t.Fatal("managedCCompiler() returned empty")
 	}
@@ -27,9 +32,23 @@ func TestManagedCCompilerResolvesCompiler(t *testing.T) {
 func TestManagedAssemblerResolvesAssembler(t *testing.T) {
 	t.Parallel()
 
+	if !anyToolAvailable("as") {
+		t.Skip("assembler is not available on PATH")
+	}
+
 	if got := managedAssembler(); got == "" {
 		t.Fatal("managedAssembler() returned empty")
 	}
+}
+
+func anyToolAvailable(names ...string) bool {
+	for _, name := range names {
+		if _, err := exec.LookPath(name); err == nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestManagedCompilerPathIncludesCompilerAndAssemblerDirs(t *testing.T) {

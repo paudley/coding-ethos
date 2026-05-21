@@ -10,15 +10,28 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
 const goRootProbeTimeout = 2 * time.Second
 
+// managedGoRootCache avoids spawning `go env GOROOT` for every captured process.
+//
+//nolint:gochecknoglobals
+var managedGoRootCache sync.Map
+
 func managedGoRoot(ctx context.Context) string {
 	goBin, err := exec.LookPath("go")
 	if err != nil {
 		return ""
+	}
+
+	if cached, ok := managedGoRootCache.Load(goBin); ok {
+		root, typeOK := cached.(string)
+		if typeOK {
+			return root
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, goRootProbeTimeout)
@@ -29,7 +42,10 @@ func managedGoRoot(ctx context.Context) string {
 		return ""
 	}
 
-	return strings.TrimSpace(string(output))
+	root := strings.TrimSpace(string(output))
+	managedGoRootCache.Store(goBin, root)
+
+	return root
 }
 
 func managedCCompiler() string {

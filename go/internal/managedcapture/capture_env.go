@@ -15,6 +15,8 @@ import (
 
 const capturedProcessPathEnv = "PATH"
 
+const gitShimProbeMaxBytes = 4096
+
 func managedSubprocessGitEnv(
 	ctx context.Context,
 	tempDir string,
@@ -107,7 +109,14 @@ func capturedSystemPathCandidates() []string {
 }
 
 func pathEntryHasCodingEthosGitShim(entry string) bool {
-	payload, err := os.ReadFile(filepath.Join(entry, "git"))
+	gitPath := filepath.Join(entry, "git")
+
+	info, err := os.Stat(gitPath)
+	if err != nil || info.IsDir() || info.Size() > gitShimProbeMaxBytes {
+		return false
+	}
+
+	payload, err := os.ReadFile(gitPath)
 	if err != nil {
 		return false
 	}

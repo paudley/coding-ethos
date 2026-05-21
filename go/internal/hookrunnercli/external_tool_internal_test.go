@@ -40,7 +40,10 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	t.Setenv(hookGroupResultPathEnv, "/tmp/result.json")
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
 
-	env := externalToolEnv([]string{"KEEP_EXTRA=1"})
+	env, err := externalToolEnv([]string{"KEEP_EXTRA=1"})
+	if err != nil {
+		t.Fatalf("externalToolEnv() returned error: %v", err)
+	}
 
 	for _, item := range env {
 		name, _, found := strings.Cut(item, "=")
@@ -115,7 +118,10 @@ func TestExternalToolEnvAddsUsablePathWhenInheritedPathMissing(t *testing.T) {
 		}
 	})
 
-	env := externalToolEnv(nil)
+	env, err := externalToolEnv(nil)
+	if err != nil {
+		t.Fatalf("externalToolEnv() returned error: %v", err)
+	}
 
 	for _, item := range env {
 		name, value, ok := strings.Cut(item, "=")
@@ -133,6 +139,22 @@ func TestExternalToolEnvAddsUsablePathWhenInheritedPathMissing(t *testing.T) {
 	}
 
 	t.Fatalf("externalToolEnv omitted PATH: %#v", env)
+}
+
+func TestExternalToolCacheEnvFailsWhenCacheDirsCannotBeCreated(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(root, ".coding-ethos"),
+		[]byte("file\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write blocking cache path: %v", err)
+	}
+
+	_, err := externalToolCacheEnv(root)
+	if err == nil {
+		t.Fatal("externalToolCacheEnv() error = nil, want cache creation failure")
+	}
 }
 
 func TestRunExternalToolCapturesStdoutAndStderrSeparately(t *testing.T) {

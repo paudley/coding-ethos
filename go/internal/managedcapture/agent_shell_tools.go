@@ -36,12 +36,6 @@ func agentShellToolExecutable(path string) (string, error) {
 		return source, nil
 	}
 
-	// #nosec G703 -- source is the managed tool executable selected by policy.
-	payload, err := os.ReadFile(source)
-	if err != nil {
-		return "", fmt.Errorf("read agent-shell tool executable %s: %w", source, err)
-	}
-
 	sum := sha256.Sum256([]byte(source))
 
 	err = os.MkdirAll(toolDir, agentShellToolDirMode)
@@ -58,13 +52,56 @@ func agentShellToolExecutable(path string) (string, error) {
 		),
 	)
 
-	// #nosec G703 -- target is derived under the validated agent-shell tool dir.
-	err = os.WriteFile(target, payload, info.Mode().Perm())
+	if reusableAgentShellToolTarget(target, info) {
+		return target, nil
+	}
+
+	// #nosec G703 -- source is the managed tool executable selected by policy.
+	payload, err := os.ReadFile(source)
 	if err != nil {
-		return "", fmt.Errorf("write agent-shell tool executable %s: %w", target, err)
+		return "", fmt.Errorf("read agent-shell tool executable %s: %w", source, err)
+	}
+
+	temp, err := os.CreateTemp(toolDir, ".tool-*")
+	if err != nil {
+		return "", fmt.Errorf("create temporary agent-shell tool executable: %w", err)
+	}
+
+	tempPath := temp.Name()
+
+	defer func() { _ = os.Remove(tempPath) }()
+
+	_, writeErr := temp.Write(payload)
+	closeErr := temp.Close()
+
+	if writeErr != nil {
+		return "", fmt.Errorf("write agent-shell tool executable %s: %w", tempPath, writeErr)
+	}
+
+	if closeErr != nil {
+		return "", fmt.Errorf("close agent-shell tool executable %s: %w", tempPath, closeErr)
+	}
+
+	err = os.Chmod(tempPath, info.Mode().Perm())
+	if err != nil {
+		return "", fmt.Errorf("chmod agent-shell tool executable %s: %w", tempPath, err)
+	}
+
+	err = os.Rename(tempPath, target)
+	if err != nil {
+		return "", fmt.Errorf("install agent-shell tool executable %s: %w", target, err)
 	}
 
 	return target, nil
+}
+
+func reusableAgentShellToolTarget(target string, sourceInfo os.FileInfo) bool {
+	info, err := os.Stat(target)
+	if err != nil || info.IsDir() || !info.Mode().IsRegular() {
+		return false
+	}
+
+	return info.Size() == sourceInfo.Size() && info.Mode().Perm()&0o111 != 0
 }
 
 func trustedAgentShellToolDir() string {

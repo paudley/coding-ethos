@@ -759,6 +759,18 @@ func agentShellNativeGitBindActive(paths runtimePaths) bool {
 	return true
 }
 
+func executableFile(path string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	if cleaned == "" || !filepath.IsAbs(cleaned) {
+		return false
+	}
+
+	// #nosec G703 -- cleaned is only probed as an absolute executable path.
+	info, err := os.Stat(cleaned)
+
+	return err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0
+}
+
 func pathInside(root, candidate string) bool {
 	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(candidate))
 	if err != nil {

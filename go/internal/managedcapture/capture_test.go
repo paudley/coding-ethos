@@ -2350,6 +2350,57 @@ func TestManagedSubprocessPathPrefixRejectsShimRealGitEnv(t *testing.T) {
 	}
 }
 
+func TestManagedSubprocessPathPrefixIsDeterministic(t *testing.T) {
+	root := t.TempDir()
+	realGit := filepath.Join(root, "real-git")
+	writeExecutableFixture(t, realGit, "#!/usr/bin/env sh\nexit 0\n")
+	tempDir := filepath.Join(root, "tmp")
+
+	first, err := managedSubprocessPathPrefix(tempDir, realGit)
+	if err != nil {
+		t.Fatalf("first managedSubprocessPathPrefix() returned error: %v", err)
+	}
+	second, err := managedSubprocessPathPrefix(tempDir, realGit)
+	if err != nil {
+		t.Fatalf("second managedSubprocessPathPrefix() returned error: %v", err)
+	}
+
+	if first != second {
+		t.Fatalf("managed subprocess path changed: first=%q second=%q", first, second)
+	}
+}
+
+func TestManagedSubprocessPathPrefixReplacesStaleGitFile(t *testing.T) {
+	root := t.TempDir()
+	realGit := filepath.Join(root, "real-git")
+	writeExecutableFixture(t, realGit, "#!/usr/bin/env sh\nexit 0\n")
+	tempDir := filepath.Join(root, "tmp")
+
+	prefix, err := managedSubprocessPathPrefix(tempDir, realGit)
+	if err != nil {
+		t.Fatalf("managedSubprocessPathPrefix() returned error: %v", err)
+	}
+
+	gitPath := filepath.Join(prefix, "git")
+	if err := os.Remove(gitPath); err != nil {
+		t.Fatalf("remove managed git link: %v", err)
+	}
+	writeExecutableFixture(t, gitPath, "#!/usr/bin/env sh\nexit 1\n")
+
+	prefix, err = managedSubprocessPathPrefix(tempDir, realGit)
+	if err != nil {
+		t.Fatalf("managedSubprocessPathPrefix() with stale file returned error: %v", err)
+	}
+
+	target, err := os.Readlink(filepath.Join(prefix, "git"))
+	if err != nil {
+		t.Fatalf("read managed git link: %v", err)
+	}
+	if target != realGit {
+		t.Fatalf("managed git link = %q, want %q", target, realGit)
+	}
+}
+
 func TestCapturedToolArgsForceMachineReadableOutput(t *testing.T) {
 	t.Parallel()
 

@@ -1801,6 +1801,36 @@ func TestGitOutputRunsRealGitPath(t *testing.T) {
 	}
 }
 
+func TestResolveRuntimeGitIgnoresEnvExecutable(t *testing.T) {
+	root := t.TempDir()
+	envDir := filepath.Join(root, "env")
+	pathDir := filepath.Join(root, "path")
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
+		t.Fatalf("create env git dir: %v", err)
+	}
+	if err := os.MkdirAll(pathDir, 0o700); err != nil {
+		t.Fatalf("create PATH git dir: %v", err)
+	}
+
+	envGit := filepath.Join(envDir, "git")
+	pathGit := filepath.Join(pathDir, "git")
+	writeExecutableFixture(t, envGit, "#!/usr/bin/env sh\nprintf 'git version env\\n'\n")
+	writeExecutableFixture(t, pathGit, "#!/usr/bin/env sh\nprintf 'git version path\\n'\n")
+	t.Setenv(realgit.Env, envGit)
+	t.Setenv("PATH", pathDir)
+
+	got, err := resolveRuntimeGit()
+	if err != nil {
+		t.Fatalf("resolveRuntimeGit() error = %v", err)
+	}
+	if got != pathGit {
+		t.Fatalf("resolveRuntimeGit() = %q, want PATH git %q", got, pathGit)
+	}
+	if restored := os.Getenv(realgit.Env); restored != envGit {
+		t.Fatalf("resolveRuntimeGit() did not restore %s: %q", realgit.Env, restored)
+	}
+}
+
 func TestCIChangedFilesUsesExplicitFileListAndProviderDiffs(t *testing.T) {
 	repo := t.TempDir()
 

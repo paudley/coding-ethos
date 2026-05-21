@@ -656,27 +656,6 @@ func sandboxCacheEnv(
 	}, nil
 }
 
-func managedSubprocessPathPrefix(tempDir, realGit string) (string, error) {
-	err := os.MkdirAll(tempDir, capturedPrivateDirMode)
-	if err != nil {
-		return "", fmt.Errorf("create managed subprocess temp dir: %w", err)
-	}
-
-	toolDir, err := os.MkdirTemp(tempDir, "path-*")
-	if err != nil {
-		return "", fmt.Errorf("create managed subprocess path: %w", err)
-	}
-
-	gitPath := filepath.Join(toolDir, "git")
-
-	err = os.Symlink(realGit, gitPath)
-	if err != nil {
-		return "", fmt.Errorf("link managed subprocess git: %w", err)
-	}
-
-	return toolDir, nil
-}
-
 func resolvedManagedSubprocessGit(ctx context.Context) (string, error) {
 	envGit := strings.TrimSpace(os.Getenv("CODING_ETHOS_REAL_GIT"))
 	if envGit != "" {

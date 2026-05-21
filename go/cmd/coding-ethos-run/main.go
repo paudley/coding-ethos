@@ -337,18 +337,22 @@ func runtimePathSet(inputs runtimePathInputs) runtimePaths {
 }
 
 func resolveRuntimeGit() (string, error) {
-	envGit := strings.TrimSpace(os.Getenv(realgit.Env))
-	if executableFile(envGit) {
-		return envGit, nil
-	}
+	envGit, hadEnvGit := os.LookupEnv(realgit.Env)
+	_ = os.Unsetenv(realgit.Env)
+
+	defer func() {
+		if hadEnvGit {
+			_ = os.Setenv(realgit.Env, envGit)
+
+			return
+		}
+
+		_ = os.Unsetenv(realgit.Env)
+	}()
 
 	resolvedGit, err := gitwrap.ResolveRealGit("git")
 	if err == nil {
 		return resolvedGit, nil
-	}
-
-	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") == "1" && envGit != "" {
-		return envGit, nil
 	}
 
 	systemGit := resolveSystemGitCandidate()
@@ -357,18 +361,6 @@ func resolveRuntimeGit() (string, error) {
 	}
 
 	return "", fmt.Errorf("resolve runtime git: %w", err)
-}
-
-func executableFile(path string) bool {
-	cleaned := filepath.Clean(strings.TrimSpace(path))
-	if cleaned == "" || !filepath.IsAbs(cleaned) {
-		return false
-	}
-
-	// #nosec G703 -- cleaned is only probed as an absolute executable path.
-	info, err := os.Stat(cleaned)
-
-	return err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0
 }
 
 func resolveSystemGitCandidate() string {

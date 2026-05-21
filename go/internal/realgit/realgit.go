@@ -83,12 +83,7 @@ func Candidates(self string) []string {
 
 	candidates = append(
 		candidates,
-		[]string{
-			"/usr/bin/git",
-			"/bin/git",
-			"/usr/local/bin/git",
-			"/opt/homebrew/bin/git",
-		}...)
+		systemGitCandidates()...)
 
 	lookedUp, err := exec.LookPath(executableName)
 	if err == nil {
@@ -276,6 +271,16 @@ func CleanGitLocalEnv(source []string) []string {
 	env = append(env, "GIT_OPTIONAL_LOCKS=0")
 
 	return env
+}
+
+func systemGitCandidates() []string {
+	return []string{
+		"/usr/lib/git-core/git",
+		"/usr/bin/git",
+		"/bin/git",
+		"/usr/local/bin/git",
+		"/opt/homebrew/bin/git",
+	}
 }
 
 func gitLocalEnvName(name string) bool {

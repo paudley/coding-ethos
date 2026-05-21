@@ -57,6 +57,14 @@ func TestAgentShellToolExecutableCopiesExecutableIntoTrustedRunDir(t *testing.T)
 	if string(copied) != string(payload) {
 		t.Fatalf("copied payload = %q, want %q", copied, payload)
 	}
+
+	again, err := agentShellToolExecutable(tool)
+	if err != nil {
+		t.Fatalf("agent shell tool executable second call: %v", err)
+	}
+	if again != got {
+		t.Fatalf("second copied tool path = %q, want reused %q", again, got)
+	}
 }
 
 func TestAgentShellToolExecutableRejectsUntrustedRunDir(t *testing.T) {
