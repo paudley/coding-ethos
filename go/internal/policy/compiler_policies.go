@@ -37,6 +37,7 @@ func compilePolicies(
 	addGitPolicies(policies, config, principles)
 	addSyntaxPolicies(policies, config, principles)
 	addShellPolicies(policies, config, principles)
+	addProxyPolicies(policies, config)
 
 	err := addFileGuardPolicies(policies, config, repoConfig, principles)
 	if err != nil {
@@ -63,6 +64,13 @@ func compilePolicies(
 	}
 
 	return policies, nil
+}
+
+func addProxyPolicies(policies map[string]Policy, config map[string]any) {
+	policyDef := ProxySearchReplaceEditPolicy()
+	if policyConfigEnabled(config, policyDef.ID) {
+		policies[policyDef.ID] = policyDef
+	}
 }
 
 func protectedBranchWorkDisabled(config map[string]any) bool {

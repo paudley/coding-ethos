@@ -275,6 +275,7 @@ func examplePolicies() map[string]Policy {
 		"git.commit_head_advanced":       exampleCommitHeadPolicy(),
 		"git.edit_evasive_git_execution": exampleEditEvasiveGitExecutionPolicy(),
 		"filesystem.protected_path":      exampleProtectedPathPolicy(),
+		"proxy.search_replace_edit":      ProxySearchReplaceEditPolicy(),
 		"shell.malformed_command":        exampleShellMalformedCommandPolicy(),
 		"shell.forbidden_strings":        exampleShellForbiddenStringsPolicy(),
 	}

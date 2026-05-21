@@ -692,6 +692,11 @@ used by hooks.
   content-hash preconditions, AST-aware affected-symbol reporting, rollback on
   failure, and normalized diagnostics when a search block is missing,
   non-unique, or stale. Foundation for #62.
+  - [x] First enforced slice: reusable exact-one-match patch validation plus
+    PreToolUse blocking for existing-file `Write` rewrites and concrete
+    `Edit`/`MultiEdit` search blocks that are empty, missing, or non-unique.
+  - [ ] Extend patch outcomes with AST affected-symbol evidence and durable
+    proxy trace/code-intel storage.
 - [ ] Add a transactional edit/remediation workspace for lint shielding:
   apply proposed edit, run managed autofixers and syntax checks, classify
   autofix-only changes versus semantic changes, emit a diff, and require policy
