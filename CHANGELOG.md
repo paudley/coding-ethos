@@ -11,6 +11,8 @@ and this project follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-21
+
 ### Added
 
 - Added the `cerun` agent shell entrypoint and `coding-ethos-run agent-shell`

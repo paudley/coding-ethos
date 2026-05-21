@@ -3,7 +3,7 @@
 
 [project]
 name = "coding-ethos-hooks"
-version = "0.2.1"
+version = "0.3.0"
 description = "Pre-commit hooks for coding-ethos bundles"
 requires-python = ">=3.13"
 license = "AGPL-3.0-only"

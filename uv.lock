@@ -217,7 +217,7 @@ wheels = [
 
 [[package]]
 name = "coding-ethos"
-version = "0.2.1"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },
@@ -248,7 +248,7 @@ dev = [
 
 [[package]]
 name = "coding-ethos-hooks"
-version = "0.2.1"
+version = "0.3.0"
 source = { editable = "pre-commit/hooks" }
 dependencies = [
     { name = "bandit", extra = ["sarif"] },

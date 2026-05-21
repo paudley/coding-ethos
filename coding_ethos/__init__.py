@@ -43,4 +43,4 @@ __all__ = [
     "seed_primary_from_markdown",
 ]
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
