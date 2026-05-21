@@ -8,8 +8,6 @@ import "context"
 func gitIgnoreMatcherActive(
 	ctx context.Context,
 	root string,
-	allowedPaths map[string]bool,
-	allowedDirs map[string]bool,
 ) bool {
 	return gitWorkTreeAvailable(ctx, root)
 }

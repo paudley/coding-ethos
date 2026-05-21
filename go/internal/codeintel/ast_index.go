@@ -819,7 +819,7 @@ func newGitIgnoreMatcher(ctx context.Context, root string) gitIgnoreMatcher {
 
 	return gitIgnoreMatcher{
 		root:        root,
-		active:      gitIgnoreMatcherActive(ctx, root, allowedPaths, allowedDirs),
+		active:      gitIgnoreMatcherActive(ctx, root),
 		allowedPath: allowedPaths,
 		allowedDir:  allowedDirs,
 	}
