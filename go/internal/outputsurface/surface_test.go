@@ -130,6 +130,156 @@ func TestReportFormatsIncludeInventoryRows(t *testing.T) {
 	}
 }
 
+func TestPruneFormatsIncludeCandidatesAndDBMaintenance(t *testing.T) {
+	t.Parallel()
+
+	report := PruneReport{
+		GeneratedAtUTC: "2026-05-22T12:00:00Z",
+		Root:           "/repo",
+		TracePath:      "/repo/.coding-ethos/prune-runs/run.json",
+		Apply:          true,
+		DeletedFiles:   1,
+		DeletedBytes:   42,
+		Skipped:        1,
+		Candidates: []PruneCandidate{
+			{
+				SurfaceID: "lint_traces",
+				Path:      "/repo/.coding-ethos/lint-runs/old.json",
+				Kind:      "file",
+				Reason:    "max_age=24h",
+				Bytes:     42,
+				Deleted:   true,
+			},
+			{
+				SurfaceID: "hook_runs",
+				Path:      "/repo/.coding-ethos/hook-runs/old",
+				Kind:      "directory",
+				Reason:    "waiting for code-intel ingest",
+				Skipped:   true,
+			},
+		},
+		DBMaintenance: []DBMaintenance{
+			{
+				SurfaceID:          "code_intel_db",
+				CutoffUTC:          "2026-05-21T12:00:00Z",
+				DeletedTraces:      2,
+				DeletedProxyEvents: 3,
+				Vacuumed:           true,
+			},
+		},
+		Errors: []string{"sample error"},
+	}
+
+	toon := FormatPruneTOON(report)
+	if !strings.Contains(toon, "candidates[2]") ||
+		!strings.Contains(toon, "trace_path: /repo/.coding-ethos/prune-runs/run.json") ||
+		!strings.Contains(toon, "db_maintenance[1]") {
+		t.Fatalf("TOON prune report missing details:\n%s", toon)
+	}
+
+	human := FormatPruneHuman(report)
+	if !strings.Contains(human, "mode: apply") ||
+		!strings.Contains(human, "- lint_traces deleted") ||
+		!strings.Contains(
+			human,
+			"- code_intel_db rows: deleted_traces=2 deleted_proxy_events=3 vacuumed=true",
+		) ||
+		!strings.Contains(human, "trace_path: /repo/.coding-ethos/prune-runs/run.json") ||
+		!strings.Contains(human, "sample error") {
+		t.Fatalf("human prune report missing details:\n%s", human)
+	}
+}
+
+func TestSortInventoriesOrdersBySurfaceID(t *testing.T) {
+	t.Parallel()
+
+	items := []Inventory{
+		{Definition: Definition{ID: "lint_traces"}},
+		{Definition: Definition{ID: "hook_runs"}},
+		{Definition: Definition{ID: "code_intel_db"}},
+	}
+	SortInventories(items)
+
+	got := []string{items[0].ID, items[1].ID, items[2].ID}
+	want := []string{"code_intel_db", "hook_runs", "lint_traces"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("sorted inventories = %#v, want %#v", got, want)
+	}
+}
+
+func TestInspectGlobRecordsErrorsDirectoriesAndStaleFiles(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	root := t.TempDir()
+	dirMatch := filepath.Join(root, "match-dir")
+	if err := os.MkdirAll(dirMatch, 0o755); err != nil {
+		t.Fatalf("create glob dir: %v", err)
+	}
+	fileMatch := filepath.Join(root, "match-file.log")
+	writeReportFixture(t, root, "match-file.log", "old\n")
+	oldTime := now.Add(-48 * time.Hour)
+	if err := os.Chtimes(fileMatch, oldTime, oldTime); err != nil {
+		t.Fatalf("set file mtime: %v", err)
+	}
+
+	inventory := Inventory{}
+	inspectGlob(
+		filepath.Join(root, "match-*"),
+		SurfaceRetentionPolicy{MaxAge: 24 * time.Hour},
+		now,
+		&inventory,
+	)
+	if !inventory.Exists ||
+		inventory.DirCount != 1 ||
+		inventory.FileCount != 1 ||
+		inventory.StaleCount != 1 {
+		t.Fatalf("glob inventory = %#v", inventory)
+	}
+
+	inspectGlob("[", SurfaceRetentionPolicy{}, now, &inventory)
+	if len(inventory.Errors) == 0 {
+		t.Fatalf("invalid glob did not record an error: %#v", inventory)
+	}
+}
+
+func TestRetentionPolicyFallsBackToDefinitionAndGlobalDisables(t *testing.T) {
+	t.Parallel()
+
+	settings := DefaultSettings()
+	delete(settings.Prune.Surfaces, "lint_traces")
+	settings.Prune.Enabled = false
+	settings.Prune.AutoEnabled = false
+	policy := retentionPolicy(settings, Definition{
+		ID:             "lint_traces",
+		CommandPrune:   true,
+		AutomaticPrune: true,
+		RequiresIngest: true,
+		maxAge:         2 * time.Hour,
+	})
+
+	if policy.Enabled || policy.Auto || !policy.RequireCodeIntelIngest ||
+		policy.MaxAge != 2*time.Hour {
+		t.Fatalf("fallback retention policy = %#v", policy)
+	}
+}
+
+func TestAddCodeIntelStatsRecordsOpenError(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "code-intel.db")
+	if err := os.WriteFile(path, []byte("not sqlite"), 0o600); err != nil {
+		t.Fatalf("write invalid db: %v", err)
+	}
+
+	inventory := Inventory{}
+	addCodeIntelStats(context.Background(), path, &inventory)
+	if len(inventory.Errors) == 0 {
+		t.Fatalf("invalid code-intel db did not record an error")
+	}
+}
+
 func inventoryByID(t *testing.T, report Report, id string) Inventory {
 	t.Helper()
 
