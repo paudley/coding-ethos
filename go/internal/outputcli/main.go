@@ -171,7 +171,13 @@ func prune(ctx context.Context, args []string) error {
 		return fmt.Errorf("prune output surfaces: %w", err)
 	}
 
-	switch *format {
+	return writePruneReport(*format, report)
+}
+
+func writePruneReport(format string, report outputsurface.PruneReport) error {
+	var err error
+
+	switch format {
 	case "json":
 		return encodeJSON(report)
 	case outputFormatTOON:
@@ -179,7 +185,7 @@ func prune(ctx context.Context, args []string) error {
 	case "human":
 		_, err = os.Stdout.WriteString(outputsurface.FormatPruneHuman(report))
 	default:
-		return fmt.Errorf("%w: %q", errUnsupportedPruneFormat, *format)
+		return fmt.Errorf("%w: %q", errUnsupportedPruneFormat, format)
 	}
 
 	if err != nil {
