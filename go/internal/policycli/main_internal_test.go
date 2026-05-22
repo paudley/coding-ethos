@@ -406,6 +406,14 @@ func TestRunCLIDispatchesPolicyCommands(t *testing.T) {
 	}
 }
 
+func TestExportedRunReturnsUsageCode(t *testing.T) {
+	t.Parallel()
+
+	if code := Run(nil); code != commandArgsOffset {
+		t.Fatalf("Run(nil) exit = %d, want %d", code, commandArgsOffset)
+	}
+}
+
 func TestRunCLIReturnsUsageAndCommandErrors(t *testing.T) {
 	t.Parallel()
 
@@ -439,6 +447,37 @@ func TestRunCLIReturnsUsageAndCommandErrors(t *testing.T) {
 				t.Fatalf("exit = %d, want %d", code, test.want)
 			}
 		})
+	}
+}
+
+func TestConfigTraceWritersEmitTextAndJSON(t *testing.T) {
+	report := configTraceReport{
+		Config:             "config.yaml",
+		RepoConfig:         "repo_config.yaml",
+		Status:             "valid",
+		ConfigSections:     []string{"repo", "style"},
+		RepoConfigSections: []string{"repo"},
+		DispatchScopes:     1,
+		EvidenceMaps:       2,
+		Policies:           3,
+	}
+
+	textOutput := captureStdout(t, func() {
+		writeConfigTraceText(report)
+	})
+	if !strings.Contains(textOutput, "status: valid") ||
+		!strings.Contains(textOutput, "repo_config_sections: repo") {
+		t.Fatalf("config trace text missing fields:\n%s", textOutput)
+	}
+
+	jsonOutput := captureStdout(t, func() {
+		if err := writeConfigTraceJSON(report); err != nil {
+			t.Fatalf("write JSON config trace: %v", err)
+		}
+	})
+	if !strings.Contains(jsonOutput, `"status": "valid"`) ||
+		!strings.Contains(jsonOutput, `"dispatch_scopes": 1`) {
+		t.Fatalf("config trace JSON missing fields:\n%s", jsonOutput)
 	}
 }
 

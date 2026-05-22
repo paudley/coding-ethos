@@ -17,7 +17,9 @@ def resource_path(*parts: str) -> Path:
     source_candidates: dict[tuple[str, ...], Path] = {
         ("coding_ethos.yml",): source_root / "coding_ethos.yml",
         ("config.yaml",): source_root / "config.yaml",
+        ("config.toml",): source_root / "config.toml",
         ("repo_config.example.yaml",): source_root / "repo_config.example.yaml",
+        ("repo_config.example.toml",): source_root / "repo_config.example.toml",
         ("repo_ethos.example.yml",): source_root / "repo_ethos.example.yml",
     }
     source_path = source_candidates.get(parts)

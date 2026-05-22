@@ -19,6 +19,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
@@ -162,7 +163,7 @@ func runWithStatus(options Options) (int, error) {
 		return 1, metadataErr
 	}
 
-	maintenanceErr := refreshCodeIntelAfterRun(options, runDir)
+	maintenanceErr := finishHookMaintenance(options, runDir)
 
 	return completedHookStatus(status, err, maintenanceErr)
 }
@@ -194,6 +195,15 @@ func completedHookStatus(status int, runErr, maintenanceErr error) (int, error) 
 	return status, nil
 }
 
+func finishHookMaintenance(options Options, runDir string) error {
+	err := refreshCodeIntelAfterRun(options, runDir)
+	if err != nil {
+		return err
+	}
+
+	return autoPruneHookRuns(options.Root)
+}
+
 func refreshCodeIntelAfterRun(options Options, runDir string) error {
 	if shouldForceCodeIntelRefresh(options.Command) {
 		_, err := codeintel.RefreshRepository(
@@ -222,6 +232,31 @@ func refreshCodeIntelAfterRun(options Options, runDir string) error {
 	err = codeintel.IngestHookTraceFile(context.Background(), options.Root, tracePath)
 	if err != nil {
 		return fmt.Errorf("ingest hook trace into code-intel: %w", err)
+	}
+
+	return nil
+}
+
+func autoPruneHookRuns(root string) error {
+	settings, err := outputsurface.LoadSettings(root)
+	if err != nil {
+		return fmt.Errorf("load hook run auto-prune settings: %w", err)
+	}
+
+	policy := settings.Prune.Surfaces["hook_runs"]
+	if !settings.Prune.Enabled || !settings.Prune.AutoEnabled || !policy.Enabled ||
+		!policy.Auto {
+		return nil
+	}
+
+	_, err = outputsurface.Prune(context.Background(), outputsurface.PruneOptions{
+		Root:     root,
+		Settings: settings,
+		Scopes:   []string{"hook_runs"},
+		Apply:    true,
+	})
+	if err != nil {
+		return fmt.Errorf("auto-prune hook runs: %w", err)
 	}
 
 	return nil

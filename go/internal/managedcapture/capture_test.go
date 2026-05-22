@@ -1262,7 +1262,7 @@ func TestFormatterChangedFilesBecomeDiagnostics(t *testing.T) {
 	}
 
 	tool := filepath.Join(repo, "formatter-fixture")
-	writeExecutableFixture(t, tool, `#!/usr/bin/env sh
+	writeExecutableFixture(t, tool, `#!/bin/sh
 printf 'print(2)\n' > "$1"
 exit 0
 `)
@@ -1350,7 +1350,7 @@ func runFormatterChangedFileForTest(t *testing.T, format string) string {
 	}
 
 	tool := filepath.Join(repo, "formatter-fixture")
-	writeExecutableFixture(t, tool, `#!/usr/bin/env sh
+	writeExecutableFixture(t, tool, `#!/bin/sh
 printf 'print(2)\n' > "$1"
 exit 0
 `)

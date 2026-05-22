@@ -4,6 +4,7 @@
 package hookrunnercli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 )
 
 const (
@@ -105,6 +107,16 @@ func emitHookReport(writer io.Writer, producer hookDiagnosticProducer, format st
 	_, err := lint.LogResult(repoRoot(), result)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "WARN: hook report trace not written: %v\n", err)
+	} else {
+		err = outputsurface.AutoPruneSurface(
+			context.Background(),
+			repoRoot(),
+			"lint_traces",
+			false,
+		)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "WARN: hook report trace auto-prune failed: %v\n", err)
+		}
 	}
 
 	_, err = fmt.Fprintln(writer, formatHookReport(report, format))

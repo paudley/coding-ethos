@@ -190,6 +190,28 @@ func TestCodeIntelArgsKeepExplicitRoot(t *testing.T) {
 	}
 }
 
+func TestOutputArgsInsertRootAfterSubcommand(t *testing.T) {
+	t.Parallel()
+
+	args := outputArgs("/repo", []string{"report", "--format", "json"})
+
+	want := []string{"report", "--root", "/repo", "--format", "json"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("outputArgs() = %#v, want %#v", args, want)
+	}
+}
+
+func TestOutputArgsKeepExplicitRoot(t *testing.T) {
+	t.Parallel()
+
+	args := outputArgs("/repo", []string{"report", "--root", "/other"})
+
+	want := []string{"report", "--root", "/other"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("outputArgs() = %#v, want %#v", args, want)
+	}
+}
+
 func TestRuntimePathSetDerivesManagedPaths(t *testing.T) {
 	t.Parallel()
 
@@ -1661,7 +1683,7 @@ func fakeRuntimeGit(t *testing.T, repo, hooks, superproject string) string {
 	}
 
 	path := filepath.Join(t.TempDir(), "git")
-	body := "#!/usr/bin/env sh\n" +
+	body := "#!/bin/sh\n" +
 		"case \"$*\" in\n" +
 		"  \"rev-parse --show-toplevel\") printf '%s\\n' " +
 		shellQuoteForRuntimeTest(repo) + "; exit 0 ;;\n" +
@@ -1726,7 +1748,7 @@ func fakeStatusGit(t *testing.T, status string) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "git")
-	body := "#!/usr/bin/env sh\n" +
+	body := "#!/bin/sh\n" +
 		"case \"$*\" in\n" +
 		"  \"status --porcelain -- \"*) printf '%s' " +
 		shellQuoteForRuntimeTest(status) + "; exit 0 ;;\n" +
@@ -1742,7 +1764,7 @@ func fakeDiffGit(t *testing.T, output string) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "git")
-	body := "#!/usr/bin/env sh\n" +
+	body := "#!/bin/sh\n" +
 		"case \"$*\" in\n" +
 		"  \"diff --name-only \"*) printf '%s' " +
 		shellQuoteForRuntimeTest(output) + "; exit 0 ;;\n" +
@@ -2041,6 +2063,12 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 			name: "code intel",
 			args: []string{"code-intel", "stats"},
 			want: "direct-exec:coding-ethos-code-intel stats --root " + paths.Root,
+		},
+		{
+			name: "output report",
+			args: []string{"output", "report", "--format", "json"},
+			want: "direct-exec:coding-ethos-output report --root " + paths.Root +
+				" --format json",
 		},
 		{
 			name: "policy tool",

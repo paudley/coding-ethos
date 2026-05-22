@@ -23,6 +23,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hooklogcli"
 	"blackcat.ca/coding-ethos/go/internal/lintcli"
 	"blackcat.ca/coding-ethos/go/internal/mcpcli"
+	"blackcat.ca/coding-ethos/go/internal/outputcli"
 	"blackcat.ca/coding-ethos/go/internal/policycli"
 	"blackcat.ca/coding-ethos/go/internal/policygitcli"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
@@ -649,6 +650,7 @@ func internalToolHandlers() map[string]internalToolHandler {
 		"coding-ethos-hook":        runHookCLI,
 		"coding-ethos-hook-log":    runHookLogCLI,
 		"coding-ethos-mcp":         runMCPCLI,
+		"coding-ethos-output":      runOutputCLI,
 		"coding-ethos-policy":      policycli.Run,
 		"coding-ethos-toolchain":   toolchaincli.Run,
 	}
@@ -656,6 +658,17 @@ func internalToolHandlers() map[string]internalToolHandler {
 
 func runCodeIntelCLI(args []string) int {
 	err := codeintelcli.Run(context.Background(), args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+
+		return 1
+	}
+
+	return 0
+}
+
+func runOutputCLI(args []string) int {
+	err := outputcli.Run(context.Background(), args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\n", err)
 

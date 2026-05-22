@@ -90,6 +90,7 @@ func runCommandEntries() []runCommandEntry {
 		{Command: "ci-sarif", Handler: runCISARIFHandler},
 		{Command: "policy", Handler: runPolicyHandler},
 		{Command: "code-intel", Handler: runCodeIntelHandler},
+		{Command: "output", Handler: runOutputHandler},
 		{Command: "policy-tool", Handler: runPolicyTool},
 		{Command: "policy-tool-group", Handler: runPolicyToolGroup},
 		{Command: "policy-git", Handler: runPolicyGitHandler},
@@ -679,6 +680,15 @@ func runCodeIntelHandler(paths runtimePaths, rest []string) error {
 		paths,
 		"coding-ethos-code-intel",
 		codeIntelArgs(paths.Root, rest)...)
+
+	return nil
+}
+
+func runOutputHandler(paths runtimePaths, rest []string) error {
+	runtimeExecTool(
+		paths,
+		"coding-ethos-output",
+		outputArgs(paths.Root, rest)...)
 
 	return nil
 }
