@@ -119,7 +119,7 @@ func prune(ctx context.Context, args []string) error {
 	)
 	format := flags.String(
 		"format",
-		outputFormatTOON,
+		"",
 		"Output format: toon, human, or json",
 	)
 	scope := flags.String(
@@ -137,7 +137,7 @@ func prune(ctx context.Context, args []string) error {
 		false,
 		"Include OS temp-directory output surfaces",
 	)
-	_ = flags.Bool("dry-run", true, "Preview prune candidates without deleting")
+	dryRun := flags.Bool("dry-run", false, "Preview prune candidates without deleting")
 	apply := flags.Bool("apply", false, "Delete selected candidates")
 	all := flags.Bool("all", false, "Consider every command-prunable surface")
 	vacuum := flags.Bool(
@@ -156,6 +156,14 @@ func prune(ctx context.Context, args []string) error {
 		return fmt.Errorf("load output prune settings: %w", err)
 	}
 
+	if *format == "" {
+		*format = settings.Report.DefaultFormat
+	}
+
+	if *format == "" {
+		*format = outputFormatTOON
+	}
+
 	maxAge, err := outputsurface.ParseDuration(*olderThan)
 	if err != nil {
 		return fmt.Errorf("parse --older-than: %w", err)
@@ -167,7 +175,7 @@ func prune(ctx context.Context, args []string) error {
 		Scopes:      splitScopes(*scope),
 		OlderThan:   maxAge,
 		IncludeTemp: *includeTemp,
-		Apply:       *apply,
+		Apply:       *apply && !*dryRun,
 		All:         *all,
 		Vacuum:      *vacuum,
 	})

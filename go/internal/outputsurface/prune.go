@@ -77,6 +77,13 @@ type PruneCandidate struct {
 	Deleted   bool   `json:"deleted"`
 }
 
+type codeIntelPruneStore struct {
+	store   *codeintel.Store
+	path    string
+	checked bool
+	missing bool
+}
+
 // Prune selects and optionally removes stale output surface entries.
 func Prune(ctx context.Context, options PruneOptions) (PruneReport, error) {
 	absoluteRoot, err := normalizedPruneRoot(options.Root)
@@ -93,16 +100,17 @@ func Prune(ctx context.Context, options PruneOptions) (PruneReport, error) {
 		Apply:          options.Apply,
 	}
 	scopes := scopeSet(options.Scopes)
+	codeIntelDB := codeIntelPruneStore{path: codeintel.DefaultDBPath(report.Root)}
 
 	err = validateScopes(scopes)
 	if err != nil {
 		return PruneReport{}, err
 	}
 
-	collectPruneWork(ctx, &report, settings, options, scopes, now)
+	collectPruneWork(ctx, &report, settings, options, scopes, now, &codeIntelDB)
 
 	if options.Apply && options.Vacuum && shouldVacuum(scopes) {
-		err = vacuumCodeIntel(ctx, report.Root, &report)
+		err = vacuumCodeIntel(ctx, &codeIntelDB, &report)
 		if err != nil {
 			report.Errors = append(report.Errors, err.Error())
 		}
@@ -113,6 +121,11 @@ func Prune(ctx context.Context, options PruneOptions) (PruneReport, error) {
 	}
 
 	report.Skipped = skippedCandidateCount(report.Candidates)
+
+	closeErr := codeIntelDB.Close()
+	if closeErr != nil {
+		report.Errors = append(report.Errors, closeErr.Error())
+	}
 
 	if options.Apply && settings.Prune.WritePruneTrace && reportHasTraceableWork(report) {
 		tracePath, err := writePruneTrace(report.Root, &report, now)
@@ -163,6 +176,7 @@ func collectPruneWork(
 	options PruneOptions,
 	scopes map[string]bool,
 	now time.Time,
+	codeIntelDB *codeIntelPruneStore,
 ) {
 	for _, definition := range Definitions() {
 		if !shouldPruneSurface(definition, options, scopes) {
@@ -170,8 +184,8 @@ func collectPruneWork(
 		}
 
 		policy := retentionPolicy(settings, definition)
-		appendFilesystemCandidates(ctx, report, definition, policy, options, now)
-		appendDBMaintenance(ctx, report, definition, policy, options, now)
+		appendFilesystemCandidates(ctx, report, definition, policy, options, now, codeIntelDB)
+		appendDBMaintenance(ctx, report, definition, policy, options, now, codeIntelDB)
 	}
 }
 
@@ -182,6 +196,7 @@ func appendFilesystemCandidates(
 	policy SurfaceRetentionPolicy,
 	options PruneOptions,
 	now time.Time,
+	codeIntelDB *codeIntelPruneStore,
 ) {
 	candidates, err := pruneCandidates(report.Root, definition, policy, options, now)
 	if err != nil {
@@ -189,7 +204,7 @@ func appendFilesystemCandidates(
 	}
 
 	if policy.RequireCodeIntelIngest {
-		candidates, err = markUningestedCandidates(ctx, report.Root, candidates)
+		candidates, err = markUningestedCandidates(ctx, codeIntelDB, candidates)
 		if err != nil {
 			report.Errors = append(report.Errors, err.Error())
 		}
@@ -205,6 +220,7 @@ func appendDBMaintenance(
 	policy SurfaceRetentionPolicy,
 	options PruneOptions,
 	now time.Time,
+	codeIntelDB *codeIntelPruneStore,
 ) {
 	if !definition.DBMaintenance {
 		return
@@ -212,7 +228,7 @@ func appendDBMaintenance(
 
 	maintenance, hasMaintenance, err := pruneCodeIntelRows(
 		ctx,
-		report.Root,
+		codeIntelDB,
 		policy,
 		options,
 		now,
@@ -722,34 +738,75 @@ func skippedCandidate(surfaceID, path, reason string) PruneCandidate {
 	}
 }
 
+func (database *codeIntelPruneStore) Store(
+	ctx context.Context,
+) (*codeintel.Store, bool, error) {
+	if database.store != nil {
+		return database.store, true, nil
+	}
+
+	if !database.checked {
+		_, err := os.Stat(database.path)
+		database.checked = true
+
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				database.missing = true
+
+				return nil, false, nil
+			}
+
+			return nil, false, fmt.Errorf("stat code-intel db before prune maintenance: %w", err)
+		}
+	}
+
+	if database.missing {
+		return nil, false, nil
+	}
+
+	store, err := codeintel.Open(ctx, database.path)
+	if err != nil {
+		return nil, false, fmt.Errorf("open code-intel db for prune maintenance: %w", err)
+	}
+
+	database.store = store
+
+	return database.store, true, nil
+}
+
+func (database *codeIntelPruneStore) Close() error {
+	if database.store == nil {
+		return nil
+	}
+
+	err := database.store.Close()
+	if err != nil {
+		return fmt.Errorf("close code-intel db after prune maintenance: %w", err)
+	}
+
+	return nil
+}
+
 func markUningestedCandidates(
 	ctx context.Context,
-	root string,
+	codeIntelDB *codeIntelPruneStore,
 	candidates []PruneCandidate,
 ) ([]PruneCandidate, error) {
 	if len(candidates) == 0 {
 		return candidates, nil
 	}
 
-	path := filepath.Join(root, ".coding-ethos", "code-intel.db")
-
-	_, err := os.Stat(path)
+	store, ok, err := codeIntelDB.Store(ctx)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return markAllCandidatesSkipped(
-				candidates,
-				"code-intel ingest required: database missing",
-			), nil
-		}
-
-		return candidates, fmt.Errorf("stat code-intel db before ingest guard: %w", err)
+		return candidates, err
 	}
 
-	store, err := codeintel.Open(ctx, path)
-	if err != nil {
-		return candidates, fmt.Errorf("open code-intel db for ingest guard: %w", err)
+	if !ok {
+		return markAllCandidatesSkipped(
+			candidates,
+			"code-intel ingest required: database missing",
+		), nil
 	}
-	defer store.Close()
 
 	for index := range candidates {
 		if candidates[index].Skipped {
@@ -802,7 +859,7 @@ func shouldVacuum(scopes map[string]bool) bool {
 
 func pruneCodeIntelRows(
 	ctx context.Context,
-	root string,
+	codeIntelDB *codeIntelPruneStore,
 	policy SurfaceRetentionPolicy,
 	options PruneOptions,
 	now time.Time,
@@ -816,28 +873,14 @@ func pruneCodeIntelRows(
 		return DBMaintenance{}, false, nil
 	}
 
-	path := filepath.Join(root, ".coding-ethos", "code-intel.db")
-
-	_, err := os.Stat(path)
+	store, ok, err := codeIntelDB.Store(ctx)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return DBMaintenance{}, false, nil
-		}
-
-		return DBMaintenance{}, false, fmt.Errorf(
-			"stat code-intel db before row prune: %w",
-			err,
-		)
+		return DBMaintenance{}, false, err
 	}
 
-	store, err := codeintel.Open(ctx, path)
-	if err != nil {
-		return DBMaintenance{}, false, fmt.Errorf(
-			"open code-intel db for row prune: %w",
-			err,
-		)
+	if !ok {
+		return DBMaintenance{}, false, nil
 	}
-	defer store.Close()
 
 	var summary codeintel.RowPruneSummary
 	if options.Apply {
@@ -861,23 +904,19 @@ func pruneCodeIntelRows(
 	}, true, nil
 }
 
-func vacuumCodeIntel(ctx context.Context, root string, report *PruneReport) error {
-	path := filepath.Join(root, ".coding-ethos", "code-intel.db")
-
-	_, err := os.Stat(path)
+func vacuumCodeIntel(
+	ctx context.Context,
+	codeIntelDB *codeIntelPruneStore,
+	report *PruneReport,
+) error {
+	store, ok, err := codeIntelDB.Store(ctx)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-
-		return fmt.Errorf("stat code-intel db before vacuum: %w", err)
+		return err
 	}
 
-	store, err := codeintel.Open(ctx, path)
-	if err != nil {
-		return fmt.Errorf("open code-intel db for vacuum: %w", err)
+	if !ok {
+		return nil
 	}
-	defer store.Close()
 
 	err = store.Vacuum(ctx)
 	if err != nil {

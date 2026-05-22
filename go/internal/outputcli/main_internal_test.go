@@ -235,6 +235,51 @@ func TestPruneDryRunWritesDefaultTOONReport(t *testing.T) {
 	}
 }
 
+func TestPruneUsesConfiguredDefaultFormat(t *testing.T) {
+	root := t.TempDir()
+	tracePath := filepath.Join(root, ".coding-ethos", "lint-runs", "old.json")
+	if err := os.MkdirAll(filepath.Dir(tracePath), 0o755); err != nil {
+		t.Fatalf("create lint trace dir: %v", err)
+	}
+	if err := os.WriteFile(tracePath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write lint trace: %v", err)
+	}
+	oldTime := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(tracePath, oldTime, oldTime); err != nil {
+		t.Fatalf("set trace mtime: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "repo_config.toml"),
+		[]byte(
+			"[outputs.report]\ndefault_format = \"json\"\n\n"+
+				"[outputs.prune.surfaces.lint_traces]\nrequire_code_intel_ingest = false\n",
+		),
+		0o600,
+	); err != nil {
+		t.Fatalf("write repo_config.toml: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		err := run(context.Background(), []string{
+			"prune",
+			"--root",
+			root,
+			"--scope",
+			"lint_traces",
+			"--older-than",
+			"24h",
+		})
+		if err != nil {
+			t.Fatalf("run prune: %v", err)
+		}
+	})
+
+	if !strings.HasPrefix(strings.TrimSpace(output), "{") ||
+		!strings.Contains(output, `"surface_id": "lint_traces"`) {
+		t.Fatalf("prune output did not use configured JSON default:\n%s", output)
+	}
+}
+
 func TestPruneApplyWritesHumanReport(t *testing.T) {
 	root := t.TempDir()
 	tracePath := filepath.Join(root, ".coding-ethos", "lint-runs", "old.json")
@@ -280,6 +325,54 @@ func TestPruneApplyWritesHumanReport(t *testing.T) {
 	}
 	if _, err := os.Stat(tracePath); !os.IsNotExist(err) {
 		t.Fatalf("apply did not delete trace: %v", err)
+	}
+}
+
+func TestPruneDryRunOverridesApply(t *testing.T) {
+	root := t.TempDir()
+	tracePath := filepath.Join(root, ".coding-ethos", "lint-runs", "old.json")
+	if err := os.MkdirAll(filepath.Dir(tracePath), 0o755); err != nil {
+		t.Fatalf("create lint trace dir: %v", err)
+	}
+	if err := os.WriteFile(tracePath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write lint trace: %v", err)
+	}
+	oldTime := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(tracePath, oldTime, oldTime); err != nil {
+		t.Fatalf("set trace mtime: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "repo_config.toml"),
+		[]byte("[outputs.prune.surfaces.lint_traces]\nrequire_code_intel_ingest = false\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write repo_config.toml: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		err := run(context.Background(), []string{
+			"prune",
+			"--root",
+			root,
+			"--scope",
+			"lint_traces",
+			"--older-than",
+			"24h",
+			"--apply",
+			"--dry-run",
+			"--format",
+			"json",
+		})
+		if err != nil {
+			t.Fatalf("run prune dry-run: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, `"apply": false`) {
+		t.Fatalf("dry-run did not override apply:\n%s", output)
+	}
+	if _, err := os.Stat(tracePath); err != nil {
+		t.Fatalf("dry-run deleted trace: %v", err)
 	}
 }
 
