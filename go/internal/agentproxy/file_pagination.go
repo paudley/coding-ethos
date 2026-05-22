@@ -51,7 +51,7 @@ func (transform FileReadPaginationTransform) Apply(
 		}, nil
 	}
 
-	evidencePath, err := writeFullOutputEvidence(input.Text)
+	evidencePath, err := writeFullOutputEvidence(input.Text, 0)
 	if err != nil {
 		return TransformOutput{}, err
 	}

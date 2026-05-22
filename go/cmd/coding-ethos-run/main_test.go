@@ -190,6 +190,28 @@ func TestCodeIntelArgsKeepExplicitRoot(t *testing.T) {
 	}
 }
 
+func TestOutputArgsInsertRootAfterSubcommand(t *testing.T) {
+	t.Parallel()
+
+	args := outputArgs("/repo", []string{"report", "--format", "json"})
+
+	want := []string{"report", "--root", "/repo", "--format", "json"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("outputArgs() = %#v, want %#v", args, want)
+	}
+}
+
+func TestOutputArgsKeepExplicitRoot(t *testing.T) {
+	t.Parallel()
+
+	args := outputArgs("/repo", []string{"report", "--root", "/other"})
+
+	want := []string{"report", "--root", "/other"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("outputArgs() = %#v, want %#v", args, want)
+	}
+}
+
 func TestRuntimePathSetDerivesManagedPaths(t *testing.T) {
 	t.Parallel()
 
@@ -2041,6 +2063,12 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 			name: "code intel",
 			args: []string{"code-intel", "stats"},
 			want: "direct-exec:coding-ethos-code-intel stats --root " + paths.Root,
+		},
+		{
+			name: "output report",
+			args: []string{"output", "report", "--format", "json"},
+			want: "direct-exec:coding-ethos-output report --root " + paths.Root +
+				" --format json",
 		},
 		{
 			name: "policy tool",

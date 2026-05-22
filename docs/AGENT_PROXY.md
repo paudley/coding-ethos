@@ -98,7 +98,9 @@ token/hash/path evidence through the normal transform record path. This keeps
 command identity, early setup failures, and terminal stack-trace exceptions
 visible while removing repetitive progress output and dependency-frame noise.
 The runtime prunes stale matching evidence files from the OS temp directory
-before writing a new one.
+before writing a new one. The default retention is 24 hours, with an optional
+byte budget, and is controlled by `outputs.prune.surfaces.proxy_temp_evidence`
+in `config.toml` with repo-specific `repo_config.toml` overrides.
 
 Agent hooks now route Bash `PostToolUse` output through this transform path
 before any output is returned to the provider. The live path first parses known
@@ -108,6 +110,7 @@ line compression and a hard token-budget transform. It stores the proxy
 when the provider payload includes a session id. Repositories can tune
 `proxy.output_compression.max_lines`, `head_lines`, `tail_lines`, `max_tokens`,
 `head_tokens`, `tail_tokens`, and `max_diagnostics` in `repo_config.yaml`. The
+temp-evidence lifecycle is configured under `outputs.prune` in TOML. The
 `CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS`,
 `CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS`, and
 `CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS` environment variables remain available

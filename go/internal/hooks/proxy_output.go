@@ -21,6 +21,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/configdata"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
@@ -33,6 +34,7 @@ const (
 	defaultHookOutputHeadLines   = 32
 	defaultHookOutputTailLines   = 32
 	defaultHookOutputDiagnostics = 12
+	defaultTempEvidenceMaxAge    = 24 * time.Hour
 	defaultAnatomyMapSymbols     = 6
 	defaultAnatomyMapTimeout     = 5 * time.Second
 	defaultFileReadPageLines     = 100
@@ -486,18 +488,21 @@ func compressToolOutputWithRecords(event Event, output string) proxiedToolOutput
 	compressed, err := agentproxy.NewPipeline(
 		nil,
 		agentproxy.ToolOutputDiagnosticSummaryTransform{
-			Tool:        inferDiagnosticTool(event.Command()),
-			MaxFindings: options.MaxDiagnostics,
+			Tool:           inferDiagnosticTool(event.Command()),
+			MaxFindings:    options.MaxDiagnostics,
+			EvidenceMaxAge: options.TempEvidenceMaxAge,
 		},
 		agentproxy.ToolOutputCompressionTransform{
-			MaxLines: options.MaxLines,
-			Head:     options.HeadLines,
-			Tail:     options.TailLines,
+			MaxLines:       options.MaxLines,
+			Head:           options.HeadLines,
+			Tail:           options.TailLines,
+			EvidenceMaxAge: options.TempEvidenceMaxAge,
 		},
 		agentproxy.ToolOutputTokenBudgetTransform{
-			MaxTokens:  tokenBudget.MaxTokens,
-			HeadTokens: options.HeadTokens,
-			TailTokens: options.TailTokens,
+			MaxTokens:      tokenBudget.MaxTokens,
+			HeadTokens:     options.HeadTokens,
+			TailTokens:     options.TailTokens,
+			EvidenceMaxAge: options.TempEvidenceMaxAge,
 		},
 	).Apply(
 		context.Background(),
@@ -692,14 +697,15 @@ func stableHookID(prefix string, values ...string) string {
 }
 
 type hookOutputCompressionOptions struct {
-	MaxTokensSource string
-	MaxLines        int
-	HeadLines       int
-	TailLines       int
-	MaxTokens       int
-	HeadTokens      int
-	TailTokens      int
-	MaxDiagnostics  int
+	MaxTokensSource    string
+	MaxLines           int
+	HeadLines          int
+	TailLines          int
+	MaxTokens          int
+	HeadTokens         int
+	TailTokens         int
+	MaxDiagnostics     int
+	TempEvidenceMaxAge time.Duration
 }
 
 func loadHookOutputCompressionOptions(event Event) hookOutputCompressionOptions {
@@ -717,14 +723,15 @@ func loadHookOutputCompressionOptions(event Event) hookOutputCompressionOptions 
 
 func defaultHookOutputCompressionOptions() hookOutputCompressionOptions {
 	return hookOutputCompressionOptions{
-		MaxLines:        defaultHookOutputMaxLines,
-		HeadLines:       defaultHookOutputHeadLines,
-		TailLines:       defaultHookOutputTailLines,
-		MaxTokens:       defaultHookOutputMaxTokens,
-		MaxTokensSource: tokenBudgetSourceFallback,
-		HeadTokens:      defaultHookOutputHeadTokens,
-		TailTokens:      defaultHookOutputTailTokens,
-		MaxDiagnostics:  defaultHookOutputDiagnostics,
+		MaxLines:           defaultHookOutputMaxLines,
+		HeadLines:          defaultHookOutputHeadLines,
+		TailLines:          defaultHookOutputTailLines,
+		MaxTokens:          defaultHookOutputMaxTokens,
+		MaxTokensSource:    tokenBudgetSourceFallback,
+		HeadTokens:         defaultHookOutputHeadTokens,
+		TailTokens:         defaultHookOutputTailTokens,
+		MaxDiagnostics:     defaultHookOutputDiagnostics,
+		TempEvidenceMaxAge: defaultTempEvidenceMaxAge,
 	}
 }
 
@@ -759,6 +766,14 @@ func (options hookOutputCompressionOptions) withRepoConfig(
 		"max_diagnostics",
 		options.MaxDiagnostics,
 	)
+
+	lifecycle, err := outputsurface.LoadSettings(root)
+	if err == nil {
+		policy := lifecycle.Prune.Surfaces["proxy_temp_evidence"]
+		if policy.MaxAge > 0 {
+			options.TempEvidenceMaxAge = policy.MaxAge
+		}
+	}
 
 	return options
 }

@@ -4,6 +4,7 @@
 package lintcli
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/managedcapture"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
@@ -527,6 +529,18 @@ func logLintResult(cwd string, result lint.Result) {
 	_, logErr := lint.LogResult(cwd, result)
 	if logErr != nil {
 		fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", logErr)
+
+		return
+	}
+
+	err := outputsurface.AutoPruneSurface(
+		context.Background(),
+		cwd,
+		"lint_traces",
+		false,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARN: lint trace auto-prune failed: %v\n", err)
 	}
 }
 

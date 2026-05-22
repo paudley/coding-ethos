@@ -80,7 +80,9 @@ packages = ["coding_ethos"]
 [tool.hatch.build.targets.wheel.force-include]
 "coding_ethos.yml" = "coding_ethos/resources/coding_ethos.yml"
 "config.yaml" = "coding_ethos/resources/config.yaml"
+"config.toml" = "coding_ethos/resources/config.toml"
 "repo_config.example.yaml" = "coding_ethos/resources/repo_config.example.yaml"
+"repo_config.example.toml" = "coding_ethos/resources/repo_config.example.toml"
 "repo_ethos.example.yml" = "coding_ethos/resources/repo_ethos.example.yml"
 
 [tool.uv]

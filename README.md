@@ -399,6 +399,29 @@ from retained traces, SARIF, AST chunks, proxy session events, remediation
 records, and vector metadata. It is not a replacement for hooks or CEL policy
 evaluation.
 
+Inspect the repo-local disk output surface before pruning or deeper analysis:
+
+```bash
+bin/coding-ethos-run output report
+bin/coding-ethos-run output report --format json --include-temp
+bin/coding-ethos-run output prune --dry-run --all
+bin/coding-ethos-run output prune --scope proxy_temp_evidence --older-than 24h --include-temp
+bin/coding-ethos-run output prune --scope lint_traces --older-than 30d --apply
+bin/coding-ethos-run output prune --scope code_intel_db --older-than 90d --apply --vacuum
+```
+
+The report is non-destructive. It inventories retained hook runs and component
+logs, lint traces, the code-intelligence database, sandbox/cache/state
+directories, runtime caches, local SARIF artifacts, prune traces, and optional
+OS temp evidence. The prune command uses the same registry, defaults to preview
+mode, refuses unknown surface IDs, skips symlinks, and requires `--apply` before
+deleting files. Retention policies support `max_age`, `keep_last`, `max_bytes`,
+code-intel row pruning through `row_retention_days` or `--older-than`, and
+optional `--vacuum`. Apply runs write `.coding-ethos/prune-runs/*.json` traces
+when they delete files, prune rows, vacuum, or hit errors. Output lifecycle
+defaults live in `config.toml`; consuming repos can override `outputs.*` in
+`repo_config.toml` without changing the existing YAML enforcement config path.
+
 The directory anatomy map is inspired by Aider's repo map: agents get a compact
 symbol preview before deciding which files to open, while coding-ethos keeps the
 repo-local Go AST index as the source of truth. The proxy transform preserves
@@ -448,9 +471,11 @@ model context metadata use bounded tiers of 4,000 (<=32k context), 8,000
 removed, the runtime prepends a warning, writes the full original payload to a
 `coding-ethos-tool-output-*.log` evidence file in the system temp directory,
 and surfaces that path in the visible marker. Stale matching temp evidence
-files are pruned before new evidence is written. Repositories can tune this
-behavior with `proxy.output_compression` in `repo_config.yaml`; token-budget
-environment variables remain local runtime overrides for tests and diagnostics.
+files are pruned before new evidence is written. Repositories can tune
+compression with `proxy.output_compression` in `repo_config.yaml` and tune temp
+evidence retention with `outputs.prune.surfaces.proxy_temp_evidence` in
+`repo_config.toml`; token-budget environment variables remain local runtime
+overrides for tests and diagnostics.
 
 Parent install/check, parent lint, policy lint, policy-tool runs, and
 pre-commit/pre-push refresh the store through the compiled runner. AST rows
@@ -709,6 +734,8 @@ make sync-gemini-prompts REPO=/path/to/repo PRIMARY=coding_ethos.yml
 | `repo_ethos.yml` | repo-local context and overrides | repo-specific agent guidance and principle-derived tool config refinements |
 | `config.yaml` | bundle-wide enforcement defaults | tool configs, hooks, prompt grounding |
 | `repo_config.yaml` / `repo_config.yml` | consumer repo overrides | repo-specific enforcement |
+| `config.toml` | output lifecycle defaults | output report/prune retention policy |
+| `repo_config.toml` | consumer output lifecycle overrides | repo-specific output retention |
 | `pre-commit/prompts/` | Gemini prompt templates | `.code-ethos/gemini/prompt-pack.json` |
 | `pre-commit/` | hook bundle | repo-local Git and agent hook runtime |
 
@@ -887,6 +914,25 @@ resets, `git checkout -B`, and `git branch -f`; use a new commit instead of
 rewriting review history.
 
 See [repo_config.example.yaml](repo_config.example.yaml).
+
+### `config.toml` and `repo_config.toml`
+
+Output lifecycle settings live under `outputs.*` in TOML. `config.toml` carries
+the bundle defaults for report format, automatic pruning, command pruning, and
+per-surface retention. A consuming repo can override those settings with
+`repo_config.toml` at its root. This TOML path is intentionally scoped to output
+surface lifecycle settings; existing YAML config remains the enforcement source
+for generated tool configs and hook policy.
+
+Per-surface retention keys are `enabled`, `auto`, `max_age`, `keep_last`,
+`max_bytes`, `require_code_intel_ingest`, `row_retention_days`, and
+`vacuum_after_prune`. Automatic pruning is intentionally conservative:
+repo-configured proxy temp evidence is pruned before new evidence files are
+written, lint traces are pruned after managed lint trace writes when
+`outputs.prune.surfaces.lint_traces.auto = true`, and hook run directories
+prune after hook maintenance when `outputs.prune.surfaces.hook_runs.auto = true`.
+
+See [repo_config.example.toml](repo_config.example.toml).
 
 ### CEL Expression Policies
 
