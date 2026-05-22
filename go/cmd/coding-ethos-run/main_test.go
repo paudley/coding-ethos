@@ -1683,7 +1683,7 @@ func fakeRuntimeGit(t *testing.T, repo, hooks, superproject string) string {
 	}
 
 	path := filepath.Join(t.TempDir(), "git")
-	body := "#!/usr/bin/env sh\n" +
+	body := "#!/bin/sh\n" +
 		"case \"$*\" in\n" +
 		"  \"rev-parse --show-toplevel\") printf '%s\\n' " +
 		shellQuoteForRuntimeTest(repo) + "; exit 0 ;;\n" +
@@ -1748,7 +1748,7 @@ func fakeStatusGit(t *testing.T, status string) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "git")
-	body := "#!/usr/bin/env sh\n" +
+	body := "#!/bin/sh\n" +
 		"case \"$*\" in\n" +
 		"  \"status --porcelain -- \"*) printf '%s' " +
 		shellQuoteForRuntimeTest(status) + "; exit 0 ;;\n" +
@@ -1764,7 +1764,7 @@ func fakeDiffGit(t *testing.T, output string) string {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "git")
-	body := "#!/usr/bin/env sh\n" +
+	body := "#!/bin/sh\n" +
 		"case \"$*\" in\n" +
 		"  \"diff --name-only \"*) printf '%s' " +
 		shellQuoteForRuntimeTest(output) + "; exit 0 ;;\n" +
