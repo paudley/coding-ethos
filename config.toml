@@ -4,12 +4,10 @@
 [outputs.report]
 default_format = "toon"
 include_temp = false
-include_sensitive = false
 
 [outputs.prune]
 enabled = true
 auto_enabled = true
-require_apply_for_prune = true
 write_prune_trace = true
 
 [outputs.prune.surfaces.hook_runs]

@@ -26,7 +26,8 @@ const (
 	rootRepo            = "repo"
 	rootTemp            = "temp"
 
-	defaultTempEvidenceMaxAge = 24 * time.Hour
+	// DefaultTempEvidenceMaxAge is the retention age for proxy temp evidence.
+	DefaultTempEvidenceMaxAge = 24 * time.Hour
 	toonReportStaticLines     = 5
 	humanReportStaticLines    = 3
 	humanSurfaceLineEstimate  = 3
@@ -316,7 +317,7 @@ func tempDefinitions() []Definition {
 			"high",
 			"medium",
 			"ephemeral",
-			defaultTempEvidenceMaxAge,
+			DefaultTempEvidenceMaxAge,
 		),
 		tempGlob(
 			"process_state_locks",

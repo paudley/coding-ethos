@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -51,6 +52,12 @@ type RowPruneSummary struct {
 	CutoffUTC          string `json:"cutoff_utc"`
 	DeletedTraces      int    `json:"deleted_traces"`
 	DeletedProxyEvents int    `json:"deleted_proxy_events"`
+}
+
+// SourcePathIngestRequest asks whether a source path has trace coverage.
+type SourcePathIngestRequest struct {
+	Path            string
+	IncludeChildren bool
 }
 
 func DefaultDBPath(root string) string {
@@ -130,28 +137,87 @@ func (store *Store) SourcePathIngested(
 	path string,
 	includeChildren bool,
 ) (bool, error) {
-	cleanPath := filepath.Clean(path)
-	slashPath := filepath.ToSlash(cleanPath)
-	query := `SELECT COUNT(*) FROM traces WHERE source_path IN (?, ?)`
-	args := []any{cleanPath, slashPath}
-
-	if includeChildren {
-		query = `SELECT COUNT(*) FROM traces
-		WHERE source_path IN (?, ?)
-			OR source_path LIKE ?
-			OR source_path LIKE ?`
-
-		args = append(args, cleanPath+string(filepath.Separator)+"%", slashPath+"/%")
-	}
-
-	var count int
-
-	err := store.database.QueryRowContext(ctx, query, args...).Scan(&count)
+	results, err := store.SourcePathsIngested(ctx, []SourcePathIngestRequest{
+		{
+			Path:            path,
+			IncludeChildren: includeChildren,
+		},
+	})
 	if err != nil {
-		return false, fmt.Errorf("check ingested source path %q: %w", path, err)
+		return false, err
 	}
 
-	return count > 0, nil
+	return results[cleanSourcePath(path)], nil
+}
+
+// SourcePathsIngested checks trace coverage for source paths in one DB scan.
+func (store *Store) SourcePathsIngested(
+	ctx context.Context,
+	requests []SourcePathIngestRequest,
+) (map[string]bool, error) {
+	results := make(map[string]bool, len(requests))
+	if len(requests) == 0 {
+		return results, nil
+	}
+
+	normalized := make([]SourcePathIngestRequest, 0, len(requests))
+	for _, request := range requests {
+		cleanPath := cleanSourcePath(request.Path)
+		results[cleanPath] = false
+		normalized = append(normalized, SourcePathIngestRequest{
+			Path:            cleanPath,
+			IncludeChildren: request.IncludeChildren,
+		})
+	}
+
+	rows, err := store.database.QueryContext(
+		ctx,
+		`SELECT source_path FROM traces WHERE source_path != ''`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("check ingested source paths: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var sourcePath string
+
+		scanErr := rows.Scan(&sourcePath)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan ingested source path: %w", scanErr)
+		}
+
+		markIngestedSourcePath(results, normalized, cleanSourcePath(sourcePath))
+	}
+
+	rowsErr := rows.Err()
+	if rowsErr != nil {
+		return nil, fmt.Errorf("iterate ingested source paths: %w", rowsErr)
+	}
+
+	return results, nil
+}
+
+func cleanSourcePath(path string) string {
+	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func markIngestedSourcePath(
+	results map[string]bool,
+	requests []SourcePathIngestRequest,
+	sourcePath string,
+) {
+	for _, request := range requests {
+		if sourcePath == request.Path {
+			results[request.Path] = true
+
+			continue
+		}
+
+		if request.IncludeChildren && strings.HasPrefix(sourcePath, request.Path+"/") {
+			results[request.Path] = true
+		}
+	}
 }
 
 func (store *Store) Stats(ctx context.Context) (Stats, error) {

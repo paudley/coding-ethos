@@ -222,7 +222,7 @@ func encodeJSON(value any) error {
 
 	err := encoder.Encode(value)
 	if err != nil {
-		return fmt.Errorf("encode output report JSON: %w", err)
+		return fmt.Errorf("encode output JSON: %w", err)
 	}
 
 	return nil

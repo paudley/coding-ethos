@@ -188,8 +188,16 @@ func TestConfigParsingHelpersCoverUnitsAndFallbacks(t *testing.T) {
 	if !boolValue(" TRUE ") || boolValue("false") {
 		t.Fatalf("boolValue did not parse string booleans")
 	}
-	if intValue(int32(7)) != 7 || intValue(9.5) != 9 || intValue("bad") != 0 {
+	intValueFromInt32, err := intValue(int32(7))
+	if err != nil || intValueFromInt32 != 7 {
 		t.Fatalf("intValue did not parse supported fallbacks")
+	}
+	intValueFromFloat, err := intValue(9.5)
+	if err != nil || intValueFromFloat != 9 {
+		t.Fatalf("intValue did not parse supported fallbacks")
+	}
+	if _, err := intValue("bad"); err == nil {
+		t.Fatalf("intValue accepted invalid string")
 	}
 }
 

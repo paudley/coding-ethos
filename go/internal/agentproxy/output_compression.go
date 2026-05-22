@@ -4,6 +4,7 @@
 package agentproxy
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -43,9 +44,10 @@ const (
 // and test output into a concise diagnostic table before generic output
 // compression runs.
 type ToolOutputDiagnosticSummaryTransform struct {
-	Tool           string
-	MaxFindings    int
-	EvidenceMaxAge time.Duration
+	Tool             string
+	MaxFindings      int
+	EvidenceMaxAge   time.Duration
+	EvidenceMaxBytes int64
 }
 
 func (transform ToolOutputDiagnosticSummaryTransform) Name() string {
@@ -82,7 +84,11 @@ func (transform ToolOutputDiagnosticSummaryTransform) Apply(
 		}, nil
 	}
 
-	evidencePath, err := writeFullOutputEvidence(input.Text, transform.EvidenceMaxAge)
+	evidencePath, err := writeFullOutputEvidence(
+		input.Text,
+		transform.EvidenceMaxAge,
+		transform.EvidenceMaxBytes,
+	)
 	if err != nil {
 		return TransformOutput{}, err
 	}
@@ -176,10 +182,11 @@ func firstNonEmptyString(values ...string) string {
 // beginning and ending context where command identity and terminal failures
 // usually appear.
 type ToolOutputCompressionTransform struct {
-	MaxLines       int
-	Head           int
-	Tail           int
-	EvidenceMaxAge time.Duration
+	MaxLines         int
+	Head             int
+	Tail             int
+	EvidenceMaxAge   time.Duration
+	EvidenceMaxBytes int64
 }
 
 func (transform ToolOutputCompressionTransform) Name() string {
@@ -203,7 +210,11 @@ func (transform ToolOutputCompressionTransform) Apply(
 		}, nil
 	}
 
-	evidencePath, err := writeFullOutputEvidence(input.Text, transform.EvidenceMaxAge)
+	evidencePath, err := writeFullOutputEvidence(
+		input.Text,
+		transform.EvidenceMaxAge,
+		transform.EvidenceMaxBytes,
+	)
 	if err != nil {
 		return TransformOutput{}, err
 	}
@@ -333,10 +344,11 @@ func joinOutputLines(lines []string, trailingNewline bool) string {
 // ToolOutputTokenBudgetTransform applies a hard token budget to tool output
 // after any diagnostic-aware or line-aware compression has already run.
 type ToolOutputTokenBudgetTransform struct {
-	MaxTokens      int
-	HeadTokens     int
-	TailTokens     int
-	EvidenceMaxAge time.Duration
+	MaxTokens        int
+	HeadTokens       int
+	TailTokens       int
+	EvidenceMaxAge   time.Duration
+	EvidenceMaxBytes int64
 }
 
 func (transform ToolOutputTokenBudgetTransform) Name() string {
@@ -368,7 +380,11 @@ func (transform ToolOutputTokenBudgetTransform) Apply(
 		}, nil
 	}
 
-	evidencePath, err := originalEvidencePath(input, transform.EvidenceMaxAge)
+	evidencePath, err := originalEvidencePath(
+		input,
+		transform.EvidenceMaxAge,
+		transform.EvidenceMaxBytes,
+	)
 	if err != nil {
 		return TransformOutput{}, err
 	}
@@ -393,12 +409,16 @@ func (transform ToolOutputTokenBudgetTransform) Apply(
 	}, nil
 }
 
-func originalEvidencePath(input TransformInput, maxAge time.Duration) (string, error) {
+func originalEvidencePath(
+	input TransformInput,
+	maxAge time.Duration,
+	maxBytes int64,
+) (string, error) {
 	if path := input.Metadata[metadataFullOutputPath]; path != "" {
 		return path, nil
 	}
 
-	return writeFullOutputEvidence(input.Text, maxAge)
+	return writeFullOutputEvidence(input.Text, maxAge, maxBytes)
 }
 
 type toolOutputTokenBudgetLimits struct {
@@ -476,12 +496,16 @@ func budgetedOutput(
 	return joinOutputLines(output, strings.HasSuffix(text, "\n"))
 }
 
-func writeFullOutputEvidence(text string, maxAge time.Duration) (string, error) {
+func writeFullOutputEvidence(
+	text string,
+	maxAge time.Duration,
+	maxBytes int64,
+) (string, error) {
 	if maxAge <= 0 {
 		maxAge = toolOutputEvidenceMaxAge
 	}
 
-	pruneFullOutputEvidenceFiles(time.Now(), maxAge)
+	pruneFullOutputEvidenceFiles(time.Now(), maxAge, maxBytes)
 
 	file, err := os.CreateTemp("", toolOutputEvidencePattern)
 	if err != nil {
@@ -507,13 +531,27 @@ func writeFullOutputEvidence(text string, maxAge time.Duration) (string, error) 
 	return path, nil
 }
 
-func pruneFullOutputEvidenceFiles(now time.Time, maxAge time.Duration) {
+type outputEvidenceFile struct {
+	Path        string
+	Size        int64
+	ModUnixNano int64
+}
+
+func pruneFullOutputEvidenceFiles(
+	now time.Time,
+	maxAge time.Duration,
+	maxBytes int64,
+) {
 	matches, err := filepath.Glob(
 		filepath.Join(os.TempDir(), toolOutputEvidencePattern),
 	)
 	if err != nil {
 		return
 	}
+
+	files := make([]outputEvidenceFile, 0, len(matches))
+
+	var totalBytes int64
 
 	for _, path := range matches {
 		info, statErr := os.Stat(path)
@@ -523,6 +561,34 @@ func pruneFullOutputEvidenceFiles(now time.Time, maxAge time.Duration) {
 
 		if now.Sub(info.ModTime()) > maxAge {
 			_ = os.Remove(path)
+
+			continue
+		}
+
+		files = append(files, outputEvidenceFile{
+			Path:        path,
+			Size:        info.Size(),
+			ModUnixNano: info.ModTime().UnixNano(),
+		})
+		totalBytes += info.Size()
+	}
+
+	if maxBytes <= 0 || totalBytes <= maxBytes {
+		return
+	}
+
+	slices.SortFunc(files, func(left, right outputEvidenceFile) int {
+		return cmp.Compare(left.ModUnixNano, right.ModUnixNano)
+	})
+
+	for _, file := range files {
+		if totalBytes <= maxBytes {
+			return
+		}
+
+		removeErr := os.Remove(file.Path)
+		if removeErr == nil {
+			totalBytes -= file.Size
 		}
 	}
 }

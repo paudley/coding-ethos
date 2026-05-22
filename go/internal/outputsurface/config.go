@@ -27,6 +27,8 @@ var (
 	errReportConfigMustBeTable  = errors.New("outputs.report must be a table")
 	errPruneConfigMustBeTable   = errors.New("outputs.prune must be a table")
 	errSurfaceConfigMustBeTable = errors.New("output surface prune policy must be a table")
+	errInvalidIntegerValue      = errors.New("invalid integer value")
+	errUnsupportedIntegerValue  = errors.New("unsupported integer value")
 	errUnknownOutputConfigPath  = errors.New("unknown output TOML config path")
 	errUnknownOutputSurface     = errors.New("unknown output surface")
 )
@@ -39,18 +41,16 @@ type Settings struct {
 
 // ReportSettings controls output report defaults.
 type ReportSettings struct {
-	DefaultFormat    string `json:"default_format"`
-	IncludeTemp      bool   `json:"include_temp"`
-	IncludeSensitive bool   `json:"include_sensitive"`
+	DefaultFormat string `json:"default_format"`
+	IncludeTemp   bool   `json:"include_temp"`
 }
 
 // PruneSettings controls command and automatic pruning.
 type PruneSettings struct {
-	Surfaces             map[string]SurfaceRetentionPolicy `json:"surfaces"`
-	Enabled              bool                              `json:"enabled"`
-	AutoEnabled          bool                              `json:"auto_enabled"`
-	RequireApplyForPrune bool                              `json:"require_apply_for_prune"`
-	WritePruneTrace      bool                              `json:"write_prune_trace"`
+	Surfaces        map[string]SurfaceRetentionPolicy `json:"surfaces"`
+	Enabled         bool                              `json:"enabled"`
+	AutoEnabled     bool                              `json:"auto_enabled"`
+	WritePruneTrace bool                              `json:"write_prune_trace"`
 }
 
 // SurfaceRetentionPolicy controls one output surface lifecycle.
@@ -105,11 +105,10 @@ func DefaultSettings() Settings {
 			DefaultFormat: defaultReportFormat,
 		},
 		Prune: PruneSettings{
-			Enabled:              true,
-			AutoEnabled:          true,
-			RequireApplyForPrune: true,
-			WritePruneTrace:      true,
-			Surfaces:             map[string]SurfaceRetentionPolicy{},
+			Enabled:         true,
+			AutoEnabled:     true,
+			WritePruneTrace: true,
+			Surfaces:        map[string]SurfaceRetentionPolicy{},
 		},
 	}
 
@@ -179,8 +178,6 @@ func applyReportSettings(
 			settings.DefaultFormat = strings.TrimSpace(fmt.Sprint(value))
 		case "include_temp":
 			settings.IncludeTemp = boolValue(value)
-		case "include_sensitive":
-			settings.IncludeSensitive = boolValue(value)
 		default:
 			return fmt.Errorf(
 				"%w: outputs.report.%s in %s",
@@ -205,8 +202,6 @@ func applyPruneSettings(
 			settings.Enabled = boolValue(value)
 		case "auto_enabled":
 			settings.AutoEnabled = boolValue(value)
-		case "require_apply_for_prune":
-			settings.RequireApplyForPrune = boolValue(value)
 		case "write_prune_trace":
 			settings.WritePruneTrace = boolValue(value)
 		case "surfaces":
@@ -301,7 +296,17 @@ func applySurfacePolicyValue(
 	case "max_age":
 		return applySurfaceMaxAge(policy, surfaceID, value, file)
 	case "keep_last":
-		policy.KeepLast = intValue(value)
+		parsed, err := intValue(value)
+		if err != nil {
+			return fmt.Errorf(
+				"parse outputs.prune.surfaces.%s.keep_last in %s: %w",
+				surfaceID,
+				file,
+				err,
+			)
+		}
+
+		policy.KeepLast = parsed
 	case "max_bytes":
 		return applySurfaceMaxBytes(policy, surfaceID, value, file)
 	case "require_code_intel_ingest":
@@ -309,7 +314,17 @@ func applySurfacePolicyValue(
 	case "vacuum_after_prune":
 		policy.VacuumAfterPrune = boolValue(value)
 	case "row_retention_days":
-		policy.RowRetentionDays = intValue(value)
+		parsed, err := intValue(value)
+		if err != nil {
+			return fmt.Errorf(
+				"parse outputs.prune.surfaces.%s.row_retention_days in %s: %w",
+				surfaceID,
+				file,
+				err,
+			)
+		}
+
+		policy.RowRetentionDays = parsed
 	default:
 		return fmt.Errorf(
 			"%w: outputs.prune.surfaces.%s.%s in %s",
@@ -467,22 +482,24 @@ func boolValue(value any) bool {
 	}
 }
 
-func intValue(value any) int {
+func intValue(value any) (int, error) {
 	switch typed := value.(type) {
 	case int:
-		return typed
+		return typed, nil
 	case int64:
-		return int(typed)
+		return int(typed), nil
 	case int32:
-		return int(typed)
+		return int(typed), nil
 	case float64:
-		return int(typed)
+		return int(typed), nil
 	case string:
 		parsed, err := strconv.Atoi(strings.TrimSpace(typed))
-		if err == nil {
-			return parsed
+		if err != nil {
+			return 0, fmt.Errorf("%w: %q", errInvalidIntegerValue, typed)
 		}
+
+		return parsed, nil
 	}
 
-	return 0
+	return 0, fmt.Errorf("%w: %T", errUnsupportedIntegerValue, value)
 }

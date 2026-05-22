@@ -34,7 +34,6 @@ const (
 	defaultHookOutputHeadLines   = 32
 	defaultHookOutputTailLines   = 32
 	defaultHookOutputDiagnostics = 12
-	defaultTempEvidenceMaxAge    = 24 * time.Hour
 	defaultAnatomyMapSymbols     = 6
 	defaultAnatomyMapTimeout     = 5 * time.Second
 	defaultFileReadPageLines     = 100
@@ -488,21 +487,24 @@ func compressToolOutputWithRecords(event Event, output string) proxiedToolOutput
 	compressed, err := agentproxy.NewPipeline(
 		nil,
 		agentproxy.ToolOutputDiagnosticSummaryTransform{
-			Tool:           inferDiagnosticTool(event.Command()),
-			MaxFindings:    options.MaxDiagnostics,
-			EvidenceMaxAge: options.TempEvidenceMaxAge,
+			Tool:             inferDiagnosticTool(event.Command()),
+			MaxFindings:      options.MaxDiagnostics,
+			EvidenceMaxAge:   options.TempEvidenceMaxAge,
+			EvidenceMaxBytes: options.TempEvidenceMaxBytes,
 		},
 		agentproxy.ToolOutputCompressionTransform{
-			MaxLines:       options.MaxLines,
-			Head:           options.HeadLines,
-			Tail:           options.TailLines,
-			EvidenceMaxAge: options.TempEvidenceMaxAge,
+			MaxLines:         options.MaxLines,
+			Head:             options.HeadLines,
+			Tail:             options.TailLines,
+			EvidenceMaxAge:   options.TempEvidenceMaxAge,
+			EvidenceMaxBytes: options.TempEvidenceMaxBytes,
 		},
 		agentproxy.ToolOutputTokenBudgetTransform{
-			MaxTokens:      tokenBudget.MaxTokens,
-			HeadTokens:     options.HeadTokens,
-			TailTokens:     options.TailTokens,
-			EvidenceMaxAge: options.TempEvidenceMaxAge,
+			MaxTokens:        tokenBudget.MaxTokens,
+			HeadTokens:       options.HeadTokens,
+			TailTokens:       options.TailTokens,
+			EvidenceMaxAge:   options.TempEvidenceMaxAge,
+			EvidenceMaxBytes: options.TempEvidenceMaxBytes,
 		},
 	).Apply(
 		context.Background(),
@@ -697,15 +699,16 @@ func stableHookID(prefix string, values ...string) string {
 }
 
 type hookOutputCompressionOptions struct {
-	MaxTokensSource    string
-	MaxLines           int
-	HeadLines          int
-	TailLines          int
-	MaxTokens          int
-	HeadTokens         int
-	TailTokens         int
-	MaxDiagnostics     int
-	TempEvidenceMaxAge time.Duration
+	MaxTokensSource      string
+	MaxLines             int
+	HeadLines            int
+	TailLines            int
+	MaxTokens            int
+	HeadTokens           int
+	TailTokens           int
+	MaxDiagnostics       int
+	TempEvidenceMaxAge   time.Duration
+	TempEvidenceMaxBytes int64
 }
 
 func loadHookOutputCompressionOptions(event Event) hookOutputCompressionOptions {
@@ -731,7 +734,7 @@ func defaultHookOutputCompressionOptions() hookOutputCompressionOptions {
 		HeadTokens:         defaultHookOutputHeadTokens,
 		TailTokens:         defaultHookOutputTailTokens,
 		MaxDiagnostics:     defaultHookOutputDiagnostics,
-		TempEvidenceMaxAge: defaultTempEvidenceMaxAge,
+		TempEvidenceMaxAge: outputsurface.DefaultTempEvidenceMaxAge,
 	}
 }
 
@@ -772,6 +775,10 @@ func (options hookOutputCompressionOptions) withRepoConfig(
 		policy := lifecycle.Prune.Surfaces["proxy_temp_evidence"]
 		if policy.MaxAge > 0 {
 			options.TempEvidenceMaxAge = policy.MaxAge
+		}
+
+		if policy.MaxBytes > 0 {
+			options.TempEvidenceMaxBytes = policy.MaxBytes
 		}
 	}
 

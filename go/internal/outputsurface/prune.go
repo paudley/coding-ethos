@@ -624,6 +624,12 @@ func applyPruneCandidates(report *PruneReport) {
 		}
 
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				candidate.Deleted = true
+
+				continue
+			}
+
 			candidate.Skipped = true
 			candidate.Reason = "delete failed: " + err.Error()
 			report.Errors = append(
@@ -812,27 +818,35 @@ func markUningestedCandidates(
 		), nil
 	}
 
+	requestIndexes := make(map[string][]int)
+	requests := make([]codeintel.SourcePathIngestRequest, 0, len(candidates))
+
 	for index := range candidates {
 		if candidates[index].Skipped {
 			continue
 		}
 
 		candidatePath := filepath.FromSlash(candidates[index].Path)
+		cleanPath := filepath.ToSlash(filepath.Clean(candidatePath))
 
-		ingested, checkErr := store.SourcePathIngested(
-			ctx,
-			candidatePath,
-			candidates[index].Kind == recordKindDirectory,
-		)
-		if checkErr != nil {
-			return candidates, fmt.Errorf(
-				"check code-intel ingest for %s: %w",
-				candidatePath,
-				checkErr,
-			)
+		requestIndexes[cleanPath] = append(requestIndexes[cleanPath], index)
+		requests = append(requests, codeintel.SourcePathIngestRequest{
+			Path:            candidatePath,
+			IncludeChildren: candidates[index].Kind == recordKindDirectory,
+		})
+	}
+
+	ingested, checkErr := store.SourcePathsIngested(ctx, requests)
+	if checkErr != nil {
+		return candidates, fmt.Errorf("check code-intel ingest: %w", checkErr)
+	}
+
+	for cleanPath, indexes := range requestIndexes {
+		if ingested[cleanPath] {
+			continue
 		}
 
-		if !ingested {
+		for _, index := range indexes {
 			candidates[index].Skipped = true
 			candidates[index].Reason = "code-intel ingest required before prune"
 		}
@@ -900,12 +914,24 @@ func pruneCodeIntelRows(
 		)
 	}
 
-	return DBMaintenance{
+	maintenance := DBMaintenance{
 		SurfaceID:          "code_intel_db",
 		DeletedTraces:      summary.DeletedTraces,
 		DeletedProxyEvents: summary.DeletedProxyEvents,
 		CutoffUTC:          summary.CutoffUTC,
-	}, true, nil
+	}
+
+	if options.Apply && !options.Vacuum && policy.VacuumAfterPrune &&
+		(summary.DeletedTraces > 0 || summary.DeletedProxyEvents > 0) {
+		err = store.Vacuum(ctx)
+		if err != nil {
+			return DBMaintenance{}, false, fmt.Errorf("vacuum code-intel db: %w", err)
+		}
+
+		maintenance.Vacuumed = true
+	}
+
+	return maintenance, true, nil
 }
 
 func vacuumCodeIntel(
@@ -961,7 +987,6 @@ func writePruneTrace(root string, report *PruneReport, now time.Time) (string, e
 		dir,
 		fmt.Sprintf("%s-%d.json", now.UTC().Format("20060102T150405Z"), os.Getpid()),
 	)
-	report.TracePath = filepath.ToSlash(path)
 
 	file, err := os.OpenFile(
 		path,
