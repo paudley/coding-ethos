@@ -122,10 +122,7 @@ func Prune(ctx context.Context, options PruneOptions) (PruneReport, error) {
 
 	report.Skipped = skippedCandidateCount(report.Candidates)
 
-	closeErr := codeIntelDB.Close()
-	if closeErr != nil {
-		report.Errors = append(report.Errors, closeErr.Error())
-	}
+	appendCodeIntelCloseError(&report, &codeIntelDB)
 
 	if options.Apply && settings.Prune.WritePruneTrace && reportHasTraceableWork(report) {
 		tracePath, err := writePruneTrace(report.Root, &report, now)
@@ -137,6 +134,13 @@ func Prune(ctx context.Context, options PruneOptions) (PruneReport, error) {
 	}
 
 	return report, nil
+}
+
+func appendCodeIntelCloseError(report *PruneReport, database *codeIntelPruneStore) {
+	closeErr := database.Close()
+	if closeErr != nil {
+		report.Errors = append(report.Errors, closeErr.Error())
+	}
 }
 
 func normalizedPruneRoot(root string) (string, error) {

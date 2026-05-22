@@ -71,13 +71,7 @@ func report(ctx context.Context, args []string) error {
 		return fmt.Errorf("load output report settings: %w", err)
 	}
 
-	if *format == "" {
-		*format = settings.Report.DefaultFormat
-	}
-
-	if *format == "" {
-		*format = outputFormatTOON
-	}
+	*format = outputFormatOrDefault(*format, settings)
 
 	if settings.Report.IncludeTemp {
 		*includeTemp = true
@@ -156,13 +150,7 @@ func prune(ctx context.Context, args []string) error {
 		return fmt.Errorf("load output prune settings: %w", err)
 	}
 
-	if *format == "" {
-		*format = settings.Report.DefaultFormat
-	}
-
-	if *format == "" {
-		*format = outputFormatTOON
-	}
+	*format = outputFormatOrDefault(*format, settings)
 
 	maxAge, err := outputsurface.ParseDuration(*olderThan)
 	if err != nil {
@@ -207,6 +195,18 @@ func splitScopes(value string) []string {
 	}
 
 	return strings.Split(value, ",")
+}
+
+func outputFormatOrDefault(format string, settings outputsurface.Settings) string {
+	if format != "" {
+		return format
+	}
+
+	if settings.Report.DefaultFormat != "" {
+		return settings.Report.DefaultFormat
+	}
+
+	return outputFormatTOON
 }
 
 func encodeJSON(value any) error {
