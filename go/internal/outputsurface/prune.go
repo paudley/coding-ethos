@@ -921,17 +921,45 @@ func pruneCodeIntelRows(
 		CutoffUTC:          summary.CutoffUTC,
 	}
 
-	if options.Apply && !options.Vacuum && policy.VacuumAfterPrune &&
-		(summary.DeletedTraces > 0 || summary.DeletedProxyEvents > 0) {
-		err = store.Vacuum(ctx)
-		if err != nil {
-			return DBMaintenance{}, false, fmt.Errorf("vacuum code-intel db: %w", err)
-		}
-
-		maintenance.Vacuumed = true
+	vacuumed, err := vacuumAfterCodeIntelRowPrune(ctx, store, policy, options, summary)
+	if err != nil {
+		return DBMaintenance{}, false, err
 	}
 
+	maintenance.Vacuumed = vacuumed
+
 	return maintenance, true, nil
+}
+
+func vacuumAfterCodeIntelRowPrune(
+	ctx context.Context,
+	store *codeintel.Store,
+	policy SurfaceRetentionPolicy,
+	options PruneOptions,
+	summary codeintel.RowPruneSummary,
+) (bool, error) {
+	if !shouldVacuumAfterCodeIntelRowPrune(policy, options, summary) {
+		return false, nil
+	}
+
+	err := store.Vacuum(ctx)
+	if err != nil {
+		return false, fmt.Errorf("vacuum code-intel db: %w", err)
+	}
+
+	return true, nil
+}
+
+func shouldVacuumAfterCodeIntelRowPrune(
+	policy SurfaceRetentionPolicy,
+	options PruneOptions,
+	summary codeintel.RowPruneSummary,
+) bool {
+	if !options.Apply || options.Vacuum || !policy.VacuumAfterPrune {
+		return false
+	}
+
+	return summary.DeletedTraces > 0 || summary.DeletedProxyEvents > 0
 }
 
 func vacuumCodeIntel(
