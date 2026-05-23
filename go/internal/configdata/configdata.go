@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pelletier/go-toml/v2"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -40,6 +41,26 @@ func LoadYAMLMap(path string) (Map, error) {
 	err = yaml.Unmarshal(data, &decoded)
 	if err != nil {
 		return nil, fmt.Errorf("parse yaml %s: %w", path, err)
+	}
+
+	if decoded == nil {
+		decoded = map[string]any{}
+	}
+
+	return decoded, nil
+}
+
+func LoadTOMLMap(path string) (Map, error) {
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return nil, fmt.Errorf("read toml %s: %w", path, err)
+	}
+
+	var decoded map[string]any
+
+	err = toml.Unmarshal(data, &decoded)
+	if err != nil {
+		return nil, fmt.Errorf("parse toml %s: %w", path, err)
 	}
 
 	if decoded == nil {

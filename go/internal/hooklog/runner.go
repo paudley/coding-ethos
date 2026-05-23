@@ -19,6 +19,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
@@ -162,7 +163,7 @@ func runWithStatus(options Options) (int, error) {
 		return 1, metadataErr
 	}
 
-	maintenanceErr := refreshCodeIntelAfterRun(options, runDir)
+	maintenanceErr := finishHookMaintenance(options, runDir)
 
 	return completedHookStatus(status, err, maintenanceErr)
 }
@@ -194,6 +195,21 @@ func completedHookStatus(status int, runErr, maintenanceErr error) (int, error) 
 	return status, nil
 }
 
+func finishHookMaintenance(options Options, runDir string) error {
+	err := refreshCodeIntelAfterRun(options, runDir)
+	if err != nil {
+		return err
+	}
+
+	err = autoPruneHookRuns(options.Root)
+	if err != nil {
+		_, _ = fmt.Fprintf(options.Stderr, "WARN: auto-prune hook runs: %v\n", err)
+		debuglog.Debug("hook.auto_prune.warn", zap.Error(err))
+	}
+
+	return nil
+}
+
 func refreshCodeIntelAfterRun(options Options, runDir string) error {
 	if shouldForceCodeIntelRefresh(options.Command) {
 		_, err := codeintel.RefreshRepository(
@@ -222,6 +238,15 @@ func refreshCodeIntelAfterRun(options Options, runDir string) error {
 	err = codeintel.IngestHookTraceFile(context.Background(), options.Root, tracePath)
 	if err != nil {
 		return fmt.Errorf("ingest hook trace into code-intel: %w", err)
+	}
+
+	return nil
+}
+
+func autoPruneHookRuns(root string) error {
+	err := outputsurface.AutoPruneSurface(context.Background(), root, "hook_runs", false)
+	if err != nil {
+		return fmt.Errorf("auto-prune hook runs: %w", err)
 	}
 
 	return nil

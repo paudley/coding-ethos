@@ -9,13 +9,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
 
 const (
-	schemaVersion = 1
-	storeDirMode  = 0o700
+	sourcePathClauseCapacityFactor = 2
+	sourcePathQueryArgFactor       = 4
+	schemaVersion                  = 1
+	storeDirMode                   = 0o700
 )
 
 type Store struct {
@@ -44,6 +48,18 @@ type Stats struct {
 	EmbeddingRecords    int `json:"embedding_records"`
 	FtsRows             int `json:"fts_rows"`
 	SchemaVersion       int `json:"schema_version"`
+}
+
+type RowPruneSummary struct {
+	CutoffUTC          string `json:"cutoff_utc"`
+	DeletedTraces      int    `json:"deleted_traces"`
+	DeletedProxyEvents int    `json:"deleted_proxy_events"`
+}
+
+// SourcePathIngestRequest asks whether a source path has trace coverage.
+type SourcePathIngestRequest struct {
+	Path            string
+	IncludeChildren bool
 }
 
 func DefaultDBPath(root string) string {
@@ -91,6 +107,309 @@ func (store *Store) Close() error {
 	}
 
 	return nil
+}
+
+func (store *Store) Vacuum(ctx context.Context) error {
+	_, err := store.database.ExecContext(ctx, "VACUUM")
+	if err != nil {
+		return fmt.Errorf("vacuum code-intel store: %w", err)
+	}
+
+	return nil
+}
+
+func (store *Store) PruneRows(
+	ctx context.Context,
+	olderThan time.Duration,
+	now time.Time,
+) (RowPruneSummary, error) {
+	return store.pruneRows(ctx, olderThan, now, true)
+}
+
+func (store *Store) PreviewPruneRows(
+	ctx context.Context,
+	olderThan time.Duration,
+	now time.Time,
+) (RowPruneSummary, error) {
+	return store.pruneRows(ctx, olderThan, now, false)
+}
+
+func (store *Store) SourcePathIngested(
+	ctx context.Context,
+	path string,
+	includeChildren bool,
+) (bool, error) {
+	results, err := store.SourcePathsIngested(ctx, []SourcePathIngestRequest{
+		{
+			Path:            path,
+			IncludeChildren: includeChildren,
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+
+	return results[cleanSourcePath(path)], nil
+}
+
+// SourcePathsIngested checks trace coverage for source paths in one DB scan.
+func (store *Store) SourcePathsIngested(
+	ctx context.Context,
+	requests []SourcePathIngestRequest,
+) (map[string]bool, error) {
+	results := make(map[string]bool, len(requests))
+	if len(requests) == 0 {
+		return results, nil
+	}
+
+	normalized := make([]SourcePathIngestRequest, 0, len(requests))
+	for _, request := range requests {
+		cleanPath := cleanSourcePath(request.Path)
+		results[cleanPath] = false
+		normalized = append(normalized, SourcePathIngestRequest{
+			Path:            cleanPath,
+			IncludeChildren: request.IncludeChildren,
+		})
+	}
+
+	query, args := sourcePathsIngestedQuery(normalized)
+
+	rows, err := store.database.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("check ingested source paths: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var sourcePath string
+
+		scanErr := rows.Scan(&sourcePath)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan ingested source path: %w", scanErr)
+		}
+
+		markIngestedSourcePath(results, normalized, cleanSourcePath(sourcePath))
+	}
+
+	rowsErr := rows.Err()
+	if rowsErr != nil {
+		return nil, fmt.Errorf("iterate ingested source paths: %w", rowsErr)
+	}
+
+	return results, nil
+}
+
+func cleanSourcePath(path string) string {
+	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func sourcePathsIngestedQuery(
+	requests []SourcePathIngestRequest,
+) (string, []any) {
+	clauses := make(
+		[]string,
+		0,
+		len(requests)*sourcePathClauseCapacityFactor,
+	)
+	args := make([]any, 0, len(requests)*sourcePathQueryArgFactor)
+
+	for _, request := range requests {
+		nativePath := filepath.FromSlash(request.Path)
+
+		clauses = append(clauses, "source_path IN (?, ?)")
+		args = append(args, nativePath, request.Path)
+
+		if request.IncludeChildren {
+			clauses = append(clauses, "(source_path LIKE ? OR source_path LIKE ?)")
+			args = append(
+				args,
+				nativePath+string(filepath.Separator)+"%",
+				request.Path+"/%",
+			)
+		}
+	}
+
+	return "SELECT DISTINCT source_path FROM traces WHERE " +
+		strings.Join(clauses, " OR "), args
+}
+
+func markIngestedSourcePath(
+	results map[string]bool,
+	requests []SourcePathIngestRequest,
+	sourcePath string,
+) {
+	for _, request := range requests {
+		if sourcePath == request.Path {
+			results[request.Path] = true
+
+			continue
+		}
+
+		if request.IncludeChildren && strings.HasPrefix(sourcePath, request.Path+"/") {
+			results[request.Path] = true
+		}
+	}
+}
+
+func (store *Store) Stats(ctx context.Context) (Stats, error) {
+	stats := Stats{SchemaVersion: schemaVersion}
+
+	for _, count := range statCountQueries(&stats) {
+		row := store.database.QueryRowContext(ctx, count.query)
+
+		err := row.Scan(count.target)
+		if err != nil {
+			return Stats{}, fmt.Errorf("count %s: %w", count.name, err)
+		}
+	}
+
+	return stats, nil
+}
+
+func (store *Store) pruneRows(
+	ctx context.Context,
+	olderThan time.Duration,
+	now time.Time,
+	apply bool,
+) (RowPruneSummary, error) {
+	if olderThan <= 0 {
+		return RowPruneSummary{}, nil
+	}
+
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+
+	cutoff := now.UTC().Add(-olderThan).Format(time.RFC3339Nano)
+	summary := RowPruneSummary{CutoffUTC: cutoff}
+
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return RowPruneSummary{}, fmt.Errorf(
+			"begin code-intel row prune transaction: %w",
+			err,
+		)
+	}
+	defer rollbackUnlessCommitted(transaction)
+
+	traceIDs, err := traceIDsOlderThan(ctx, transaction, cutoff)
+	if err != nil {
+		return RowPruneSummary{}, err
+	}
+
+	summary.DeletedTraces = len(traceIDs)
+
+	summary.DeletedProxyEvents, err = countProxyEventsOlderThan(
+		ctx,
+		store.database,
+		cutoff,
+	)
+	if err != nil {
+		return RowPruneSummary{}, err
+	}
+
+	if !apply {
+		return summary, nil
+	}
+
+	for _, traceID := range traceIDs {
+		deleteErr := deleteTraceRows(ctx, transaction, traceID)
+		if deleteErr != nil {
+			return RowPruneSummary{}, deleteErr
+		}
+	}
+
+	result, err := transaction.ExecContext(
+		ctx,
+		`DELETE FROM proxy_events
+		WHERE COALESCE(recorded_at_utc, '') <> ''
+			AND recorded_at_utc < ?`,
+		cutoff,
+	)
+	if err != nil {
+		return RowPruneSummary{}, fmt.Errorf("delete old proxy events: %w", err)
+	}
+
+	deletedProxyEvents, err := result.RowsAffected()
+	if err != nil {
+		return RowPruneSummary{}, fmt.Errorf("count deleted proxy events: %w", err)
+	}
+
+	summary.DeletedProxyEvents = int(deletedProxyEvents)
+
+	err = transaction.Commit()
+	if err != nil {
+		return RowPruneSummary{}, fmt.Errorf(
+			"commit code-intel row prune transaction: %w",
+			err,
+		)
+	}
+
+	return summary, nil
+}
+
+func countProxyEventsOlderThan(
+	ctx context.Context,
+	queryer interface {
+		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	},
+	cutoff string,
+) (int, error) {
+	var count int
+
+	err := queryer.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		FROM proxy_events
+		WHERE COALESCE(recorded_at_utc, '') <> ''
+			AND recorded_at_utc < ?`,
+		cutoff,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count old proxy events: %w", err)
+	}
+
+	return count, nil
+}
+
+func traceIDsOlderThan(
+	ctx context.Context,
+	transaction *sql.Tx,
+	cutoff string,
+) ([]string, error) {
+	rows, err := transaction.QueryContext(
+		ctx,
+		`SELECT trace_id
+		FROM traces
+		WHERE COALESCE(recorded_at_utc, '') <> ''
+			AND recorded_at_utc < ?
+		ORDER BY recorded_at_utc, trace_id`,
+		cutoff,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("select old trace rows: %w", err)
+	}
+	defer rows.Close()
+
+	traceIDs := []string{}
+
+	for rows.Next() {
+		var traceID string
+
+		scanErr := rows.Scan(&traceID)
+		if scanErr != nil {
+			return nil, fmt.Errorf("scan old trace row: %w", scanErr)
+		}
+
+		traceIDs = append(traceIDs, traceID)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("iterate old trace rows: %w", err)
+	}
+
+	return traceIDs, nil
 }
 
 func configureStore(ctx context.Context, database *sql.DB) error {
@@ -211,21 +530,6 @@ func columnExists(
 	}
 
 	return false, nil
-}
-
-func (store *Store) Stats(ctx context.Context) (Stats, error) {
-	stats := Stats{SchemaVersion: schemaVersion}
-
-	for _, count := range statCountQueries(&stats) {
-		row := store.database.QueryRowContext(ctx, count.query)
-
-		err := row.Scan(count.target)
-		if err != nil {
-			return Stats{}, fmt.Errorf("count %s: %w", count.name, err)
-		}
-	}
-
-	return stats, nil
 }
 
 type statCountQuery struct {

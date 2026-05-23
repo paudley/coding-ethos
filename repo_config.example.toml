@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: AGPL-3.0-only
+
+[outputs.report]
+default_format = "toon"
+include_temp = false
+
+[outputs.prune]
+enabled = true
+auto_enabled = true
+
+[outputs.prune.surfaces.hook_runs]
+max_age = "90d"
+keep_last = 500
+require_code_intel_ingest = true
+
+[outputs.prune.surfaces.lint_traces]
+max_age = "45d"
+keep_last = 1000
+require_code_intel_ingest = true
+
+[outputs.prune.surfaces.prune_traces]
+max_age = "90d"
+keep_last = 100
+
+[outputs.prune.surfaces.proxy_temp_evidence]
+auto = true
+max_age = "24h"
+max_bytes = "512MiB"
+
+[outputs.prune.surfaces.sandbox_go_cache]
+auto = true
+max_age = "7d"
+max_bytes = "2GiB"

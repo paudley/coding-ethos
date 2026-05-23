@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 )
@@ -25,9 +26,11 @@ const (
 // FileReadPaginationTransform caps direct file-read output to a line-bounded,
 // line-numbered page while preserving full-output evidence.
 type FileReadPaginationTransform struct {
-	Path      string
-	PageStart int
-	PageEnd   int
+	Path             string
+	PageStart        int
+	PageEnd          int
+	EvidenceMaxAge   time.Duration
+	EvidenceMaxBytes int64
 }
 
 func (transform FileReadPaginationTransform) Name() string {
@@ -51,7 +54,11 @@ func (transform FileReadPaginationTransform) Apply(
 		}, nil
 	}
 
-	evidencePath, err := writeFullOutputEvidence(input.Text)
+	evidencePath, err := writeFullOutputEvidence(
+		input.Text,
+		transform.EvidenceMaxAge,
+		transform.EvidenceMaxBytes,
+	)
 	if err != nil {
 		return TransformOutput{}, err
 	}

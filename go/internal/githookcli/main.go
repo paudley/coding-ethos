@@ -4,6 +4,7 @@
 package githookcli
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hookrunnercli"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -443,6 +445,18 @@ func logLintResult(cwd string, result lint.Result) {
 	_, inlineErrA := lint.LogResult(cwd, result)
 	if inlineErrA != nil {
 		fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", inlineErrA)
+
+		return
+	}
+
+	err := outputsurface.AutoPruneSurface(
+		context.Background(),
+		cwd,
+		"lint_traces",
+		false,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARN: lint trace auto-prune failed: %v\n", err)
 	}
 }
 

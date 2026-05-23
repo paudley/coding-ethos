@@ -28,6 +28,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
@@ -929,6 +930,18 @@ func logCapturedToolResult(
 	_, err := lint.LogResult(cwd, result)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", err)
+
+		return
+	}
+
+	err = outputsurface.AutoPruneSurface(
+		context.Background(),
+		cwd,
+		"lint_traces",
+		false,
+	)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARN: lint trace auto-prune failed: %v\n", err)
 	}
 }
 
