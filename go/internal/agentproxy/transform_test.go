@@ -17,6 +17,12 @@ import (
 
 type trimTransform struct{}
 
+type runeTokenizer struct{}
+
+func (runeTokenizer) Count(text string) int {
+	return len([]rune(text))
+}
+
 func (trimTransform) Name() string {
 	return "trim"
 }
@@ -586,6 +592,38 @@ func TestToolOutputTokenBudgetFitsControlTextWithinSmallBudget(t *testing.T) {
 		output.Record.OutputTokens > 32 ||
 		!strings.Contains(output.Text, "token_budget: status=truncated") {
 		t.Fatalf("small-budget output = %#v text=%q", output.Record, output.Text)
+	}
+}
+
+func TestToolOutputTokenBudgetBoundsLongEvidencePath(t *testing.T) {
+	t.Parallel()
+
+	tokenizer := runeTokenizer{}
+	output, err := agentproxy.ToolOutputTokenBudgetTransform{
+		MaxTokens:  32,
+		HeadTokens: 8,
+		TailTokens: 8,
+	}.Apply(
+		context.Background(),
+		agentproxy.TransformInput{
+			Text: strings.Repeat("important output ", 100),
+			Metadata: map[string]string{
+				"coding_ethos.full_output_path": strings.Repeat("long-path/", 20),
+			},
+			Tokenizer: tokenizer,
+		},
+	)
+	if err != nil {
+		t.Fatalf("apply token budget: %v", err)
+	}
+
+	if output.Record.Decision != "truncate" ||
+		output.Record.OutputTokens > 32 ||
+		tokenizer.Count(output.Text) > 32 {
+		t.Fatalf("long-evidence token-budget output = %#v text=%q",
+			output.Record,
+			output.Text,
+		)
 	}
 }
 

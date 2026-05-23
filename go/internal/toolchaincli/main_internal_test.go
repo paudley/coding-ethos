@@ -104,20 +104,27 @@ func TestInstallGitHubBinaryDownloadsAndInstallsDirectAsset(t *testing.T) {
 
 	const assetPayload = "binary payload\n"
 
+	var releaseAuthHeader string
+	var assetAuthHeader string
+
 	client := &http.Client{
 		Transport: fakeGitHubTransport(func(request *http.Request) *http.Response {
 			if request.URL.Path == "/repos/owner/repo/releases/tags/v1.2.3" {
+				releaseAuthHeader = request.Header.Get("Authorization")
+
 				return jsonResponse(`{
 					"assets": [
 						{
 							"name": "tool-linux-amd64",
-							"browser_download_url": "https://api.github.com/tool-linux-amd64"
+							"browser_download_url": "https://github.com/owner/repo/releases/download/v1.2.3/tool-linux-amd64"
 						}
 					]
 				}`)
 			}
 
-			if request.URL.Path == "/tool-linux-amd64" {
+			if request.URL.Path == "/owner/repo/releases/download/v1.2.3/tool-linux-amd64" {
+				assetAuthHeader = request.Header.Get("Authorization")
+
 				return textResponse(assetPayload)
 			}
 
@@ -137,10 +144,18 @@ func TestInstallGitHubBinaryDownloadsAndInstallsDirectAsset(t *testing.T) {
 		"tool",
 		destDir,
 		sum,
-		"",
+		"token",
 	)
 	if inlineErr1 != nil {
 		t.Fatalf("install github binary: %v", inlineErr1)
+	}
+
+	if releaseAuthHeader != "Bearer token" {
+		t.Fatalf("release Authorization header = %q", releaseAuthHeader)
+	}
+
+	if assetAuthHeader != "" {
+		t.Fatalf("asset Authorization header = %q", assetAuthHeader)
 	}
 
 	installed := filepath.Join(destDir, "tool")

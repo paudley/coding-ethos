@@ -540,7 +540,11 @@ func compactTokenBudgetOutput(
 		}
 	}
 
-	return tokenBudgetLineHead("token_budget: status=truncated", limits.MaxTokens)
+	return tokenBudgetLineWithinBudget(
+		"token_budget: status=truncated",
+		limits.MaxTokens,
+		tokenizer,
+	)
 }
 
 func writeFullOutputEvidence(
@@ -720,6 +724,24 @@ func tokenBudgetLineHead(line string, tokens int) string {
 	}
 
 	return string(runes[:limit])
+}
+
+func tokenBudgetLineWithinBudget(line string, tokens int, tokenizer Tokenizer) string {
+	if tokenizer.Count(line) <= tokens {
+		return line
+	}
+
+	runes := []rune(line)
+	for len(runes) > 0 {
+		runes = runes[:len(runes)-1]
+
+		output := string(runes)
+		if tokenizer.Count(output) <= tokens {
+			return output
+		}
+	}
+
+	return ""
 }
 
 func tokenBudgetLineTail(line string, tokens int) string {

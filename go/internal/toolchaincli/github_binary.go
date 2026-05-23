@@ -153,7 +153,7 @@ func downloadGitHubAsset(client *http.Client, rawURL, outputPath, token string) 
 		return fmt.Errorf("create GitHub asset request: %w", err)
 	}
 
-	if token != "" {
+	if token != "" && isGitHubAPIURL(rawURL) {
 		request.Header.Set("Authorization", "Bearer "+token)
 		request.Header.Set("X-Github-Api-Version", githubAPIVersion)
 	}
@@ -204,6 +204,15 @@ func downloadGitHubAsset(client *http.Client, rawURL, outputPath, token string) 
 	}
 
 	return nil
+}
+
+func isGitHubAPIURL(rawURL string) bool {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+
+	return strings.EqualFold(parsedURL.Hostname(), "api.github.com")
 }
 
 func installDownloadedAsset(archivePath, binary, destDir, extractDir string) error {
