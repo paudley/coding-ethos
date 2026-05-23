@@ -46,11 +46,7 @@ const (
 )
 
 func gitWrapperRouteFor(event Event) InspectionRoute {
-	if event.HookEventName != eventPreToolUse {
-		return InspectionRoute{}
-	}
-
-	if event.ToolName != toolBash {
+	if !gitWrapperHandlesEvent(event) {
 		return InspectionRoute{}
 	}
 
@@ -65,32 +61,10 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 
 	rewrittenCommand, rewrite, routeOK := rewriteGitCommandChain(command)
 	if rewrite && routeOK {
-		updatedCommand := agentShellRewriteCommand(command)
-		if agentShellRewriteInspection(event) {
-			updatedCommand = rewrittenCommand
-		}
-
-		return InspectionRoute{
-			UpdatedInput: updatedBashInput(
-				event.ToolInput,
-				updatedCommand,
-			),
-			BlockPolicyID:      gitWrapperPolicyID,
-			Reason:             "Routed shell command through the approved runner path.",
-			RemediationCommand: cerunRemediation(command),
-			Rewrite:            true,
-		}
+		return gitWrapperRewriteRoute(event, command, rewrittenCommand)
 	}
 
-	if routeOK && managedGitCommandChain(command) {
-		return InspectionRoute{}
-	}
-
-	if routeOK && managedAgentShellCommand(command) {
-		return InspectionRoute{}
-	}
-
-	if routeOK && managedAgentShellCommandChain(command) {
+	if routeOK && managedGitOrAgentShellCommand(command) {
 		return InspectionRoute{}
 	}
 
@@ -105,6 +79,38 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 	}
 
 	return InspectionRoute{}
+}
+
+func gitWrapperHandlesEvent(event Event) bool {
+	return event.HookEventName == eventPreToolUse && event.ToolName == toolBash
+}
+
+func gitWrapperRewriteRoute(
+	event Event,
+	originalCommand string,
+	rewrittenCommand string,
+) InspectionRoute {
+	updatedCommand := agentShellRewriteCommand(originalCommand)
+	if agentShellRewriteInspection(event) {
+		updatedCommand = rewrittenCommand
+	}
+
+	return InspectionRoute{
+		UpdatedInput: updatedBashInput(
+			event.ToolInput,
+			updatedCommand,
+		),
+		BlockPolicyID:      gitWrapperPolicyID,
+		Reason:             "Routed shell command through the approved runner path.",
+		RemediationCommand: cerunRemediation(originalCommand),
+		Rewrite:            true,
+	}
+}
+
+func managedGitOrAgentShellCommand(command string) bool {
+	return managedGitCommandChain(command) ||
+		managedAgentShellCommand(command) ||
+		managedAgentShellCommandChain(command)
 }
 
 func agentShellRewriteInspection(event Event) bool {

@@ -154,7 +154,7 @@ func readOnlyGitInspectionArgs(args []string) bool {
 
 func mutatingInspectionArg(name, arg string) bool {
 	switch name {
-	case "sed":
+	case shellToolSed:
 		return strings.HasPrefix(arg, "-i") ||
 			strings.HasPrefix(arg, "--in-place")
 	case "find":

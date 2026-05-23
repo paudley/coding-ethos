@@ -11,7 +11,10 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
-const shellFileToolPolicyID = "shell.file_tool_emulation"
+const (
+	shellFileToolPolicyID = "shell.file_tool_emulation"
+	shellToolSed          = "sed"
+)
 
 func shellFileToolRouteFor(event Event) InspectionRoute {
 	if event.HookEventName != eventPreToolUse || event.ToolName != toolBash {
@@ -57,7 +60,7 @@ func shellCommandEmulatesFileTool(command shellparse.Command) bool {
 	switch name {
 	case "cat":
 		return commandHasFileOperand(command.Argv[1:])
-	case "sed":
+	case shellToolSed:
 		return sedReadsFileOperand(command.Argv[1:])
 	case "awk":
 		return awkReadsFileOperand(command.Argv[1:])
@@ -79,7 +82,7 @@ func shellCommandReadsAllowedAgentInstruction(command shellparse.Command) bool {
 	switch name {
 	case "cat":
 		return allowedAgentInstructionFileOperands(command.Argv[1:])
-	case "sed":
+	case shellToolSed:
 		return allowedAgentInstructionFileOperands(sedFileOperands(command.Argv[1:]))
 	default:
 		return false
