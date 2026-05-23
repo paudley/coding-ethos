@@ -102,7 +102,7 @@ func gitWrapperRewriteRoute(
 		),
 		BlockPolicyID:      gitWrapperPolicyID,
 		Reason:             "Routed shell command through the approved runner path.",
-		RemediationCommand: cerunRemediation(originalCommand),
+		RemediationCommand: cerunRemediation(event.Cwd, originalCommand),
 		Rewrite:            true,
 	}
 }
@@ -199,8 +199,8 @@ func shellCommandIsCompoundKeyword(parsed shellparse.Command) bool {
 	}
 }
 
-func cerunRemediation(command string) string {
-	return cerunCommand() + " --rewrite -- " + shellQuote(command)
+func cerunRemediation(root, command string) string {
+	return cerunCommand(root) + " --rewrite -- " + shellQuote(command)
 }
 
 func agentShellRewriteCommand(command string) string {
@@ -270,38 +270,57 @@ func runnerCommand() string {
 	return runner
 }
 
-func cerunCommand() string {
+func cerunCommand(root string) string {
 	candidate := strings.TrimSpace(os.Getenv("CODING_ETHOS_CERUN"))
 	if candidate != "" {
 		return candidate
 	}
 
-	if discovered := findRepoCerunCommand(); discovered != "" {
+	if discovered := findRepoCerunCommand(root); discovered != "" {
 		return discovered
 	}
 
 	return cerunRunnerName
 }
 
-func findRepoCerunCommand() string {
-	workingDir, err := os.Getwd()
-	if err != nil {
+func findRepoCerunCommand(root string) string {
+	for _, searchRoot := range cerunSearchRoots(root) {
+		if discovered := findRepoCerunCommandInRoot(searchRoot); discovered != "" {
+			return discovered
+		}
+	}
+
+	return ""
+}
+
+func cerunSearchRoots(root string) []string {
+	roots := []string{}
+
+	for _, candidate := range []string{
+		os.Getenv("CODE_ETHOS_CONSUMER_ROOT"),
+		root,
+	} {
+		cleaned := cleanAbsPath(candidate)
+		if cleaned != "" && !slices.Contains(roots, cleaned) {
+			roots = append(roots, cleaned)
+		}
+	}
+
+	return roots
+}
+
+func findRepoCerunCommandInRoot(root string) string {
+	repoRoot := gitRootFromPath(root)
+	if repoRoot == "" {
+		repoRoot = root
+	}
+
+	candidate := filepath.Join(repoRoot, "bin", "cerun")
+	if !executableExists(candidate) {
 		return ""
 	}
 
-	for {
-		candidate := filepath.Join(workingDir, "bin", "cerun")
-		if executableExists(candidate) {
-			return filepath.ToSlash(candidate)
-		}
-
-		parent := filepath.Dir(workingDir)
-		if parent == workingDir {
-			return ""
-		}
-
-		workingDir = parent
-	}
+	return filepath.ToSlash(candidate)
 }
 
 func executableExists(path string) bool {

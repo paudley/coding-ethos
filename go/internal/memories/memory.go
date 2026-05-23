@@ -50,6 +50,12 @@ func DeniedGuidance() string {
 	}, feedback.FormatTOON)
 }
 
+// DeniedReason is a single-line policy reason for compact block output.
+func DeniedReason() string {
+	return "Action denied: write memories to " + PrimaryFile +
+		" and " + CentralDir + "/*.yaml"
+}
+
 // Settings controls the repo-local memory system.
 type Settings struct {
 	CentralDir     string `json:"central_dir"`

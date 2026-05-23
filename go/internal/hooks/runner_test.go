@@ -1271,9 +1271,21 @@ func TestRunBlocksCodexReadOnlyGitChainWithShellSideEffect(t *testing.T) {
 func TestRunBlocksCodexMutatingGitWhenRewriteCannotBeApplied(t *testing.T) {
 	t.Parallel()
 
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
+		t.Fatalf("create git dir: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(repo, "bin"), 0o700); err != nil {
+		t.Fatalf("create bin dir: %v", err)
+	}
+	cerunPath := filepath.Join(repo, "bin", "cerun")
+	if err := os.WriteFile(cerunPath, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatalf("write cerun: %v", err)
+	}
+
 	result, err := Run(policy.ExampleBundle(), Options{
 		Event: Event{
-			Cwd:           t.TempDir(),
+			Cwd:           repo,
 			HookEventName: eventPreToolUse,
 			ProviderHint:  "codex",
 			ToolName:      toolBash,
@@ -1299,7 +1311,8 @@ func TestRunBlocksCodexMutatingGitWhenRewriteCannotBeApplied(t *testing.T) {
 	}
 
 	blockMessage := ProviderBlockMessage(result)
-	if !strings.Contains(blockMessage, "/bin/cerun --rewrite -- 'git add file.txt'") {
+	wantRemediation := filepath.ToSlash(cerunPath) + " --rewrite -- 'git add file.txt'"
+	if !strings.Contains(blockMessage, wantRemediation) {
 		t.Fatalf("missing repo-local cerun remediation:\n%s", blockMessage)
 	}
 }

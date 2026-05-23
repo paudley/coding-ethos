@@ -46,38 +46,30 @@ func TestAgentHookProviderPayloadFixtures(t *testing.T) {
 func agentHookFixtureCases() []agentHookFixtureCase {
 	return []agentHookFixtureCase{
 		{
-			name:    "claude pretool git rewrite",
-			fixture: "claude-pretool-git-status.json",
-			wantStdout: []string{
-				`"hookSpecificOutput"`,
-				`"permissionDecision": "allow"`,
+			name:            "claude pretool read-only git suppression",
+			fixture:         "claude-pretool-git-status.json",
+			wantStdoutExact: "{}",
+			wantStdoutMissing: []string{
 				`"updatedInput"`,
 				`agent-shell --rewrite --`,
 			},
 		},
 		{
-			name:    "gemini pretool git rewrite",
-			fixture: "gemini-pretool-git-status.json",
-			wantStdout: []string{
-				`"decision": "allow"`,
+			name:            "gemini pretool read-only git suppression",
+			fixture:         "gemini-pretool-git-status.json",
+			wantStdoutExact: "{}",
+			wantStdoutMissing: []string{
 				`"updatedInput"`,
 				`agent-shell --rewrite --`,
 			},
 		},
 		{
-			name:     "codex pretool git rewrite suppression",
-			fixture:  "codex-pretool-git-status.json",
-			wantExit: 2,
-			wantStdout: []string{
-				`"decision": "block"`,
-				`"permissionDecision": "deny"`,
-				`git.wrapper_required`,
-			},
+			name:            "codex pretool read-only git suppression",
+			fixture:         "codex-pretool-git-status.json",
+			wantStdoutExact: "{}",
 			wantStdoutMissing: []string{
 				`"updatedInput"`,
 				`policy-git`,
-			},
-			wantStderr: []string{
 				`git.wrapper_required`,
 			},
 		},

@@ -42,6 +42,12 @@ var (
 		"hook-log must not execute coding-ethos commands; " +
 			"call the Go implementation directly",
 	)
+	errHookLogRuntimeOutputNotIgnored = apperror.StaticError(
+		"hook runtime output ignore required",
+	)
+	errHookLogMemoryIgnored = apperror.StaticError(
+		"repo memory path must remain trackable",
+	)
 
 	// runLoggedAction replaces process-global os.Stdout/os.Stderr while an
 	// in-process command runs, so concurrent captures must serialize.
@@ -647,7 +653,7 @@ func normalizedOptions(options Options) (Options, error) {
 
 func requireHookLogIgnores(options Options) error {
 	if gitPathIgnored(options, hookLogMemoryTestPath) {
-		return apperror.StaticError(hookLogMemoryIgnoredFeedback())
+		return apperror.Wrapf(errHookLogMemoryIgnored, "%s", hookLogMemoryIgnoredFeedback())
 	}
 
 	return requireIgnored(options, hookLogRunDirPath)
@@ -708,7 +714,11 @@ func requireIgnored(options Options, path string) error {
 		return nil
 	}
 
-	return apperror.StaticError(hookLogIgnoreRequiredFeedback(path))
+	return apperror.Wrapf(
+		errHookLogRuntimeOutputNotIgnored,
+		"%s",
+		hookLogIgnoreRequiredFeedback(path),
+	)
 }
 
 func hookLogIgnoreRequiredFeedback(path string) string {
