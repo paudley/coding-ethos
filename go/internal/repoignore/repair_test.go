@@ -17,8 +17,10 @@ func TestRepairGitignoreKeepsMemoriesTrackable(t *testing.T) {
 	path := filepath.Join(root, ".gitignore")
 	err := os.WriteFile(
 		path,
-		[]byte("build/\n.coding-ethos/\n.coding-ethos/memories/*.yaml\n"),
-		0o600,
+		[]byte(
+			"build/\n.coding-ethos/**\n**/.coding-ethos/*\n.coding-ethos/memories/*.yaml\n",
+		),
+		0o644,
 	)
 	if err != nil {
 		t.Fatalf("write fixture: %v", err)
@@ -38,7 +40,8 @@ func TestRepairGitignoreKeepsMemoriesTrackable(t *testing.T) {
 	}
 	text := string(payload)
 	for _, forbidden := range []string{
-		"\n.coding-ethos/\n",
+		".coding-ethos/**",
+		"**/.coding-ethos/*",
 		".coding-ethos/memories/*.yaml",
 	} {
 		if strings.Contains(text, forbidden) {
@@ -49,6 +52,14 @@ func TestRepairGitignoreKeepsMemoriesTrackable(t *testing.T) {
 		if !strings.Contains(text, required) {
 			t.Fatalf("repaired gitignore missing %q:\n%s", required, text)
 		}
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat repaired gitignore: %v", err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("repaired gitignore mode = %o, want 644", info.Mode().Perm())
 	}
 }
 

@@ -33,9 +33,10 @@ const (
 const (
 	hookLogIgnoreRequiredMessage = "FATAL: %s is not ignored; add generated " +
 		".coding-ethos runtime subpaths to the repo .gitignore before hook logs are written"
-	hookLogBroadIgnoreMessage = "FATAL: .coding-ethos/ is ignored; remove the broad " +
-		".coding-ethos ignore so repo memories remain trackable"
-	hookLogRunDirPath = ".coding-ethos/hook-runs/"
+	hookLogMemoryIgnoredMessage = "FATAL: .coding-ethos/memories/MEMORY.md is ignored; " +
+		"remove broad .coding-ethos memory ignores so repo memories remain trackable"
+	hookLogRunDirPath     = ".coding-ethos/hook-runs/"
+	hookLogMemoryTestPath = ".coding-ethos/memories/MEMORY.md"
 )
 
 var (
@@ -648,8 +649,8 @@ func normalizedOptions(options Options) (Options, error) {
 }
 
 func requireHookLogIgnores(options Options) error {
-	if gitignoreContains(options.Root, ".coding-ethos/") {
-		return apperror.StaticError(hookLogBroadIgnoreMessage)
+	if gitPathIgnored(options, hookLogMemoryTestPath) {
+		return apperror.StaticError(hookLogMemoryIgnoredMessage)
 	}
 
 	return requireIgnored(options, hookLogRunDirPath)
@@ -702,6 +703,24 @@ func (logs hookRunLogs) close() {
 }
 
 func requireIgnored(options Options, path string) error {
+	if gitPathIgnored(options, path) {
+		return nil
+	}
+
+	if gitignoreContains(options.Root, path) {
+		return nil
+	}
+
+	return apperror.Wrapf(
+		apperror.StaticError(
+			hookLogIgnoreRequiredMessage,
+		),
+		hookLogIgnoreRequiredMessage,
+		path,
+	)
+}
+
+func gitPathIgnored(options Options, path string) bool {
 	cmd := safeexec.Command(
 		options.GitPath,
 		"-C",
@@ -714,17 +733,8 @@ func requireIgnored(options Options, path string) error {
 	cmd.Env = realgit.CleanGitLocalEnv(os.Environ())
 
 	err := cmd.Run()
-	if err != nil && !gitignoreContains(options.Root, path) {
-		return apperror.Wrapf(
-			apperror.StaticError(
-				hookLogIgnoreRequiredMessage,
-			),
-			hookLogIgnoreRequiredMessage,
-			path,
-		)
-	}
 
-	return nil
+	return err == nil
 }
 
 func gitignoreContains(root, path string) bool {

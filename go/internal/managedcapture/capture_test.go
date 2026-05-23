@@ -2518,7 +2518,7 @@ func writeCaptureFixtureTool(
 
 	tool := filepath.Join(repo, "tool-fixture")
 
-	script := `#!/usr/bin/env sh
+	script := `#!/bin/sh
 case " $* " in
   *"` + required + `"*) ;;
   *) echo "missing required output flags: ` + required + `" >&2; exit 2 ;;
@@ -2545,7 +2545,7 @@ func writeFailureCaptureFixtureTool(
 
 	tool := filepath.Join(repo, "tool-fixture")
 
-	script := `#!/usr/bin/env sh
+	script := `#!/bin/sh
 case " $* " in
   *"` + required + `"*) ;;
   *) echo "missing required output flags: ` + required + `" >&2; exit 2 ;;
@@ -2568,7 +2568,7 @@ func writeSuccessCaptureFixtureTool(
 
 	tool := filepath.Join(repo, "tool-fixture")
 
-	script := `#!/usr/bin/env sh
+	script := `#!/bin/sh
 case " $* " in
   *"` + required + `"*) ;;
   *) echo "missing required output flags: ` + required + `" >&2; exit 2 ;;
@@ -2590,7 +2590,7 @@ func writeSuccessWithOutputCaptureFixtureTool(
 
 	tool := filepath.Join(repo, "tool-fixture")
 
-	script := `#!/usr/bin/env sh
+	script := `#!/bin/sh
 cat <<'EOF'
 ` + output + `
 EOF
@@ -2714,14 +2714,24 @@ func hadolintJSONFixture() string {
 func writeExecutableFixture(t *testing.T, path, content string) {
 	t.Helper()
 
-	err := os.WriteFile(path, []byte(content), 0o600)
+	file, err := os.OpenFile(
+		path,
+		os.O_WRONLY|os.O_CREATE|os.O_EXCL,
+		executableFixtureMode,
+	)
 	if err != nil {
+		t.Fatalf("create fixture tool: %v", err)
+	}
+
+	_, err = file.WriteString(content)
+	if err != nil {
+		_ = file.Close()
 		t.Fatalf("write fixture tool: %v", err)
 	}
 
-	err = os.Chmod(path, executableFixtureMode)
+	err = file.Close()
 	if err != nil {
-		t.Fatalf("mark fixture tool executable: %v", err)
+		t.Fatalf("close fixture tool: %v", err)
 	}
 }
 

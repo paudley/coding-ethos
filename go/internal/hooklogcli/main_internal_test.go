@@ -75,7 +75,7 @@ func TestRunWithIOExecutesAndCapturesHookOutput(t *testing.T) {
 		t.Fatalf("create bundle root: %v", inlineErr0)
 	}
 
-	gitPath := writeHookLogScript(t, root, "git", "#!/usr/bin/env sh\nexit 0\n")
+	gitPath := writeHookLogGit(t, root)
 	commandPath := writeHookLogScript(
 		t,
 		root,
@@ -134,17 +134,7 @@ func TestRunWithIOPreservesWrappedCommandExitCode(t *testing.T) {
 		t.Fatalf("create bundle root: %v", err)
 	}
 
-	gitPath := filepath.Join(root, "git")
-
-	err = os.WriteFile(gitPath, []byte("#!/usr/bin/env sh\nexit 0\n"), 0o600)
-	if err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
-
-	err = os.Chmod(gitPath, 0o700)
-	if err != nil {
-		t.Fatalf("chmod fake git: %v", err)
-	}
+	gitPath := writeHookLogGit(t, root)
 
 	commandPath := filepath.Join(root, "hook")
 
@@ -191,6 +181,24 @@ func writeHookLogGitignore(t *testing.T, root string) {
 	if err != nil {
 		t.Fatalf("write hook log gitignore: %v", err)
 	}
+}
+
+func writeHookLogGit(t *testing.T, root string) string {
+	t.Helper()
+
+	return writeHookLogScript(t, root, "git", `#!/usr/bin/env sh
+target=""
+while [ "$#" -gt 0 ]; do
+  target="$1"
+  shift
+done
+
+if [ "$target" = ".coding-ethos/hook-runs/" ]; then
+  exit 0
+fi
+
+exit 1
+`)
 }
 
 func writeHookLogScript(t *testing.T, root, name, content string) string {

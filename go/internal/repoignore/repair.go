@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	gitignoreFileMode = 0o600
-	repairLineSlack   = 2
-	sectionHeader     = "# coding-ethos generated runtime output"
+	defaultGitignoreFileMode = 0o644
+	repairLineSlack          = 2
+	sectionHeader            = "# coding-ethos generated runtime output"
 )
 
 // RuntimePaths returns the generated coding-ethos output paths that should be
@@ -49,7 +49,16 @@ func RepairGitignore(repoRoot string) (bool, error) {
 		return false, nil
 	}
 
-	err = os.WriteFile(path, []byte(repaired), gitignoreFileMode)
+	mode := os.FileMode(defaultGitignoreFileMode)
+
+	info, statErr := os.Stat(path)
+	if statErr == nil {
+		mode = info.Mode().Perm()
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return false, fmt.Errorf("stat .gitignore %s: %w", path, statErr)
+	}
+
+	err = os.WriteFile(path, []byte(repaired), mode)
 	if err != nil {
 		return false, fmt.Errorf("write .gitignore %s: %w", path, err)
 	}
@@ -110,7 +119,10 @@ func normalizeGitignoreLine(line string) string {
 func blockedMemoryIgnore(normalized string) bool {
 	switch normalized {
 	case ".coding-ethos", ".coding-ethos/", "**/.coding-ethos", "**/.coding-ethos/",
+		".coding-ethos/*", ".coding-ethos/**", "**/.coding-ethos/*",
+		"**/.coding-ethos/**",
 		".coding-ethos/memories", ".coding-ethos/memories/",
+		".coding-ethos/memories/*", ".coding-ethos/memories/**",
 		".coding-ethos/memories/MEMORY.md", ".coding-ethos/memories/*.yaml":
 		return true
 	default:

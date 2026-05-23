@@ -415,7 +415,7 @@ func TestRunRejectsBroadCodingEthosIgnore(t *testing.T) {
 	root := t.TempDir()
 	err := os.WriteFile(
 		filepath.Join(root, ".gitignore"),
-		[]byte(".coding-ethos/\n"),
+		[]byte(".coding-ethos/**\n"),
 		0o600,
 	)
 	if err != nil {
@@ -467,7 +467,7 @@ func fakeGit(t *testing.T) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "git")
 
-	script := "#!/usr/bin/env bash\nexit 0\n"
+	script := fakeGitCheckIgnoreScript("")
 
 	writeExecutableTestFile(t, path, script)
 
@@ -506,8 +506,7 @@ func fakeGitWithLog(t *testing.T, logPath string) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "git")
 
-	script := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> " +
-		shellQuoteForTest(logPath) + "\nexit 0\n"
+	script := fakeGitCheckIgnoreScript(logPath)
 
 	writeExecutableTestFile(t, path, script)
 
@@ -516,6 +515,44 @@ func fakeGitWithLog(t *testing.T, logPath string) string {
 
 func shellQuoteForTest(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func fakeGitCheckIgnoreScript(logPath string) string {
+	logLine := ""
+	if logPath != "" {
+		logLine = "printf '%s\\n' \"$*\" >> " + shellQuoteForTest(logPath) + "\n"
+	}
+
+	return `#!/usr/bin/env bash
+` + logLine + `root=""
+target=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-C" ]; then
+    root="$2"
+    shift 2
+    continue
+  fi
+  target="$1"
+  shift
+done
+
+gitignore="$root/.gitignore"
+if [ ! -f "$gitignore" ]; then
+  exit 1
+fi
+
+if [ "$target" = ".coding-ethos/memories/MEMORY.md" ]; then
+  grep -Eq '^[[:space:]]*(\.coding-ethos/?|\.coding-ethos/\*\*|\.coding-ethos/\*)[[:space:]]*$' "$gitignore"
+  exit $?
+fi
+
+if [ "$target" = ".coding-ethos/hook-runs/" ]; then
+  grep -Eq '^[[:space:]]*(\.coding-ethos/hook-runs/?|\.coding-ethos/?|\.coding-ethos/\*\*|\.coding-ethos/\*)[[:space:]]*$' "$gitignore"
+  exit $?
+fi
+
+exit 1
+`
 }
 
 func commandThatPrints(t *testing.T) []string {
