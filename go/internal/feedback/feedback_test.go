@@ -79,6 +79,17 @@ func TestMessageRendersTOONJSONHumanAndSARIF(t *testing.T) {
 		sarif.Runs[0].Results[0].RuleID != "coding-ethos.feedback_route" {
 		t.Fatalf("SARIF feedback = %#v", sarif)
 	}
+
+	if sarif.Runs[0].Tool.Driver.Rules[0].ShortDescription == nil ||
+		sarif.Runs[0].Tool.Driver.Rules[0].ShortDescription.Text !=
+			"feedback must use the central renderer" {
+		t.Fatalf("SARIF rule description = %#v", sarif.Runs[0].Tool.Driver.Rules[0])
+	}
+
+	if strings.Contains(sarifText, `"region": {}`) ||
+		strings.Contains(sarifText, `"shortDescription": {}`) {
+		t.Fatalf("SARIF emitted empty optional objects:\n%s", sarifText)
+	}
 }
 
 func TestMessageExposesStructuredLogFields(t *testing.T) {

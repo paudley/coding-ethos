@@ -126,7 +126,7 @@ type SARIFDriver struct {
 //nolint:tagliatelle // SARIF standard requires camelCase keys.
 type SARIFRule struct {
 	Properties       map[string]any `json:"properties,omitempty"`
-	ShortDescription SARIFMessage   `json:"shortDescription,omitzero"`
+	ShortDescription *SARIFMessage  `json:"shortDescription,omitempty"`
 	ID               string         `json:"id"`
 	Name             string         `json:"name,omitempty"`
 }
@@ -146,7 +146,7 @@ type SARIFLocation struct {
 //nolint:tagliatelle // SARIF standard requires camelCase keys.
 type SARIFPhysicalLocation struct {
 	ArtifactLocation SARIFArtifactLocation `json:"artifactLocation"`
-	Region           SARIFRegion           `json:"region,omitzero"`
+	Region           *SARIFRegion          `json:"region,omitempty"`
 }
 
 type SARIFArtifactLocation struct {
@@ -257,7 +257,7 @@ func (message Message) MarshalFeedbackSARIF() SARIFLog {
 				Rules: []SARIFRule{{
 					ID:   ruleID,
 					Name: ruleID,
-					ShortDescription: SARIFMessage{
+					ShortDescription: &SARIFMessage{
 						Text: scalarValue(message.Scalars, "summary"),
 					},
 				}},
