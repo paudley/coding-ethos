@@ -1146,7 +1146,7 @@ func TestRunRewritesNormalNonCommitGitCommand(t *testing.T) {
 			ToolName:      toolBash,
 			Source:        "claude",
 			ToolInput: map[string]any{
-				"command": "git status",
+				"command": "git add file.txt",
 			},
 		},
 	})
@@ -1202,7 +1202,7 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 	}
 }
 
-func TestRunBlocksCodexGitWhenRewriteCannotBeApplied(t *testing.T) {
+func TestRunAllowsCodexReadOnlyGitInspectionWithoutRewrite(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -1212,7 +1212,42 @@ func TestRunBlocksCodexGitWhenRewriteCannotBeApplied(t *testing.T) {
 			ProviderHint:  "codex",
 			ToolName:      toolBash,
 			ToolInput: map[string]any{
-				"command": "git status",
+				"command": "git status --short && printf '\\nbranch: ' && git branch --show-current",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf(
+			"status mismatch: got %q decisions %#v",
+			result.Status,
+			result.Decisions,
+		)
+	}
+
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf(
+			"Codex read-only inspection must not receive updatedInput: %#v",
+			result.HookSpecificOutput,
+		)
+	}
+}
+
+func TestRunBlocksCodexMutatingGitWhenRewriteCannotBeApplied(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           t.TempDir(),
+			HookEventName: eventPreToolUse,
+			ProviderHint:  "codex",
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "git add file.txt",
 			},
 		},
 	})
@@ -1231,14 +1266,6 @@ func TestRunBlocksCodexGitWhenRewriteCannotBeApplied(t *testing.T) {
 	if !hasDecision(result.Decisions, "git.wrapper_required") {
 		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
 	}
-
-	if result.HookSpecificOutput != nil &&
-		len(result.HookSpecificOutput.UpdatedInput) > 0 {
-		t.Fatalf(
-			"Codex must not receive unsupported updatedInput: %#v",
-			result.HookSpecificOutput,
-		)
-	}
 }
 
 func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
@@ -1253,6 +1280,7 @@ func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
 		"cerun git status",
 		"cerun python -m pytest",
 		"cerun -- 'git status'",
+		"cerun --rewrite -- git status --short && printf '\\nbranch: ' && cerun --rewrite -- git branch --show-current",
 		"bin/coding-ethos-run agent-shell -- git status",
 		"bin/coding-ethos-run agent-shell --rewrite -- git status",
 		"bin/coding-ethos-run agent-shell --check -- git status",
@@ -1284,6 +1312,39 @@ func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
 					result.Status,
 					result.Decisions,
 				)
+			}
+		})
+	}
+}
+
+func TestRunAllowsAgentInstructionSkillReads(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"cat .agents/skills/agent-operating-discipline/SKILL.md",
+		"sed -n '1,220p' .agents/skills/agent-operating-discipline/SKILL.md",
+		"sed -n '1,220p' .codex/skills/agent-operating-discipline/SKILL.md",
+	} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					Cwd:           t.TempDir(),
+					HookEventName: eventPreToolUse,
+					ProviderHint:  "codex",
+					ToolName:      toolBash,
+					ToolInput: map[string]any{
+						"command": command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != statusAllowed {
+				t.Fatalf("status = %q decisions %#v", result.Status, result.Decisions)
 			}
 		})
 	}
@@ -1391,7 +1452,6 @@ func TestRunRejectsFakeAgentShellRunnerGitCommand(t *testing.T) {
 
 	for _, command := range []string{
 		"echo cerun -- git status",
-		"true && cerun -- git status",
 		"cerun -- git status; /usr/bin/git push",
 		"coding-ethos-run agent-shell -- git status",
 		"PATH=/tmp/malicious cerun -- git status",
@@ -1656,7 +1716,7 @@ func TestRunBlocksMalformedShellCommand(t *testing.T) {
 	}
 }
 
-func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
+func TestRunAllowsReadOnlyGitStatusWithStderrRedirect(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -1677,14 +1737,9 @@ func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
-	if !ok ||
-		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
-		!strings.Contains(rewritten, "pwd &&") ||
-		!strings.Contains(rewritten, "git status --short 2>&1") ||
-		strings.Contains(rewritten, "'2>' & '1'") ||
-		strings.Contains(rewritten, " & '1'") {
-		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("read-only git status should not require rewrite: %#v", result)
 	}
 }
 
@@ -3772,7 +3827,7 @@ func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 		"event": "PreToolUse",
 		"tool": "exec_command",
 		"cwd": %q,
-		"input": {"command": "git status --short"}
+		"input": {"command": "git add file.txt"}
 	}`, child)))
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
@@ -3959,7 +4014,7 @@ func TestRunRewritesGeminiGitCommandThroughWrapper(t *testing.T) {
 		"provider": "gemini-cli",
 		"hookEventName": "BeforeTool",
 		"toolName": "run_shell_command",
-		"toolInput": {"command": "git status"}
+		"toolInput": {"command": "git add file.txt"}
 	}`))
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
@@ -3990,7 +4045,7 @@ func TestRunBlocksCodexGitCommandFromDecodedEvent(t *testing.T) {
 		"event": "PreToolUse",
 		"cwd": %q,
 		"tool": "Bash",
-		"input": {"command": "git status"}
+		"input": {"command": "git add file.txt"}
 	}`, cwd)))
 	if err != nil {
 		t.Fatalf("decode event: %v", err)

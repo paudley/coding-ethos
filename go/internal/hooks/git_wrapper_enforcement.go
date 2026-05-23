@@ -59,6 +59,10 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
+	if !agentShellRewriteInspection(event) && readOnlyGitInspectionChain(command) {
+		return InspectionRoute{}
+	}
+
 	rewrittenCommand, rewrite, routeOK := rewriteGitCommandChain(command)
 	if rewrite && routeOK {
 		updatedCommand := agentShellRewriteCommand(command)
@@ -83,6 +87,10 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 	}
 
 	if routeOK && managedAgentShellCommand(command) {
+		return InspectionRoute{}
+	}
+
+	if routeOK && managedAgentShellCommandChain(command) {
 		return InspectionRoute{}
 	}
 
@@ -342,6 +350,41 @@ func managedAgentShellCommand(command string) bool {
 	return agentShellSegment(tokens)
 }
 
+func managedAgentShellCommandChain(command string) bool {
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK || len(tokens) == 0 {
+		return false
+	}
+
+	sawManagedSegment := false
+
+	for index := 0; index < len(tokens); {
+		if isShellControlToken(tokens[index]) {
+			index++
+
+			continue
+		}
+
+		start := index
+		for index < len(tokens) && !isShellControlToken(tokens[index]) {
+			index++
+		}
+
+		segment := tokens[start:index]
+		if agentShellSegment(segment) {
+			sawManagedSegment = true
+
+			continue
+		}
+
+		if segmentMentionsUnmanagedGit(segment) {
+			return false
+		}
+	}
+
+	return sawManagedSegment
+}
+
 func agentShellSegment(segment []string) bool {
 	if len(segment) < agentShellCommandMinArgs {
 		return false
@@ -455,6 +498,69 @@ func rewriteGitSegment(segment []string) (string, bool) {
 	}
 
 	return "", true
+}
+
+func readOnlyGitInspectionChain(command string) bool {
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK || len(tokens) == 0 {
+		return false
+	}
+
+	sawReadOnlyGit := false
+
+	for index := 0; index < len(tokens); {
+		if isShellControlToken(tokens[index]) {
+			index++
+
+			continue
+		}
+
+		start := index
+		for index < len(tokens) && !isShellControlToken(tokens[index]) {
+			index++
+		}
+
+		segment := trimLeadingEnvAssignments(tokens[start:index])
+		if len(segment) == 0 {
+			continue
+		}
+
+		if segment[0] != tokenGit {
+			if segmentMentionsUnmanagedGit(segment) {
+				return false
+			}
+
+			continue
+		}
+
+		if !readOnlyGitInspectionSegment(segment[1:]) {
+			return false
+		}
+
+		sawReadOnlyGit = true
+	}
+
+	return sawReadOnlyGit
+}
+
+func readOnlyGitInspectionSegment(args []string) bool {
+	args, redirections := splitShellRedirections(args)
+	if redirectsWriteFile(redirections) {
+		return false
+	}
+
+	if len(args) == 0 {
+		return false
+	}
+
+	switch args[0] {
+	case "status":
+		return true
+	case "branch":
+		return slices.Contains(args[1:], "--show-current")
+	default:
+		return false
+	}
 }
 
 func managedGitSegment(segment []string) bool {

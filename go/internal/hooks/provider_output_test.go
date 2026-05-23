@@ -49,7 +49,7 @@ func TestEncodeProviderResultIncludesUpdatedInputForSupportedProviders(t *testin
 
 			output := encodedProviderOutput(
 				t,
-				providerGitPayload(provider, t.TempDir(), "git status"),
+				providerGitPayload(provider, t.TempDir(), "git add file.txt"),
 			)
 
 			for _, expected := range []string{
@@ -70,7 +70,7 @@ func TestEncodeProviderResultBlocksCodexUnsupportedUpdatedInput(t *testing.T) {
 
 	output := encodedProviderOutput(
 		t,
-		providerGitPayload("codex", t.TempDir(), "git status"),
+		providerGitPayload("codex", t.TempDir(), "git add file.txt"),
 	)
 
 	var decoded map[string]any
