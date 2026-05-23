@@ -4686,6 +4686,28 @@ func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 	if strings.Contains(context, "\n- ") {
 		t.Fatalf("session context used markdown bullets instead of TOON rows:\n%s", context)
 	}
+
+	result.Provider = providerCodex
+	var encoded strings.Builder
+	err = EncodeResult(&encoded, result)
+	if err != nil {
+		t.Fatalf("encode codex session start: %v", err)
+	}
+
+	codexOutput := encoded.String()
+	if !strings.Contains(codexOutput, `repo_map_mcp: code_intel_repo_map`) ||
+		!strings.Contains(codexOutput, `event: SessionStart guidance:`) {
+		t.Fatalf("Codex session context missing compact TOON guidance:\n%s", codexOutput)
+	}
+	for _, forbidden := range []string{"coding_ethos_repo_map:", "files[", "pkg/app.py"} {
+		if strings.Contains(codexOutput, forbidden) {
+			t.Fatalf(
+				"Codex session context leaked full repo map %q:\n%s",
+				forbidden,
+				codexOutput,
+			)
+		}
+	}
 }
 
 func TestRunImportsMemoriesOnSessionStart(t *testing.T) {

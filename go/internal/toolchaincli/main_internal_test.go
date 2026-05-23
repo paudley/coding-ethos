@@ -1242,6 +1242,42 @@ func TestRepoIgnoreFixItemsRejectsBroadCodingEthosIgnore(t *testing.T) {
 	}
 }
 
+func TestRepairRepoIgnoresCommandRemovesBroadIgnore(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	err := os.WriteFile(
+		filepath.Join(repo, ".gitignore"),
+		[]byte(".coding-ethos/\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write gitignore: %v", err)
+	}
+
+	stdout := captureToolchainStdout(t, func() {
+		err := repairRepoIgnores([]string{"--repo-root", repo})
+		if err != nil {
+			t.Fatalf("repairRepoIgnores: %v", err)
+		}
+	})
+	if !strings.Contains(stdout, "status: repaired") {
+		t.Fatalf("repair repo ignores stdout = %q", stdout)
+	}
+
+	payload, err := os.ReadFile(filepath.Join(repo, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read gitignore: %v", err)
+	}
+	text := string(payload)
+	if strings.Contains(text, ".coding-ethos/\n") {
+		t.Fatalf("broad ignore still present:\n%s", text)
+	}
+	if !strings.Contains(text, ".coding-ethos/hook-runs/") {
+		t.Fatalf("runtime ignores missing:\n%s", text)
+	}
+}
+
 func TestExtractZipExtractsFilesAndRejectsTraversal(t *testing.T) {
 	t.Parallel()
 

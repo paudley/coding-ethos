@@ -231,6 +231,7 @@ endef
 	go-tools-test \
 	go-tools-build \
 	go-tools-install \
+	repair-repo-ignores \
 	sandbox-runtime-validate \
 	managed-toolchain-install \
 	managed-go-tools-install \
@@ -531,7 +532,7 @@ check-agent-skills: ensure-hook-runtime ## Fail if provider skill surfaces are o
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" \
 		check-agent-skills --ethos-root "$(LOCAL_REPO_ROOT)" $(AGENT_SKILL_FLAGS)
 
-build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
+build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install repair-repo-ignores _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
 
 sandbox-runtime-validate: ensure-go go-tools-install ## Validate required sandbox runtime.
 	@$(call print_step,Validating native sandbox runtime)
@@ -714,6 +715,15 @@ go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook 
 		"$(GO)" build $(GO_BUILD_FLAGS) -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
 	done
 	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
+
+repair-repo-ignores: ensure-go go-tools-install ## Repair repo .gitignore entries for coding-ethos runtime output.
+	@$(call print_step,Repairing coding-ethos runtime ignores)
+	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" repair-repo-ignores \
+		--repo-root "$(REPO)" >/dev/null
+	@if [ "$(abspath $(HOOK_CONSUMER_ROOT))" != "$(abspath $(REPO))" ]; then \
+		"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" repair-repo-ignores \
+			--repo-root "$(HOOK_CONSUMER_ROOT)" >/dev/null; \
+	fi
 
 go-tools-smoke: export CODE_ETHOS_HOOK_OUTPUT_FORMAT := toon
 go-tools-smoke: go-tools-install ## Smoke test shared Go tools using only temporary runtime state.

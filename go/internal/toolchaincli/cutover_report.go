@@ -17,6 +17,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
+	"blackcat.ca/coding-ethos/go/internal/repoignore"
 )
 
 func cutoverReport(args []string) error {
@@ -372,16 +373,38 @@ func repoIgnoreFixItems(args []string) error {
 	return nil
 }
 
-func repoIgnoreFixItemLines(realGit, repoRoot string) ([]string, error) {
-	requiredIgnores := []string{
-		".code-ethos/cache/",
-		".coding-ethos/cache/",
-		".coding-ethos/code-intel.db",
-		".coding-ethos/hook-runs/",
-		".coding-ethos/lint-runs/",
-		".coding-ethos/prune-runs/",
-		".coding-ethos/state/",
+func repairRepoIgnores(args []string) error {
+	flags := flag.NewFlagSet("repair-repo-ignores", flag.ExitOnError)
+	repoRoot := flags.String("repo-root", "", "Repository root")
+
+	inlineErr17 := flags.Parse(args)
+	if inlineErr17 != nil {
+		return fmt.Errorf("parse repair-repo-ignores flags: %w", inlineErr17)
 	}
+
+	if strings.TrimSpace(*repoRoot) == "" {
+		return errRepoRootRequired
+	}
+
+	changed, err := repoignore.RepairGitignore(*repoRoot)
+	if err != nil {
+		return fmt.Errorf("repair repo ignores: %w", err)
+	}
+
+	status := "unchanged"
+	if changed {
+		status = "repaired"
+	}
+
+	fmt.Fprintln(os.Stdout, "tool: repair-repo-ignores")
+	fmt.Fprintln(os.Stdout, "status: "+status)
+	fmt.Fprintln(os.Stdout, "repo: "+*repoRoot)
+
+	return nil
+}
+
+func repoIgnoreFixItemLines(realGit, repoRoot string) ([]string, error) {
+	requiredIgnores := repoignore.RuntimePaths()
 
 	items := make([]string, 0, len(requiredIgnores))
 

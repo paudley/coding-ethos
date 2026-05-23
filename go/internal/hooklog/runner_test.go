@@ -469,15 +469,7 @@ func fakeGit(t *testing.T) string {
 
 	script := "#!/usr/bin/env bash\nexit 0\n"
 
-	err := os.WriteFile(path, []byte(script), 0o600)
-	if err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
-
-	err = os.Chmod(path, 0o700)
-	if err != nil {
-		t.Fatalf("chmod fake git: %v", err)
-	}
+	writeExecutableTestFile(t, path, script)
 
 	return path
 }
@@ -503,15 +495,7 @@ func fakeFailingGit(t *testing.T) string {
 
 	script := "#!/usr/bin/env bash\nexit 1\n"
 
-	err := os.WriteFile(path, []byte(script), 0o600)
-	if err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
-
-	err = os.Chmod(path, 0o700)
-	if err != nil {
-		t.Fatalf("chmod fake git: %v", err)
-	}
+	writeExecutableTestFile(t, path, script)
 
 	return path
 }
@@ -525,15 +509,7 @@ func fakeGitWithLog(t *testing.T, logPath string) string {
 	script := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> " +
 		shellQuoteForTest(logPath) + "\nexit 0\n"
 
-	err := os.WriteFile(path, []byte(script), 0o600)
-	if err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
-
-	err = os.Chmod(path, 0o700)
-	if err != nil {
-		t.Fatalf("chmod fake git: %v", err)
-	}
+	writeExecutableTestFile(t, path, script)
 
 	return path
 }
@@ -556,17 +532,26 @@ func fakeMake(t *testing.T) []string {
 
 	script := "#!/usr/bin/env bash\nexit 0\n"
 
-	err := os.WriteFile(path, []byte(script), 0o600)
-	if err != nil {
-		t.Fatalf("write fake make: %v", err)
-	}
-
-	err = os.Chmod(path, 0o700)
-	if err != nil {
-		t.Fatalf("chmod fake make: %v", err)
-	}
+	writeExecutableTestFile(t, path, script)
 
 	return []string{path, "check"}
+}
+
+func writeExecutableTestFile(t *testing.T, path, script string) {
+	t.Helper()
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
+	if err != nil {
+		t.Fatalf("create executable fixture: %v", err)
+	}
+
+	if _, err = file.WriteString(script); err != nil {
+		_ = file.Close()
+		t.Fatalf("write executable fixture: %v", err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatalf("close executable fixture: %v", err)
+	}
 }
 
 func onlyHookRunDir(t *testing.T, root string) string {

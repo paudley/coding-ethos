@@ -23,6 +23,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/repoignore"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
@@ -204,6 +205,14 @@ func syncParentArtifacts(
 	}))
 	steps = append(steps, runParentStep("agent_hooks", func() error {
 		return agenthooks.SyncSettings(options.Repo, parentAgentHookCommand(paths))
+	}))
+	steps = append(steps, runParentStep("repo_ignores", func() error {
+		_, err := repoignore.RepairGitignore(options.Repo)
+		if err != nil {
+			return fmt.Errorf("repair repo ignores: %w", err)
+		}
+
+		return nil
 	}))
 	steps = append(steps, runParentStep("code_intel", func() error {
 		return refreshParentCodeIntel(options.Repo)
