@@ -333,20 +333,6 @@ func selectedHookOutputFormat() string {
 	}
 }
 
-func isLLMCallerEnvironment(getenv func(string) string, markers []string) bool {
-	if len(markers) == 0 {
-		markers = defaultHookSettings().AgentEnvMarkers
-	}
-
-	for _, name := range markers {
-		if strings.TrimSpace(getenv(name)) != "" {
-			return true
-		}
-	}
-
-	return false
-}
-
 func formatHookReportJSON(report hookReport) string {
 	content, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
