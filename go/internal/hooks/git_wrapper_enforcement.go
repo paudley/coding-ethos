@@ -200,7 +200,7 @@ func shellCommandIsCompoundKeyword(parsed shellparse.Command) bool {
 }
 
 func cerunRemediation(command string) string {
-	return "cerun --rewrite -- " + shellQuote(command)
+	return cerunCommand() + " --rewrite -- " + shellQuote(command)
 }
 
 func agentShellRewriteCommand(command string) string {
@@ -268,6 +268,49 @@ func runnerCommand() string {
 	}
 
 	return runner
+}
+
+func cerunCommand() string {
+	candidate := strings.TrimSpace(os.Getenv("CODING_ETHOS_CERUN"))
+	if candidate != "" {
+		return candidate
+	}
+
+	if discovered := findRepoCerunCommand(); discovered != "" {
+		return discovered
+	}
+
+	return cerunRunnerName
+}
+
+func findRepoCerunCommand() string {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	for {
+		candidate := filepath.Join(workingDir, "bin", "cerun")
+		if executableExists(candidate) {
+			return filepath.ToSlash(candidate)
+		}
+
+		parent := filepath.Dir(workingDir)
+		if parent == workingDir {
+			return ""
+		}
+
+		workingDir = parent
+	}
+}
+
+func executableExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+
+	return info.Mode().Perm()&0o111 != 0
 }
 
 func rewriteGitCommandChain(command string) (string, bool, bool) {

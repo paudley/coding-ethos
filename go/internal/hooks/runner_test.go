@@ -1266,6 +1266,11 @@ func TestRunBlocksCodexMutatingGitWhenRewriteCannotBeApplied(t *testing.T) {
 	if !hasDecision(result.Decisions, "git.wrapper_required") {
 		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
 	}
+
+	blockMessage := ProviderBlockMessage(result)
+	if !strings.Contains(blockMessage, "/bin/cerun --rewrite -- 'git add file.txt'") {
+		t.Fatalf("missing repo-local cerun remediation:\n%s", blockMessage)
+	}
 }
 
 func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
