@@ -145,8 +145,8 @@ type SARIFLocation struct {
 
 //nolint:tagliatelle // SARIF standard requires camelCase keys.
 type SARIFPhysicalLocation struct {
-	ArtifactLocation SARIFArtifactLocation `json:"artifactLocation"`
 	Region           *SARIFRegion          `json:"region,omitempty"`
+	ArtifactLocation SARIFArtifactLocation `json:"artifactLocation"`
 }
 
 type SARIFArtifactLocation struct {
