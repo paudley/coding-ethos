@@ -59,7 +59,17 @@ def _prepare_consumer_repo(tmp_path: Path) -> Path:
     consumer = tmp_path / "consumer"
     consumer.mkdir()
     _run(["git", "init"], cwd=consumer)
-    (consumer / ".gitignore").write_text(".coding-ethos/\n", encoding="utf-8")
+    gitignore_lines = [
+        ".code-ethos/cache/",
+        ".coding-ethos/cache/",
+        ".coding-ethos/code-intel.db",
+        ".coding-ethos/hook-runs/",
+        ".coding-ethos/lint-runs/",
+        ".coding-ethos/prune-runs/",
+        ".coding-ethos/state/",
+        "",
+    ]
+    (consumer / ".gitignore").write_text("\n".join(gitignore_lines), encoding="utf-8")
     _run(["git", "add", ".gitignore"], cwd=consumer)
     _sync_consumer_tool_configs(consumer)
     _sync_consumer_policy_bundle(consumer)

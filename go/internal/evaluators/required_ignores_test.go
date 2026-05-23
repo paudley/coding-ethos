@@ -19,7 +19,10 @@ func TestEvaluateRequiredIgnoresCELAllowsIgnoredPaths(t *testing.T) {
 	t.Parallel()
 
 	repo := newRequiredIgnoreRepo(t)
-	writeRequiredIgnoreFile(t, repo, ".code-ethos/cache/\n.coding-ethos/\n")
+	writeRequiredIgnoreFile(t, repo, ".code-ethos/cache/\n.coding-ethos/cache/\n"+
+		".coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n"+
+		".coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n"+
+		".coding-ethos/state/\n")
 	policyDef := compiledRepoBundle(t).Policies["repo.required_ignores"]
 
 	decisions, err := EvaluateCELExpression(policyDef, Context{
@@ -59,7 +62,7 @@ func TestEvaluateRequiredIgnoresCELUsesConfiguredPaths(t *testing.T) {
 	t.Parallel()
 
 	repo := newRequiredIgnoreRepo(t)
-	writeRequiredIgnoreFile(t, repo, ".coding-ethos/\n")
+	writeRequiredIgnoreFile(t, repo, ".coding-ethos/cache/\n")
 	policyDef := compiledRepoBundle(t).Policies["repo.required_ignores"]
 
 	options := map[string]any{}

@@ -54,7 +54,19 @@ dmypy.json
 
 # Local tooling state
 .cache/
-.coding-ethos/
+.coding-ethos/cache/
+.coding-ethos/code-intel.db
+.coding-ethos/hook-runs/
+.coding-ethos/lint-runs/
+.coding-ethos/prune-runs/
+.coding-ethos/state/
+**/.coding-ethos/cache/
+**/.coding-ethos/code-intel.db
+**/.coding-ethos/hook-runs/
+**/.coding-ethos/lint-runs/
+**/.coding-ethos/prune-runs/
+**/.coding-ethos/state/
+.coding-ethos/*-message.txt
 sandbox-tmp/
 .pre-commit-cache/
 .uv/

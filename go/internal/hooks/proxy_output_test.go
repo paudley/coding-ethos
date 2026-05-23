@@ -58,9 +58,9 @@ func TestProxyToolOutputPolicyIDPrefersFilePaginationOverTokenBudget(t *testing.
 }
 
 func TestProxyPostToolOutputAppliesTokenBudgetAfterFilePagination(t *testing.T) {
-	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS", "80")
-	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS", "20")
-	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS", "20")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS", "256")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS", "64")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS", "64")
 
 	repo := initProxyOutputRepo(t)
 	err := os.MkdirAll(filepath.Join(repo, "docs"), 0o700)
@@ -98,7 +98,7 @@ func TestProxyPostToolOutputAppliesTokenBudgetAfterFilePagination(t *testing.T) 
 	)
 
 	if !strings.Contains(proxied.Text, "paginated file read") ||
-		!strings.Contains(proxied.Text, "token budget hard stop") {
+		!strings.Contains(proxied.Text, "token_budget: status=truncated") {
 		t.Fatalf("expected paginated and token-budgeted output: %s", proxied.Text)
 	}
 
@@ -115,7 +115,8 @@ func TestProxyPostToolOutputAppliesTokenBudgetAfterFilePagination(t *testing.T) 
 			if record.Decision == proxyDecisionTruncate {
 				foundTokenBudget = true
 				if record.EvidencePath == "" ||
-					record.EvidencePath != paginationEvidence {
+					record.EvidencePath != paginationEvidence ||
+					record.OutputTokens > 256 {
 					t.Fatalf(
 						"token budget evidence did not preserve original path: %#v",
 						proxied.Records,
@@ -241,7 +242,7 @@ func TestProxyPostToolOutputBudgetsDenseGenericOutputAndRecordsLedger(t *testing
 		output,
 	)
 
-	if !strings.Contains(proxied.Text, "[WARNING: Payload exceeded 80 tokens.") ||
+	if !strings.Contains(proxied.Text, "token_budget: status=truncated max_tokens=80") ||
 		strings.Contains(proxied.Text, output) ||
 		len(proxied.Events) != 1 {
 		t.Fatalf("unexpected dense proxy output: events=%#v text=%s",

@@ -296,7 +296,7 @@ func TestReadFileWithCacheRecordsOriginalTransformMeasurements(t *testing.T) {
 	}
 
 	transform := cacheHit.Transforms[0]
-	if transform.InputTokens != 80 ||
+	if transform.InputTokens != (agentproxy.ApproximateTokenizer{}).Count(content) ||
 		transform.OutputTokens >= transform.InputTokens ||
 		transform.BytesRemoved == 0 {
 		t.Fatalf("cache-hit transform = %#v", transform)

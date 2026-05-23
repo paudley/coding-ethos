@@ -268,6 +268,8 @@ func fileReadCacheTransforms(result FileReadCacheResult) []agentproxy.TransformR
 		return nil
 	}
 
+	tokenizer := agentproxy.ApproximateTokenizer{}
+
 	return []agentproxy.TransformRecord{{
 		Name:         fileReadCacheTransform,
 		Reason:       "unchanged file already read in this session",
@@ -275,8 +277,8 @@ func fileReadCacheTransforms(result FileReadCacheResult) []agentproxy.TransformR
 		OutputHash:   agentproxy.HashText(result.Text),
 		PolicyID:     fileReadCachePolicyID,
 		Decision:     result.Decision,
-		InputTokens:  agentproxy.WhitespaceTokenizer{}.Count(result.originalText),
-		OutputTokens: agentproxy.WhitespaceTokenizer{}.Count(result.Text),
+		InputTokens:  tokenizer.Count(result.originalText),
+		OutputTokens: tokenizer.Count(result.Text),
 		BytesRemoved: max(0, len([]byte(result.originalText))-len([]byte(result.Text))),
 	}}
 }

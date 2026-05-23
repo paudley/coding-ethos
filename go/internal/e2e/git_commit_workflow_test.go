@@ -216,7 +216,19 @@ func preparedParentRuntimeRepo(t *testing.T) parentRuntimeFixture {
 		t,
 		parentRepo,
 		".gitignore",
-		".code-ethos/cache/\n.coding-ethos/\n",
+		strings.Join(
+			[]string{
+				".code-ethos/cache/",
+				".coding-ethos/cache/",
+				".coding-ethos/code-intel.db",
+				".coding-ethos/hook-runs/",
+				".coding-ethos/lint-runs/",
+				".coding-ethos/prune-runs/",
+				".coding-ethos/state/",
+				"",
+			},
+			"\n",
+		),
 	)
 	writeParentRuntimeFile(t, parentRepo, "README.md", "# parent runtime e2e\n")
 	e2e.Run(t, parentRepo, realGitPath(t), "add", ".gitignore", "README.md", "repo_config.yaml").

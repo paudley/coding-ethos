@@ -30,8 +30,14 @@ const (
 	loggedStreamCount = 2
 )
 
-const hookLogIgnoreRequiredMessage = "FATAL: %s is not ignored; add " +
-	".coding-ethos/ to the repo .gitignore before hook logs are written"
+const (
+	hookLogIgnoreRequiredMessage = "FATAL: %s is not ignored; add generated " +
+		".coding-ethos runtime subpaths to the repo .gitignore before hook logs are written"
+	hookLogMemoryIgnoredMessage = "FATAL: .coding-ethos/memories/MEMORY.md is ignored; " +
+		"remove broad .coding-ethos memory ignores so repo memories remain trackable"
+	hookLogRunDirPath     = ".coding-ethos/hook-runs/"
+	hookLogMemoryTestPath = ".coding-ethos/memories/MEMORY.md"
+)
 
 var (
 	errCommandRequired               = apperror.StaticError("command is required")
@@ -643,17 +649,11 @@ func normalizedOptions(options Options) (Options, error) {
 }
 
 func requireHookLogIgnores(options Options) error {
-	for _, requiredIgnore := range []string{
-		".coding-ethos/",
-		".coding-ethos/hook-runs/example/stdout.log",
-	} {
-		err := requireIgnored(options, requiredIgnore)
-		if err != nil {
-			return err
-		}
+	if gitPathIgnored(options, hookLogMemoryTestPath) {
+		return apperror.StaticError(hookLogMemoryIgnoredMessage)
 	}
 
-	return nil
+	return requireIgnored(options, hookLogRunDirPath)
 }
 
 func hookRunID(startedAt time.Time) string {
@@ -703,6 +703,24 @@ func (logs hookRunLogs) close() {
 }
 
 func requireIgnored(options Options, path string) error {
+	if gitPathIgnored(options, path) {
+		return nil
+	}
+
+	if gitignoreContains(options.Root, path) {
+		return nil
+	}
+
+	return apperror.Wrapf(
+		apperror.StaticError(
+			hookLogIgnoreRequiredMessage,
+		),
+		hookLogIgnoreRequiredMessage,
+		path,
+	)
+}
+
+func gitPathIgnored(options Options, path string) bool {
 	cmd := safeexec.Command(
 		options.GitPath,
 		"-C",
@@ -715,17 +733,8 @@ func requireIgnored(options Options, path string) error {
 	cmd.Env = realgit.CleanGitLocalEnv(os.Environ())
 
 	err := cmd.Run()
-	if err != nil && !gitignoreContains(options.Root, path) {
-		return apperror.Wrapf(
-			apperror.StaticError(
-				hookLogIgnoreRequiredMessage,
-			),
-			hookLogIgnoreRequiredMessage,
-			path,
-		)
-	}
 
-	return nil
+	return err == nil
 }
 
 func gitignoreContains(root, path string) bool {

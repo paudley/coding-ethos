@@ -161,7 +161,17 @@ func generatedSiteOutputOverlay() configdata.Map {
 	return configdata.Map{
 		"filesystem": map[string]any{
 			"required_ignores": map[string]any{
-				"paths": []any{".code-ethos/cache/", ".coding-ethos/", "site/", "dist/"},
+				"paths": []any{
+					".code-ethos/cache/",
+					".coding-ethos/cache/",
+					".coding-ethos/code-intel.db",
+					".coding-ethos/hook-runs/",
+					".coding-ethos/lint-runs/",
+					".coding-ethos/prune-runs/",
+					".coding-ethos/state/",
+					"site/",
+					"dist/",
+				},
 			},
 		},
 	}

@@ -34,6 +34,13 @@ func runCutover(paths runtimePaths, args []string) error {
 			paths.RunBinary,
 		)
 		runtimeRunTool(paths, "coding-ethos-agent-hooks", "sync", "--root", paths.Root)
+		runtimeRunTool(
+			paths,
+			"coding-ethos-toolchain",
+			"repair-repo-ignores",
+			"--repo-root",
+			paths.Root,
+		)
 		execCutoverVerify(paths, "install")
 	default:
 		return apperror.Wrapf(

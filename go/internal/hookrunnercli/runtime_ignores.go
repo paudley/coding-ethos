@@ -15,8 +15,12 @@ import (
 func requiredRuntimeIgnorePaths() []string {
 	return []string{
 		".code-ethos/cache/",
-		".coding-ethos/",
-		".coding-ethos/hook-runs/example/stdout.log",
+		".coding-ethos/cache/",
+		".coding-ethos/code-intel.db",
+		".coding-ethos/hook-runs/",
+		".coding-ethos/lint-runs/",
+		".coding-ethos/prune-runs/",
+		".coding-ethos/state/",
 	}
 }
 
@@ -42,6 +46,14 @@ func checkRuntimeIgnoresCommand(_ Config, _ []string) int {
 
 func runtimeIgnoreFindings(paths []string) []string {
 	findings := []string{}
+	if runtimePathIgnored(".coding-ethos/memories/MEMORY.md") ||
+		gitignoreContainsPath(repoRoot(), ".coding-ethos/") {
+		findings = append(
+			findings,
+			".coding-ethos/memories/MEMORY.md is ignored; remove broad "+
+				".coding-ethos ignores so repo memories remain trackable",
+		)
+	}
 
 	for _, path := range paths {
 		cleanPath := strings.TrimSpace(path)

@@ -310,7 +310,9 @@ func codexAllowedMessage(output *HookSpecificOutput) string {
 
 func codexSessionStartAllowedMessage(context string) string {
 	if strings.Contains(context, "coding_ethos_repo_map:") {
-		return compactProviderMessage(context)
+		return "event: SessionStart guidance: load repo conventions, managed toolchain " +
+			"rules, and generated skills; use repo_map_mcp before broad reads " +
+			`repo_map_mcp: code_intel_repo_map {"limit":16,"symbols_per_file":3}`
 	}
 
 	return "coding-ethos: load repository conventions, managed toolchain " +

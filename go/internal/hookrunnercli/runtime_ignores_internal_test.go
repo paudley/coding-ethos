@@ -8,7 +8,8 @@ import "testing"
 const testSeverityError = "error"
 
 func TestRuntimeIgnoreFindingsSkipsEmptyPaths(t *testing.T) {
-	t.Parallel()
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
 
 	findings := runtimeIgnoreFindings([]string{"", "   "})
 	if len(findings) != 0 {
@@ -20,14 +21,14 @@ func TestRuntimeIgnoreHookFindingsAreStructured(t *testing.T) {
 	t.Parallel()
 
 	findings := runtimeIgnoreHookFindings([]string{
-		".coding-ethos/ is not ignored; add coding-ethos runtime paths",
+		".coding-ethos/cache/ is not ignored; add coding-ethos runtime paths",
 	})
 	if len(findings) != 1 {
 		t.Fatalf("runtimeIgnoreHookFindings() = %#v, want one finding", findings)
 	}
 
 	finding := findings[0]
-	if finding.File != ".coding-ethos/" ||
+	if finding.File != ".coding-ethos/cache/" ||
 		finding.PolicyID != "runtime.ignored_paths" ||
 		finding.SkillID != "managed-toolchain" ||
 		finding.Severity != testSeverityError {

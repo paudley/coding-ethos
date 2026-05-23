@@ -183,7 +183,10 @@ func initGitwrapRepo(t *testing.T) string {
 
 	err = os.WriteFile(
 		filepath.Join(repo, ".gitignore"),
-		[]byte(".coding-ethos/\n"),
+		[]byte(".code-ethos/cache/\n.coding-ethos/cache/\n"+
+			".coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n"+
+			".coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n"+
+			".coding-ethos/state/\n"),
 		0o600,
 	)
 	if err != nil {
@@ -307,15 +310,7 @@ printf 'CODE_ETHOS_GIT_WRAPPER_AUTHORIZED=%s\n' "${CODE_ETHOS_GIT_WRAPPER_AUTHOR
 printf 'CODE_ETHOS_GIT_WRAPPER_PID=%s\n' "${CODE_ETHOS_GIT_WRAPPER_PID:-}" >> "$log_path"
 `
 
-	err := os.WriteFile(scriptPath, []byte(script), 0o600)
-	if err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
-
-	err = os.Chmod(scriptPath, 0o700)
-	if err != nil {
-		t.Fatalf("chmod fake git: %v", err)
-	}
+	writeExecutableGitFixture(t, scriptPath, script)
 
 	return scriptPath
 }
@@ -330,17 +325,26 @@ log_path=` + strconv.Quote(logPath) + `
 printf '%s\n' "$@" > "$log_path"
 `
 
-	err := os.WriteFile(scriptPath, []byte(script), 0o600)
-	if err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
-
-	err = os.Chmod(scriptPath, 0o700)
-	if err != nil {
-		t.Fatalf("chmod fake git: %v", err)
-	}
+	writeExecutableGitFixture(t, scriptPath, script)
 
 	return scriptPath
+}
+
+func writeExecutableGitFixture(t *testing.T, scriptPath, script string) {
+	t.Helper()
+
+	file, err := os.OpenFile(scriptPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
+	if err != nil {
+		t.Fatalf("create fake git: %v", err)
+	}
+
+	if _, err = file.WriteString(script); err != nil {
+		_ = file.Close()
+		t.Fatalf("write fake git: %v", err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatalf("close fake git: %v", err)
+	}
 }
 
 func cleanGitTestEnv() []string {

@@ -669,7 +669,9 @@ func newGitHookE2ERepo(t *testing.T) gitHookE2ERepo {
 		t,
 		repo,
 		".gitignore",
-		".code-ethos/cache/\n.coding-ethos/\nbin/\nbuild/\n",
+		".code-ethos/cache/\n.coding-ethos/cache/\n.coding-ethos/code-intel.db\n"+
+			".coding-ethos/hook-runs/\n.coding-ethos/lint-runs/\n"+
+			".coding-ethos/prune-runs/\n.coding-ethos/state/\nbin/\nbuild/\n",
 	)
 	writeTestManifest(t, repo)
 	writeTestRepoConfig(t, repo)

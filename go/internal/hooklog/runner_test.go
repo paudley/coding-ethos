@@ -404,8 +404,35 @@ func TestRunRequiresCodingEthosLogsIgnored(t *testing.T) {
 		BundleRoot: filepath.Join(root, "pre-commit"),
 		Command:    commandThatPrints(t),
 	})
-	if err == nil || !strings.Contains(err.Error(), ".coding-ethos/") {
+	if err == nil || !strings.Contains(err.Error(), ".coding-ethos/hook-runs/") {
 		t.Fatalf("Run() error = %v, want missing ignore", err)
+	}
+}
+
+func TestRunRejectsBroadCodingEthosIgnore(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	err := os.WriteFile(
+		filepath.Join(root, ".gitignore"),
+		[]byte(".coding-ethos/**\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write gitignore: %v", err)
+	}
+
+	err = Run(Options{
+		Stdin:      strings.NewReader(""),
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+		GitPath:    fakeGit(t),
+		Root:       root,
+		BundleRoot: filepath.Join(root, "pre-commit"),
+		Command:    commandThatPrints(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "repo memories remain trackable") {
+		t.Fatalf("Run() error = %v, want broad ignore rejection", err)
 	}
 }
 
@@ -440,17 +467,9 @@ func fakeGit(t *testing.T) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "git")
 
-	script := "#!/usr/bin/env bash\nexit 0\n"
+	script := fakeGitCheckIgnoreScript("")
 
-	err := os.WriteFile(path, []byte(script), 0o600)
-	if err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
-
-	err = os.Chmod(path, 0o700)
-	if err != nil {
-		t.Fatalf("chmod fake git: %v", err)
-	}
+	writeExecutableTestFile(t, path, script)
 
 	return path
 }
@@ -460,7 +479,7 @@ func writeHookLogIgnore(t *testing.T, root string) {
 
 	err := os.WriteFile(
 		filepath.Join(root, ".gitignore"),
-		[]byte(".coding-ethos/\n"),
+		[]byte(".coding-ethos/hook-runs/\n"),
 		0o600,
 	)
 	if err != nil {
@@ -476,15 +495,7 @@ func fakeFailingGit(t *testing.T) string {
 
 	script := "#!/usr/bin/env bash\nexit 1\n"
 
-	err := os.WriteFile(path, []byte(script), 0o600)
-	if err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
-
-	err = os.Chmod(path, 0o700)
-	if err != nil {
-		t.Fatalf("chmod fake git: %v", err)
-	}
+	writeExecutableTestFile(t, path, script)
 
 	return path
 }
@@ -495,24 +506,53 @@ func fakeGitWithLog(t *testing.T, logPath string) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "git")
 
-	script := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> " +
-		shellQuoteForTest(logPath) + "\nexit 0\n"
+	script := fakeGitCheckIgnoreScript(logPath)
 
-	err := os.WriteFile(path, []byte(script), 0o600)
-	if err != nil {
-		t.Fatalf("write fake git: %v", err)
-	}
-
-	err = os.Chmod(path, 0o700)
-	if err != nil {
-		t.Fatalf("chmod fake git: %v", err)
-	}
+	writeExecutableTestFile(t, path, script)
 
 	return path
 }
 
 func shellQuoteForTest(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func fakeGitCheckIgnoreScript(logPath string) string {
+	logLine := ""
+	if logPath != "" {
+		logLine = "printf '%s\\n' \"$*\" >> " + shellQuoteForTest(logPath) + "\n"
+	}
+
+	return `#!/usr/bin/env bash
+` + logLine + `root=""
+target=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "-C" ]; then
+    root="$2"
+    shift 2
+    continue
+  fi
+  target="$1"
+  shift
+done
+
+gitignore="$root/.gitignore"
+if [ ! -f "$gitignore" ]; then
+  exit 1
+fi
+
+if [ "$target" = ".coding-ethos/memories/MEMORY.md" ]; then
+  grep -Eq '^[[:space:]]*(\.coding-ethos/?|\.coding-ethos/\*\*|\.coding-ethos/\*)[[:space:]]*$' "$gitignore"
+  exit $?
+fi
+
+if [ "$target" = ".coding-ethos/hook-runs/" ]; then
+  grep -Eq '^[[:space:]]*(\.coding-ethos/hook-runs/?|\.coding-ethos/?|\.coding-ethos/\*\*|\.coding-ethos/\*)[[:space:]]*$' "$gitignore"
+  exit $?
+fi
+
+exit 1
+`
 }
 
 func commandThatPrints(t *testing.T) []string {
@@ -529,17 +569,26 @@ func fakeMake(t *testing.T) []string {
 
 	script := "#!/usr/bin/env bash\nexit 0\n"
 
-	err := os.WriteFile(path, []byte(script), 0o600)
-	if err != nil {
-		t.Fatalf("write fake make: %v", err)
-	}
-
-	err = os.Chmod(path, 0o700)
-	if err != nil {
-		t.Fatalf("chmod fake make: %v", err)
-	}
+	writeExecutableTestFile(t, path, script)
 
 	return []string{path, "check"}
+}
+
+func writeExecutableTestFile(t *testing.T, path, script string) {
+	t.Helper()
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
+	if err != nil {
+		t.Fatalf("create executable fixture: %v", err)
+	}
+
+	if _, err = file.WriteString(script); err != nil {
+		_ = file.Close()
+		t.Fatalf("write executable fixture: %v", err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatalf("close executable fixture: %v", err)
+	}
 }
 
 func onlyHookRunDir(t *testing.T, root string) string {
