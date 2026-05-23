@@ -462,6 +462,7 @@ func mergeImportRecords(existing, imported []ImportRecord) []ImportRecord {
 
 func importSourcePaths(root string) ([]string, error) {
 	candidates := []string{}
+
 	for _, base := range []string{
 		filepath.Join(rootOrDot(root), ".claude"),
 		filepath.Join(rootOrDot(root), ".codex"),
