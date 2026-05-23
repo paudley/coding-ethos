@@ -301,6 +301,12 @@ func AutoPruneSurface(ctx context.Context, root, scope string, includeTemp bool)
 	return nil
 }
 
+// AutoPruneCodeIntelDB applies the configured automatic row-retention policy
+// for the repo-local code-intelligence database.
+func AutoPruneCodeIntelDB(ctx context.Context, root string) error {
+	return AutoPruneSurface(ctx, root, codeIntelDBSurfaceID, false)
+}
+
 func shouldPruneSurface(
 	definition Definition,
 	options PruneOptions,
@@ -872,7 +878,7 @@ func markAllCandidatesSkipped(
 }
 
 func shouldVacuum(scopes map[string]bool) bool {
-	return len(scopes) == 0 || scopes["code_intel_db"]
+	return len(scopes) == 0 || scopes[codeIntelDBSurfaceID]
 }
 
 func pruneCodeIntelRows(
@@ -915,7 +921,7 @@ func pruneCodeIntelRows(
 	}
 
 	maintenance := DBMaintenance{
-		SurfaceID:          "code_intel_db",
+		SurfaceID:          codeIntelDBSurfaceID,
 		DeletedTraces:      summary.DeletedTraces,
 		DeletedProxyEvents: summary.DeletedProxyEvents,
 		CutoffUTC:          summary.CutoffUTC,
@@ -990,7 +996,7 @@ func vacuumCodeIntel(
 
 func appendVacuumMaintenance(report *PruneReport) {
 	for index := range report.DBMaintenance {
-		if report.DBMaintenance[index].SurfaceID == "code_intel_db" {
+		if report.DBMaintenance[index].SurfaceID == codeIntelDBSurfaceID {
 			report.DBMaintenance[index].Vacuumed = true
 
 			return
@@ -998,7 +1004,7 @@ func appendVacuumMaintenance(report *PruneReport) {
 	}
 
 	report.DBMaintenance = append(report.DBMaintenance, DBMaintenance{
-		SurfaceID: "code_intel_db",
+		SurfaceID: codeIntelDBSurfaceID,
 		Vacuumed:  true,
 	})
 }

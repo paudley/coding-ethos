@@ -38,7 +38,7 @@ max_bytes = "512MiB"
 
 [outputs.prune.surfaces.code_intel_db]
 enabled = true
-auto = false
+auto = true
 vacuum_after_prune = true
 max_bytes = "2GiB"
 row_retention_days = 90

@@ -11,10 +11,14 @@ import (
 	"os"
 	"time"
 
+	"go.uber.org/zap"
+
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -142,9 +146,24 @@ func writeProxyEvents(result hooks.Result) error {
 		if closeErr != nil {
 			return fmt.Errorf("close proxy output ledger: %w", closeErr)
 		}
+
+		autoPruneCodeIntelDB(root)
 	}
 
 	return nil
+}
+
+func autoPruneCodeIntelDB(root string) {
+	err := outputsurface.AutoPruneCodeIntelDB(context.Background(), root)
+	if err == nil {
+		return
+	}
+
+	debuglog.Debug(
+		"hookcli.code_intel.auto_prune.warn",
+		zap.String("root", root),
+		zap.Error(err),
+	)
 }
 
 func recordProxyEvents(

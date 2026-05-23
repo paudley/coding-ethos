@@ -236,6 +236,8 @@ type sarifPolicyFeedbackInput struct {
 type codeIntelSearchInput struct {
 	Filters    map[string]string `json:"filters,omitempty"`
 	Text       string            `json:"text,omitempty"`
+	Query      string            `json:"query,omitempty"`
+	RecordKind string            `json:"record_kind,omitempty"`
 	Collection string            `json:"collection,omitempty"`
 	ModelID    string            `json:"model_id,omitempty"`
 	PolicyID   string            `json:"policy_id,omitempty"`
@@ -394,8 +396,8 @@ func toolResult(result any) map[string]any {
 }
 
 const (
-	toolDefinitionCapacity          = 24
-	codeIntelToolDefinitionCapacity = 10
+	toolDefinitionCapacity          = 25
+	codeIntelToolDefinitionCapacity = 11
 )
 
 func toolDefinitions() []map[string]any {
@@ -753,6 +755,11 @@ func codeIntelSearchToolDefinitions() []map[string]any {
 			),
 			map[string]any{
 				"text": map[string]any{"type": "string"},
+				"query": map[string]any{
+					"type":        "string",
+					"description": "Alias for text.",
+				},
+				"record_kind": map[string]any{"type": "string"},
 				"vector": map[string]any{
 					"type":  "array",
 					"items": map[string]any{"type": "number"},
@@ -776,6 +783,43 @@ func codeIntelSearchToolDefinitions() []map[string]any {
 				PreferredUse: toolText(
 					"retrieve prior fixes, related SARIF findings, and",
 					"policy evidence before broad file reads",
+				),
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"semantic_search",
+			toolText(
+				"Search indexed repository code semantically and return",
+				"exact code chunks with path and line metadata.",
+			),
+			map[string]any{
+				"query": map[string]any{"type": "string"},
+				"text": map[string]any{
+					"type":        "string",
+					"description": "Alias for query.",
+				},
+				"vector": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "number"},
+				},
+				"collection": map[string]any{"type": "string"},
+				"model_id":   map[string]any{"type": "string"},
+				"path":       map[string]any{"type": "string"},
+				"limit":      map[string]any{"type": "integer"},
+				"filters": map[string]any{
+					"type":                 "object",
+					"additionalProperties": map[string]any{"type": "string"},
+				},
+			},
+			[]string{"query"},
+			toolMetadata{
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    true,
+				PreferredUse: toolText(
+					"find exact indexed code blocks before broad grep or",
+					"repo-wide file reads",
 				),
 				TracePersisted: false,
 			},

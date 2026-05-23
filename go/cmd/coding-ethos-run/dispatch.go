@@ -29,6 +29,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
@@ -559,8 +560,6 @@ func recordAgentShellExecution(
 		return
 	}
 
-	defer func() { _ = store.Close() }()
-
 	decision := ""
 	policyID := ""
 
@@ -619,6 +618,26 @@ func recordAgentShellExecution(
 		debuglog.Debug(
 			"agent-shell.audit.failed",
 			zap.String("phase", "record"),
+			zap.Error(err),
+		)
+	}
+
+	err = store.Close()
+	if err != nil {
+		debuglog.Debug(
+			"agent-shell.audit.failed",
+			zap.String("phase", "close"),
+			zap.Error(err),
+		)
+
+		return
+	}
+
+	err = outputsurface.AutoPruneCodeIntelDB(context.Background(), paths.Root)
+	if err != nil {
+		debuglog.Debug(
+			"agent-shell.audit.auto_prune.warn",
+			zap.String("root", paths.Root),
 			zap.Error(err),
 		)
 	}

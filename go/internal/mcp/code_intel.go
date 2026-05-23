@@ -8,11 +8,17 @@ import (
 	"fmt"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/similarityconfig"
 )
+
+const semanticSearchContextLimit = 5
 
 func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 	var input codeIntelSearchInput
@@ -25,7 +31,8 @@ func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 		)
 	}
 
-	if strings.TrimSpace(input.Text) == "" && len(input.Vector) == 0 {
+	text := firstNonEmpty(input.Text, input.Query)
+	if strings.TrimSpace(text) == "" && len(input.Vector) == 0 {
 		return nil, apperror.StaticError("text or vector is required")
 	}
 
@@ -40,7 +47,8 @@ func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 		index,
 		codeintel.HybridSearchQuery{
 			Filters:    input.Filters,
-			Text:       input.Text,
+			Text:       text,
+			RecordKind: input.RecordKind,
 			Collection: firstNonEmpty(input.Collection, "remediations"),
 			ModelID:    input.ModelID,
 			PolicyID:   input.PolicyID,
@@ -57,6 +65,82 @@ func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 	return map[string]any{
 		"kind":    "code_intel_search",
 		"backend": "sqlite-vec",
+		"results": results,
+	}, nil
+}
+
+type semanticSearchResult struct {
+	Match codeintel.HybridSearchResult `json:"match"`
+	Chunk codeintel.CodeChunk          `json:"chunk"`
+}
+
+func (server Server) semanticSearch(args json.RawMessage) (any, error) {
+	var input codeIntelSearchInput
+
+	inlineErr0 := json.Unmarshal(args, &input)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf(
+			"parse semantic search arguments: %w",
+			inlineErr0,
+		)
+	}
+
+	text := firstNonEmpty(input.Query, input.Text)
+	if strings.TrimSpace(text) == "" && len(input.Vector) == 0 {
+		return nil, apperror.StaticError("query or vector is required")
+	}
+
+	store, index, closeAll, err := server.openCodeIntel()
+	if err != nil {
+		return nil, fmt.Errorf("open code intelligence index: %w", err)
+	}
+	defer closeAll()
+
+	ctx := argsContext()
+
+	matches, err := store.HybridSearch(
+		ctx,
+		index,
+		codeintel.HybridSearchQuery{
+			Filters:    input.Filters,
+			Text:       text,
+			RecordKind: "code_chunk",
+			Collection: firstNonEmpty(input.Collection, "code_chunks"),
+			ModelID:    input.ModelID,
+			Path:       input.Path,
+			Vector:     input.Vector,
+			Limit:      input.Limit,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("run semantic search: %w", err)
+	}
+
+	results := make([]semanticSearchResult, 0, len(matches))
+	for _, match := range matches {
+		context, contextErr := store.CodeContext(ctx, codeintel.CodeContextQuery{
+			ChunkID: match.RecordID,
+			Root:    server.codeIntelRoot(),
+			Limit:   semanticSearchContextLimit,
+		})
+		if contextErr != nil {
+			return nil, fmt.Errorf(
+				"load semantic search code chunk %q: %w",
+				match.RecordID,
+				contextErr,
+			)
+		}
+
+		results = append(results, semanticSearchResult{
+			Match: match,
+			Chunk: context.Chunk,
+		})
+	}
+
+	return map[string]any{
+		"kind":    "semantic_search",
+		"backend": "sqlite-vec",
+		"query":   text,
 		"results": results,
 	}, nil
 }
@@ -156,6 +240,7 @@ func (server Server) codeIntelIndexCode(args json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
+	defer autoPruneCodeIntelDB(root)
 	defer store.Close()
 
 	summary, err := codeintel.NewASTIndexer(store).IndexPaths(ctx, root, input.Paths)
@@ -340,6 +425,8 @@ func (server Server) loadFreshRepoMap(
 			err,
 		)
 	}
+
+	defer autoPruneCodeIntelDB(root)
 	defer closeStore()
 
 	ctx := argsContext()
@@ -509,4 +596,17 @@ func (server Server) openCodeIntelStore() (*codeintel.Store, func(), error) {
 
 func (server Server) codeIntelRoot() string {
 	return firstNonEmpty(server.runtime.ConsumerRoot, server.runtime.InvocationCwd)
+}
+
+func autoPruneCodeIntelDB(root string) {
+	err := outputsurface.AutoPruneCodeIntelDB(argsContext(), root)
+	if err == nil {
+		return
+	}
+
+	debuglog.Debug(
+		"mcp.code_intel.auto_prune.warn",
+		zap.String("root", root),
+		zap.Error(err),
+	)
 }

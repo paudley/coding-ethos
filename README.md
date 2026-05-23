@@ -322,6 +322,8 @@ The first tools are intentionally narrow and auditable:
   policy, principle, skill, and retry guidance.
 - `code_intel_search`: retrieve stored SARIF/remediation/code-chunk evidence
   with FTS and sqlite-vec vector search.
+- `semantic_search`: retrieve exact indexed repository code chunks by semantic
+  query before broad grep or whole-file reads.
 - `code_intel_index_status`: report SQLite/sqlite-vec index freshness and
   embedding coverage.
 - `code_similarity_check`: preflight proposed code against indexed repository
@@ -928,7 +930,8 @@ Per-surface retention keys are `enabled`, `auto`, `max_age`, `keep_last`,
 `max_bytes`, `require_code_intel_ingest`, `row_retention_days`, and
 `vacuum_after_prune`. Automatic pruning is intentionally conservative:
 repo-configured proxy temp evidence is pruned before new evidence files are
-written, lint traces are pruned after managed lint trace writes when
+written, `code_intel_db` rows are pruned after code-intel writes, lint traces
+are pruned after managed lint trace writes when
 `outputs.prune.surfaces.lint_traces.auto = true`, and hook run directories
 prune after hook maintenance when `outputs.prune.surfaces.hook_runs.auto = true`.
 

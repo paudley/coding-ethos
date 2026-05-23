@@ -20,17 +20,21 @@ import (
 )
 
 const (
-	recordKindDirectory = "directory"
-	recordKindFile      = "file"
-	recordKindGlob      = "glob"
-	rootRepo            = "repo"
-	rootTemp            = "temp"
+	recordKindDirectory  = "directory"
+	recordKindFile       = "file"
+	recordKindGlob       = "glob"
+	rootRepo             = "repo"
+	rootTemp             = "temp"
+	codeIntelDBSurfaceID = "code_intel_db"
 
 	// DefaultTempEvidenceMaxAge is the retention age for proxy temp evidence.
 	DefaultTempEvidenceMaxAge = 24 * time.Hour
-	toonReportStaticLines     = 5
-	humanReportStaticLines    = 3
-	humanSurfaceLineEstimate  = 3
+	// DefaultCodeIntelRowRetentionDays is the automatic row retention window for
+	// derived code-intelligence trace and proxy-event records.
+	DefaultCodeIntelRowRetentionDays = 90
+	toonReportStaticLines            = 5
+	humanReportStaticLines           = 3
+	humanSurfaceLineEstimate         = 3
 )
 
 // Definition describes one known coding-ethos disk output surface.
@@ -197,7 +201,7 @@ func otherRepoAuditDefinitions() []Definition {
 			false,
 		),
 		repoFile(
-			"code_intel_db",
+			codeIntelDBSurfaceID,
 			".coding-ethos/code-intel.db",
 			"Repo-local code intelligence SQLite store.",
 			"go/internal/codeintel",
@@ -206,6 +210,7 @@ func otherRepoAuditDefinitions() []Definition {
 			"high",
 			"derived_index",
 			false,
+			true,
 			true,
 		),
 		repoFile(
@@ -218,6 +223,7 @@ func otherRepoAuditDefinitions() []Definition {
 			"high",
 			"audit_evidence",
 			true,
+			false,
 			false,
 		),
 	}
@@ -290,6 +296,7 @@ func repoStateDefinitions() []Definition {
 			"medium",
 			"state",
 			true,
+			false,
 			false,
 		),
 		repoDir(
@@ -415,6 +422,7 @@ func repoFile(
 	replayValue string,
 	retentionClass string,
 	commandPrune bool,
+	automaticPrune bool,
 	dbMaintenance bool,
 ) Definition {
 	return Definition{
@@ -429,6 +437,7 @@ func repoFile(
 		ReplayValue:    replayValue,
 		RetentionClass: retentionClass,
 		CommandPrune:   commandPrune,
+		AutomaticPrune: automaticPrune,
 		DBMaintenance:  dbMaintenance,
 	}
 }
@@ -514,7 +523,7 @@ func inventorySurface(
 			inspectPath(path, inventory.Retention, now, &inventory)
 		}
 
-		if definition.ID == "code_intel_db" && inventory.Exists {
+		if definition.ID == codeIntelDBSurfaceID && inventory.Exists {
 			addCodeIntelStats(ctx, path, &inventory)
 		}
 	case rootTemp:
@@ -660,7 +669,7 @@ func retentionPolicy(settings Settings, definition Definition) SurfaceRetentionP
 	policy, ok := settings.Prune.Surfaces[definition.ID]
 	if !ok {
 		policy = SurfaceRetentionPolicy{
-			Enabled:                definition.CommandPrune,
+			Enabled:                definition.CommandPrune || definition.DBMaintenance,
 			Auto:                   definition.AutomaticPrune,
 			MaxAge:                 definition.maxAge,
 			MaxAgeText:             durationText(definition.maxAge),

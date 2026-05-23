@@ -33,8 +33,9 @@ func (store *Store) HybridSearch(
 		ftsResults, err := store.Search(
 			ctx,
 			SearchQuery{
-				Text:  query.Text,
-				Limit: limit * hybridCandidateMultiplier,
+				Text:       query.Text,
+				RecordKind: query.RecordKind,
+				Limit:      limit * hybridCandidateMultiplier,
 			},
 		)
 		if err != nil {
@@ -293,6 +294,10 @@ func hybridVectorFilters(query HybridSearchQuery) map[string]string {
 		filters["policy_id"] = strings.TrimSpace(query.PolicyID)
 	}
 
+	if strings.TrimSpace(query.RecordKind) != "" {
+		filters["record_kind"] = strings.TrimSpace(query.RecordKind)
+	}
+
 	if strings.TrimSpace(query.SkillID) != "" {
 		filters["skill_id"] = strings.TrimSpace(query.SkillID)
 	}
@@ -306,6 +311,10 @@ func hybridVectorFilters(query HybridSearchQuery) map[string]string {
 
 func hybridMatches(result HybridSearchResult, query HybridSearchQuery) bool {
 	if strings.TrimSpace(query.PolicyID) != "" && result.PolicyID != query.PolicyID {
+		return false
+	}
+
+	if strings.TrimSpace(query.RecordKind) != "" && result.Kind != query.RecordKind {
 		return false
 	}
 

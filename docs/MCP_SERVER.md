@@ -44,6 +44,8 @@ skill metadata used by those enforcement paths.
   policy, principle, skill, action-context, and retry guidance.
 - `code_intel_search`: query stored SARIF, remediation, and embedding evidence
   with FTS plus sqlite-vec when a query vector is supplied.
+- `semantic_search`: query indexed repository code and return exact code chunks
+  with path and line metadata before agents fall back to broad grep.
 - `code_intel_index_status`: report code-intelligence store freshness,
   embedding metadata counts, and sqlite-vec row counts.
 - `code_similarity_check`: compare proposed code against indexed repository

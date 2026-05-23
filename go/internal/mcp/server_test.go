@@ -37,8 +37,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 22 {
-		t.Fatalf("tool count = %d, want 22: %#v", len(tools), tools)
+	if len(tools) != 23 {
+		t.Fatalf("tool count = %d, want 23: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -55,6 +55,7 @@ func TestServerListsTools(t *testing.T) {
 		"skill_lookup",
 		"remediation_explain",
 		"code_intel_search",
+		"semantic_search",
 		"code_intel_index_status",
 		"code_intel_hook_usage",
 		"code_similarity_check",
@@ -411,6 +412,35 @@ func TestServerCodeIntelToolsUseStoredCodeAndRemediationData(t *testing.T) {
 		output := runServerWithRuntime(t, codeIntelToolRequest(t, index, request), runtime)
 		if !strings.Contains(output, request.want) {
 			t.Fatalf("%s output missing %q:\n%s", request.name, request.want, output)
+		}
+	}
+}
+
+func TestServerSemanticSearchReturnsCodeChunks(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	seedCodeIntelToolData(t, root)
+	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":46,
+		"method":"tools/call",
+		"params":{
+			"name":"semantic_search",
+			"arguments":{"query":"run","path":"pkg/app.py","limit":5}
+		}
+	}`), runtime)
+
+	for _, want := range []string{
+		`"semantic_search"`,
+		`"code_chunk"`,
+		`"pkg/app.py"`,
+		`def run():`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("semantic search output missing %q:\n%s", want, output)
 		}
 	}
 }

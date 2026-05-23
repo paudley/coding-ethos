@@ -28,6 +28,11 @@ auto = true
 max_age = "24h"
 max_bytes = "512MiB"
 
+[outputs.prune.surfaces.code_intel_db]
+auto = true
+row_retention_days = 90
+vacuum_after_prune = true
+
 [outputs.prune.surfaces.sandbox_go_cache]
 auto = true
 max_age = "7d"
