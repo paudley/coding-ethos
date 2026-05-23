@@ -556,7 +556,6 @@ func TestCutoverReportLines(t *testing.T) {
 
 	got := strings.Join(cutoverReportLines(report), "\n")
 	for _, want := range []string{
-		"format: toon",
 		"command: cutover",
 		"action: verify",
 		"status: blocked",

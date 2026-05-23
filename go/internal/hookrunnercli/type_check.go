@@ -719,7 +719,6 @@ func formatTypeCheckResultsTOON(
 	)
 	lines := make([]string, 0, typeCheckTOONSummaryRows+len(results))
 	lines = append(lines,
-		"format: "+summary.Format,
 		"status: "+summary.Status,
 		fmt.Sprintf("file_count: %d", summary.FileCount),
 		fmt.Sprintf("passed: %d", summary.Passed),

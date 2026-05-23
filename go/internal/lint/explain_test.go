@@ -98,7 +98,6 @@ func TestExplainReportsToolSelectionForFiles(t *testing.T) {
 
 	output := FormatExplainResultTOON(result)
 	for _, want := range []string{
-		"format: toon",
 		"operation: explain",
 		"files[6]{path}:",
 		"ruff,selected,python-static,ruff,json,file selector matched pkg/app.py",

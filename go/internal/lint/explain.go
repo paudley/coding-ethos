@@ -254,7 +254,6 @@ func FormatExplainResultHuman(result ExplainResult) string {
 
 func FormatExplainResultTOON(result ExplainResult) string {
 	lines := []string{
-		"format: toon",
 		"tool: policy-lint",
 		"operation: explain",
 		"scope: " + toonCell(result.Scope),

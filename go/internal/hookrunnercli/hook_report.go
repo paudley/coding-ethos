@@ -322,18 +322,14 @@ func selectedHookOutputFormat() string {
 
 	switch format {
 	case "", hookOutputFormatAuto:
-		if isLLMCallerEnvironment(os.Getenv, settings.AgentEnvMarkers) {
-			return hookOutputFormatTOON
-		}
-
-		return hookOutputFormatHuman
+		return hookOutputFormatTOON
 	case hookOutputFormatHuman,
 		hookOutputFormatJSON,
 		hookOutputFormatSARIF,
 		hookOutputFormatTOON:
 		return format
 	default:
-		return hookOutputFormatHuman
+		return hookOutputFormatTOON
 	}
 }
 
@@ -578,7 +574,6 @@ func formatHookReportTOON(report hookReport) string {
 	findings := hookReportDisplayFindings(report)
 
 	lines := []string{
-		"format: " + report.Format,
 		"tool: " + toonCell(report.Tool),
 		"status: " + toonCell(report.Status),
 		"trace_id: " + toonCell(report.TraceID),

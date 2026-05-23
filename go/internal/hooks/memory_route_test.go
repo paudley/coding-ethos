@@ -107,7 +107,7 @@ func TestRunBlocksCodexMemoryWriteWithCentralGuidance(t *testing.T) {
 	if len(result.Decisions) != 1 || result.Decisions[0].PolicyID != "memory.centralized" {
 		t.Fatalf("decisions = %#v", result.Decisions)
 	}
-	if !strings.Contains(result.Decisions[0].Message, memories.DeniedGuidance) {
+	if !strings.Contains(result.Decisions[0].Message, memories.DeniedGuidance()) {
 		t.Fatalf("missing guidance in %#v", result.Decisions[0])
 	}
 }

@@ -603,7 +603,6 @@ func countsHuman(counts []Count) string {
 
 func FormatAnalysisTOON(analysis Analysis) string {
 	lines := []string{
-		"format: toon",
 		"tool: policy-lint",
 		"operation: analyze-log",
 		"path: " + toonCell(analysis.Path),

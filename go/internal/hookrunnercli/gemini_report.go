@@ -112,7 +112,6 @@ func formatGeminiReportTOON(scope string, outcomes []geminiCheckOutcome) string 
 	)
 
 	lines := []string{
-		"format: " + summary.Format,
 		"tool: gemini",
 		"scope: " + toonCell(summary.Scope),
 		"status: " + summary.Status,

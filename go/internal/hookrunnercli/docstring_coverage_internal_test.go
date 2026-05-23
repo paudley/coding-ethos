@@ -309,7 +309,6 @@ func TestFormatDocstringCoverageFailureTOON(t *testing.T) {
 		hookOutputFormatTOON,
 	)
 	for _, fragment := range []string{
-		"format: toon",
 		"tool: docstring_coverage",
 		"status: FAIL",
 		"threshold: 95",

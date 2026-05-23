@@ -173,7 +173,6 @@ func assertTraceAnalysisOutput(t *testing.T, analysis Analysis) {
 		"TOON analysis",
 		FormatAnalysisTOON(analysis),
 		[]string{
-			"format: toon",
 			"operation: analyze-log",
 			"top_codes[",
 			"unmapped_codes[1]{key,count}:",
@@ -219,8 +218,7 @@ func TestEncodeAnalysisHonorsFormat(t *testing.T) {
 		t.Fatalf("EncodeAnalysis() returned error: %v", err)
 	}
 
-	if !strings.Contains(buffer.String(), "format: toon") ||
-		!strings.Contains(buffer.String(), "unmapped_codes[1]{key,count}:") {
+	if !strings.Contains(buffer.String(), "unmapped_codes[1]{key,count}:") {
 		t.Fatalf("TOON analysis missing expected content:\n%s", buffer.String())
 	}
 

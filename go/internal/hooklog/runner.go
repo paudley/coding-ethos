@@ -19,6 +19,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
@@ -31,10 +32,6 @@ const (
 )
 
 const (
-	hookLogIgnoreRequiredMessage = "FATAL: %s is not ignored; add generated " +
-		".coding-ethos runtime subpaths to the repo .gitignore before hook logs are written"
-	hookLogMemoryIgnoredMessage = "FATAL: .coding-ethos/memories/MEMORY.md is ignored; " +
-		"remove broad .coding-ethos memory ignores so repo memories remain trackable"
 	hookLogRunDirPath     = ".coding-ethos/hook-runs/"
 	hookLogMemoryTestPath = ".coding-ethos/memories/MEMORY.md"
 )
@@ -650,7 +647,7 @@ func normalizedOptions(options Options) (Options, error) {
 
 func requireHookLogIgnores(options Options) error {
 	if gitPathIgnored(options, hookLogMemoryTestPath) {
-		return apperror.StaticError(hookLogMemoryIgnoredMessage)
+		return apperror.StaticError(hookLogMemoryIgnoredFeedback())
 	}
 
 	return requireIgnored(options, hookLogRunDirPath)
@@ -711,13 +708,43 @@ func requireIgnored(options Options, path string) error {
 		return nil
 	}
 
-	return apperror.Wrapf(
-		apperror.StaticError(
-			hookLogIgnoreRequiredMessage,
-		),
-		hookLogIgnoreRequiredMessage,
-		path,
-	)
+	return apperror.StaticError(hookLogIgnoreRequiredFeedback(path))
+}
+
+func hookLogIgnoreRequiredFeedback(path string) string {
+	return feedback.MustRender(feedback.Message{
+		Scalars: []feedback.Scalar{
+			feedback.S("status", "fatal"),
+			feedback.S("severity", "fatal"),
+			feedback.S("invariant", "hook runtime output must be ignored"),
+			feedback.S("path", path),
+			feedback.S("observed", "not_ignored"),
+			feedback.S("expected", "ignored"),
+			feedback.S(
+				"repair",
+				"add generated .coding-ethos runtime subpaths to the repo "+
+					".gitignore before hook logs are written",
+			),
+		},
+	}, feedback.FormatTOON)
+}
+
+func hookLogMemoryIgnoredFeedback() string {
+	return feedback.MustRender(feedback.Message{
+		Scalars: []feedback.Scalar{
+			feedback.S("status", "fatal"),
+			feedback.S("severity", "fatal"),
+			feedback.S("invariant", "repo memories must remain trackable"),
+			feedback.S("path", hookLogMemoryTestPath),
+			feedback.S("observed", "ignored"),
+			feedback.S("expected", "not_ignored"),
+			feedback.S(
+				"repair",
+				"remove broad .coding-ethos memory ignores so repo memories "+
+					"remain trackable",
+			),
+		},
+	}, feedback.FormatTOON)
 }
 
 func gitPathIgnored(options Options, path string) bool {

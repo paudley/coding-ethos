@@ -397,7 +397,6 @@ func TestEncodeLintResultToUsesTOONForAgentEnvironment(t *testing.T) {
 
 	rendered := output.String()
 	for _, want := range []string{
-		"format: toon",
 		"tool: policy-lint",
 		"trace_id: ",
 		"findings[1]{tool,file,line,column,severity,code," +

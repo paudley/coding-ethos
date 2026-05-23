@@ -179,6 +179,49 @@ principles:
         If output behavior changes, update the source YAML, renderer logic,
         and
         tests together rather than patching only one layer.
+      policy:
+        expressions:
+          - id: coding_ethos.feedback_route
+            description: >-
+              Coding Ethos feedback and agent-facing communication must route
+              through the central feedback package instead of ad hoc stream
+              writes.
+            scope: file
+            severity: block
+            mode: block
+            protected: true
+            allow_override: false
+            allow_severity_weaken: false
+            hook_events:
+              - PreToolUse
+            tools:
+              - Write
+              - Edit
+              - MultiEdit
+            lint_scopes:
+              - staged
+              - files
+            principle_ids:
+              - one-path-for-critical-operations
+              - protocol-first-design
+            skill_id: agent-operating-discipline
+            message: Feedback output must route through go/internal/feedback.
+            advice: >-
+              Model the message as a feedback.Payload and render it through
+              feedback.Render or feedback.Write so JSON, TOON, human, SARIF,
+              and structured logging stay consistent.
+            when: >-
+              diff.added_lines.exists(line,
+                has_prefix(line.file, "go/internal/") &&
+                !has_prefix(line.file, "go/internal/feedback/") &&
+                (
+                  line.text.contains("fmt.Fprint") ||
+                  line.text.contains("fmt.Print") ||
+                  line.text.contains("os.Stdout.Write") ||
+                  line.text.contains("os.Stderr.Write") ||
+                  line.text.contains("format: toon")
+                )
+              )
     documentation-as-contract:
       append: |-
         In this repo, documentation is part of the product surface.

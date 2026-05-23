@@ -498,7 +498,6 @@ func formatDocstringCoverageFailureTOON(
 	)
 
 	lines := []string{
-		"format: " + payload.Format,
 		"tool: " + payload.Tool,
 		"status: " + payload.Status,
 		fmt.Sprintf("threshold: %d", payload.Threshold),

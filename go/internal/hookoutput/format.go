@@ -176,7 +176,6 @@ func FormatLintResultTOON(result lint.Result) string {
 
 func toonHeaderLines(result lint.Result, status string) []string {
 	return []string{
-		"format: toon",
 		"tool: " + TOONCell(lint.ResultTool(result)),
 		"status: " + TOONCell(status),
 	}

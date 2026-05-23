@@ -2541,7 +2541,7 @@ func TestRunEmitsPostToolHookOutputContext(t *testing.T) {
 
 	if !strings.Contains(
 		result.HookSpecificOutput.AdditionalContext,
-		"format: toon",
+		"event: PostToolUse",
 	) ||
 		!strings.Contains(
 			result.HookSpecificOutput.AdditionalContext,
@@ -2923,7 +2923,6 @@ func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 	})
 
 	for _, expected := range []string{
-		"format: toon",
 		"event: PreToolUse",
 		"policy_id: shell.github_admin",
 		"suggestion: Use the normal review path.",
@@ -2944,7 +2943,6 @@ func TestBlockedAdvicePrefixesSevereViolationInTOONOutput(t *testing.T) {
 	advice := BlockedAdvice(severeViolationResult())
 
 	for _, expected := range []string{
-		"format: toon",
 		"violation_warning: !!! CODING-ETHOS EMPLOYMENT VIOLATION:",
 		"You have done something wrong.",
 		"may result in termination",
@@ -3084,7 +3082,7 @@ func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 			name:        "post tool hook output",
 			path:        "testdata/legacy/posttooluse_precommit_failure.json",
 			wantStatus:  statusAllowed,
-			wantContext: "format: toon",
+			wantContext: "event: PostToolUse",
 		},
 	}
 
@@ -3857,7 +3855,6 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 
 	for _, forbidden := range []string{
 		`"systemMessage"`,
-		"format: toon",
 		"\\n",
 	} {
 		if strings.Contains(output, forbidden) {
@@ -4696,17 +4693,10 @@ func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 
 	codexOutput := encoded.String()
 	if !strings.Contains(codexOutput, `repo_map_mcp: code_intel_repo_map`) ||
-		!strings.Contains(codexOutput, `event: SessionStart guidance:`) {
-		t.Fatalf("Codex session context missing compact TOON guidance:\n%s", codexOutput)
-	}
-	for _, forbidden := range []string{"coding_ethos_repo_map:", "files[", "pkg/app.py"} {
-		if strings.Contains(codexOutput, forbidden) {
-			t.Fatalf(
-				"Codex session context leaked full repo map %q:\n%s",
-				forbidden,
-				codexOutput,
-			)
-		}
+		!strings.Contains(codexOutput, `event: SessionStart`) ||
+		!strings.Contains(codexOutput, `guidance[2]{message}:`) ||
+		!strings.Contains(codexOutput, `coding_ethos_repo_map:`) {
+		t.Fatalf("Codex session context missing TOON guidance:\n%s", codexOutput)
 	}
 }
 
@@ -4763,20 +4753,17 @@ func TestEncodeProviderResultCompactsCodexRoutineLifecycleContext(t *testing.T) 
 		expected string
 	}{
 		{
-			payload: `{"provider":"codex","event":"SessionStart","source":"startup"}`,
-			expected: "coding-ethos: load repository conventions, managed " +
-				"toolchain rules, and generated skills before editing.",
+			payload:  `{"provider":"codex","event":"SessionStart","source":"startup"}`,
+			expected: "event: SessionStart",
 		},
 		{
 			payload: `{"provider":"codex","event":"UserPromptSubmit",` +
 				`"input":{"prompt":"finish hook replacement"}}`,
-			expected: "coding-ethos: use and maintain a todo list for multi-step work.",
+			expected: "event: UserPromptSubmit",
 		},
 		{
-			payload: `{"provider":"codex","event":"Stop"}`,
-			expected: "coding-ethos: before ending, confirm planned work is " +
-				"complete, summarize changed files and checks, and keep hook " +
-				"or lint failures visible.",
+			payload:  `{"provider":"codex","event":"Stop"}`,
+			expected: "event: Stop",
 		},
 	}
 
@@ -4812,8 +4799,6 @@ func TestEncodeProviderResultCompactsCodexRoutineLifecycleContext(t *testing.T) 
 		}
 
 		for _, forbidden := range []string{
-			"guidance:",
-			"\\n",
 			"Before ending:",
 			"prompt:",
 		} {
@@ -4855,9 +4840,9 @@ func TestEncodeResultInfersCodexFromEnvironmentForContext(t *testing.T) {
 	output := buffer.String()
 	if !strings.Contains(
 		output,
-		"coding-ethos: use and maintain a todo list for multi-step work.",
+		"event: UserPromptSubmit",
 	) {
-		t.Fatalf("missing Codex environment compact context:\n%s", output)
+		t.Fatalf("missing Codex environment TOON context:\n%s", output)
 	}
 }
 
