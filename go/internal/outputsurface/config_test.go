@@ -4,6 +4,7 @@
 package outputsurface
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -139,6 +140,21 @@ keep_last = "many"
 	_, err := LoadSettings(root)
 	if err == nil {
 		t.Fatal("LoadSettings accepted invalid keep_last")
+	}
+}
+
+func TestLoadSettingsRejectsNonTablePruneSurfacesWithSpecificError(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeConfigFixture(t, root, "repo_config.toml", `
+[outputs.prune]
+surfaces = "bad"
+`)
+
+	_, err := LoadSettings(root)
+	if err == nil || !errors.Is(err, errPruneSurfacesConfigMustBeTable) {
+		t.Fatalf("LoadSettings error = %v, want prune surfaces table error", err)
 	}
 }
 

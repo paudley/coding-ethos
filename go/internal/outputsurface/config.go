@@ -24,13 +24,18 @@ const (
 )
 
 var (
-	errReportConfigMustBeTable  = errors.New("outputs.report must be a table")
-	errPruneConfigMustBeTable   = errors.New("outputs.prune must be a table")
-	errSurfaceConfigMustBeTable = errors.New("output surface prune policy must be a table")
-	errInvalidIntegerValue      = errors.New("invalid integer value")
-	errUnsupportedIntegerValue  = errors.New("unsupported integer value")
-	errUnknownOutputConfigPath  = errors.New("unknown output TOML config path")
-	errUnknownOutputSurface     = errors.New("unknown output surface")
+	errReportConfigMustBeTable        = errors.New("outputs.report must be a table")
+	errPruneConfigMustBeTable         = errors.New("outputs.prune must be a table")
+	errPruneSurfacesConfigMustBeTable = errors.New(
+		"outputs.prune.surfaces must be a table",
+	)
+	errSurfaceConfigMustBeTable = errors.New(
+		"output surface prune policy must be a table",
+	)
+	errInvalidIntegerValue     = errors.New("invalid integer value")
+	errUnsupportedIntegerValue = errors.New("unsupported integer value")
+	errUnknownOutputConfigPath = errors.New("unknown output TOML config path")
+	errUnknownOutputSurface    = errors.New("unknown output surface")
 )
 
 // Settings contains output reporting and pruning configuration.
@@ -209,7 +214,7 @@ func applyPruneSettings(
 			if surfaces == nil {
 				return fmt.Errorf(
 					"%w: outputs.prune.surfaces in %s",
-					errPruneConfigMustBeTable,
+					errPruneSurfacesConfigMustBeTable,
 					file,
 				)
 			}

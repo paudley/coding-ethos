@@ -108,14 +108,18 @@ func paginateFileReadToolOutput(
 	output, err := agentproxy.NewPipeline(
 		nil,
 		agentproxy.FileReadPaginationTransform{
-			Path:      targetPath,
-			PageStart: 1,
-			PageEnd:   pageEnd,
+			Path:             targetPath,
+			PageStart:        1,
+			PageEnd:          pageEnd,
+			EvidenceMaxAge:   options.TempEvidenceMaxAge,
+			EvidenceMaxBytes: options.TempEvidenceMaxBytes,
 		},
 		agentproxy.ToolOutputTokenBudgetTransform{
-			MaxTokens:  tokenBudget.MaxTokens,
-			HeadTokens: options.HeadTokens,
-			TailTokens: options.TailTokens,
+			MaxTokens:        tokenBudget.MaxTokens,
+			HeadTokens:       options.HeadTokens,
+			TailTokens:       options.TailTokens,
+			EvidenceMaxAge:   options.TempEvidenceMaxAge,
+			EvidenceMaxBytes: options.TempEvidenceMaxBytes,
 		},
 	).Apply(
 		context.Background(),
