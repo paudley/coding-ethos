@@ -330,6 +330,7 @@ func checkDocstringCoverageCommand(cfg Config, args []string) int {
 			selectedHookOutputFormat(),
 		),
 	)
+
 	if strings.TrimSpace(stderr) != "" {
 		writeText(os.Stderr, stderr)
 	}
