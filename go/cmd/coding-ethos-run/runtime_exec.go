@@ -231,7 +231,7 @@ func agentShellSandboxPlan(
 		)
 	}
 
-	return plan, agentShellProcessEnv(gitWrapper, realGitBind), cleanup, nil
+	return plan, agentShellProcessEnv(paths.Root, gitWrapper, realGitBind), cleanup, nil
 }
 
 func agentShellProtectedWritePaths(paths runtimePaths) []string {
@@ -402,10 +402,11 @@ func protectedAgentShellWorktreeEntry(name string) bool {
 		name == ".code-ethos"
 }
 
-func agentShellProcessEnv(gitWrapper, realGitBind string) []string {
+func agentShellProcessEnv(root, gitWrapper, realGitBind string) []string {
 	env := os.Environ()
 	wrapperDir := filepath.Dir(gitWrapper)
 	pathValue := wrapperDir + string(os.PathListSeparator) + os.Getenv("PATH")
+	tempDir := filepath.Join(root, sandbox.SandboxTempWritePath)
 	gpgTTY := agentShellGPGTTY()
 
 	filtered := make([]string, 0, len(env)+agentShellInjectedEnv)
@@ -414,6 +415,7 @@ func agentShellProcessEnv(gitWrapper, realGitBind string) []string {
 			strings.HasPrefix(item, realgit.Env+"=") ||
 			strings.HasPrefix(item, "CODING_ETHOS_AGENT_SHELL_SANDBOX=") ||
 			strings.HasPrefix(item, "GPG_TTY=") ||
+			strings.HasPrefix(item, "TMPDIR=") ||
 			agentShellFilteredGUIEnv(item) {
 			continue
 		}
@@ -426,6 +428,7 @@ func agentShellProcessEnv(gitWrapper, realGitBind string) []string {
 		"PATH="+pathValue,
 		realgit.Env+"="+realGitBind,
 		"CODING_ETHOS_AGENT_SHELL_SANDBOX=1",
+		"TMPDIR="+tempDir,
 	)
 	if gpgTTY != "" {
 		filtered = append(filtered, "GPG_TTY="+gpgTTY)

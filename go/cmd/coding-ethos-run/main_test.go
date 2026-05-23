@@ -24,6 +24,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
@@ -1403,6 +1404,7 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	t.Setenv("DISPLAY", ":0")
 	t.Setenv("GPG_TTY", "/stale/tty")
+	t.Setenv("TMPDIR", "/tmp/stale")
 	t.Setenv("WAYLAND_DISPLAY", "wayland-1")
 	t.Setenv("XAUTHORITY", filepath.Join(home, ".Xauthority"))
 
@@ -1444,6 +1446,12 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	if !slices.Contains(env, "CODING_ETHOS_AGENT_SHELL_SANDBOX=1") {
 		t.Fatalf("agent-shell env does not mark sandbox execution: %#v", env)
 	}
+	if !slices.Contains(
+		env,
+		"TMPDIR="+filepath.Join(paths.Root, sandbox.SandboxTempWritePath),
+	) {
+		t.Fatalf("agent-shell env does not route temp files into sandbox: %#v", env)
+	}
 	for _, unwanted := range []string{"DISPLAY=", "WAYLAND_DISPLAY=", "XAUTHORITY="} {
 		if slices.ContainsFunc(env, func(item string) bool {
 			return strings.HasPrefix(item, unwanted)
@@ -1452,8 +1460,8 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 		}
 	}
 	for _, item := range env {
-		if item == "GPG_TTY=/stale/tty" {
-			t.Fatalf("agent-shell env leaked stale GPG_TTY: %#v", env)
+		if item == "GPG_TTY=/stale/tty" || item == "TMPDIR=/tmp/stale" {
+			t.Fatalf("agent-shell env leaked stale process variable: %#v", env)
 		}
 	}
 	if gpgTTY := agentShellGPGTTY(); gpgTTY != "" &&
