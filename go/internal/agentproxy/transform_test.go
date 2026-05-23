@@ -483,6 +483,29 @@ func TestToolOutputTokenBudgetCountsDenseOneLinePayload(t *testing.T) {
 	assertEvidenceFileContains(t, output.Record.EvidencePath, payload)
 }
 
+func TestToolOutputTokenBudgetDefaultsToApproximateTokenizer(t *testing.T) {
+	t.Parallel()
+
+	payload := strings.Repeat("x", 260)
+	output, err := agentproxy.ToolOutputTokenBudgetTransform{
+		MaxTokens:  32,
+		HeadTokens: 8,
+		TailTokens: 8,
+	}.Apply(context.Background(), agentproxy.TransformInput{Text: payload})
+	if err != nil {
+		t.Fatalf("apply token budget: %v", err)
+	}
+
+	if output.Record.Decision != "truncate" ||
+		output.Record.InputTokens != (agentproxy.ApproximateTokenizer{}).Count(payload) ||
+		strings.Contains(output.Text, payload) {
+		t.Fatalf("token-budget default tokenizer output = %#v text=%q",
+			output.Record,
+			output.Text,
+		)
+	}
+}
+
 func TestToolOutputTokenBudgetReusesLineCompressionEvidencePath(t *testing.T) {
 	t.Parallel()
 

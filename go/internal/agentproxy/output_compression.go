@@ -363,7 +363,7 @@ func (transform ToolOutputTokenBudgetTransform) Apply(
 	tokenizer := input.Tokenizer
 
 	if tokenizer == nil {
-		tokenizer = WhitespaceTokenizer{}
+		tokenizer = ApproximateTokenizer{}
 	}
 
 	tokens := tokenizer.Count(input.Text)
@@ -372,10 +372,12 @@ func (transform ToolOutputTokenBudgetTransform) Apply(
 			Text:     input.Text,
 			Metadata: cloneMetadata(input.Metadata),
 			Record: TransformRecord{
-				PolicyID: "proxy.token_budget",
-				Decision: "allow",
-				Reason:   "tool output within token budget",
-				Metadata: cloneMetadata(input.Metadata),
+				PolicyID:     "proxy.token_budget",
+				Decision:     "allow",
+				Reason:       "tool output within token budget",
+				InputTokens:  tokens,
+				OutputTokens: tokens,
+				Metadata:     cloneMetadata(input.Metadata),
 			},
 		}, nil
 	}
@@ -404,6 +406,8 @@ func (transform ToolOutputTokenBudgetTransform) Apply(
 			Decision:     "truncate",
 			Reason:       "tool output exceeded token budget",
 			EvidencePath: evidencePath,
+			InputTokens:  tokens,
+			OutputTokens: tokenizer.Count(output),
 			Metadata:     cloneMetadata(metadata),
 		},
 	}, nil
