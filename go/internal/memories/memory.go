@@ -29,6 +29,7 @@ const (
 		".coding-ethos/memories/MEMORY.md and .coding-ethos/memories/*.yaml"
 
 	defaultIndexName = "index.yaml"
+	defaultLockName  = ".lock"
 	fileMode         = 0o600
 	dirMode          = 0o700
 )
@@ -113,9 +114,6 @@ func LoadSettings(root string) (Settings, error) {
 
 func applySettingsMap(settings *Settings, config configdata.Map, file string) error {
 	values := configdata.MapValue(config["memories"])
-	if values == nil {
-		values = configdata.MapValue(config["memories"])
-	}
 
 	if values == nil {
 		return nil
@@ -230,13 +228,23 @@ func Verify(root string) error {
 
 // Classify identifies provider-specific memory paths and their central target.
 func Classify(root, rawPath, provider string) Classification {
+	settings, err := LoadSettings(root)
+	if err != nil {
+		return Classification{Path: rawPath}
+	}
+
+	return ClassifyWithSettings(root, rawPath, provider, settings)
+}
+
+// ClassifyWithSettings identifies provider-specific memory paths with known settings.
+func ClassifyWithSettings(root, rawPath, _ string, settings Settings) Classification {
 	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(rawPath)))
 	if cleanPath == "." || cleanPath == "" {
 		return Classification{Path: rawPath}
 	}
 
 	normalized := normalizedMemoryPath(root, cleanPath)
-	if centralMemoryPath(normalized) {
+	if centralMemoryPath(settings, normalized) {
 		return Classification{Path: rawPath, Kind: "central"}
 	}
 
@@ -245,10 +253,6 @@ func Classify(root, rawPath, provider string) Classification {
 	}
 
 	detectedProvider := providerForPath(normalized)
-	if detectedProvider == "" && provider != "" {
-		detectedProvider = provider
-	}
-
 	if detectedProvider == "" || !memoryPath(normalized) {
 		return Classification{Path: rawPath}
 	}
@@ -256,7 +260,7 @@ func Classify(root, rawPath, provider string) Classification {
 	return Classification{
 		Provider:      detectedProvider,
 		Path:          rawPath,
-		CanonicalPath: canonicalPathForInput(root, rawPath),
+		CanonicalPath: canonicalPathForInput(root, rawPath, settings),
 		Kind:          "memory",
 		Managed:       true,
 	}
@@ -273,77 +277,103 @@ func ImportExisting(root string) (ImportReport, error) {
 		return ImportReport{Root: rootOrDot(root)}, nil
 	}
 
-	err = Ensure(root)
+	report := ImportReport{Root: rootOrDot(root)}
+
+	err = withMemoryLock(root, settings, func() error {
+		return importExistingLocked(root, settings, &report)
+	})
 	if err != nil {
 		return ImportReport{}, err
 	}
 
-	sources := importSourcePaths(root)
-	records := make([]ImportRecord, 0, len(sources))
-
-	for _, source := range sources {
-		record, importErr := importOne(root, settings, source)
-		if importErr != nil {
-			return ImportReport{}, importErr
-		}
-
-		if record.ID != "" {
-			records = append(records, record)
-		}
-	}
-
-	err = ensureIndex(root, settings, records)
-	if err != nil {
-		return ImportReport{}, err
-	}
-
-	return ImportReport{
-		Root:    rootOrDot(root),
-		Records: records,
-		Changed: len(records) > 0,
-	}, nil
+	return report, nil
 }
 
-func importOne(root string, settings Settings, source string) (ImportRecord, error) {
-	data, err := os.ReadFile(filepath.Clean(source))
+func importExistingLocked(root string, settings Settings, report *ImportReport) error {
+	err := Ensure(root)
 	if err != nil {
-		return ImportRecord{}, fmt.Errorf("read provider memory %s: %w", source, err)
+		return err
 	}
 
-	if strings.TrimSpace(string(data)) == "" {
-		return ImportRecord{}, nil
-	}
-
-	record := ImportRecord{
-		ID:            importID(source),
-		Provider:      providerForPath(normalizedMemoryPath(root, source)),
-		SourcePath:    source,
-		ImportedAtUTC: time.Now().UTC().Format(time.RFC3339),
-		SHA256:        sha256Text(data),
+	sources, err := importSourcePaths(root)
+	if err != nil {
+		return err
 	}
 
 	primary := filepath.Join(rootOrDot(root), filepath.FromSlash(settings.PrimaryFile))
 
 	existing, err := os.ReadFile(filepath.Clean(primary))
 	if err != nil {
-		return ImportRecord{}, fmt.Errorf("read central memory %s: %w", primary, err)
+		return fmt.Errorf("read central memory %s: %w", primary, err)
 	}
 
-	if strings.Contains(string(existing), "<!-- coding-ethos-memory:"+record.ID+" -->") {
-		return ImportRecord{}, nil
+	existingText := string(existing)
+	records := make([]ImportRecord, 0, len(sources))
+	blocks := strings.Builder{}
+
+	for _, source := range sources {
+		record, block, importErr := importOne(root, source, existingText)
+		if importErr != nil {
+			return importErr
+		}
+
+		if record.ID != "" {
+			records = append(records, record)
+
+			blocks.WriteString(block)
+		}
+	}
+
+	if blocks.Len() > 0 {
+		err = atomicWriteFile(primary, append(existing, []byte(blocks.String())...), fileMode)
+		if err != nil {
+			return fmt.Errorf("append central memory %s: %w", primary, err)
+		}
+	}
+
+	err = ensureIndex(root, settings, records)
+	if err != nil {
+		return err
+	}
+
+	*report = ImportReport{
+		Root:    rootOrDot(root),
+		Records: records,
+		Changed: len(records) > 0,
+	}
+
+	return nil
+}
+
+func importOne(root, source, existing string) (ImportRecord, string, error) {
+	data, err := os.ReadFile(filepath.Clean(source))
+	if err != nil {
+		return ImportRecord{}, "", fmt.Errorf("read provider memory %s: %w", source, err)
+	}
+
+	if strings.TrimSpace(string(data)) == "" {
+		return ImportRecord{}, "", nil
+	}
+
+	sourceID := normalizedMemoryPath(root, source)
+	record := ImportRecord{
+		ID:            importID(sourceID),
+		Provider:      providerForPath(sourceID),
+		SourcePath:    sourceID,
+		ImportedAtUTC: time.Now().UTC().Format(time.RFC3339),
+		SHA256:        sha256Text(data),
+	}
+
+	if strings.Contains(existing, "<!-- coding-ethos-memory:"+record.ID+" -->") {
+		return ImportRecord{}, "", nil
 	}
 
 	block := "\n<!-- coding-ethos-memory:" + record.ID + " -->\n" +
-		"## Imported from " + source + "\n\n" +
+		"## Imported from " + sourceID + "\n\n" +
 		strings.TrimSpace(string(data)) + "\n" +
 		"<!-- /coding-ethos-memory:" + record.ID + " -->\n"
-	// #nosec G703 -- primary is constrained to the configured repo memory file.
-	err = os.WriteFile(primary, append(existing, []byte(block)...), fileMode)
-	if err != nil {
-		return ImportRecord{}, fmt.Errorf("append central memory %s: %w", primary, err)
-	}
 
-	return record, nil
+	return record, block, nil
 }
 
 func ensureIndex(root string, settings Settings, records []ImportRecord) error {
@@ -370,7 +400,7 @@ func ensureIndex(root string, settings Settings, records []ImportRecord) error {
 		return fmt.Errorf("create memory index directory: %w", err)
 	}
 
-	err = os.WriteFile(path, data, fileMode)
+	err = atomicWriteFile(path, data, fileMode)
 	if err != nil {
 		return fmt.Errorf("write memory index %s: %w", path, err)
 	}
@@ -430,35 +460,50 @@ func mergeImportRecords(existing, imported []ImportRecord) []ImportRecord {
 	return merged
 }
 
-func importSourcePaths(root string) []string {
+func importSourcePaths(root string) ([]string, error) {
 	candidates := []string{}
 	for _, base := range []string{
 		filepath.Join(rootOrDot(root), ".claude"),
 		filepath.Join(rootOrDot(root), ".codex"),
 		filepath.Join(rootOrDot(root), ".gemini"),
 	} {
-		candidates = append(candidates, walkMemoryFiles(base)...)
+		files, err := walkMemoryFiles(base)
+		if err != nil {
+			return nil, err
+		}
+
+		candidates = append(candidates, files...)
 	}
 
 	home, err := os.UserHomeDir()
 	if err == nil && home != "" {
-		for _, base := range []string{
-			filepath.Join(home, ".claude"),
-			filepath.Join(home, "claude"),
-		} {
-			candidates = append(candidates, walkMemoryFiles(base)...)
+		for _, base := range homeMemoryRoots(home, root) {
+			files, walkErr := walkMemoryFiles(base)
+			if walkErr != nil {
+				return nil, walkErr
+			}
+
+			candidates = append(candidates, files...)
 		}
 	}
 
 	slices.Sort(candidates)
 
-	return slices.Compact(candidates)
+	return slices.Compact(candidates), nil
 }
 
-func walkMemoryFiles(base string) []string {
+func walkMemoryFiles(base string) ([]string, error) {
 	info, err := os.Stat(base)
-	if err != nil || !info.IsDir() {
-		return nil
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("stat memory import root %s: %w", base, err)
+	}
+
+	if !info.IsDir() {
+		return nil, nil
 	}
 
 	files := []string{}
@@ -482,21 +527,45 @@ func walkMemoryFiles(base string) []string {
 		},
 	)
 	if err != nil {
+		return nil, fmt.Errorf("walk memory import root %s: %w", base, err)
+	}
+
+	return files, nil
+}
+
+func homeMemoryRoots(home, root string) []string {
+	rootKey := claudeProjectKey(root)
+	if rootKey == "" {
 		return nil
 	}
 
-	return files
+	return []string{
+		filepath.Join(home, ".claude", "projects", rootKey, "memory"),
+		filepath.Join(home, "claude", rootKey, "memories"),
+		filepath.Join(home, "claude", rootKey, "memory"),
+	}
+}
+
+func claudeProjectKey(root string) string {
+	absolute, err := filepath.Abs(rootOrDot(root))
+	if err != nil {
+		return ""
+	}
+
+	key := filepath.ToSlash(filepath.Clean(absolute))
+	key = strings.TrimSpace(key)
+
+	if key == "" || key == "." {
+		return ""
+	}
+
+	replacer := strings.NewReplacer("/", "-", "_", "-", ".", "-")
+
+	return replacer.Replace(key)
 }
 
 func normalizedMemoryPath(root, path string) string {
-	expanded, found := strings.CutPrefix(path, "~/")
-	if found {
-		expanded = "~/" + expanded
-	} else {
-		expanded = path
-	}
-
-	clean := filepath.ToSlash(filepath.Clean(expanded))
+	clean := filepath.ToSlash(filepath.Clean(path))
 	rootSlash := filepath.ToSlash(filepath.Clean(rootOrDot(root)))
 
 	repoPath, found := strings.CutPrefix(clean, rootSlash+"/")
@@ -531,12 +600,14 @@ func protectedProviderStatePath(path string) bool {
 	}
 }
 
-func centralMemoryPath(path string) bool {
+func centralMemoryPath(settings Settings, path string) bool {
 	normalized := filepath.ToSlash(filepath.Clean(path))
+	centralDir := filepath.ToSlash(filepath.Clean(settings.CentralDir))
+	primaryFile := filepath.ToSlash(filepath.Clean(settings.PrimaryFile))
 
-	return normalized == PrimaryFile ||
-		normalized == CentralDir ||
-		strings.HasPrefix(normalized, CentralDir+"/")
+	return normalized == primaryFile ||
+		normalized == centralDir ||
+		strings.HasPrefix(normalized, centralDir+"/")
 }
 
 func providerForPath(path string) string {
@@ -555,20 +626,100 @@ func providerForPath(path string) string {
 
 func memoryPath(path string) bool {
 	lower := strings.ToLower(path)
+	base := filepath.Base(lower)
 
-	return strings.HasSuffix(lower, "/memory.md") ||
-		strings.HasSuffix(lower, "/memory") ||
+	return base == "memory.md" ||
+		base == "memory" ||
 		strings.Contains(lower, "/memory/") ||
-		strings.Contains(lower, "/memories/") ||
-		strings.HasSuffix(lower, "/memory.md")
+		strings.Contains(lower, "/memories/")
 }
 
-func canonicalPathForInput(root, rawPath string) string {
+func canonicalPathForInput(root, rawPath string, settings Settings) string {
 	if filepath.IsAbs(rawPath) {
-		return filepath.Join(rootOrDot(root), filepath.FromSlash(PrimaryFile))
+		return filepath.Join(rootOrDot(root), filepath.FromSlash(settings.PrimaryFile))
 	}
 
-	return PrimaryFile
+	return settings.PrimaryFile
+}
+
+func withMemoryLock(root string, settings Settings, operation func() error) error {
+	lockPath := filepath.Join(
+		rootOrDot(root),
+		filepath.FromSlash(settings.CentralDir),
+		defaultLockName,
+	)
+
+	err := os.MkdirAll(filepath.Dir(lockPath), dirMode)
+	if err != nil {
+		return fmt.Errorf("create memory lock directory: %w", err)
+	}
+
+	for attempt := range 25 {
+		file, lockErr := os.OpenFile(lockPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fileMode)
+		if lockErr == nil {
+			_ = file.Close()
+
+			defer func() {
+				_ = os.Remove(lockPath)
+			}()
+
+			return operation()
+		}
+
+		if !errors.Is(lockErr, os.ErrExist) {
+			return fmt.Errorf("create memory lock %s: %w", lockPath, lockErr)
+		}
+
+		time.Sleep(time.Duration(attempt+1) * 20 * time.Millisecond)
+	}
+
+	return fmt.Errorf("acquire memory lock %s: %w", lockPath, os.ErrExist)
+}
+
+func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+
+	err := os.MkdirAll(dir, dirMode)
+	if err != nil {
+		return fmt.Errorf("create atomic write directory: %w", err)
+	}
+
+	temp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temporary memory file: %w", err)
+	}
+
+	tempPath := temp.Name()
+
+	defer func() {
+		_ = os.Remove(tempPath)
+	}()
+
+	_, err = temp.Write(data)
+	if err != nil {
+		_ = temp.Close()
+
+		return fmt.Errorf("write temporary memory file: %w", err)
+	}
+
+	err = temp.Chmod(mode)
+	if err != nil {
+		_ = temp.Close()
+
+		return fmt.Errorf("chmod temporary memory file: %w", err)
+	}
+
+	err = temp.Close()
+	if err != nil {
+		return fmt.Errorf("close temporary memory file: %w", err)
+	}
+
+	err = os.Rename(tempPath, path)
+	if err != nil {
+		return fmt.Errorf("rename temporary memory file: %w", err)
+	}
+
+	return nil
 }
 
 func rootOrDot(root string) string {

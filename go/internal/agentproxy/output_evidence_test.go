@@ -12,6 +12,7 @@ import (
 )
 
 func TestPruneFullOutputEvidenceFilesEnforcesByteBudget(t *testing.T) {
+	useIsolatedOutputEvidenceTempDir(t)
 	cleanupOutputEvidenceFixtures(t)
 
 	now := time.Now()
@@ -39,6 +40,7 @@ func TestPruneFullOutputEvidenceFilesEnforcesByteBudget(t *testing.T) {
 }
 
 func TestWriteFullOutputEvidencePrunesByConfiguredAge(t *testing.T) {
+	useIsolatedOutputEvidenceTempDir(t)
 	cleanupOutputEvidenceFixtures(t)
 
 	oldPath := writeOutputEvidenceFixture(
@@ -62,6 +64,12 @@ func TestWriteFullOutputEvidencePrunesByConfiguredAge(t *testing.T) {
 	if _, err := os.Stat(writtenPath); err != nil {
 		t.Fatalf("written evidence stat err = %v, want present", err)
 	}
+}
+
+func useIsolatedOutputEvidenceTempDir(t *testing.T) {
+	t.Helper()
+
+	t.Setenv("TMPDIR", t.TempDir())
 }
 
 func cleanupOutputEvidenceFixtures(t *testing.T) {

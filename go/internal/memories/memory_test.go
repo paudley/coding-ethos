@@ -47,6 +47,16 @@ func TestClassifyCentralMemoryPathIsNotManagedProviderMemory(t *testing.T) {
 	}
 }
 
+func TestClassifyDoesNotUseProviderHintForOrdinaryMemoryPaths(t *testing.T) {
+	t.Parallel()
+
+	classification := memories.Classify("/repo", "docs/memories/project.md", "codex")
+
+	if classification.Managed || classification.Protected {
+		t.Fatalf("classification = %#v", classification)
+	}
+}
+
 func TestEnsureCreatesSkeleton(t *testing.T) {
 	t.Parallel()
 
@@ -103,6 +113,9 @@ func TestImportExistingIsIdempotent(t *testing.T) {
 	}
 	if !strings.Contains(string(indexData), first.Records[0].ID) {
 		t.Fatalf("memory index lost import record after second import:\n%s", indexData)
+	}
+	if strings.Contains(string(indexData), root) || strings.Contains(string(data), root) {
+		t.Fatalf("memory import leaked absolute root:\nindex=%s\nmemory=%s", indexData, data)
 	}
 }
 

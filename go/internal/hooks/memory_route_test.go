@@ -47,6 +47,41 @@ func TestRunRewritesClaudeMemoryWriteToCentralStore(t *testing.T) {
 	}
 }
 
+func TestRunRewritesMemoryPathListToConfiguredCentralStore(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	err := os.WriteFile(
+		filepath.Join(root, "repo_config.toml"),
+		[]byte("[memories]\nprimary_file = \".coding-ethos/memories/REPO.md\"\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           root,
+			HookEventName: "PreToolUse",
+			ProviderHint:  "claude",
+			ToolName:      "Write",
+			ToolInput: map[string]any{
+				"files":   []any{"~/.claude/projects/acme/repo/memory/project.md"},
+				"content": "remember",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	updated, ok := result.HookSpecificOutput.UpdatedInput["files"].([]string)
+	if !ok || len(updated) != 1 || updated[0] != ".coding-ethos/memories/REPO.md" {
+		t.Fatalf("updated input = %#v", result.HookSpecificOutput.UpdatedInput)
+	}
+}
+
 func TestRunBlocksCodexMemoryWriteWithCentralGuidance(t *testing.T) {
 	t.Parallel()
 

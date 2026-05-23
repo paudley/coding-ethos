@@ -30,7 +30,21 @@ func memoryFileToolRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
-	classification := memories.Classify(event.Cwd, filePath, event.Provider())
+	settings, err := memories.LoadSettings(event.Cwd)
+	if err != nil {
+		return InspectionRoute{
+			Block:         true,
+			BlockPolicyID: memoryPolicyID,
+			Reason:        "Memory settings are unavailable: " + err.Error(),
+		}
+	}
+
+	classification := memories.ClassifyWithSettings(
+		event.Cwd,
+		filePath,
+		event.Provider(),
+		settings,
+	)
 	if !classification.Managed {
 		return InspectionRoute{}
 	}
@@ -43,7 +57,7 @@ func memoryFileToolRouteFor(event Event) InspectionRoute {
 		}
 	}
 
-	err := memories.Ensure(event.Cwd)
+	err = memories.Ensure(event.Cwd)
 	if err != nil {
 		return InspectionRoute{
 			Block:         true,
@@ -54,7 +68,12 @@ func memoryFileToolRouteFor(event Event) InspectionRoute {
 
 	updated := map[string]any{}
 	maps.Copy(updated, event.ToolInput)
-	updated[key] = classification.CanonicalPath
+
+	if key == "files" || key == "paths" {
+		updated[key] = []string{classification.CanonicalPath}
+	} else {
+		updated[key] = classification.CanonicalPath
+	}
 
 	return InspectionRoute{
 		UpdatedInput: updated,
@@ -72,7 +91,35 @@ func eventFilePath(event Event) (string, string, bool) {
 		}
 	}
 
+	for _, key := range []string{"files", "paths"} {
+		values, ok := stringListValue(event.ToolInput[key])
+		if ok && len(values) == 1 && values[0] != "" {
+			return values[0], key, true
+		}
+	}
+
 	return "", "", false
+}
+
+func stringListValue(value any) ([]string, bool) {
+	switch typed := value.(type) {
+	case []string:
+		return typed, true
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, entry := range typed {
+			text, ok := entry.(string)
+			if !ok {
+				return nil, false
+			}
+
+			values = append(values, text)
+		}
+
+		return values, true
+	default:
+		return nil, false
+	}
 }
 
 func providerSupportsMemoryRewrite(provider string) bool {
