@@ -64,10 +64,6 @@ hooks:
   success_output: silent
   parallel_groups: true
   tool_timeout_seconds: 900
-  agent_env_markers:
-    - CODEX_THREAD_ID
-    - CLAUDE_CODE_ENTRYPOINT
-    - GEMINI_CLI
   enabled_groups:
     - syntax
     - python-policy

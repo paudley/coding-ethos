@@ -105,7 +105,6 @@ func blockedAdviceHuman(result Result, decisions []policy.Decision) string {
 
 func blockedAdviceTOON(result Result, decisions []policy.Decision) string {
 	lines := []string{
-		"format: toon",
 		"event: " + toonCell(result.Event),
 		"tool: " + toonCell(result.Tool),
 		"status: " + toonCell(result.Status),

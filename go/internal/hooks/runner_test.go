@@ -1146,7 +1146,7 @@ func TestRunRewritesNormalNonCommitGitCommand(t *testing.T) {
 			ToolName:      toolBash,
 			Source:        "claude",
 			ToolInput: map[string]any{
-				"command": "git status",
+				"command": "git add file.txt",
 			},
 		},
 	})
@@ -1202,7 +1202,7 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 	}
 }
 
-func TestRunBlocksCodexGitWhenRewriteCannotBeApplied(t *testing.T) {
+func TestRunAllowsCodexReadOnlyGitInspectionWithoutRewrite(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -1212,7 +1212,85 @@ func TestRunBlocksCodexGitWhenRewriteCannotBeApplied(t *testing.T) {
 			ProviderHint:  "codex",
 			ToolName:      toolBash,
 			ToolInput: map[string]any{
-				"command": "git status",
+				"command": "git status --short && printf '\\nbranch: ' && git branch --show-current",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusAllowed {
+		t.Fatalf(
+			"status mismatch: got %q decisions %#v",
+			result.Status,
+			result.Decisions,
+		)
+	}
+
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf(
+			"Codex read-only inspection must not receive updatedInput: %#v",
+			result.HookSpecificOutput,
+		)
+	}
+}
+
+func TestRunBlocksCodexReadOnlyGitChainWithShellSideEffect(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           t.TempDir(),
+			HookEventName: eventPreToolUse,
+			ProviderHint:  "codex",
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "git status --short && rm generated.txt",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf(
+			"status mismatch: got %q decisions %#v",
+			result.Status,
+			result.Decisions,
+		)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksCodexMutatingGitWhenRewriteCannotBeApplied(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
+		t.Fatalf("create git dir: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(repo, "bin"), 0o700); err != nil {
+		t.Fatalf("create bin dir: %v", err)
+	}
+	cerunPath := filepath.Join(repo, "bin", "cerun")
+	if err := os.WriteFile(cerunPath, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatalf("write cerun: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           repo,
+			HookEventName: eventPreToolUse,
+			ProviderHint:  "codex",
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "git add file.txt",
 			},
 		},
 	})
@@ -1232,12 +1310,10 @@ func TestRunBlocksCodexGitWhenRewriteCannotBeApplied(t *testing.T) {
 		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
 	}
 
-	if result.HookSpecificOutput != nil &&
-		len(result.HookSpecificOutput.UpdatedInput) > 0 {
-		t.Fatalf(
-			"Codex must not receive unsupported updatedInput: %#v",
-			result.HookSpecificOutput,
-		)
+	blockMessage := ProviderBlockMessage(result)
+	wantRemediation := filepath.ToSlash(cerunPath) + " --rewrite -- 'git add file.txt'"
+	if !strings.Contains(blockMessage, wantRemediation) {
+		t.Fatalf("missing repo-local cerun remediation:\n%s", blockMessage)
 	}
 }
 
@@ -1253,6 +1329,7 @@ func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
 		"cerun git status",
 		"cerun python -m pytest",
 		"cerun -- 'git status'",
+		"cerun --rewrite -- git status --short && printf '\\nbranch: ' && cerun --rewrite -- git branch --show-current",
 		"bin/coding-ethos-run agent-shell -- git status",
 		"bin/coding-ethos-run agent-shell --rewrite -- git status",
 		"bin/coding-ethos-run agent-shell --check -- git status",
@@ -1284,6 +1361,39 @@ func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
 					result.Status,
 					result.Decisions,
 				)
+			}
+		})
+	}
+}
+
+func TestRunAllowsAgentInstructionSkillReads(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"cat .agents/skills/agent-operating-discipline/SKILL.md",
+		"sed -n '1,220p' .agents/skills/agent-operating-discipline/SKILL.md",
+		"sed -n '1,220p' .codex/skills/agent-operating-discipline/SKILL.md",
+	} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					Cwd:           t.TempDir(),
+					HookEventName: eventPreToolUse,
+					ProviderHint:  "codex",
+					ToolName:      toolBash,
+					ToolInput: map[string]any{
+						"command": command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != statusAllowed {
+				t.Fatalf("status = %q decisions %#v", result.Status, result.Decisions)
 			}
 		})
 	}
@@ -1391,7 +1501,6 @@ func TestRunRejectsFakeAgentShellRunnerGitCommand(t *testing.T) {
 
 	for _, command := range []string{
 		"echo cerun -- git status",
-		"true && cerun -- git status",
 		"cerun -- git status; /usr/bin/git push",
 		"coding-ethos-run agent-shell -- git status",
 		"PATH=/tmp/malicious cerun -- git status",
@@ -1656,7 +1765,7 @@ func TestRunBlocksMalformedShellCommand(t *testing.T) {
 	}
 }
 
-func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
+func TestRunAllowsReadOnlyGitStatusWithStderrRedirect(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -1677,14 +1786,9 @@ func TestRunRewritesReportedGitStatusWithStderrRedirect(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
-	if !ok ||
-		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
-		!strings.Contains(rewritten, "pwd &&") ||
-		!strings.Contains(rewritten, "git status --short 2>&1") ||
-		strings.Contains(rewritten, "'2>' & '1'") ||
-		strings.Contains(rewritten, " & '1'") {
-		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
+	if result.HookSpecificOutput != nil &&
+		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+		t.Fatalf("read-only git status should not require rewrite: %#v", result)
 	}
 }
 
@@ -2541,7 +2645,7 @@ func TestRunEmitsPostToolHookOutputContext(t *testing.T) {
 
 	if !strings.Contains(
 		result.HookSpecificOutput.AdditionalContext,
-		"format: toon",
+		"event: PostToolUse",
 	) ||
 		!strings.Contains(
 			result.HookSpecificOutput.AdditionalContext,
@@ -2923,7 +3027,6 @@ func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 	})
 
 	for _, expected := range []string{
-		"format: toon",
 		"event: PreToolUse",
 		"policy_id: shell.github_admin",
 		"suggestion: Use the normal review path.",
@@ -2944,7 +3047,6 @@ func TestBlockedAdvicePrefixesSevereViolationInTOONOutput(t *testing.T) {
 	advice := BlockedAdvice(severeViolationResult())
 
 	for _, expected := range []string{
-		"format: toon",
 		"violation_warning: !!! CODING-ETHOS EMPLOYMENT VIOLATION:",
 		"You have done something wrong.",
 		"may result in termination",
@@ -3084,7 +3186,7 @@ func TestLegacyHookFixturesStayRunnable(t *testing.T) {
 			name:        "post tool hook output",
 			path:        "testdata/legacy/posttooluse_precommit_failure.json",
 			wantStatus:  statusAllowed,
-			wantContext: "format: toon",
+			wantContext: "event: PostToolUse",
 		},
 	}
 
@@ -3774,7 +3876,7 @@ func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 		"event": "PreToolUse",
 		"tool": "exec_command",
 		"cwd": %q,
-		"input": {"command": "git status --short"}
+		"input": {"command": "git add file.txt"}
 	}`, child)))
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
@@ -3857,7 +3959,6 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 
 	for _, forbidden := range []string{
 		`"systemMessage"`,
-		"format: toon",
 		"\\n",
 	} {
 		if strings.Contains(output, forbidden) {
@@ -3962,7 +4063,7 @@ func TestRunRewritesGeminiGitCommandThroughWrapper(t *testing.T) {
 		"provider": "gemini-cli",
 		"hookEventName": "BeforeTool",
 		"toolName": "run_shell_command",
-		"toolInput": {"command": "git status"}
+		"toolInput": {"command": "git add file.txt"}
 	}`))
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
@@ -3993,7 +4094,7 @@ func TestRunBlocksCodexGitCommandFromDecodedEvent(t *testing.T) {
 		"event": "PreToolUse",
 		"cwd": %q,
 		"tool": "Bash",
-		"input": {"command": "git status"}
+		"input": {"command": "git add file.txt"}
 	}`, cwd)))
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
@@ -4696,17 +4797,10 @@ func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 
 	codexOutput := encoded.String()
 	if !strings.Contains(codexOutput, `repo_map_mcp: code_intel_repo_map`) ||
-		!strings.Contains(codexOutput, `event: SessionStart guidance:`) {
-		t.Fatalf("Codex session context missing compact TOON guidance:\n%s", codexOutput)
-	}
-	for _, forbidden := range []string{"coding_ethos_repo_map:", "files[", "pkg/app.py"} {
-		if strings.Contains(codexOutput, forbidden) {
-			t.Fatalf(
-				"Codex session context leaked full repo map %q:\n%s",
-				forbidden,
-				codexOutput,
-			)
-		}
+		!strings.Contains(codexOutput, `event: SessionStart`) ||
+		!strings.Contains(codexOutput, `guidance[2]{message}:`) ||
+		!strings.Contains(codexOutput, `coding_ethos_repo_map:`) {
+		t.Fatalf("Codex session context missing TOON guidance:\n%s", codexOutput)
 	}
 }
 
@@ -4763,20 +4857,17 @@ func TestEncodeProviderResultCompactsCodexRoutineLifecycleContext(t *testing.T) 
 		expected string
 	}{
 		{
-			payload: `{"provider":"codex","event":"SessionStart","source":"startup"}`,
-			expected: "coding-ethos: load repository conventions, managed " +
-				"toolchain rules, and generated skills before editing.",
+			payload:  `{"provider":"codex","event":"SessionStart","source":"startup"}`,
+			expected: "event: SessionStart",
 		},
 		{
 			payload: `{"provider":"codex","event":"UserPromptSubmit",` +
 				`"input":{"prompt":"finish hook replacement"}}`,
-			expected: "coding-ethos: use and maintain a todo list for multi-step work.",
+			expected: "event: UserPromptSubmit",
 		},
 		{
-			payload: `{"provider":"codex","event":"Stop"}`,
-			expected: "coding-ethos: before ending, confirm planned work is " +
-				"complete, summarize changed files and checks, and keep hook " +
-				"or lint failures visible.",
+			payload:  `{"provider":"codex","event":"Stop"}`,
+			expected: "event: Stop",
 		},
 	}
 
@@ -4812,8 +4903,6 @@ func TestEncodeProviderResultCompactsCodexRoutineLifecycleContext(t *testing.T) 
 		}
 
 		for _, forbidden := range []string{
-			"guidance:",
-			"\\n",
 			"Before ending:",
 			"prompt:",
 		} {
@@ -4855,9 +4944,9 @@ func TestEncodeResultInfersCodexFromEnvironmentForContext(t *testing.T) {
 	output := buffer.String()
 	if !strings.Contains(
 		output,
-		"coding-ethos: use and maintain a todo list for multi-step work.",
+		"event: UserPromptSubmit",
 	) {
-		t.Fatalf("missing Codex environment compact context:\n%s", output)
+		t.Fatalf("missing Codex environment TOON context:\n%s", output)
 	}
 }
 

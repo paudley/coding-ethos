@@ -70,8 +70,8 @@ func TestHookFilesReturnsStagedPreCommitFiles(t *testing.T) {
 	}
 }
 
-func TestDirectRealGitCommitBlocksThroughInstalledHooks(t *testing.T) {
-	t.Parallel()
+func TestDirectRealGitCommitAllowsHumanGitThroughInstalledHooks(t *testing.T) {
+	clearAgentGitHookEnv(t)
 
 	repo := newGitHookE2ERepo(t)
 	writeTestGitHookFile(t, repo.root, "README.md", "# Test\n")
@@ -84,35 +84,45 @@ func TestDirectRealGitCommitBlocksThroughInstalledHooks(t *testing.T) {
 		"-m",
 		"fix(repo): add readme",
 	)
-	if err == nil {
-		t.Fatalf("direct git commit unexpectedly succeeded:\n%s", output)
+	if err != nil {
+		t.Fatalf("direct human git commit failed:\n%s", output)
 	}
 
-	if !strings.Contains(output, "direct git execution reached coding-ethos hooks") {
-		t.Fatalf("direct git output missing hostile-path block:\n%s", output)
+	if strings.Contains(output, "direct git execution reached coding-ethos hooks") {
+		t.Fatalf("human git output included agent direct-git block:\n%s", output)
 	}
 }
 
-func TestDirectRealGitAmendBlocksThroughInstalledHooks(t *testing.T) {
-	t.Parallel()
+func TestDirectAgentGitCommitBlocksThroughInstalledHooks(t *testing.T) {
+	clearAgentGitHookEnv(t)
+	t.Setenv("CODEX_THREAD_ID", "thread")
 
 	repo := newGitHookE2ERepo(t)
 	writeTestGitHookFile(t, repo.root, "README.md", "# Test\n")
 	runTestGit(t, repo.root, "add", "README.md")
 
-	output, err := runTestGitOutput(
+	output, err := runTestGitOutputWithEnv(
 		t,
 		repo.root,
+		[]string{"CODEX_THREAD_ID=thread"},
 		"commit",
-		"--amend",
-		"--no-edit",
+		"-m",
+		"fix(repo): add readme",
 	)
 	if err == nil {
-		t.Fatalf("direct git amend unexpectedly succeeded:\n%s", output)
+		t.Fatalf("direct agent git commit unexpectedly succeeded:\n%s", output)
 	}
 
 	if !strings.Contains(output, "direct git execution reached coding-ethos hooks") {
-		t.Fatalf("direct git amend output missing hostile-path block:\n%s", output)
+		t.Fatalf("direct agent git output missing hostile-path block:\n%s", output)
+	}
+}
+
+func clearAgentGitHookEnv(t *testing.T) {
+	t.Helper()
+
+	for _, name := range agentGitHookEnvMarkers() {
+		t.Setenv(name, "")
 	}
 }
 
@@ -192,6 +202,7 @@ func TestWrapperAuthorizedPrepareCommitMsgBlocksHistoryRewrite(t *testing.T) {
 }
 
 func TestRunWithArgsBlocksHookWithoutWrapperAuthorization(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "thread")
 	fixture := setupGitHookValidationFixture(t)
 
 	output := captureGitStderr(t, func() {
@@ -216,6 +227,7 @@ func TestRunWithArgsBlocksHookWithoutWrapperAuthorization(t *testing.T) {
 }
 
 func TestRunWithArgsRejectsSpoofedWrapperAuthorization(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", "thread")
 	t.Setenv(gitwrap.WrapperAuthorizedEnv, "1")
 	t.Setenv(gitwrap.WrapperPIDEnv, "12345")
 	verifier := gitHookAuthorizationVerifier{
@@ -397,7 +409,6 @@ func TestEncodeLintResultToUsesTOONForAgentEnvironment(t *testing.T) {
 
 	rendered := output.String()
 	for _, want := range []string{
-		"format: toon",
 		"tool: policy-lint",
 		"trace_id: ",
 		"findings[1]{tool,file,line,column,severity,code," +
@@ -924,6 +935,17 @@ func runTestGitOutputOK(t *testing.T, repo string, args ...string) string {
 func runTestGitOutput(t *testing.T, repo string, args ...string) (string, error) {
 	t.Helper()
 
+	return runTestGitOutputWithEnv(t, repo, nil, args...)
+}
+
+func runTestGitOutputWithEnv(
+	t *testing.T,
+	repo string,
+	extraEnv []string,
+	args ...string,
+) (string, error) {
+	t.Helper()
+
 	gitPath, err := realgit.Resolve(context.Background(), "git")
 	if err != nil {
 		t.Fatalf("resolve git: %v", err)
@@ -931,7 +953,7 @@ func runTestGitOutput(t *testing.T, repo string, args ...string) (string, error)
 
 	command := exec.CommandContext(context.Background(), gitPath, args...)
 	command.Dir = repo
-	command.Env = cleanTestGitEnv()
+	command.Env = append(cleanTestGitEnv(), extraEnv...)
 
 	output, err := command.CombinedOutput()
 
@@ -943,6 +965,9 @@ func cleanTestGitEnv() []string {
 	for _, item := range os.Environ() {
 		name, _, found := strings.Cut(item, "=")
 		if found && (name == gitwrap.WrapperAuthorizedEnv || name == gitwrap.WrapperPIDEnv) {
+			continue
+		}
+		if found && slices.Contains(agentGitHookEnvMarkers(), name) {
 			continue
 		}
 

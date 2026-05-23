@@ -1042,7 +1042,7 @@ func capabilityProbePayload(provider, cwd string) string {
 			"hook_event_name": "PreToolUse",
 			"cwd": %q,
 			"tool_name": "Bash",
-			"tool_input": {"command": "git status --short"}
+			"tool_input": {"command": "git add file.txt"}
 		}`, cwd)
 	case "codex":
 		return fmt.Sprintf(`{
@@ -1050,7 +1050,7 @@ func capabilityProbePayload(provider, cwd string) string {
 			"event": "PreToolUse",
 			"cwd": %q,
 			"tool": "exec_command",
-			"input": {"command": "git status --short"}
+			"input": {"command": "git add file.txt"}
 		}`, cwd)
 	case "gemini":
 		return fmt.Sprintf(`{
@@ -1058,7 +1058,7 @@ func capabilityProbePayload(provider, cwd string) string {
 			"hookEventName": "BeforeTool",
 			"cwd": %q,
 			"toolName": "run_shell_command",
-			"toolInput": {"command": "git status --short"}
+			"toolInput": {"command": "git add file.txt"}
 		}`, cwd)
 	default:
 		panic("unsupported provider " + provider)

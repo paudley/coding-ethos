@@ -201,7 +201,6 @@ func ruffTraceSkill() policy.Skill {
 
 func ruffTraceExpectedOutput() []string {
 	return []string{
-		"format: toon",
 		"tool: ruff",
 		"status: FAIL",
 		strings.Join([]string{
@@ -497,7 +496,6 @@ exit 0
 	})
 
 	for _, want := range []string{
-		"format: toon",
 		"tool: ruff",
 		"status: WARN",
 		strings.Join([]string{
@@ -1037,7 +1035,6 @@ func goVetParsedDiagnosticOutput(format string) []string {
 	switch format {
 	case hookoutput.FormatTOON:
 		return []string{
-			"format: toon",
 			"tool: go-vet",
 			"findings[1]",
 			"go-vet,pkg/app.go,12,4,error,vet",
@@ -2033,7 +2030,6 @@ func TestRunCapturedToolRendersUnparseableFailuresForEveryManagedTool(t *testing
 			})
 
 			for _, want := range []string{
-				"format: toon",
 				"tool: " + test.tool,
 				"status: FAIL",
 				strings.Join([]string{

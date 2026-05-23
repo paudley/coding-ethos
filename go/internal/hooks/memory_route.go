@@ -53,7 +53,7 @@ func memoryFileToolRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{
 			Block:         true,
 			BlockPolicyID: memoryPolicyID,
-			Reason:        memories.DeniedGuidance,
+			Reason:        memories.DeniedReason(),
 		}
 	}
 

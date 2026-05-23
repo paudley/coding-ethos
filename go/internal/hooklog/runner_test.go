@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	. "blackcat.ca/coding-ethos/go/internal/hooklog"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
@@ -407,6 +408,9 @@ func TestRunRequiresCodingEthosLogsIgnored(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), ".coding-ethos/hook-runs/") {
 		t.Fatalf("Run() error = %v, want missing ignore", err)
 	}
+	if !errors.Is(err, apperror.StaticError("hook runtime output ignore required")) {
+		t.Fatalf("Run() error = %v, want stable hook-log ignore error", err)
+	}
 }
 
 func TestRunRejectsBroadCodingEthosIgnore(t *testing.T) {
@@ -433,6 +437,9 @@ func TestRunRejectsBroadCodingEthosIgnore(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "repo memories remain trackable") {
 		t.Fatalf("Run() error = %v, want broad ignore rejection", err)
+	}
+	if !errors.Is(err, apperror.StaticError("repo memory path must remain trackable")) {
+		t.Fatalf("Run() error = %v, want stable memory ignore error", err)
 	}
 }
 

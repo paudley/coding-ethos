@@ -54,8 +54,8 @@ def test_policy_tool_ruff_uses_managed_tool_and_normalizes_paths(
     output = result.stdout + result.stderr
     assert result.returncode == 1, output
     assert "PWNED" not in output
-    assert "format: toon" in output
     assert "tool: ruff" in output
+    assert "status: FAIL" in output
     assert "F401" in output
     assert "lbox-platform/lib/python/lbox/parsing/analyzer_base.py" in output
     assert str(consumer) not in output

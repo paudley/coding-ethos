@@ -680,7 +680,6 @@ func generatedConfigDrift(ethosRoot, repoRoot string) []lintcapture.ConfigDrift 
 }
 
 func printConfigDrift(drift []lintcapture.ConfigDrift) int {
-	fmt.Fprintln(os.Stdout, "format: toon")
 	fmt.Fprintln(os.Stdout, "tool: coding-ethos-config-integrity")
 	fmt.Fprintln(os.Stdout, "status: FAIL")
 	fmt.Fprintln(os.Stdout, "title: GENERATED TOOL CONFIG DRIFT")

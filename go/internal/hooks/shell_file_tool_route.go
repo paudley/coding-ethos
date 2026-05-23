@@ -11,7 +11,10 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
-const shellFileToolPolicyID = "shell.file_tool_emulation"
+const (
+	shellFileToolPolicyID = "shell.file_tool_emulation"
+	shellToolSed          = "sed"
+)
 
 func shellFileToolRouteFor(event Event) InspectionRoute {
 	if event.HookEventName != eventPreToolUse || event.ToolName != toolBash {
@@ -28,7 +31,7 @@ func shellFileToolRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
-	if slices.ContainsFunc(commands, shellCommandEmulatesFileTool) {
+	if slices.ContainsFunc(commands, shellCommandEmulatesDisallowedFileTool) {
 		return InspectionRoute{
 			Block:         true,
 			BlockPolicyID: shellFileToolPolicyID,
@@ -40,6 +43,14 @@ func shellFileToolRouteFor(event Event) InspectionRoute {
 	return InspectionRoute{}
 }
 
+func shellCommandEmulatesDisallowedFileTool(command shellparse.Command) bool {
+	if !shellCommandEmulatesFileTool(command) {
+		return false
+	}
+
+	return !shellCommandReadsAllowedAgentInstruction(command)
+}
+
 func shellCommandEmulatesFileTool(command shellparse.Command) bool {
 	name := filepath.Base(command.Name)
 	if redirectsReadFile(command.Redirects) {
@@ -49,7 +60,7 @@ func shellCommandEmulatesFileTool(command shellparse.Command) bool {
 	switch name {
 	case "cat":
 		return commandHasFileOperand(command.Argv[1:])
-	case "sed":
+	case shellToolSed:
 		return sedReadsFileOperand(command.Argv[1:])
 	case "awk":
 		return awkReadsFileOperand(command.Argv[1:])
@@ -60,6 +71,72 @@ func shellCommandEmulatesFileTool(command shellparse.Command) bool {
 	default:
 		return false
 	}
+}
+
+func shellCommandReadsAllowedAgentInstruction(command shellparse.Command) bool {
+	if len(command.Redirects) > 0 || redirectsReadFile(command.Redirects) {
+		return false
+	}
+
+	name := filepath.Base(command.Name)
+	switch name {
+	case "cat":
+		return allowedAgentInstructionFileOperands(command.Argv[1:])
+	case shellToolSed:
+		return allowedAgentInstructionFileOperands(sedFileOperands(command.Argv[1:]))
+	default:
+		return false
+	}
+}
+
+func allowedAgentInstructionFileOperands(args []string) bool {
+	operands := fileOperands(args)
+	if len(operands) == 0 {
+		return false
+	}
+
+	for _, operand := range operands {
+		if !allowedAgentInstructionFile(operand) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func fileOperands(args []string) []string {
+	operandsOnly := false
+	operands := []string{}
+
+	for _, arg := range args {
+		if arg == "--" {
+			operandsOnly = true
+
+			continue
+		}
+
+		if (!operandsOnly && shellOptionOrEmpty(arg)) || arg == "-" {
+			continue
+		}
+
+		operands = append(operands, arg)
+	}
+
+	return operands
+}
+
+func allowedAgentInstructionFile(path string) bool {
+	cleaned := filepath.ToSlash(filepath.Clean(path))
+
+	parts := strings.Split(cleaned, "/")
+	if len(parts) != 4 || parts[3] != "SKILL.md" {
+		return false
+	}
+
+	return (parts[0] == ".agents" || parts[0] == ".codex") &&
+		parts[1] == "skills" &&
+		parts[2] != "." &&
+		parts[2] != ""
 }
 
 func commandHasFileOperand(args []string) bool {
@@ -126,6 +203,51 @@ func sedReadsFileOperand(args []string) bool {
 	}
 
 	return false
+}
+
+func sedFileOperands(args []string) []string {
+	scriptSeen := false
+	operandsOnly := false
+	operands := []string{}
+
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--" {
+			operandsOnly = true
+
+			continue
+		}
+
+		if !operandsOnly && sedExpressionOptionFused(arg) {
+			scriptSeen = true
+
+			continue
+		}
+
+		if !operandsOnly && shellOptionOrEmpty(arg) {
+			next, seen, readsFile := consumeSedOptionValue(args, index)
+			if readsFile {
+				operands = append(operands, args[next])
+			}
+
+			index = next
+			scriptSeen = scriptSeen || seen
+
+			continue
+		}
+
+		if !scriptSeen {
+			scriptSeen = true
+
+			continue
+		}
+
+		if arg != "-" {
+			operands = append(operands, arg)
+		}
+	}
+
+	return operands
 }
 
 func consumeSedOptionValue(args []string, index int) (int, bool, bool) {

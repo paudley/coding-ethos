@@ -126,7 +126,6 @@ func newCutoverReport(
 
 func cutoverReportLines(report cutoverStatusReport) []string {
 	lines := []string{
-		"format: toon",
 		"command: cutover",
 		"action: " + report.Action,
 		"status: " + report.Status,

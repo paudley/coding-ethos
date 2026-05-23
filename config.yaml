@@ -69,16 +69,6 @@ hooks:
   success_output: silent
   parallel_groups: true
   tool_timeout_seconds: 900
-  agent_env_markers:
-    - CODEX_THREAD_ID
-    - CODEX_CI
-    - CODEX_MANAGED_BY_NPM
-    - CLAUDECODE
-    - CLAUDE_CODE_ENTRYPOINT
-    - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
-    - GEMINI_CLI
-    - AIDER_MODEL
-    - CURSOR_TRACE_ID
   enabled_groups:
     - format
     - syntax

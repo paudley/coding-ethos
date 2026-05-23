@@ -1,0 +1,140 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package feedback
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestMessageRendersTOONJSONHumanAndSARIF(t *testing.T) {
+	t.Parallel()
+
+	message := Message{
+		Scalars: []Scalar{
+			S("status", "denied"),
+			S("severity", "block"),
+			S("rule_id", "coding-ethos.feedback_route"),
+			S("summary", "feedback must use the central renderer"),
+		},
+		Tables: []Table{T(
+			"repair",
+			[]string{"path"},
+			[][]string{{"go/internal/feedback"}},
+		)},
+	}
+
+	toon, err := Render(message, FormatTOON)
+	if err != nil {
+		t.Fatalf("render TOON: %v", err)
+	}
+	for _, want := range []string{
+		"status: denied",
+		"severity: block",
+		"repair[1]{path}:",
+		"go/internal/feedback",
+	} {
+		if !strings.Contains(toon, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, toon)
+		}
+	}
+	if strings.Contains(toon, "format: toon") {
+		t.Fatalf("TOON output included redundant format preamble:\n%s", toon)
+	}
+
+	jsonText, err := Render(message, FormatJSON)
+	if err != nil {
+		t.Fatalf("render JSON: %v", err)
+	}
+	var jsonPayload map[string]any
+	if err := json.Unmarshal([]byte(jsonText), &jsonPayload); err != nil {
+		t.Fatalf("decode JSON feedback: %v\n%s", err, jsonText)
+	}
+	if jsonPayload["status"] != "denied" {
+		t.Fatalf("JSON feedback = %#v", jsonPayload)
+	}
+
+	human, err := Render(message, FormatHuman)
+	if err != nil {
+		t.Fatalf("render human: %v", err)
+	}
+	if !strings.Contains(human, "status: denied") ||
+		!strings.Contains(human, "repair:") {
+		t.Fatalf("human feedback missing expected text:\n%s", human)
+	}
+
+	sarifText, err := Render(message, FormatSARIF)
+	if err != nil {
+		t.Fatalf("render SARIF: %v", err)
+	}
+	var sarif SARIFLog
+	if err := json.Unmarshal([]byte(sarifText), &sarif); err != nil {
+		t.Fatalf("decode SARIF feedback: %v\n%s", err, sarifText)
+	}
+	if sarif.Version != "2.1.0" ||
+		len(sarif.Runs) != 1 ||
+		len(sarif.Runs[0].Results) != 1 ||
+		sarif.Runs[0].Results[0].RuleID != "coding-ethos.feedback_route" {
+		t.Fatalf("SARIF feedback = %#v", sarif)
+	}
+
+	if sarif.Runs[0].Tool.Driver.Rules[0].ShortDescription == nil ||
+		sarif.Runs[0].Tool.Driver.Rules[0].ShortDescription.Text !=
+			"feedback must use the central renderer" {
+		t.Fatalf("SARIF rule description = %#v", sarif.Runs[0].Tool.Driver.Rules[0])
+	}
+
+	if strings.Contains(sarifText, `"region": {}`) ||
+		strings.Contains(sarifText, `"shortDescription": {}`) {
+		t.Fatalf("SARIF emitted empty optional objects:\n%s", sarifText)
+	}
+}
+
+func TestMessageExposesStructuredLogFields(t *testing.T) {
+	t.Parallel()
+
+	fields := Message{
+		Scalars: []Scalar{S("status", "warning")},
+		Tables:  []Table{T("guidance", []string{"message"}, [][]string{{"check output"}})},
+	}.FeedbackLogFields()
+
+	if fields["status"] != "warning" || fields["guidance_count"] != 1 {
+		t.Fatalf("log fields = %#v", fields)
+	}
+}
+
+func TestTOONCellsUseSingleBackslashEscapes(t *testing.T) {
+	t.Parallel()
+
+	message := Message{
+		Scalars: []Scalar{
+			S("summary", "value: {a,b}\nnext"),
+		},
+		Tables: []Table{T(
+			"items",
+			[]string{"path,name", "message"},
+			[][]string{{"a,b", "line\nnext"}},
+		)},
+	}
+
+	toon, err := Render(message, FormatTOON)
+	if err != nil {
+		t.Fatalf("render TOON: %v", err)
+	}
+
+	for _, want := range []string{
+		"summary: value: {a\\,b}\\nnext",
+		"items[1]{path\\,name,message}:",
+		"  a\\,b,line\\nnext",
+	} {
+		if !strings.Contains(toon, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, toon)
+		}
+	}
+
+	if strings.Contains(toon, `"value`) || strings.Contains(toon, `\\\,`) {
+		t.Fatalf("TOON output used JSON-style or double escaping:\n%s", toon)
+	}
+}

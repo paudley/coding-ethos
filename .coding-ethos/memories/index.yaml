@@ -1,0 +1,6 @@
+records:
+    - id: abf9f42193f729a1
+      provider: claude
+      source_path: .claude/ethos/MEMORY.md
+      imported_at_utc: "2026-05-23T04:50:49Z"
+      sha256: 7f6e686527056c9e376006cc9a6bc10bf86de61185c3d547053f8e84cc7c243e

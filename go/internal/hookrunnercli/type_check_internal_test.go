@@ -309,7 +309,6 @@ func TestFormatTypeCheckResultsTOON(t *testing.T) {
 		hookOutputFormatTOON,
 	)
 	for _, fragment := range []string{
-		"format: toon",
 		"status: FAIL",
 		"checks{name,status,exit_code,duration_ms}:",
 		"diagnostics[1]{tool,file,line,column,severity,code,policy_id,skill_id,message,advice}:",

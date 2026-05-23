@@ -47,7 +47,6 @@ func TestFormatLintResultTOONUsesDiagnostics(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"format: toon",
 		"tool: policy-lint",
 		"scope: staged",
 		toonFindingsHeader,

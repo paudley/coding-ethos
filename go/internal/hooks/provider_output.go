@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -290,10 +291,35 @@ func codexAllowedMessage(output *HookSpecificOutput) string {
 
 	switch {
 	case output.HookEventName == eventUserPromptSubmit:
-		return "coding-ethos: use and maintain a todo list for multi-step work."
+		return feedback.MustRender(feedback.Message{
+			Scalars: []feedback.Scalar{
+				feedback.S("event", eventUserPromptSubmit),
+				feedback.S("status", "guidance"),
+			},
+			Tables: []feedback.Table{feedback.T(
+				"guidance",
+				[]string{"message"},
+				[][]string{{"Use and maintain a todo list for multi-step work."}},
+			)},
+		}, feedback.FormatTOON)
 	case output.HookEventName == eventStop:
-		return "coding-ethos: before ending, confirm planned work is complete, " +
-			"summarize changed files and checks, and keep hook or lint failures visible."
+		return feedback.MustRender(feedback.Message{
+			Scalars: []feedback.Scalar{
+				feedback.S("event", eventStop),
+				feedback.S("status", "guidance"),
+			},
+			Tables: []feedback.Table{feedback.T(
+				"guidance",
+				[]string{"message"},
+				[][]string{
+					{
+						"Before ending, confirm planned work is complete, " +
+							"summarize changed files and checks, and keep hook " +
+							"or lint failures visible.",
+					},
+				},
+			)},
+		}, feedback.FormatTOON)
 	case strings.Contains(normalized, "tool: Write") ||
 		strings.Contains(normalized, "tool: Edit") ||
 		strings.Contains(normalized, "tool: MultiEdit"):
@@ -301,22 +327,33 @@ func codexAllowedMessage(output *HookSpecificOutput) string {
 			"lint, type, or tests; fix static-analysis findings structurally."
 	case strings.Contains(normalized, "event: PostToolUse") &&
 		strings.Contains(normalized, "tool: Bash"):
-		return "coding-ethos: hook output captured; summarize failed hooks, " +
-			"modified files, warnings, and required fixes before continuing."
+		return context
 	default:
 		return ""
 	}
 }
 
 func codexSessionStartAllowedMessage(context string) string {
-	if strings.Contains(context, "coding_ethos_repo_map:") {
-		return "event: SessionStart guidance: load repo conventions, managed toolchain " +
-			"rules, and generated skills; use repo_map_mcp before broad reads " +
-			`repo_map_mcp: code_intel_repo_map {"limit":16,"symbols_per_file":3}`
+	if strings.HasPrefix(strings.TrimSpace(context), "event: SessionStart") {
+		return context
 	}
 
-	return "coding-ethos: load repository conventions, managed toolchain " +
-		"rules, and generated skills before editing."
+	return feedback.MustRender(feedback.Message{
+		Scalars: []feedback.Scalar{
+			feedback.S("event", eventSessionStart),
+			feedback.S("status", "guidance"),
+		},
+		Tables: []feedback.Table{feedback.T(
+			"guidance",
+			[]string{"message"},
+			[][]string{
+				{
+					"Load repository conventions, managed toolchain rules, " +
+						"and generated skills before editing.",
+				},
+			},
+		)},
+	}, feedback.FormatTOON)
 }
 
 func compactProviderMessage(message string) string {

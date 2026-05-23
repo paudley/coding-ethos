@@ -714,7 +714,6 @@ func addCodeIntelStats(ctx context.Context, path string, inventory *Inventory) {
 func FormatTOON(report Report) string {
 	lines := make([]string, 0, toonReportStaticLines+len(report.Surfaces))
 	lines = append(lines,
-		"format: toon",
 		"root: "+toonCell(report.Root),
 		"generated_at_utc: "+toonCell(report.GeneratedAtUTC),
 		fmt.Sprintf("include_temp: %t", report.IncludeTemp),
@@ -792,7 +791,6 @@ func FormatHuman(report Report) string {
 // FormatPruneTOON renders a compact prune report.
 func FormatPruneTOON(report PruneReport) string {
 	lines := []string{
-		"format: toon",
 		"root: " + toonCell(report.Root),
 		"generated_at_utc: " + toonCell(report.GeneratedAtUTC),
 		fmt.Sprintf("apply: %t", report.Apply),

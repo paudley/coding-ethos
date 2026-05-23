@@ -110,8 +110,7 @@ func TestReportWritesDefaultTOONOutput(t *testing.T) {
 			t.Fatalf("run report: %v", err)
 		}
 	})
-	if !strings.Contains(output, "format: toon") ||
-		!strings.Contains(output, "surfaces[") {
+	if !strings.Contains(output, "surfaces[") {
 		t.Fatalf("default report output was not TOON:\n%s", output)
 	}
 }
@@ -229,8 +228,7 @@ func TestPruneDryRunWritesDefaultTOONReport(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "format: toon") ||
-		!strings.Contains(output, "candidates[1]") ||
+	if !strings.Contains(output, "candidates[1]") ||
 		!strings.Contains(output, "lint_traces") {
 		t.Fatalf("default prune output was not TOON:\n%s", output)
 	}

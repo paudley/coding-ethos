@@ -14,7 +14,7 @@ import (
 func TestGitWrapperRoutingRewritesOrdinaryGit(t *testing.T) {
 	t.Setenv("CODING_ETHOS_RUN_GO_HOOK", "/repo/bin/coding-ethos-run")
 
-	result := runGeminiBashHook(t, "git status --short && echo ok")
+	result := runGeminiBashHook(t, "git add file.txt && echo ok")
 
 	if result.Status != hookStatusAllowed || result.HookSpecificOutput == nil {
 		t.Fatalf("git route result = %#v", result)
@@ -26,7 +26,7 @@ func TestGitWrapperRoutingRewritesOrdinaryGit(t *testing.T) {
 		"'/repo/bin/coding-ethos-run' agent-shell --rewrite --",
 	) || !strings.Contains(
 		command,
-		"git status --short && echo ok",
+		"git add file.txt && echo ok",
 	) {
 		t.Fatalf("rewritten command = %#v", result.HookSpecificOutput.UpdatedInput)
 	}

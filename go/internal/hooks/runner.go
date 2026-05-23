@@ -20,6 +20,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/memories"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
@@ -531,7 +532,6 @@ func buildHookOutputContextTOON(
 	reminders []renderedEthosReminder,
 ) string {
 	lines := []string{
-		"format: toon",
 		"event: PostToolUse",
 		"tool: Bash",
 		"operation: " + toonCell(operation),
@@ -765,8 +765,19 @@ func sessionMemoryImportOutput(event Event) *HookSpecificOutput {
 	}
 
 	return &HookSpecificOutput{
-		HookEventName:     event.HookEventName,
-		AdditionalContext: "memory import failed: " + err.Error(),
+		HookEventName: event.HookEventName,
+		AdditionalContext: feedback.MustRender(feedback.Message{
+			Scalars: []feedback.Scalar{
+				feedback.S("event", eventSessionStart),
+				feedback.S("status", "warning"),
+				feedback.S("summary", "memory import failed"),
+				feedback.S("reason", err.Error()),
+				feedback.S(
+					"repair",
+					"Run coding-ethos-run agent-hooks sync and inspect repo memory settings.",
+				),
+			},
+		}, feedback.FormatTOON),
 	}
 }
 

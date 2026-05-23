@@ -625,7 +625,6 @@ func formatHookLogAnalysis(analysis hookLogAnalysis) string {
 		}
 	case hookOutputFormatTOON:
 		lines := []string{
-			"format: toon",
 			"path: " + toonCell(analysis.Path),
 			fmt.Sprintf("runs_available: %d", analysis.RunsAvailable),
 			fmt.Sprintf("runs_analyzed: %d", analysis.RunsAnalyzed),
@@ -718,7 +717,6 @@ func formatHookLogSummary(summary hookLogSummary) string {
 		}
 	case hookOutputFormatTOON:
 		lines := []string{
-			"format: toon",
 			"path: " + toonCell(summary.Path),
 			fmt.Sprintf("total: %d", summary.Total),
 			fmt.Sprintf("passed: %d", summary.Passed),

@@ -151,7 +151,6 @@ func formatHookExecutionSummaryHuman(summary hookExecutionSummary) string {
 
 func formatHookExecutionSummaryTOON(summary hookExecutionSummary) string {
 	lines := []string{
-		"format: " + toonCell(summary.Format),
 		"status: " + toonCell(summary.Status),
 		fmt.Sprintf("failed: %d", summary.Failed),
 	}

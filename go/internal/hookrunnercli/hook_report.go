@@ -35,7 +35,6 @@ const (
 type hookSettings struct {
 	OutputFormat       string   `mapstructure:"output_format"`
 	SuccessOutput      string   `mapstructure:"success_output"`
-	AgentEnvMarkers    []string `mapstructure:"agent_env_markers"`
 	EnabledGroups      []string `mapstructure:"enabled_groups"`
 	FailSeverityLevels []string `mapstructure:"fail_severity_levels"`
 	WarnSeverityLevels []string `mapstructure:"warn_severity_levels"`
@@ -232,10 +231,6 @@ func loadHookSettings() hookSettings {
 		settings.SuccessOutput = hookSuccessSilent
 	}
 
-	if len(settings.AgentEnvMarkers) == 0 {
-		settings.AgentEnvMarkers = defaultHookSettings().AgentEnvMarkers
-	}
-
 	if settings.ToolTimeoutSeconds <= 0 {
 		settings.ToolTimeoutSeconds = defaultHookSettings().ToolTimeoutSeconds
 	}
@@ -257,17 +252,6 @@ func defaultHookSettings() hookSettings {
 		SuccessOutput:      hookSuccessSilent,
 		ParallelGroups:     true,
 		ToolTimeoutSeconds: defaultToolTimeoutSecs,
-		AgentEnvMarkers: []string{
-			"CODEX_THREAD_ID",
-			"CODEX_CI",
-			"CODEX_MANAGED_BY_NPM",
-			"CLAUDECODE",
-			"CLAUDE_CODE_ENTRYPOINT",
-			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
-			"GEMINI_CLI",
-			"AIDER_MODEL",
-			"CURSOR_TRACE_ID",
-		},
 		EnabledGroups: []string{
 			"format",
 			"syntax",
@@ -322,33 +306,15 @@ func selectedHookOutputFormat() string {
 
 	switch format {
 	case "", hookOutputFormatAuto:
-		if isLLMCallerEnvironment(os.Getenv, settings.AgentEnvMarkers) {
-			return hookOutputFormatTOON
-		}
-
-		return hookOutputFormatHuman
+		return hookOutputFormatTOON
 	case hookOutputFormatHuman,
 		hookOutputFormatJSON,
 		hookOutputFormatSARIF,
 		hookOutputFormatTOON:
 		return format
 	default:
-		return hookOutputFormatHuman
+		return hookOutputFormatTOON
 	}
-}
-
-func isLLMCallerEnvironment(getenv func(string) string, markers []string) bool {
-	if len(markers) == 0 {
-		markers = defaultHookSettings().AgentEnvMarkers
-	}
-
-	for _, name := range markers {
-		if strings.TrimSpace(getenv(name)) != "" {
-			return true
-		}
-	}
-
-	return false
 }
 
 func formatHookReportJSON(report hookReport) string {
@@ -578,7 +544,6 @@ func formatHookReportTOON(report hookReport) string {
 	findings := hookReportDisplayFindings(report)
 
 	lines := []string{
-		"format: " + report.Format,
 		"tool: " + toonCell(report.Tool),
 		"status: " + toonCell(report.Status),
 		"trace_id: " + toonCell(report.TraceID),

@@ -86,7 +86,9 @@ func runWithArgsAndVerifier(
 	}
 
 	hookName := config.HookArgs[0]
-	if gitHookRequiresWrapper(hookName) && !gitHookWrapperAuthorized(verifier) {
+	if gitHookRequiresWrapper(hookName) &&
+		agentGitHookExecution() &&
+		!gitHookWrapperAuthorized(verifier) {
 		printErr(errDirectGitHook)
 
 		return blockedExitCode
@@ -121,6 +123,32 @@ func gitHookRequiresWrapper(hookName string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func agentGitHookExecution() bool {
+	for _, name := range agentGitHookEnvMarkers() {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func agentGitHookEnvMarkers() []string {
+	return []string{
+		"CODEX_THREAD_ID",
+		"CODEX_SESSION_ID",
+		"CODEX_CI",
+		"CODEX_MANAGED_BY_NPM",
+		"CLAUDECODE",
+		"CLAUDE_CODE_ENTRYPOINT",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+		"CLAUDE_SESSION_ID",
+		"CODEX_MANAGED_PACKAGE_ROOT",
+		"GEMINI_CLI",
+		"GEMINI_SESSION_ID",
 	}
 }
 

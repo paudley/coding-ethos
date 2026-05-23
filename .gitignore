@@ -60,12 +60,16 @@ dmypy.json
 .coding-ethos/lint-runs/
 .coding-ethos/prune-runs/
 .coding-ethos/state/
+.coding-ethos/ci-artifact-*/
+.coding-ethos/tmp-ci-audit/
 **/.coding-ethos/cache/
 **/.coding-ethos/code-intel.db
 **/.coding-ethos/hook-runs/
 **/.coding-ethos/lint-runs/
 **/.coding-ethos/prune-runs/
 **/.coding-ethos/state/
+**/.coding-ethos/ci-artifact-*/
+**/.coding-ethos/tmp-ci-audit/
 .coding-ethos/*-message.txt
 sandbox-tmp/
 .pre-commit-cache/

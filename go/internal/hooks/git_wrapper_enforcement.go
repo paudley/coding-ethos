@@ -46,11 +46,7 @@ const (
 )
 
 func gitWrapperRouteFor(event Event) InspectionRoute {
-	if event.HookEventName != eventPreToolUse {
-		return InspectionRoute{}
-	}
-
-	if event.ToolName != toolBash {
+	if !gitWrapperHandlesEvent(event) {
 		return InspectionRoute{}
 	}
 
@@ -59,30 +55,16 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
-	rewrittenCommand, rewrite, routeOK := rewriteGitCommandChain(command)
-	if rewrite && routeOK {
-		updatedCommand := agentShellRewriteCommand(command)
-		if agentShellRewriteInspection(event) {
-			updatedCommand = rewrittenCommand
-		}
-
-		return InspectionRoute{
-			UpdatedInput: updatedBashInput(
-				event.ToolInput,
-				updatedCommand,
-			),
-			BlockPolicyID:      gitWrapperPolicyID,
-			Reason:             "Routed shell command through the approved runner path.",
-			RemediationCommand: cerunRemediation(command),
-			Rewrite:            true,
-		}
-	}
-
-	if routeOK && managedGitCommandChain(command) {
+	if !agentShellRewriteInspection(event) && readOnlyGitInspectionChain(command) {
 		return InspectionRoute{}
 	}
 
-	if routeOK && managedAgentShellCommand(command) {
+	rewrittenCommand, rewrite, routeOK := rewriteGitCommandChain(command)
+	if rewrite && routeOK {
+		return gitWrapperRewriteRoute(event, command, rewrittenCommand)
+	}
+
+	if routeOK && managedGitOrAgentShellCommand(command) {
 		return InspectionRoute{}
 	}
 
@@ -97,6 +79,38 @@ func gitWrapperRouteFor(event Event) InspectionRoute {
 	}
 
 	return InspectionRoute{}
+}
+
+func gitWrapperHandlesEvent(event Event) bool {
+	return event.HookEventName == eventPreToolUse && event.ToolName == toolBash
+}
+
+func gitWrapperRewriteRoute(
+	event Event,
+	originalCommand string,
+	rewrittenCommand string,
+) InspectionRoute {
+	updatedCommand := agentShellRewriteCommand(originalCommand)
+	if agentShellRewriteInspection(event) {
+		updatedCommand = rewrittenCommand
+	}
+
+	return InspectionRoute{
+		UpdatedInput: updatedBashInput(
+			event.ToolInput,
+			updatedCommand,
+		),
+		BlockPolicyID:      gitWrapperPolicyID,
+		Reason:             "Routed shell command through the approved runner path.",
+		RemediationCommand: cerunRemediation(event.Cwd, originalCommand),
+		Rewrite:            true,
+	}
+}
+
+func managedGitOrAgentShellCommand(command string) bool {
+	return managedGitCommandChain(command) ||
+		managedAgentShellCommand(command) ||
+		managedAgentShellCommandChain(command)
 }
 
 func agentShellRewriteInspection(event Event) bool {
@@ -185,8 +199,8 @@ func shellCommandIsCompoundKeyword(parsed shellparse.Command) bool {
 	}
 }
 
-func cerunRemediation(command string) string {
-	return "cerun --rewrite -- " + shellQuote(command)
+func cerunRemediation(root, command string) string {
+	return cerunCommand(root) + " --rewrite -- " + shellQuote(command)
 }
 
 func agentShellRewriteCommand(command string) string {
@@ -254,6 +268,68 @@ func runnerCommand() string {
 	}
 
 	return runner
+}
+
+func cerunCommand(root string) string {
+	candidate := strings.TrimSpace(os.Getenv("CODING_ETHOS_CERUN"))
+	if candidate != "" {
+		return candidate
+	}
+
+	if discovered := findRepoCerunCommand(root); discovered != "" {
+		return discovered
+	}
+
+	return cerunRunnerName
+}
+
+func findRepoCerunCommand(root string) string {
+	for _, searchRoot := range cerunSearchRoots(root) {
+		if discovered := findRepoCerunCommandInRoot(searchRoot); discovered != "" {
+			return discovered
+		}
+	}
+
+	return ""
+}
+
+func cerunSearchRoots(root string) []string {
+	roots := []string{}
+
+	for _, candidate := range []string{
+		os.Getenv("CODE_ETHOS_CONSUMER_ROOT"),
+		root,
+	} {
+		cleaned := cleanAbsPath(candidate)
+		if cleaned != "" && !slices.Contains(roots, cleaned) {
+			roots = append(roots, cleaned)
+		}
+	}
+
+	return roots
+}
+
+func findRepoCerunCommandInRoot(root string) string {
+	repoRoot := gitRootFromPath(root)
+	if repoRoot == "" {
+		repoRoot = root
+	}
+
+	candidate := filepath.Join(repoRoot, "bin", "cerun")
+	if !executableExists(candidate) {
+		return ""
+	}
+
+	return filepath.ToSlash(candidate)
+}
+
+func executableExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+
+	return info.Mode().Perm()&0o111 != 0
 }
 
 func rewriteGitCommandChain(command string) (string, bool, bool) {
@@ -340,6 +416,41 @@ func managedAgentShellCommand(command string) bool {
 	}
 
 	return agentShellSegment(tokens)
+}
+
+func managedAgentShellCommandChain(command string) bool {
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK || len(tokens) == 0 {
+		return false
+	}
+
+	sawManagedSegment := false
+
+	for index := 0; index < len(tokens); {
+		if isShellControlToken(tokens[index]) {
+			index++
+
+			continue
+		}
+
+		start := index
+		for index < len(tokens) && !isShellControlToken(tokens[index]) {
+			index++
+		}
+
+		segment := tokens[start:index]
+		if agentShellSegment(segment) {
+			sawManagedSegment = true
+
+			continue
+		}
+
+		if segmentMentionsUnmanagedGit(segment) {
+			return false
+		}
+	}
+
+	return sawManagedSegment
 }
 
 func agentShellSegment(segment []string) bool {
@@ -455,6 +566,83 @@ func rewriteGitSegment(segment []string) (string, bool) {
 	}
 
 	return "", true
+}
+
+func readOnlyGitInspectionChain(command string) bool {
+	tokens, parseOK := shellControlFieldsOK(command)
+	if !parseOK || len(tokens) == 0 {
+		return false
+	}
+
+	sawReadOnlyGit := false
+
+	for index := 0; index < len(tokens); {
+		if isShellControlToken(tokens[index]) {
+			index++
+
+			continue
+		}
+
+		start := index
+		for index < len(tokens) && !isShellControlToken(tokens[index]) {
+			index++
+		}
+
+		segment := trimLeadingEnvAssignments(tokens[start:index])
+		if len(segment) == 0 {
+			continue
+		}
+
+		if segment[0] != tokenGit {
+			if !readOnlyInspectionHelperSegment(segment) {
+				return false
+			}
+
+			continue
+		}
+
+		if !readOnlyGitInspectionSegment(segment[1:]) {
+			return false
+		}
+
+		sawReadOnlyGit = true
+	}
+
+	return sawReadOnlyGit
+}
+
+func readOnlyInspectionHelperSegment(segment []string) bool {
+	args, redirections := splitShellRedirections(segment)
+	if redirectsWriteFile(redirections) || len(args) == 0 {
+		return false
+	}
+
+	switch filepath.Base(args[0]) {
+	case "echo", "printf", "pwd", "true":
+		return !segmentMentionsUnmanagedGit(args)
+	default:
+		return false
+	}
+}
+
+func readOnlyGitInspectionSegment(args []string) bool {
+	args, redirections := splitShellRedirections(args)
+	if redirectsWriteFile(redirections) {
+		return false
+	}
+
+	if len(args) == 0 {
+		return false
+	}
+
+	switch args[0] {
+	case "status":
+		return true
+	case "branch":
+		return slices.Contains(args[1:], "--show-current")
+	default:
+		return false
+	}
 }
 
 func managedGitSegment(segment []string) bool {

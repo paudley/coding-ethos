@@ -193,11 +193,10 @@ func formatHookPlanHuman(plan hookPlan) string {
 }
 
 func formatHookPlanTOON(plan hookPlan) string {
-	const hookPlanTOONHeaderLines = 5
+	const hookPlanTOONHeaderLines = 4
 
 	lines := make([]string, 0, hookPlanTOONHeaderLines+len(plan.Groups))
 	lines = append(lines,
-		"format: "+toonCell(plan.Format),
 		"output_format: "+toonCell(plan.OutputFormat),
 		"success_output: "+toonCell(plan.SuccessOutput),
 		"parallel_groups: "+toonCell(plan.ParallelGroups),

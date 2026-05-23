@@ -55,7 +55,6 @@ func TestFormatHookPlanTOONIncludesGroups(t *testing.T) {
 
 	output := formatHookPlan(plan, hookOutputFormatTOON)
 	for _, fragment := range []string{
-		"format: toon",
 		"groups[1]{name,enabled,commands}:",
 		"syntax,true,yamllint shellcheck",
 	} {

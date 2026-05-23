@@ -17,6 +17,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"blackcat.ca/coding-ethos/go/internal/configdata"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 )
 
 const (
@@ -24,9 +25,6 @@ const (
 	CentralDir = ".coding-ethos/memories"
 	// PrimaryFile is the Markdown memory surface providers should read and write.
 	PrimaryFile = CentralDir + "/MEMORY.md"
-	// DeniedGuidance is the exact remediation for providers that cannot rewrite.
-	DeniedGuidance = "Action denied: write memories to " +
-		".coding-ethos/memories/MEMORY.md and .coding-ethos/memories/*.yaml"
 
 	defaultIndexName = "index.yaml"
 	defaultLockName  = ".lock"
@@ -35,6 +33,28 @@ const (
 )
 
 var errUnknownMemoryConfigPath = errors.New("unknown memories TOML config path")
+
+// DeniedGuidance is the exact remediation for providers that cannot rewrite.
+func DeniedGuidance() string {
+	return feedback.MustRender(feedback.Message{
+		Scalars: []feedback.Scalar{
+			feedback.S("status", "denied"),
+			feedback.S("reason", "provider memory writes are centralized"),
+			feedback.S("allowed_path", PrimaryFile),
+		},
+		Tables: []feedback.Table{feedback.T(
+			"repair",
+			[]string{"path"},
+			[][]string{{PrimaryFile}, {CentralDir + "/*.yaml"}},
+		)},
+	}, feedback.FormatTOON)
+}
+
+// DeniedReason is a single-line policy reason for compact block output.
+func DeniedReason() string {
+	return "Action denied: write memories to " + PrimaryFile +
+		" and " + CentralDir + "/*.yaml"
+}
 
 // Settings controls the repo-local memory system.
 type Settings struct {

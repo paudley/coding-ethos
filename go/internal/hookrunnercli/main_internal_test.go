@@ -2745,7 +2745,6 @@ func TestFormatGeminiReportTOON(t *testing.T) {
 		hookOutputFormatTOON,
 	)
 	for _, fragment := range []string{
-		"format: toon",
 		"tool: gemini",
 		"scope: staged",
 		"status: FAIL",
