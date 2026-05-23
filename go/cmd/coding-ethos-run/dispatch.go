@@ -586,6 +586,7 @@ func agentShellAuditEvent(
 	result hooks.Result,
 ) agentproxy.ProviderEvent {
 	decision, policyID := firstAgentShellDecision(result)
+
 	event := agentproxy.ProviderEvent{
 		ID: "cerun-" + sha256Text(
 			time.Now().UTC().Format(time.RFC3339Nano)+request.Command,
