@@ -588,7 +588,7 @@ func sortedKeys[T any](values map[string]T) []string {
 func checkModuleDocsCommand(_ Config, args []string) int {
 	settings, err := loadModuleDocsSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -599,14 +599,14 @@ func checkModuleDocsCommand(_ Config, args []string) int {
 
 	files, err := moduleDocsCommandFiles(args, settings)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
 
 	violations, err := collectModuleDocsViolations(files, settings)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}

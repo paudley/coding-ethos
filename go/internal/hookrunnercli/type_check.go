@@ -1166,7 +1166,7 @@ func runConfiguredTypeCheckers(
 func checkTypeCheckersCommand(_ Config, args []string) int {
 	settings, err := loadTypeCheckSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -1178,7 +1178,7 @@ func checkTypeCheckersCommand(_ Config, args []string) int {
 	checkers := configuredTypeCheckers(settings)
 	if len(checkers) == 0 {
 		if hookVerboseSuccessOutputEnabled() {
-			fmt.Fprintln(os.Stderr, "No type checkers registered")
+			writeLine(os.Stderr, "No type checkers registered")
 		}
 
 		return 0
@@ -1186,14 +1186,14 @@ func checkTypeCheckersCommand(_ Config, args []string) int {
 
 	files, err := loadFilesForTypeCheck(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
 
 	if len(files) == 0 {
 		if hookVerboseSuccessOutputEnabled() {
-			fmt.Fprintln(os.Stderr, "No staged Python files to check")
+			writeLine(os.Stderr, "No staged Python files to check")
 		}
 
 		return 0
@@ -1203,7 +1203,7 @@ func checkTypeCheckersCommand(_ Config, args []string) int {
 
 	for _, result := range results {
 		if result.ExitCode != 0 {
-			_, _ = fmt.Fprintln(
+			writeLine(
 				os.Stdout,
 				formatTypeCheckResultsWithSkills(
 					results,
@@ -1212,16 +1212,13 @@ func checkTypeCheckersCommand(_ Config, args []string) int {
 					settings.Skills,
 				),
 			)
-			_, _ = fmt.Fprintln(os.Stderr)
-			_, _ = fmt.Fprintln(
+			writeText(
 				os.Stderr,
-				"FATAL: Python static analysis failed in one or more configured checkers.",
+				strings.Join([]string{
+					"fatal: Python static analysis failed in one or more configured checkers.",
+					"Fix the reported checker output above and run the hook again.",
+				}, "\n"),
 			)
-			_, _ = fmt.Fprintln(
-				os.Stderr,
-				"Fix the reported checker output above and run the hook again.",
-			)
-			_, _ = fmt.Fprintln(os.Stderr)
 
 			return 1
 		}

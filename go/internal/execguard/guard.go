@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 )
 
 const (
@@ -27,23 +29,19 @@ func Enter(name string) {
 	stack := currentStack()
 	for _, entry := range stack {
 		if entry == normalized {
-			fmt.Fprintf(
-				os.Stderr,
-				"FATAL: recursive coding-ethos executable invocation blocked: %s\n",
-				normalized,
+			writeExecGuardFailure(
+				"recursive coding-ethos executable invocation blocked: "+normalized,
+				stack,
 			)
-			fmt.Fprintf(os.Stderr, "stack: %s\n", strings.Join(stack, " -> "))
 			os.Exit(exitRecursive)
 		}
 	}
 
 	if len(stack) >= maxStackEntries {
-		fmt.Fprintf(
-			os.Stderr,
-			"FATAL: coding-ethos executable nesting exceeded %d entries\n",
-			maxStackEntries,
+		writeExecGuardFailure(
+			fmt.Sprintf("coding-ethos executable nesting exceeded %d entries", maxStackEntries),
+			stack,
 		)
-		fmt.Fprintf(os.Stderr, "stack: %s\n", strings.Join(stack, " -> "))
 		os.Exit(exitRecursive)
 	}
 
@@ -51,9 +49,21 @@ func Enter(name string) {
 
 	err := os.Setenv(EnvStack, strings.Join(stack, "\n"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: set %s: %v\n", EnvStack, err)
+		writeExecGuardFailure(fmt.Sprintf("set %s: %v", EnvStack, err), stack)
 		os.Exit(exitRecursive)
 	}
+}
+
+func writeExecGuardFailure(message string, stack []string) {
+	feedback.Emit(
+		os.Stderr,
+		feedback.Message{Scalars: []feedback.Scalar{
+			feedback.S("status", "fatal"),
+			feedback.S("message", message),
+			feedback.S("stack", strings.Join(stack, " -> ")),
+		}},
+		feedback.FormatTOON,
+	)
 }
 
 func currentStack() []string {

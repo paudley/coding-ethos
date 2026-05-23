@@ -4,10 +4,10 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"blackcat.ca/coding-ethos/go/internal/execguard"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/mcpcli"
 )
 
@@ -16,7 +16,11 @@ func main() {
 
 	err := mcpcli.Run(os.Args[1:], os.Stdin, os.Stdout)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err)
+		feedback.Emit(
+			os.Stderr,
+			feedback.Error{Message: err.Error()},
+			feedback.FormatTOON,
+		)
 		os.Exit(1)
 	}
 }

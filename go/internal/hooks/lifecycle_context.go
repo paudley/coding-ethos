@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 )
 
 const (
@@ -163,7 +164,13 @@ func startupRepoMap(cwd string) string {
 }
 
 func startupRepoMapWarning(stage string, err error) {
-	fmt.Fprintf(os.Stderr, "WARN: startup repo map %s failed: %v\n", stage, err)
+	feedback.Emit(
+		os.Stderr,
+		feedback.Text{
+			Text: fmt.Sprintf("warning: startup repo map %s failed: %v", stage, err),
+		},
+		feedback.FormatTOON,
+	)
 }
 
 func buildChecklistContext(heading string, guidance []string) string {

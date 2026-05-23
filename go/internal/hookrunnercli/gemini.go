@@ -5,22 +5,23 @@ package hookrunnercli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
+
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 )
 
 func runGeminiCheck(_ Config, args []string) int {
 	options, err := parseGeminiCLIOptions(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
 
 	settings, runtimePaths, err := loadGeminiSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -35,19 +36,16 @@ func runGeminiCheck(_ Config, args []string) int {
 		runtimePaths,
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
 
 	plan := buildGeminiExecutionPlan(prepared, scope, options.DryRun)
 	if options.DryRun {
-		encoder := json.NewEncoder(os.Stdout)
-		encoder.SetIndent("", "  ")
-
-		err := encoder.Encode(plan)
+		err := feedback.WriteJSON(os.Stdout, plan)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "FATAL: write Gemini dry-run plan: %v\n", err)
+			writef(os.Stderr, "FATAL: write Gemini dry-run plan: %v\n", err)
 
 			return 1
 		}

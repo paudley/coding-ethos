@@ -20,6 +20,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/agentskills"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -827,21 +828,27 @@ func printParentWorkflowReport(
 	repo string,
 	steps []parentWorkflowStep,
 ) {
-	fmt.Fprintln(os.Stdout, "format: toon")
-	fmt.Fprintln(os.Stdout, "tool: "+hookoutput.TOONCell(tool))
-	fmt.Fprintln(os.Stdout, "status: "+hookoutput.TOONCell(status))
-	fmt.Fprintln(os.Stdout, "repo: "+hookoutput.TOONCell(repo))
-	fmt.Fprintf(os.Stdout, "steps[%d]{name,status,detail}:\n", len(steps))
+	var builder strings.Builder
+	builder.WriteString("tool: " + hookoutput.TOONCell(tool) + "\n")
+	builder.WriteString("status: " + hookoutput.TOONCell(status) + "\n")
+	builder.WriteString("repo: " + hookoutput.TOONCell(repo) + "\n")
+	fmt.Fprintf(&builder, "steps[%d]{name,status,detail}:\n", len(steps))
 
 	for _, step := range steps {
 		fmt.Fprintf(
-			os.Stdout,
+			&builder,
 			"  %s,%s,%s\n",
 			hookoutput.TOONCell(step.Name),
 			hookoutput.TOONCell(step.Status),
 			hookoutput.TOONFindingCell(step.Detail),
 		)
 	}
+
+	feedback.EmitRendered(
+		os.Stdout,
+		strings.TrimSuffix(builder.String(), "\n"),
+		feedback.FormatTOON,
+	)
 }
 
 func parentLintArgs(paths runtimePaths, options parentWorkflowOptions) []string {

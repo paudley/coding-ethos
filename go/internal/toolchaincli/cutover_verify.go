@@ -263,7 +263,7 @@ func writeCutoverVerifyReport(
 		FixItems: state.fixItems,
 	}
 	for _, line := range cutoverReportLines(report) {
-		fmt.Fprintln(os.Stdout, line)
+		writeToolchainText(os.Stdout, line)
 	}
 }
 
@@ -279,18 +279,15 @@ func cutoverVerifyResult(state cutoverVerifyState) error {
 
 func writeFailedCutoverOutputs(state cutoverVerifyState) {
 	if state.agentErr != nil {
-		fmt.Fprintln(os.Stderr, "agent hook verify output:")
-		fmt.Fprint(os.Stderr, state.agentOutput)
+		writeToolchainText(os.Stderr, "agent hook verify output:\n"+state.agentOutput)
 	}
 
 	if state.runtimeErr != nil {
-		fmt.Fprintln(os.Stderr, "policy runtime verify output:")
-		fmt.Fprint(os.Stderr, state.runtimeOutput)
+		writeToolchainText(os.Stderr, "policy runtime verify output:\n"+state.runtimeOutput)
 	}
 
 	if state.repoIgnoreErr != nil {
-		fmt.Fprintln(os.Stderr, "repo ignore verify output:")
-		fmt.Fprint(os.Stderr, state.repoIgnoreOutput)
+		writeToolchainText(os.Stderr, "repo ignore verify output:\n"+state.repoIgnoreOutput)
 	}
 }
 

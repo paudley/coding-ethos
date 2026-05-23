@@ -153,6 +153,25 @@ func TestCleanPolicyPathStaysInsideRepo(t *testing.T) {
 	}
 }
 
+func TestCleanPolicyPathAllowsCurrentTerminal(t *testing.T) {
+	root := t.TempDir()
+
+	target, err := os.Readlink("/proc/self/fd/1")
+	if err != nil || !strings.HasPrefix(target, "/dev/pts/") {
+		t.Skip("test requires stdout attached to a PTY")
+	}
+
+	terminalPath, ok := cleanPolicyPath(root, target, false)
+	if !ok || terminalPath != target {
+		t.Fatalf("cleanPolicyPath terminal = %q %t", terminalPath, ok)
+	}
+
+	err = prepareWritablePath(root, target, target, false)
+	if err != nil {
+		t.Fatalf("prepareWritablePath terminal error = %v", err)
+	}
+}
+
 func TestPrepareWritablePathsFiltersGitAndCreatesRelativePaths(t *testing.T) {
 	t.Parallel()
 
@@ -207,6 +226,87 @@ func TestPrepareWritablePathsAllowsExplicitGitWrites(t *testing.T) {
 	}
 	if !slices.Contains(paths, gitDir) {
 		t.Fatalf("git write path missing: %#v", paths)
+	}
+}
+
+func TestPrepareWritablePathsAllowsGPGHomeForSignedGit(t *testing.T) {
+	root := t.TempDir()
+	gpgHome := filepath.Join(t.TempDir(), "gnupg")
+	t.Setenv("GNUPGHOME", gpgHome)
+	if err := os.Mkdir(gpgHome, 0o700); err != nil {
+		t.Fatalf("create GPG home fixture: %v", err)
+	}
+
+	paths, err := prepareWritablePaths(options{
+		paths:      &sandboxPaths{repoRoot: root},
+		writePaths: []string{gpgHome},
+	})
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() error = %v", err)
+	}
+	if !slices.Contains(paths, gpgHome) {
+		t.Fatalf("GPG home write path missing: %#v", paths)
+	}
+}
+
+func TestPrepareWritablePathsAllowsResolvedGPGHomeSymlinkTarget(t *testing.T) {
+	root := t.TempDir()
+	gpgHome := filepath.Join(t.TempDir(), "gnupg")
+	resolvedGPGHome := filepath.Join(t.TempDir(), "dot-gnupg")
+	t.Setenv("GNUPGHOME", gpgHome)
+	if err := os.MkdirAll(gpgHome, 0o700); err != nil {
+		t.Fatalf("create GPG home fixture: %v", err)
+	}
+	if err := os.MkdirAll(resolvedGPGHome, 0o700); err != nil {
+		t.Fatalf("create resolved GPG home fixture: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(resolvedGPGHome, "trustdb.gpg"),
+		[]byte{},
+		0o600,
+	); err != nil {
+		t.Fatalf("create resolved GPG file fixture: %v", err)
+	}
+	resolvedPrivateKeys := filepath.Join(resolvedGPGHome, "private-keys-v1.d")
+	if err := os.MkdirAll(resolvedPrivateKeys, 0o700); err != nil {
+		t.Fatalf("create resolved private key fixture: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(resolvedPrivateKeys, "key.key"),
+		[]byte{},
+		0o600,
+	); err != nil {
+		t.Fatalf("create private key fixture: %v", err)
+	}
+	privateKeys := filepath.Join(gpgHome, "private-keys-v1.d")
+	if err := os.MkdirAll(privateKeys, 0o700); err != nil {
+		t.Fatalf("create GPG private key directory fixture: %v", err)
+	}
+	if err := os.Symlink(
+		filepath.Join(resolvedGPGHome, "trustdb.gpg"),
+		filepath.Join(gpgHome, "trustdb.gpg"),
+	); err != nil {
+		t.Fatalf("create GPG symlink fixture: %v", err)
+	}
+	if err := os.Symlink(
+		filepath.Join(resolvedPrivateKeys, "key.key"),
+		filepath.Join(privateKeys, "key.key"),
+	); err != nil {
+		t.Fatalf("create private key symlink fixture: %v", err)
+	}
+
+	paths, err := prepareWritablePaths(options{
+		paths:      &sandboxPaths{repoRoot: root},
+		writePaths: []string{resolvedGPGHome, resolvedPrivateKeys},
+	})
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() error = %v", err)
+	}
+	if !slices.Contains(paths, resolvedGPGHome) {
+		t.Fatalf("resolved GPG home write path missing: %#v", paths)
+	}
+	if !slices.Contains(paths, resolvedPrivateKeys) {
+		t.Fatalf("resolved private key write path missing: %#v", paths)
 	}
 }
 

@@ -117,7 +117,7 @@ func TestProviderDenialIncludesTrackingID(t *testing.T) {
 		`"trackingID": "hook-`,
 		`"traceId": "hook-`,
 		`trackingID: hook-`,
-		`"permissionDecisionReason": "trackingID: hook-`,
+		`"permissionDecisionReason": "event: PreToolUse`,
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %q in provider output: %s", expected, output)

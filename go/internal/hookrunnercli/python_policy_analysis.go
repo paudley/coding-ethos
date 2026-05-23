@@ -28,7 +28,7 @@ func isDirectImportExempt(path string, settings directImportsSettings) bool {
 func checkUtilCentralizationCommand(_ Config, args []string) int {
 	settings, err := loadUtilCentralizationSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -46,7 +46,7 @@ func checkUtilCentralizationCommand(_ Config, args []string) int {
 
 		found, err := findUtilityViolations(path, settings)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
+			writef(os.Stderr, "  skipping %s: %v\n", path, err)
 
 			continue
 		}
@@ -98,7 +98,7 @@ func emitDirectImportReport(
 func checkSQLCentralizationCommand(_ Config, args []string) int {
 	settings, err := loadSQLCentralizationSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -116,7 +116,7 @@ func checkSQLCentralizationCommand(_ Config, args []string) int {
 
 		found, err := findSQLViolations(path, settings)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
+			writef(os.Stderr, "  skipping %s: %v\n", path, err)
 
 			continue
 		}

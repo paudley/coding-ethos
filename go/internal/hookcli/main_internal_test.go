@@ -27,7 +27,7 @@ func TestHookCLIBlocksBashBypass(t *testing.T) {
 			"command": "git commit --no-verify -m test",
 		}),
 	)
-	if status != 2 {
+	if status != blockedExitCode {
 		t.Fatalf("status mismatch: got %d", status)
 	}
 
@@ -35,19 +35,8 @@ func TestHookCLIBlocksBashBypass(t *testing.T) {
 		t.Fatalf("result status mismatch: %#v", result)
 	}
 
-	if stderr == "" {
-		t.Fatalf(
-			"--json agent hook output must include a compact blocking reason on stderr",
-		)
-	}
-
-	trimmedStderr := strings.TrimSpace(stderr)
-	if strings.Contains(trimmedStderr, "format: toon") ||
-		strings.Contains(trimmedStderr, "\n") {
-		t.Fatalf(
-			"--json agent hook stderr must be compact provider advice:\n%s",
-			stderr,
-		)
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("--json agent hook stderr = %q, want empty", stderr)
 	}
 }
 
@@ -149,9 +138,8 @@ func TestRunWithIOBlocksBashBypass(t *testing.T) {
 		t.Fatalf("result should deny: %#v", result)
 	}
 
-	if !strings.Contains(stderr.String(), "blocked") &&
-		!strings.Contains(stderr.String(), "bypass") {
-		t.Fatalf("stderr should contain compact denial advice: %q", stderr.String())
+	if strings.TrimSpace(stderr.String()) != "" {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 }
 

@@ -40,7 +40,7 @@ func runGitHookCommand(cfg Config, args []string) int {
 	switch args[0] {
 	case hookStagePreCommit:
 		return runPreCommitHook(cfg, args[1:])
-	case "pre-push":
+	case hookStagePrePush:
 		return runPrePushHook(cfg, os.Stdin)
 	case "commit-msg":
 		fmt.Fprintln(
@@ -52,7 +52,7 @@ func runGitHookCommand(cfg Config, args []string) int {
 	case "validate":
 		return validateGoHookRuntime()
 	default:
-		fmt.Fprintf(os.Stderr, "FATAL: unknown git hook %q\n", args[0])
+		writef(os.Stderr, "FATAL: unknown git hook %q\n", args[0])
 
 		return 1
 	}
@@ -64,7 +64,7 @@ func runPreCommitHook(cfg Config, args []string) int {
 
 	files, err := hookFilesForPreCommit(allFiles)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -94,14 +94,14 @@ func runPreCommitHook(cfg Config, args []string) int {
 }
 
 func runPrePushHook(cfg Config, input io.Reader) int {
-	cfg.HookStage = "pre-push"
+	cfg.HookStage = hookStagePrePush
 	restoreRoot := useLocalRootForPrePush()
 
 	defer restoreRoot()
 
 	files, err := pushedFiles(input)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -160,7 +160,7 @@ func runNamedHookGroups(cfg Config, names, files []string) int {
 	for _, name := range selectedNames {
 		group, ok := groups[name]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "FATAL: unknown hook group %q\n", name)
+			writef(os.Stderr, "FATAL: unknown hook group %q\n", name)
 
 			return 1
 		}
@@ -539,7 +539,7 @@ func restageFiles(files []string) int {
 			message = err.Error()
 		}
 
-		fmt.Fprintln(os.Stderr, message)
+		writeLine(os.Stderr, message)
 
 		return 1
 	}
@@ -563,14 +563,14 @@ func combinedGitOutputInRoot(root string, args ...string) ([]byte, error) {
 func validateGoHookRuntime() int {
 	_, err := findBundleRoot()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
 
 	for name, group := range canonicalHookGroups() {
 		if strings.TrimSpace(name) == "" || len(group.Commands) == 0 {
-			fmt.Fprintf(os.Stderr, "FATAL: invalid empty hook group %q\n", name)
+			writef(os.Stderr, "FATAL: invalid empty hook group %q\n", name)
 
 			return 1
 		}

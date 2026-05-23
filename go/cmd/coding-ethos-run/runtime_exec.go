@@ -18,6 +18,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintelcli"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/githookcli"
 	"blackcat.ca/coding-ethos/go/internal/hookcli"
 	"blackcat.ca/coding-ethos/go/internal/hooklogcli"
@@ -39,6 +40,7 @@ const (
 	agentShellAssetMode    = 0o700
 	agentShellFileMode     = 0o600
 	agentShellInjectedEnv  = 3
+	agentShellGitPathCap   = 2
 )
 
 var (
@@ -92,6 +94,7 @@ func (defaultRuntimeExecutor) execAgentShell(paths runtimePaths, command string)
 	execArgs := args
 	cwd := paths.InvocationCWD
 	processEnv := os.Environ()
+	processEvidence := sandbox.Evidence{}
 
 	if runtime.GOOS == linuxGOOS {
 		plan, agentEnv, clean, err := agentShellSandboxPlan(paths, shellPath, args)
@@ -110,6 +113,7 @@ func (defaultRuntimeExecutor) execAgentShell(paths runtimePaths, command string)
 		executable = plan.Executable
 		execArgs = plan.Args
 		processEnv = agentEnv
+		processEvidence = plan.Evidence
 	} else {
 		debuglog.Debug(
 			"agent-shell.sandbox.unavailable",
@@ -127,13 +131,7 @@ func (defaultRuntimeExecutor) execAgentShell(paths runtimePaths, command string)
 	process.Env = processEnv
 
 	if runtime.GOOS == linuxGOOS {
-		process.SysProcAttr = sandbox.SysProcAttr(nil, sandbox.Evidence{
-			Enabled:           true,
-			NamespaceEnforced: true,
-			ProcessIsolated:   true,
-			NetworkIsolated:   false,
-			RequiresNetwork:   true,
-		})
+		process.SysProcAttr = sandbox.SysProcAttr(nil, processEvidence)
 	}
 
 	argv := append([]string{executable}, execArgs...)
@@ -214,13 +212,14 @@ func agentShellSandboxPlan(
 		Args:        args,
 		Tool:        "agent-shell",
 		Capabilities: sandbox.Capabilities{
-			SandboxProfile:  "agent-shell",
-			StrategicIntent: agentShellStrategicIntent(),
-			WritePaths:      append([]string{paths.GitCommonDir}, agentWritePaths...),
-			AllowGitWrites:  true,
-			RequiresGit:     true,
-			RequiresNetwork: true,
-			Tags:            []string{"agent-shell", "path-git-wrapper"},
+			SandboxProfile:    "agent-shell",
+			StrategicIntent:   agentShellStrategicIntent(),
+			WritePaths:        append(agentShellProtectedWritePaths(paths), agentWritePaths...),
+			AllowGitWrites:    true,
+			RequiresGit:       true,
+			RequiresNetwork:   true,
+			RequiresProcesses: true,
+			Tags:              []string{"agent-shell", "path-git-wrapper"},
 		},
 	})
 	if err != nil {
@@ -233,6 +232,149 @@ func agentShellSandboxPlan(
 	}
 
 	return plan, agentShellProcessEnv(gitWrapper, realGitBind), cleanup, nil
+}
+
+func agentShellProtectedWritePaths(paths runtimePaths) []string {
+	writePaths := agentShellGitWritePaths(paths)
+	writePaths = append(writePaths, agentShellSigningWritePaths()...)
+
+	return writePaths
+}
+
+func agentShellGitWritePaths(paths runtimePaths) []string {
+	seen := map[string]bool{}
+	writePaths := make([]string, 0, agentShellGitPathCap)
+
+	for _, path := range []string{paths.GitDir, paths.GitCommonDir} {
+		path = strings.TrimSpace(path)
+		if path == "" || seen[path] {
+			continue
+		}
+
+		seen[path] = true
+		writePaths = append(writePaths, path)
+	}
+
+	return writePaths
+}
+
+func agentShellSigningWritePaths() []string {
+	writePaths := make([]string, 0, agentShellGitPathCap)
+
+	if gpgHome := strings.TrimSpace(os.Getenv("GNUPGHOME")); gpgHome != "" {
+		writePaths = append(writePaths, gpgHome)
+		writePaths = append(writePaths, agentShellResolvedGPGHomeWritePaths(gpgHome)...)
+	} else {
+		home, err := os.UserHomeDir()
+		if err == nil && strings.TrimSpace(home) != "" {
+			gpgHome := filepath.Join(home, ".gnupg")
+			writePaths = append(writePaths, gpgHome)
+			writePaths = append(writePaths, agentShellResolvedGPGHomeWritePaths(gpgHome)...)
+		}
+	}
+
+	if runtimeDir := strings.TrimSpace(os.Getenv("XDG_RUNTIME_DIR")); runtimeDir != "" {
+		writePaths = append(writePaths, filepath.Join(runtimeDir, "gnupg"))
+	}
+
+	writePaths = append(writePaths, agentShellTerminalWritePaths()...)
+
+	return writePaths
+}
+
+func agentShellResolvedGPGHomeWritePaths(gpgHome string) []string {
+	gpgHome = filepath.Clean(strings.TrimSpace(gpgHome))
+	if gpgHome == "" {
+		return nil
+	}
+
+	paths := []string{}
+	seen := map[string]bool{}
+	appendPath := func(path string) {
+		path = filepath.Clean(strings.TrimSpace(path))
+		if path == "." || seen[path] {
+			return
+		}
+
+		seen[path] = true
+		paths = append(paths, path)
+	}
+
+	resolvedHome, err := filepath.EvalSymlinks(gpgHome)
+	if err == nil {
+		appendPath(resolvedHome)
+	}
+
+	agentShellAppendResolvedGPGSymlinkPaths(gpgHome, appendPath)
+	agentShellAppendResolvedGPGSymlinkPaths(
+		filepath.Join(gpgHome, "private-keys-v1.d"),
+		appendPath,
+	)
+
+	return paths
+}
+
+func agentShellAppendResolvedGPGSymlinkPaths(
+	dir string,
+	appendPath func(string),
+) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(dir, entry.Name())
+
+		info, err := os.Lstat(entryPath)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+
+		resolved, err := filepath.EvalSymlinks(entryPath)
+		if err != nil {
+			continue
+		}
+
+		agentShellAppendResolvedGPGPath(resolved, appendPath)
+	}
+}
+
+func agentShellAppendResolvedGPGPath(
+	resolved string,
+	appendPath func(string),
+) {
+	resolvedInfo, err := os.Stat(resolved)
+	if err == nil && resolvedInfo.IsDir() {
+		appendPath(resolved)
+
+		return
+	}
+
+	appendPath(filepath.Dir(resolved))
+}
+
+func agentShellTerminalWritePaths() []string {
+	writePaths := []string{}
+	seen := map[string]bool{}
+
+	for _, fd := range []string{"0", "1", "2"} {
+		path, err := os.Readlink(filepath.Join("/proc/self/fd", fd))
+		if err != nil || !agentShellTerminalPath(path) || seen[path] {
+			continue
+		}
+
+		seen[path] = true
+		writePaths = append(writePaths, path)
+	}
+
+	return writePaths
+}
+
+func agentShellTerminalPath(path string) bool {
+	path = filepath.Clean(strings.TrimSpace(path))
+
+	return strings.HasPrefix(path, "/dev/pts/") || path == "/dev/tty"
 }
 
 func agentShellWorktreeWritePaths(root string) ([]string, error) {
@@ -264,24 +406,51 @@ func agentShellProcessEnv(gitWrapper, realGitBind string) []string {
 	env := os.Environ()
 	wrapperDir := filepath.Dir(gitWrapper)
 	pathValue := wrapperDir + string(os.PathListSeparator) + os.Getenv("PATH")
+	gpgTTY := agentShellGPGTTY()
 
 	filtered := make([]string, 0, len(env)+agentShellInjectedEnv)
 	for _, item := range env {
 		if strings.HasPrefix(item, "PATH=") ||
 			strings.HasPrefix(item, realgit.Env+"=") ||
-			strings.HasPrefix(item, "CODING_ETHOS_AGENT_SHELL_SANDBOX=") {
+			strings.HasPrefix(item, "CODING_ETHOS_AGENT_SHELL_SANDBOX=") ||
+			strings.HasPrefix(item, "GPG_TTY=") ||
+			agentShellFilteredGUIEnv(item) {
 			continue
 		}
 
 		filtered = append(filtered, item)
 	}
 
-	return append(
+	filtered = append(
 		filtered,
 		"PATH="+pathValue,
 		realgit.Env+"="+realGitBind,
 		"CODING_ETHOS_AGENT_SHELL_SANDBOX=1",
 	)
+	if gpgTTY != "" {
+		filtered = append(filtered, "GPG_TTY="+gpgTTY)
+	}
+
+	return filtered
+}
+
+func agentShellGPGTTY() string {
+	for _, fd := range []string{"0", "1", "2"} {
+		path, err := os.Readlink(filepath.Join("/proc/self/fd", fd))
+		if err != nil || !agentShellTerminalPath(path) {
+			continue
+		}
+
+		return filepath.Clean(path)
+	}
+
+	return ""
+}
+
+func agentShellFilteredGUIEnv(item string) bool {
+	return strings.HasPrefix(item, "DISPLAY=") ||
+		strings.HasPrefix(item, "WAYLAND_DISPLAY=") ||
+		strings.HasPrefix(item, "XAUTHORITY=")
 }
 
 func agentShellRealGitPath(paths runtimePaths) (string, error) {
@@ -491,12 +660,20 @@ func statPathWithRoot(path string) (os.FileInfo, error) {
 }
 
 func runtimeFailure(problem string) {
-	fmt.Fprintln(os.Stderr, "FATAL: coding-ethos hook runtime is missing or invalid")
-	fmt.Fprintln(os.Stderr, "This is not caused by the files being committed.")
-	fmt.Fprintf(os.Stderr, "problem: %s\n", problem)
-	fmt.Fprintln(
+	feedback.Emit(
 		os.Stderr,
-		"action: run make build, or ask an admin to repair the coding-ethos checkout.",
+		feedback.Message{
+			Scalars: []feedback.Scalar{
+				feedback.S("status", "fatal"),
+				feedback.S("summary", "coding-ethos hook runtime is missing or invalid"),
+				feedback.S("problem", problem),
+				feedback.S(
+					"action",
+					"run make build, or ask an admin to repair the coding-ethos checkout",
+				),
+			},
+		},
+		feedback.FormatTOON,
 	)
 	requestRuntimeExit(exitMissing)
 }
@@ -659,7 +836,7 @@ func internalToolHandlers() map[string]internalToolHandler {
 func runCodeIntelCLI(args []string) int {
 	err := codeintelcli.Run(context.Background(), args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err)
+		emitRuntimeError(err)
 
 		return 1
 	}
@@ -670,7 +847,7 @@ func runCodeIntelCLI(args []string) int {
 func runOutputCLI(args []string) int {
 	err := outputcli.Run(context.Background(), args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err)
+		emitRuntimeError(err)
 
 		return 1
 	}
@@ -703,12 +880,20 @@ func runHookLogCLI(args []string) int {
 func runMCPCLI(args []string) int {
 	err := mcpcli.Run(args, os.Stdin, os.Stdout)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err)
+		emitRuntimeError(err)
 
 		return 1
 	}
 
 	return 0
+}
+
+func emitRuntimeError(err error) {
+	feedback.Emit(
+		os.Stderr,
+		feedback.Error{Message: err.Error()},
+		feedback.FormatTOON,
+	)
 }
 
 func (executor defaultRuntimeExecutor) execPath(path string, args ...string) {

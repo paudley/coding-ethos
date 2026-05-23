@@ -281,8 +281,10 @@ func TestPrintBlockedReportsBlockingDecision(t *testing.T) {
 		printBlocked(result)
 	})
 	for _, want := range []string{
-		"[coding-ethos:git.hook_bypass] blocked",
-		"Suggestion: fix it",
+		"status: blocked",
+		"policy_id: git.hook_bypass",
+		"message: blocked",
+		"suggestion: fix it",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stderr missing %q:\n%s", want, output)

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/lintcli"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
@@ -46,7 +47,11 @@ func runCISARIF(paths runtimePaths, args []string) error {
 	defer func() {
 		removeErr := os.Remove(filesPath)
 		if removeErr != nil && !os.IsNotExist(removeErr) {
-			fmt.Fprintf(os.Stderr, "WARN: remove temporary CI file list: %v\n", removeErr)
+			feedback.Emit(
+				os.Stderr,
+				feedback.Text{Text: "warning: remove temporary CI file list: " + removeErr.Error()},
+				feedback.FormatTOON,
+			)
 		}
 	}()
 

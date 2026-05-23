@@ -17,12 +17,13 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-const blockedExitCode = 2
+const blockedExitCode = 1
 
 var (
 	errBundleRequired = apperror.StaticError("--bundle is required")
@@ -99,7 +100,9 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	if result.Blocked() {
-		printBlocked(stderr, result)
+		if !*jsonOutput {
+			printBlocked(stderr, result)
+		}
 
 		return blockedExitCode
 	}
@@ -205,9 +208,9 @@ func printBlocked(writer io.Writer, result hooks.Result) {
 		return
 	}
 
-	fmt.Fprintln(writer, advice)
+	feedback.Emit(writer, feedback.Text{Text: advice}, feedback.FormatTOON)
 }
 
 func printErr(writer io.Writer, err error) {
-	fmt.Fprintf(writer, "%s\n", err)
+	feedback.Emit(writer, feedback.Error{Message: err.Error()}, feedback.FormatTOON)
 }

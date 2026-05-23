@@ -18,6 +18,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/configdata"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
@@ -274,7 +275,7 @@ func managedCaptureExecutionContext(
 }
 
 func printManagedCaptureError(err error, exitCode int) int {
-	fmt.Fprintln(os.Stderr, err)
+	emitManagedCaptureError(err)
 
 	return exitCode
 }
@@ -590,7 +591,7 @@ func runCapturedToolWithRequest(request captureRequest, outputFormat string) int
 			resolvedFormat,
 		)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "WARN: lint result not rendered: %v\n", err)
+			emitManagedCaptureText("warning: lint result not rendered: " + err.Error())
 		}
 	}
 
@@ -680,29 +681,47 @@ func generatedConfigDrift(ethosRoot, repoRoot string) []lintcapture.ConfigDrift 
 }
 
 func printConfigDrift(drift []lintcapture.ConfigDrift) int {
-	fmt.Fprintln(os.Stdout, "tool: coding-ethos-config-integrity")
-	fmt.Fprintln(os.Stdout, "status: FAIL")
-	fmt.Fprintln(os.Stdout, "title: GENERATED TOOL CONFIG DRIFT")
-	fmt.Fprintf(
-		os.Stdout,
-		"message: Hey - lint failed - you modified: %s. "+
-			"Restore it before continuing. "+
-			"Or run make -C coding-ethos fix-configs.\n",
-		joinDriftFiles(drift),
-	)
-	fmt.Fprintf(os.Stdout, "drifted_configs[%d]{file}:\n", len(drift))
-
+	rows := make([][]string, 0, len(drift))
 	for _, item := range drift {
-		fmt.Fprintf(os.Stdout, "  %s\n", item.File)
+		rows = append(rows, []string{item.File})
 	}
 
-	fmt.Fprintln(os.Stdout, "next[1]{action}:")
-	fmt.Fprintln(
+	feedback.Emit(
 		os.Stdout,
-		"  Run make -C coding-ethos fix-configs, then rerun the lint command.",
+		feedback.Message{
+			Scalars: []feedback.Scalar{
+				feedback.S("tool", "coding-ethos-config-integrity"),
+				feedback.S("status", "FAIL"),
+				feedback.S("title", "GENERATED TOOL CONFIG DRIFT"),
+				feedback.S(
+					"message",
+					"lint failed after generated config drift: "+joinDriftFiles(drift),
+				),
+				feedback.S(
+					"next",
+					"Run make -C coding-ethos fix-configs, then rerun the lint command.",
+				),
+			},
+			Tables: []feedback.Table{
+				feedback.T("drifted_configs", []string{"file"}, rows),
+			},
+		},
+		feedback.FormatTOON,
 	)
 
 	return BlockedExitCode
+}
+
+func emitManagedCaptureError(err error) {
+	feedback.Emit(
+		os.Stderr,
+		feedback.Error{Message: err.Error()},
+		feedback.FormatTOON,
+	)
+}
+
+func emitManagedCaptureText(text string) {
+	feedback.Emit(os.Stderr, feedback.Text{Text: text}, feedback.FormatTOON)
 }
 
 func joinDriftFiles(drift []lintcapture.ConfigDrift) string {

@@ -540,7 +540,7 @@ if ! grep -q '"updatedInput"' /tmp/coding-ethos-git-chain-rewrite.out ||
   cat /tmp/coding-ethos-git-chain-rewrite.out >&2
   exit 1
 fi
-if ! grep -Eq 'CODING-ETHOS EMPLOYMENT VIOLATION.*may result in termination' \
+if ! grep -Eq 'git.wrapper_required.*cerun --rewrite' \
   /tmp/coding-ethos-git-refusal.err; then
   printf 'expected explicit git refusal output:\n' >&2
   cat /tmp/coding-ethos-git-refusal.err >&2

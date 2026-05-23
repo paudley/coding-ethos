@@ -4,7 +4,6 @@
 package hookrunnercli
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -17,7 +16,7 @@ func runPythonPolicyCommand[V any](
 ) int {
 	enabled, err := load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -35,7 +34,7 @@ func runPythonPolicyCommand[V any](
 
 		found, err := find(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
+			writef(os.Stderr, "  skipping %s: %v\n", path, err)
 
 			continue
 		}
@@ -55,7 +54,7 @@ func runPythonPolicyCommand[V any](
 func checkStructuredLoggingCommand(_ Config, args []string) int {
 	settings, err := loadStructuredLoggingSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -98,7 +97,7 @@ func reportStructuredLoggingViolations(violations []structuredLoggingViolation) 
 func checkConditionalImportsCommand(_ Config, args []string) int {
 	settings, err := loadConditionalImportsSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -142,7 +141,7 @@ func reportConditionalImportViolations(violations []conditionalImportViolation) 
 func checkTypeCheckingImportsCommand(_ Config, args []string) int {
 	settings, err := loadTypeCheckingImportsSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -160,7 +159,7 @@ func checkTypeCheckingImportsCommand(_ Config, args []string) int {
 
 		found, err := findTypeCheckingImportViolations(path, settings)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
+			writef(os.Stderr, "  skipping %s: %v\n", path, err)
 
 			continue
 		}
@@ -200,7 +199,7 @@ func checkTypeCheckingImportsCommand(_ Config, args []string) int {
 func checkCatchAndSilenceCommand(_ Config, args []string) int {
 	settings, err := loadCatchSilenceSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -244,7 +243,7 @@ func reportCatchSilenceViolations(violations []catchSilenceViolation) {
 func checkOptionalReturnsCommand(_ Config, args []string) int {
 	settings, err := loadOptionalReturnsSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -262,7 +261,7 @@ func checkOptionalReturnsCommand(_ Config, args []string) int {
 
 		found, err := findOptionalTypeViolations(path, settings)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ERROR: %s: %v\n", path, err)
+			writef(os.Stderr, "ERROR: %s: %v\n", path, err)
 
 			continue
 		}
@@ -301,7 +300,7 @@ func checkOptionalReturnsCommand(_ Config, args []string) int {
 func checkSecurityPatternsCommand(_ Config, args []string) int {
 	settings, err := loadSecurityPatternsSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -333,7 +332,7 @@ func collectSecurityPatternViolations(
 
 		found, err := findSecurityViolations(path, settings)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  %s: %v\n", path, err)
+			writef(os.Stderr, "  %s: %v\n", path, err)
 
 			continue
 		}

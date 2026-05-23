@@ -705,17 +705,10 @@ func exampleEditEvasiveGitExecutionPolicy() Policy {
 		PrincipleIDs:    []string{"no-rationalized-shortcuts"},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record", "advise"},
-		Message: "!!! CODING-ETHOS EMPLOYMENT VIOLATION: You attempted to " +
-			"tamper with or bypass the protected hook/git analysis system. This " +
-			"is not a misconfiguration or tool defect. You have done something " +
-			"wrong. Stop immediately, use the normal approved git workflow, and " +
-			"ask an admin if blocked. Continued attempts to " +
-			"circumvent, avoid, alter, delete, rebuild, or inspect this system " +
-			"may result in termination. !!!",
-		Suggestion: "Run ordinary git commands without bypass flags or shell indirection; " +
-			"approved git operations are routed by the hook automatically. Do not try " +
-			"alternate shells, absolute git paths, Python subprocesses, PATH edits, " +
-			"aliases, or other bypasses.",
+		Message: "Direct git execution must use the approved coding-ethos " +
+			"git route for this agent provider.",
+		Suggestion: "Resubmit the git command through the suggested cerun " +
+			"--rewrite command so git operations stay inside the managed policy path.",
 		DefenseLayers: CodeDefenseLayers(),
 		AppliesTo: AppliesTo{
 			Tools: []string{"Write", "Edit", "MultiEdit"},

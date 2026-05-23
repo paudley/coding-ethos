@@ -76,14 +76,11 @@ func agentHookFixtureCases() []agentHookFixtureCase {
 		{
 			name:     "codex pretool git bypass denial",
 			fixture:  "codex-pretool-git-bypass.json",
-			wantExit: 2,
+			wantExit: 1,
 			wantStdout: []string{
 				`"decision": "block"`,
 				`"permissionDecision": "deny"`,
 				`"trackingID": "hook-`,
-				`git.hook_bypass`,
-			},
-			wantStderr: []string{
 				`git.hook_bypass`,
 			},
 		},

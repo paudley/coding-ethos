@@ -14,6 +14,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/execguard"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hooklog"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
@@ -28,6 +29,7 @@ type runtimePaths struct {
 	RealGit          string
 	InvocationCWD    string
 	LocalRoot        string
+	GitDir           string
 	GitCommonDir     string
 	Root             string
 	HooksDir         string
@@ -149,6 +151,7 @@ func resolveRuntimePaths() (runtimePaths, error) {
 
 	root, localRoot := resolveRuntimeRoot(realGit, invocationCWD)
 	hooksDir := resolveRuntimeHooksDir(realGit, root)
+	gitDir := resolveRuntimeGitDir(realGit, root, hooksDir)
 	gitCommonDir := resolveRuntimeGitCommonDir(realGit, root, hooksDir)
 
 	runBinary, err := os.Executable()
@@ -171,6 +174,7 @@ func resolveRuntimePaths() (runtimePaths, error) {
 			RealGit:       realGit,
 			InvocationCWD: invocationCWD,
 			LocalRoot:     localRoot,
+			GitDir:        gitDir,
 			GitCommonDir:  gitCommonDir,
 			Root:          root,
 			HooksDir:      hooksDir,
@@ -187,6 +191,7 @@ type runtimePathInputs struct {
 	RealGit       string
 	InvocationCWD string
 	LocalRoot     string
+	GitDir        string
 	GitCommonDir  string
 	Root          string
 	HooksDir      string
@@ -249,7 +254,77 @@ func resolveRuntimeGitCommonDir(realGit, root, hooksDir string) string {
 	return filepath.Dir(hooksDir)
 }
 
+func resolveRuntimeGitDir(realGit, root, hooksDir string) string {
+	gitDir, err := gitOutput(
+		realGit,
+		root,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-dir",
+	)
+	if err == nil && strings.TrimSpace(gitDir) != "" {
+		return gitDir
+	}
+
+	gitDir, err = resolveGitDirFromDotGitFile(root)
+	if err == nil && strings.TrimSpace(gitDir) != "" {
+		return gitDir
+	}
+
+	return filepath.Dir(hooksDir)
+}
+
 func resolveGitCommonDirFromDotGitFile(root string) (string, error) {
+	gitDir, err := resolveGitDirFromDotGitFile(root)
+	if err != nil {
+		return "", apperror.Wrapf(
+			apperror.StaticError("read git commondir file"),
+			"read git commondir file: %v",
+			err,
+		)
+	}
+
+	return resolveGitCommonDirFromGitDir(gitDir)
+}
+
+func resolveGitCommonDirFromGitDir(gitDir string) (string, error) {
+	commonDir, err := resolveGitCommonDirFile(gitDir)
+	if err == nil && strings.TrimSpace(commonDir) != "" {
+		return commonDir, nil
+	}
+
+	worktreesDir := filepath.Dir(gitDir)
+	if filepath.Base(worktreesDir) == "worktrees" {
+		return filepath.Dir(worktreesDir), nil
+	}
+
+	return gitDir, nil
+}
+
+func resolveGitCommonDirFile(gitDir string) (string, error) {
+	// #nosec G703 -- gitDir is resolved from Git metadata for this checkout.
+	content, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return "", apperror.Wrapf(
+			apperror.StaticError("read git commondir file"),
+			"read git commondir file: %v",
+			err,
+		)
+	}
+
+	commonDir := strings.TrimSpace(string(content))
+	if commonDir == "" {
+		return "", apperror.StaticError("empty git commondir file")
+	}
+
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(gitDir, commonDir)
+	}
+
+	return filepath.Clean(commonDir), nil
+}
+
+func resolveGitDirFromDotGitFile(root string) (string, error) {
 	dotGit := filepath.Join(root, ".git")
 
 	info, err := os.Stat(dotGit)
@@ -281,14 +356,15 @@ func resolveGitCommonDirFromDotGitFile(root string) (string, error) {
 		gitDir = filepath.Join(root, gitDir)
 	}
 
-	if filepath.Base(filepath.Dir(gitDir)) == "worktrees" {
-		return filepath.Dir(filepath.Dir(gitDir)), nil
-	}
-
-	return gitDir, nil
+	return filepath.Clean(gitDir), nil
 }
 
 func runtimePathSet(inputs runtimePathInputs) runtimePaths {
+	gitDir := inputs.GitDir
+	if strings.TrimSpace(gitDir) == "" {
+		gitDir = filepath.Dir(inputs.HooksDir)
+	}
+
 	gitCommonDir := inputs.GitCommonDir
 	if strings.TrimSpace(gitCommonDir) == "" {
 		gitCommonDir = filepath.Dir(inputs.HooksDir)
@@ -298,6 +374,7 @@ func runtimePathSet(inputs runtimePathInputs) runtimePaths {
 		RealGit:       inputs.RealGit,
 		InvocationCWD: inputs.InvocationCWD,
 		LocalRoot:     inputs.LocalRoot,
+		GitDir:        gitDir,
 		GitCommonDir:  gitCommonDir,
 		Root:          inputs.Root,
 		HooksDir:      inputs.HooksDir,
@@ -411,7 +488,11 @@ func (paths runtimePaths) export() {
 }
 
 func exitErr(err error) {
-	fmt.Fprintln(os.Stderr, err)
+	feedback.Emit(
+		os.Stderr,
+		feedback.Error{Message: err.Error()},
+		feedback.FormatTOON,
+	)
 
 	var coded interface{ ExitCode() int }
 	if errors.As(err, &coded) {

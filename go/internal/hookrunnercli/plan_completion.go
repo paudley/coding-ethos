@@ -227,7 +227,7 @@ func checkPlanCompletionErrors(
 func checkPlanCompletionCommand(_ Config, args []string) int {
 	settings, err := loadPlanCompletionSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -249,7 +249,7 @@ func checkPlanCompletionCommand(_ Config, args []string) int {
 	for _, metadataPath := range metadataFiles {
 		findings, foundStatus, err := checkPlanCompletionErrors(metadataPath, settings)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "FATAL: %s: %v\n", metadataPath, err)
+			writef(os.Stderr, "FATAL: %s: %v\n", metadataPath, err)
 
 			return 1
 		}

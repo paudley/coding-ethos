@@ -4,18 +4,20 @@
 package policycli
 
 import (
-	"encoding/json"
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
 
 	"blackcat.ca/coding-ethos/go/internal/agentskills"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
@@ -79,7 +81,7 @@ func runCLI(args []string) int {
 
 	err := handler(args[1:])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err)
+		writePolicyError(err)
 
 		return 1
 	}
@@ -123,7 +125,7 @@ func syncToolConfigs(args []string) error {
 	}
 
 	for _, path := range written {
-		fmt.Fprintln(os.Stdout, path)
+		writePolicyOutput(path)
 	}
 
 	return nil
@@ -145,7 +147,7 @@ func checkToolConfigs(args []string) error {
 	}
 
 	for _, path := range mismatched {
-		fmt.Fprintln(os.Stdout, path)
+		writePolicyOutput(path)
 	}
 
 	if len(mismatched) > 0 {
@@ -195,7 +197,7 @@ func syncGeminiPrompts(args []string) error {
 	}
 
 	for _, path := range written {
-		fmt.Fprintln(os.Stdout, path)
+		writePolicyOutput(path)
 	}
 
 	return nil
@@ -213,7 +215,7 @@ func checkGeminiPrompts(args []string) error {
 	}
 
 	for _, path := range mismatched {
-		fmt.Fprintln(os.Stdout, path)
+		writePolicyOutput(path)
 	}
 
 	if len(mismatched) > 0 {
@@ -235,7 +237,7 @@ func syncAgentSkills(args []string) error {
 	}
 
 	for _, path := range written {
-		fmt.Fprintln(os.Stdout, path)
+		writePolicyOutput(path)
 	}
 
 	return nil
@@ -253,7 +255,7 @@ func checkAgentSkills(args []string) error {
 	}
 
 	for _, path := range mismatched {
-		fmt.Fprintln(os.Stdout, path)
+		writePolicyOutput(path)
 	}
 
 	if len(mismatched) > 0 {
@@ -468,10 +470,7 @@ func compileValidConfigTraceBundle(options configTraceOptions) (policy.Bundle, e
 }
 
 func writeConfigTraceJSON(report configTraceReport) error {
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-
-	err := encoder.Encode(report)
+	err := feedback.WriteJSON(os.Stdout, report)
 	if err != nil {
 		return fmt.Errorf("encode policy validation report: %w", err)
 	}
@@ -480,26 +479,28 @@ func writeConfigTraceJSON(report configTraceReport) error {
 }
 
 func writeConfigTraceText(report configTraceReport) {
-	fmt.Fprintf(os.Stdout, "status: %s\n", report.Status)
-	fmt.Fprintf(os.Stdout, "config: %s\n", report.Config)
-	fmt.Fprintf(
-		os.Stdout,
-		"config_sections: %s\n",
-		strings.Join(report.ConfigSections, ", "),
-	)
+	scalars := []feedback.Scalar{
+		feedback.S("status", report.Status),
+		feedback.S("config", report.Config),
+		feedback.S("config_sections", strings.Join(report.ConfigSections, ", ")),
+	}
 
 	if report.RepoConfig != "" {
-		fmt.Fprintf(os.Stdout, "repo_config: %s\n", report.RepoConfig)
-		fmt.Fprintf(
-			os.Stdout,
-			"repo_config_sections: %s\n",
-			strings.Join(report.RepoConfigSections, ", "),
+		scalars = append(
+			scalars,
+			feedback.S("repo_config", report.RepoConfig),
+			feedback.S("repo_config_sections", strings.Join(report.RepoConfigSections, ", ")),
 		)
 	}
 
-	fmt.Fprintf(os.Stdout, "policies: %d\n", report.Policies)
-	fmt.Fprintf(os.Stdout, "evidence_maps: %d\n", report.EvidenceMaps)
-	fmt.Fprintf(os.Stdout, "dispatch_scopes: %d\n", report.DispatchScopes)
+	scalars = append(
+		scalars,
+		feedback.S("policies", strconv.Itoa(report.Policies)),
+		feedback.S("evidence_maps", strconv.Itoa(report.EvidenceMaps)),
+		feedback.S("dispatch_scopes", strconv.Itoa(report.DispatchScopes)),
+	)
+
+	feedback.Emit(os.Stdout, feedback.Message{Scalars: scalars}, feedback.FormatTOON)
 }
 
 func validatedConfigSections(
@@ -816,9 +817,20 @@ func dumpExample(args []string) error {
 		return fmt.Errorf("parse dump-example flags: %w", err)
 	}
 
-	err = policy.EncodeBundle(os.Stdout, policy.ExampleBundle())
+	var buffer bytes.Buffer
+
+	err = policy.EncodeBundle(&buffer, policy.ExampleBundle())
 	if err != nil {
 		return fmt.Errorf("encode example bundle: %w", err)
+	}
+
+	err = feedback.WriteRendered(
+		os.Stdout,
+		strings.TrimSuffix(buffer.String(), "\n"),
+		feedback.FormatJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("write example bundle: %w", err)
 	}
 
 	return nil
@@ -880,7 +892,7 @@ func validate(args []string) error {
 		)
 	}
 
-	fmt.Fprintln(os.Stdout, "policy bundle valid")
+	writePolicyOutput("policy bundle valid")
 
 	return nil
 }
@@ -916,9 +928,20 @@ func explain(args []string) error {
 		)
 	}
 
-	err = policy.ExplainPolicy(os.Stdout, bundle, flags.Arg(0))
+	var buffer bytes.Buffer
+
+	err = policy.ExplainPolicy(&buffer, bundle, flags.Arg(0))
 	if err != nil {
 		return fmt.Errorf("explain policy: %w", err)
+	}
+
+	err = feedback.WriteRendered(
+		os.Stdout,
+		strings.TrimSuffix(buffer.String(), "\n"),
+		feedback.FormatTOON,
+	)
+	if err != nil {
+		return fmt.Errorf("write policy explanation: %w", err)
 	}
 
 	return nil
@@ -964,7 +987,7 @@ func writeArtifacts(
 		return fmt.Errorf("write summary file: %w", err)
 	}
 
-	fmt.Fprintf(os.Stdout, "wrote policy artifacts to %s\n", outDir)
+	writePolicyOutput("wrote policy artifacts to " + outDir)
 
 	return nil
 }
@@ -1015,7 +1038,7 @@ func writeSummaryFile(path string, bundle policy.Bundle) error {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `usage:
+	writePolicyOutputTo(os.Stderr, `usage:
   coding-ethos-policy compile --out-dir .git/coding-ethos-hooks/policy
       [--primary coding_ethos.yml] [--config config.yaml]
   coding-ethos-policy dump-example
@@ -1040,4 +1063,24 @@ func usage() {
   coding-ethos-policy check-agent-skills --repo REPO [--ethos-root .]
       [--primary coding_ethos.yml] [--repo-ethos repo_ethos.yml]
 `)
+}
+
+func writePolicyError(err error) {
+	feedback.Emit(
+		os.Stderr,
+		feedback.Error{Message: err.Error()},
+		feedback.FormatTOON,
+	)
+}
+
+func writePolicyOutput(text string) {
+	writePolicyOutputTo(os.Stdout, text)
+}
+
+func writePolicyOutputTo(writer *os.File, text string) {
+	feedback.Emit(
+		writer,
+		feedback.Text{Text: strings.TrimSuffix(text, "\n")},
+		feedback.FormatTOON,
+	)
 }

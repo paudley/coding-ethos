@@ -4,7 +4,7 @@
 package agenthookscli
 
 import (
-	"encoding/json"
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -13,6 +13,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/agenthooks"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 )
 
 const (
@@ -46,7 +47,11 @@ func runCLI(args []string) int {
 	}
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err)
+		feedback.Emit(
+			os.Stderr,
+			feedback.Error{Message: err.Error()},
+			feedback.FormatTOON,
+		)
 
 		return 1
 	}
@@ -63,9 +68,20 @@ func printSettings(args []string) error {
 		return fmt.Errorf("parse print flags: %w", err)
 	}
 
-	err = agenthooks.WriteSettings(os.Stdout, defaultHookCommand(*hookCommand))
+	var buffer bytes.Buffer
+
+	err = agenthooks.WriteSettings(&buffer, defaultHookCommand(*hookCommand))
 	if err != nil {
 		return fmt.Errorf("write agent hook settings: %w", err)
+	}
+
+	err = feedback.WriteRendered(
+		os.Stdout,
+		strings.TrimSuffix(buffer.String(), "\n"),
+		feedback.FormatJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("emit agent hook settings: %w", err)
 	}
 
 	return nil
@@ -199,11 +215,7 @@ func writeDoctorReport(file *os.File) error {
 }
 
 func writeJSONReport(file *os.File, payload any) error {
-	encoder := json.NewEncoder(file)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-
-	err := encoder.Encode(payload)
+	err := feedback.WriteJSON(file, payload)
 	if err != nil {
 		return fmt.Errorf("encode doctor report: %w", err)
 	}
@@ -216,8 +228,11 @@ func usage() {
 }
 
 func usageTo(writer io.Writer) {
-	fmt.Fprintln(
+	feedback.Emit(
 		writer,
-		"Usage: coding-ethos-agent-hooks <print|sync|doctor|verify> [flags]",
+		feedback.Text{
+			Text: "Usage: coding-ethos-agent-hooks <print|sync|doctor|verify> [flags]",
+		},
+		feedback.FormatTOON,
 	)
 }

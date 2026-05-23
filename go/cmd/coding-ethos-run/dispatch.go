@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +25,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
@@ -340,7 +340,11 @@ func emitAgentShellBlock(result hooks.Result) {
 	if err != nil {
 		err = hooks.EncodeProviderResult(os.Stderr, result)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, hooks.ProviderBlockMessage(result))
+			feedback.Emit(
+				os.Stderr,
+				feedback.Text{Text: hooks.ProviderBlockMessage(result)},
+				feedback.FormatTOON,
+			)
 		}
 	}
 
@@ -416,13 +420,9 @@ func emitAgentShellCheck(result hooks.Result, request agentShellRequest) error {
 		),
 	}
 
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-
-	err := encoder.Encode(payload)
+	err := feedback.WriteJSON(os.Stdout, payload)
 	if err != nil {
-		return fmt.Errorf("encode agent-shell check result: %w", err)
+		return fmt.Errorf("write agent-shell check result: %w", err)
 	}
 
 	return nil

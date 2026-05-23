@@ -30,7 +30,7 @@ type compiledQuietFilter struct {
 func quietFilter(cfg Config, _ []string) int {
 	filter, err := compileQuietFilter(cfg.QuietFilter)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -165,7 +165,7 @@ func runQuietFilter(filter compiledQuietFilter, input io.Reader, output io.Write
 
 	err := scanner.Err()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "quiet-filter: %v\n", err)
+		writef(os.Stderr, "quiet-filter: %v\n", err)
 
 		return 1
 	}

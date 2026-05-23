@@ -280,7 +280,7 @@ func findCommentSuppressions(
 func checkCommentSuppressionsCommand(_ Config, args []string) int {
 	settings, err := loadCommentSuppressionSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -291,7 +291,7 @@ func checkCommentSuppressionsCommand(_ Config, args []string) int {
 
 	patterns, err := compileCommentSuppressionPatterns(settings)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -305,7 +305,7 @@ func checkCommentSuppressionsCommand(_ Config, args []string) int {
 
 		violations, err := findCommentSuppressions(path, patterns)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ERROR: %s: %v\n", path, err)
+			writef(os.Stderr, "ERROR: %s: %v\n", path, err)
 
 			return 1
 		}

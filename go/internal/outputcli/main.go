@@ -5,13 +5,13 @@ package outputcli
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 )
 
@@ -91,9 +91,17 @@ func report(ctx context.Context, args []string) error {
 	case "json":
 		return encodeJSON(report)
 	case outputFormatTOON:
-		_, err = os.Stdout.WriteString(outputsurface.FormatTOON(report))
+		err = feedback.WriteRendered(
+			os.Stdout,
+			outputsurface.FormatTOON(report),
+			feedback.FormatTOON,
+		)
 	case "human":
-		_, err = os.Stdout.WriteString(outputsurface.FormatHuman(report))
+		err = feedback.WriteRendered(
+			os.Stdout,
+			outputsurface.FormatHuman(report),
+			feedback.FormatHuman,
+		)
 	default:
 		return fmt.Errorf("%w: %q", errUnsupportedReportFormat, *format)
 	}
@@ -182,9 +190,17 @@ func writePruneReport(format string, report outputsurface.PruneReport) error {
 	case "json":
 		return encodeJSON(report)
 	case outputFormatTOON:
-		_, err = os.Stdout.WriteString(outputsurface.FormatPruneTOON(report))
+		err = feedback.WriteRendered(
+			os.Stdout,
+			outputsurface.FormatPruneTOON(report),
+			feedback.FormatTOON,
+		)
 	case "human":
-		_, err = os.Stdout.WriteString(outputsurface.FormatPruneHuman(report))
+		err = feedback.WriteRendered(
+			os.Stdout,
+			outputsurface.FormatPruneHuman(report),
+			feedback.FormatHuman,
+		)
 	default:
 		return fmt.Errorf("%w: %q", errUnsupportedPruneFormat, format)
 	}
@@ -217,21 +233,23 @@ func outputFormatOrDefault(format string, settings outputsurface.Settings) strin
 }
 
 func encodeJSON(value any) error {
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-
-	err := encoder.Encode(value)
+	err := feedback.WriteJSON(os.Stdout, value)
 	if err != nil {
-		return fmt.Errorf("encode output JSON: %w", err)
+		return fmt.Errorf("write output JSON: %w", err)
 	}
 
 	return nil
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, "Usage: coding-ethos-run output <command> [options]")
-	fmt.Fprintln(os.Stderr, "Commands:")
-	fmt.Fprintln(os.Stderr, "  prune     preview or apply output surface pruning")
-	fmt.Fprintln(os.Stderr, "  report    inventory coding-ethos disk output surfaces")
+	feedback.Emit(
+		os.Stderr,
+		feedback.Text{Text: strings.Join([]string{
+			"Usage: coding-ethos-run output <command> [options]",
+			"Commands:",
+			"  prune     preview or apply output surface pruning",
+			"  report    inventory coding-ethos disk output surfaces",
+		}, "\n")},
+		feedback.FormatTOON,
+	)
 }

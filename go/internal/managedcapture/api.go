@@ -4,7 +4,6 @@
 package managedcapture
 
 import (
-	"fmt"
 	"io"
 	"os"
 
@@ -49,6 +48,6 @@ func ExecutableAvailable(path string) bool {
 }
 
 func exitErr(err error) {
-	fmt.Fprintln(os.Stderr, err)
+	emitManagedCaptureError(err)
 	os.Exit(1)
 }

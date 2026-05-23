@@ -5,12 +5,12 @@ package toolchaincli
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 )
@@ -118,7 +118,7 @@ func runCLI(args []string) int {
 			return 1
 		}
 
-		fmt.Fprintln(os.Stderr, err)
+		writeToolchainError(err)
 
 		return 1
 	}
@@ -137,14 +137,26 @@ func printToolchainDiagnostics(items []diagnostics.Diagnostic) {
 		Diagnostics: items,
 	}, hookoutput.FormatTOON)
 	if err != nil {
+		rows := make([][]string, 0, len(items))
 		for _, item := range items {
-			fmt.Fprintf(os.Stderr, "%s: %s\n", item.Tool, item.Message)
+			rows = append(rows, []string{item.Tool, item.Message})
 		}
+
+		feedback.Emit(
+			os.Stderr,
+			feedback.Message{
+				Scalars: []feedback.Scalar{feedback.S("status", "blocked")},
+				Tables: []feedback.Table{
+					feedback.T("diagnostics", []string{"tool", "message"}, rows),
+				},
+			},
+			feedback.FormatTOON,
+		)
 
 		return
 	}
 
-	fmt.Fprintln(os.Stderr, output)
+	writeToolchainText(os.Stderr, output)
 }
 
 type toolchainCommandHandler func([]string) error
@@ -170,7 +182,23 @@ func toolchainCommandHandlers() map[string]toolchainCommandHandler {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, strings.Join(usageLines(), "\n"))
+	writeToolchainText(os.Stderr, strings.Join(usageLines(), "\n"))
+}
+
+func writeToolchainError(err error) {
+	feedback.Emit(
+		os.Stderr,
+		feedback.Error{Message: err.Error()},
+		feedback.FormatTOON,
+	)
+}
+
+func writeToolchainText(writer *os.File, text string) {
+	feedback.Emit(
+		writer,
+		feedback.Text{Text: strings.TrimSuffix(text, "\n")},
+		feedback.FormatTOON,
+	)
 }
 
 func usageLines() []string {

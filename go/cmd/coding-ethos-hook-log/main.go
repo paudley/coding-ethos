@@ -5,10 +5,10 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 
 	"blackcat.ca/coding-ethos/go/internal/execguard"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/hooklogcli"
 )
 
@@ -29,7 +29,11 @@ func main() {
 		} else {
 			status = 1
 
-			fmt.Fprintf(os.Stderr, "%s\n", err)
+			feedback.Emit(
+				os.Stderr,
+				feedback.Error{Message: err.Error()},
+				feedback.FormatTOON,
+			)
 		}
 	}
 

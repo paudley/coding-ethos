@@ -873,6 +873,52 @@ func TestCapturedSandboxRuntimeDenialReasonUsesWrapperMarker(t *testing.T) {
 	}
 }
 
+func TestBuildCapturedSandboxPlanAllowsHookSubprocessesInsideAgentShell(
+	t *testing.T,
+) {
+	repo := t.TempDir()
+	tool := filepath.Join(repo, "bin", "ruff")
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+	runDir := filepath.Join(repo, ".coding-ethos", "cache", "agent-shell", "run-test")
+	realGit := filepath.Join(runDir, "real-git")
+
+	if err := os.MkdirAll(filepath.Dir(tool), 0o700); err != nil {
+		t.Fatalf("create tool dir: %v", err)
+	}
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
+		t.Fatalf("create agent-shell run dir: %v", err)
+	}
+
+	writeExecutableFixture(t, tool, "#!/usr/bin/env sh\nexit 0\n")
+	writeExecutableFixture(t, wrapper, "#!/usr/bin/env sh\nexit 0\n")
+	writeExecutableFixture(t, realGit, "#!/usr/bin/env sh\nexit 0\n")
+
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_REAL_GIT", realGit)
+
+	plan, err := buildCapturedSandboxPlan(captureRequest{
+		Tool:               "ruff",
+		ToolPath:           tool,
+		Cwd:                repo,
+		TraceRoot:          repo,
+		SandboxBackendPath: wrapper,
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "lint-offline",
+			WritePaths:     []string{".coding-ethos/cache"},
+		},
+	}, []string{"check", "."})
+	if err != nil {
+		t.Fatalf("build captured sandbox plan: %v", err)
+	}
+
+	if !plan.Evidence.RequiresProcesses || plan.Evidence.ProcessIsolated {
+		t.Fatalf("agent-shell nested capture must preserve subprocesses: %#v", plan.Evidence)
+	}
+	if !plan.Evidence.Enabled || !plan.Evidence.RepoReadOnly {
+		t.Fatalf("nested capture lost filesystem sandbox evidence: %#v", plan.Evidence)
+	}
+}
+
 func TestCapturedSandboxRuntimeDenialReasonIgnoresToolExit126(t *testing.T) {
 	t.Parallel()
 

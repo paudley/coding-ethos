@@ -158,7 +158,7 @@ func executeCapturedTool(request captureRequest) captureExecution {
 	defer func() {
 		err := plan.Close()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "WARN: sandbox resources not closed: %v\n", err)
+			emitManagedCaptureText("warning: sandbox resources not closed: " + err.Error())
 		}
 	}()
 
@@ -223,13 +223,23 @@ func buildCapturedSandboxPlan(
 		RepoRoot:     firstCaptureNonEmpty(request.TraceRoot, request.Cwd),
 		Args:         runArgs,
 		BackendPath:  request.SandboxBackendPath,
-		Capabilities: request.Capabilities,
+		Capabilities: captureSandboxCapabilities(request.Capabilities),
 	})
 	if err != nil {
 		return plan, fmt.Errorf("build captured sandbox plan: %w", err)
 	}
 
 	return plan, nil
+}
+
+func captureSandboxCapabilities(
+	capabilities sandbox.Capabilities,
+) sandbox.Capabilities {
+	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") == "1" {
+		capabilities.RequiresProcesses = true
+	}
+
+	return capabilities
 }
 
 func runCapturedPlan(
@@ -929,7 +939,7 @@ func logCapturedToolResult(
 ) {
 	_, err := lint.LogResult(cwd, result)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", err)
+		emitManagedCaptureText("warning: lint trace not written: " + err.Error())
 
 		return
 	}
@@ -941,7 +951,7 @@ func logCapturedToolResult(
 		false,
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARN: lint trace auto-prune failed: %v\n", err)
+		emitManagedCaptureText("warning: lint trace auto-prune failed: " + err.Error())
 	}
 }
 

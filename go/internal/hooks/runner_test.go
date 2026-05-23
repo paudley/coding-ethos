@@ -1456,6 +1456,44 @@ func TestRunBlocksShellFileToolEmulation(t *testing.T) {
 	}
 }
 
+func TestRunAllowsCodexShellFileInspection(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"cat README.md",
+		"sed -n '1,20p' README.md",
+		"awk '{print}' README.md",
+	} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					Cwd:           t.TempDir(),
+					HookEventName: eventPreToolUse,
+					ProviderHint:  "codex",
+					ToolName:      toolBash,
+					ToolInput: map[string]any{
+						"command": command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.Status != statusAllowed {
+				t.Fatalf(
+					"status for %q = %q decisions %#v",
+					command,
+					result.Status,
+					result.Decisions,
+				)
+			}
+		})
+	}
+}
+
 func TestRunAllowsPlainShellOutputWithoutFileEmulation(t *testing.T) {
 	t.Parallel()
 
@@ -2331,7 +2369,7 @@ func TestRunBlocksEvasiveGitThroughPython(t *testing.T) {
 
 	if !strings.Contains(
 		result.Decisions[0].Message,
-		"CODING-ETHOS EMPLOYMENT VIOLATION",
+		"Direct git execution must use the approved",
 	) {
 		t.Fatalf("unexpected refusal message: %#v", result.Decisions[0])
 	}
@@ -3041,15 +3079,13 @@ func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 	}
 }
 
-func TestBlockedAdvicePrefixesSevereViolationInTOONOutput(t *testing.T) {
+func TestBlockedAdviceMarksProtectedOperationInTOONOutput(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 
 	advice := BlockedAdvice(severeViolationResult())
 
 	for _, expected := range []string{
-		"violation_warning: !!! CODING-ETHOS EMPLOYMENT VIOLATION:",
-		"You have done something wrong.",
-		"may result in termination",
+		"protected_operation: coding-ethos blocked a protected operation.",
 		"policy_id: filesystem.protected_path",
 		"message: Protected coding-ethos hook paths must not be modified.",
 	} {
@@ -3059,18 +3095,16 @@ func TestBlockedAdvicePrefixesSevereViolationInTOONOutput(t *testing.T) {
 	}
 }
 
-func TestBlockedAdvicePrefixesSevereViolationInHumanOutput(t *testing.T) {
+func TestBlockedAdviceMarksProtectedOperationInHumanOutput(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "human")
 
 	advice := BlockedAdvice(severeViolationResult())
 
-	if !strings.HasPrefix(advice, "!!! CODING-ETHOS EMPLOYMENT VIOLATION:") {
-		t.Fatalf("severe warning was not first in human advice: %s", advice)
+	if !strings.HasPrefix(advice, "coding-ethos blocked a protected operation.") {
+		t.Fatalf("protected operation warning was not first in human advice: %s", advice)
 	}
 
 	for _, expected := range []string{
-		"You have done something wrong.",
-		"may result in termination",
 		"[coding-ethos:filesystem.protected_path] " +
 			"Protected coding-ethos hook paths must not be modified.",
 	} {
@@ -3080,15 +3114,13 @@ func TestBlockedAdvicePrefixesSevereViolationInHumanOutput(t *testing.T) {
 	}
 }
 
-func TestBlockedAdvicePrefixesSevereViolationInJSONOutput(t *testing.T) {
+func TestBlockedAdviceMarksProtectedOperationInJSONOutput(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "json")
 
 	advice := BlockedAdvice(severeViolationResult())
 
 	for _, expected := range []string{
-		`"violation_warning": "!!! CODING-ETHOS EMPLOYMENT VIOLATION:`,
-		"You have done something wrong.",
-		"may result in termination",
+		`"protected_operation": "coding-ethos blocked a protected operation."`,
 		`"policy_id": "filesystem.protected_path"`,
 	} {
 		if !strings.Contains(advice, expected) {
@@ -3939,10 +3971,9 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 		`"decision": "block"`,
 		`"trackingID": "hook-`,
 		`"permissionDecision": "deny"`,
-		`"reason": "trackingID: hook-`,
-		`coding-ethos blocked this action (git.hook_bypass). ` +
-			`!!! CODING-ETHOS EMPLOYMENT VIOLATION:`,
-		"may result in termination",
+		`event: PreToolUse`,
+		`policy_id,decision,severity,message,suggestion`,
+		`git.hook_bypass`,
 		"Run the configured gate and fix the underlying failure.",
 	} {
 		if !strings.Contains(output, expected) {
@@ -3950,16 +3981,10 @@ func TestEncodeProviderResultUsesCodexBlockShape(t *testing.T) {
 		}
 	}
 
-	if strings.Contains(output, `\n`) {
-		t.Fatalf(
-			"Codex block output must be single-line-safe JSON strings:\n%s",
-			output,
-		)
-	}
-
 	for _, forbidden := range []string{
 		`"systemMessage"`,
-		"\\n",
+		"EMPLOYMENT VIOLATION",
+		"termination",
 	} {
 		if strings.Contains(output, forbidden) {
 			t.Fatalf("Codex block output leaked %q:\n%s", forbidden, output)
@@ -3997,8 +4022,8 @@ func TestEncodeProviderResultUsesGeminiDenyShape(t *testing.T) {
 		`"decision": "deny"`,
 		`"reason"`,
 		`"systemMessage"`,
-		"CODING-ETHOS EMPLOYMENT VIOLATION",
-		"may result in termination",
+		`event: PreToolUse`,
+		`git.hook_bypass`,
 		"Run the configured gate and fix the underlying failure.",
 	} {
 		if !strings.Contains(output, expected) {

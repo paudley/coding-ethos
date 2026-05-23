@@ -357,7 +357,10 @@ func prepareWritablePath(repoRoot, originalPath, path string, create bool) error
 		return err
 	}
 
-	if !info.IsDir() && !info.Mode().IsRegular() && path != os.DevNull {
+	if !info.IsDir() &&
+		!info.Mode().IsRegular() &&
+		path != os.DevNull &&
+		!allowedTerminalWritePath(path) {
 		return fmt.Errorf("%w: %s", errWritePathNotAllowed, path)
 	}
 
@@ -592,7 +595,10 @@ func addLandlockWriteRule(rulesetFD uintptr, path string) error {
 		return fmt.Errorf("stat landlock writable path %s: %w", path, statErr)
 	}
 
-	if !info.IsDir() && !info.Mode().IsRegular() && path != os.DevNull {
+	if !info.IsDir() &&
+		!info.Mode().IsRegular() &&
+		path != os.DevNull &&
+		!allowedTerminalWritePath(path) {
 		return fmt.Errorf("%w: %s", errWritePathNotAllowed, path)
 	}
 
