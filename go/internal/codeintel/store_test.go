@@ -192,6 +192,45 @@ func TestIngestHookTraceFilePreservesSourcePath(t *testing.T) {
 	}
 }
 
+func TestSourcePathsIngestedChecksExactAndChildPathsInOneCall(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store := openTestStore(t, ctx)
+	parent := filepath.Join(root, ".coding-ethos", "lint-runs")
+	child := filepath.Join(parent, "run-a.json")
+
+	err := store.IngestTrace(ctx, Trace{
+		ID:            "trace-a",
+		Kind:          "lint",
+		RecordedAtUTC: "2026-01-01T00:00:00Z",
+		SourcePath:    child,
+	})
+	if err != nil {
+		t.Fatalf("ingest trace: %v", err)
+	}
+
+	results, err := store.SourcePathsIngested(ctx, []SourcePathIngestRequest{
+		{Path: child},
+		{Path: parent, IncludeChildren: true},
+		{Path: filepath.Join(root, ".coding-ethos", "missing")},
+	})
+	if err != nil {
+		t.Fatalf("check source paths ingested: %v", err)
+	}
+
+	if !results[filepath.ToSlash(filepath.Clean(child))] {
+		t.Fatalf("exact child source path not marked ingested: %#v", results)
+	}
+	if !results[filepath.ToSlash(filepath.Clean(parent))] {
+		t.Fatalf("parent source path not marked ingested: %#v", results)
+	}
+	if results[filepath.ToSlash(filepath.Clean(filepath.Join(root, ".coding-ethos", "missing")))] {
+		t.Fatalf("missing source path marked ingested: %#v", results)
+	}
+}
+
 func TestStoreIngestTraceDirsBackfillsMissingTraceIDs(t *testing.T) {
 	t.Parallel()
 

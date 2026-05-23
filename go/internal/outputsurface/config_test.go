@@ -127,6 +127,21 @@ max_bytes = "large"
 	}
 }
 
+func TestLoadSettingsRejectsInvalidIntegerPolicy(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeConfigFixture(t, root, "repo_config.toml", `
+[outputs.prune.surfaces.hook_runs]
+keep_last = "many"
+`)
+
+	_, err := LoadSettings(root)
+	if err == nil {
+		t.Fatal("LoadSettings accepted invalid keep_last")
+	}
+}
+
 func TestLoadSettingsRejectsUnknownOutputConfigPaths(t *testing.T) {
 	t.Parallel()
 
