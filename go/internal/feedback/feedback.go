@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	FormatHuman = "human"
-	FormatJSON  = "json"
-	FormatSARIF = "sarif"
-	FormatTOON  = "toon"
+	FormatHuman       = "human"
+	FormatJSON        = "json"
+	FormatSARIF       = "sarif"
+	FormatTOON        = "toon"
+	sarifLevelWarning = "warning"
 )
 
 var errUnsupportedFeedbackFormat = errors.New("unsupported feedback format")
@@ -349,8 +350,8 @@ func sarifLevel(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "fatal", "fail", "failed", "error", "blocked", "denied":
 		return "error"
-	case "warn", "warning":
-		return "warning"
+	case "warn", sarifLevelWarning:
+		return sarifLevelWarning
 	default:
 		return "note"
 	}
