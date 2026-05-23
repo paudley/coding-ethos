@@ -25,8 +25,9 @@ func TestRunRejectsUnknownCommand(t *testing.T) {
 
 func TestRunWithoutArgsPrintsUsage(t *testing.T) {
 	output := captureStderr(t, func() {
-		if err := Run(context.Background(), nil); err != nil {
-			t.Fatalf("Run returned error: %v", err)
+		err := Run(context.Background(), nil)
+		if err == nil || !strings.Contains(err.Error(), "output command is required") {
+			t.Fatalf("Run error = %v, want output command required", err)
 		}
 	})
 	if !strings.Contains(output, "Usage: coding-ethos-run output") ||

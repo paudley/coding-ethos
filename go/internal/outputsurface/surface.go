@@ -362,7 +362,7 @@ func BuildReport(ctx context.Context, options Options) (Report, error) {
 	}
 
 	if settings.Prune.Surfaces == nil {
-		settings = DefaultSettings()
+		settings.Prune.Surfaces = DefaultSettings().Prune.Surfaces
 	}
 
 	for _, definition := range Definitions() {

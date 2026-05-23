@@ -614,7 +614,7 @@ func applyPruneCandidates(report *PruneReport) {
 			continue
 		}
 
-		path := filepath.Clean(candidate.Path)
+		path := filepath.Clean(filepath.FromSlash(candidate.Path))
 
 		var err error
 		if candidate.Kind == recordKindDirectory {

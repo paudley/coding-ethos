@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	schemaVersion = 1
-	storeDirMode  = 0o700
+	sourcePathClauseCapacityFactor = 2
+	sourcePathQueryArgFactor       = 4
+	schemaVersion                  = 1
+	storeDirMode                   = 0o700
 )
 
 type Store struct {
@@ -170,10 +172,9 @@ func (store *Store) SourcePathsIngested(
 		})
 	}
 
-	rows, err := store.database.QueryContext(
-		ctx,
-		`SELECT source_path FROM traces WHERE source_path != ''`,
-	)
+	query, args := sourcePathsIngestedQuery(normalized)
+
+	rows, err := store.database.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("check ingested source paths: %w", err)
 	}
@@ -200,6 +201,36 @@ func (store *Store) SourcePathsIngested(
 
 func cleanSourcePath(path string) string {
 	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func sourcePathsIngestedQuery(
+	requests []SourcePathIngestRequest,
+) (string, []any) {
+	clauses := make(
+		[]string,
+		0,
+		len(requests)*sourcePathClauseCapacityFactor,
+	)
+	args := make([]any, 0, len(requests)*sourcePathQueryArgFactor)
+
+	for _, request := range requests {
+		nativePath := filepath.FromSlash(request.Path)
+
+		clauses = append(clauses, "source_path IN (?, ?)")
+		args = append(args, nativePath, request.Path)
+
+		if request.IncludeChildren {
+			clauses = append(clauses, "(source_path LIKE ? OR source_path LIKE ?)")
+			args = append(
+				args,
+				nativePath+string(filepath.Separator)+"%",
+				request.Path+"/%",
+			)
+		}
+	}
+
+	return "SELECT DISTINCT source_path FROM traces WHERE " +
+		strings.Join(clauses, " OR "), args
 }
 
 func markIngestedSourcePath(

@@ -18,6 +18,7 @@ import (
 const outputFormatTOON = "toon"
 
 var (
+	errOutputCommandRequired   = apperror.StaticError("output command is required")
 	errUnknownOutputCommand    = apperror.StaticError("unknown output command")
 	errUnsupportedReportFormat = apperror.StaticError("unsupported output report format")
 	errUnsupportedPruneFormat  = apperror.StaticError("unsupported output prune format")
@@ -29,7 +30,7 @@ func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		printUsage()
 
-		return nil
+		return errOutputCommandRequired
 	}
 
 	handler, ok := commandHandlers()[args[0]]

@@ -201,7 +201,13 @@ func finishHookMaintenance(options Options, runDir string) error {
 		return err
 	}
 
-	return autoPruneHookRuns(options.Root)
+	err = autoPruneHookRuns(options.Root)
+	if err != nil {
+		_, _ = fmt.Fprintf(options.Stderr, "WARN: auto-prune hook runs: %v\n", err)
+		debuglog.Debug("hook.auto_prune.warn", zap.Error(err))
+	}
+
+	return nil
 }
 
 func refreshCodeIntelAfterRun(options Options, runDir string) error {
@@ -238,23 +244,7 @@ func refreshCodeIntelAfterRun(options Options, runDir string) error {
 }
 
 func autoPruneHookRuns(root string) error {
-	settings, err := outputsurface.LoadSettings(root)
-	if err != nil {
-		return fmt.Errorf("load hook run auto-prune settings: %w", err)
-	}
-
-	policy := settings.Prune.Surfaces["hook_runs"]
-	if !settings.Prune.Enabled || !settings.Prune.AutoEnabled || !policy.Enabled ||
-		!policy.Auto {
-		return nil
-	}
-
-	_, err = outputsurface.Prune(context.Background(), outputsurface.PruneOptions{
-		Root:     root,
-		Settings: settings,
-		Scopes:   []string{"hook_runs"},
-		Apply:    true,
-	})
+	err := outputsurface.AutoPruneSurface(context.Background(), root, "hook_runs", false)
 	if err != nil {
 		return fmt.Errorf("auto-prune hook runs: %w", err)
 	}

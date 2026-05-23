@@ -16,11 +16,14 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
+
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/configdata"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
@@ -780,6 +783,12 @@ func (options hookOutputCompressionOptions) withRepoConfig(
 		if policy.MaxBytes > 0 {
 			options.TempEvidenceMaxBytes = policy.MaxBytes
 		}
+	} else {
+		debuglog.Debug(
+			"proxy.output_compression.lifecycle_config.warn",
+			zap.String("root", root),
+			zap.Error(err),
+		)
 	}
 
 	return options
