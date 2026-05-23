@@ -407,9 +407,9 @@ func TestToolOutputTokenBudgetPreservesTailFailure(t *testing.T) {
 	output, err := agentproxy.NewPipeline(
 		nil,
 		agentproxy.ToolOutputTokenBudgetTransform{
-			MaxTokens:  32,
-			HeadTokens: 10,
-			TailTokens: 10,
+			MaxTokens:  128,
+			HeadTokens: 32,
+			TailTokens: 32,
 		},
 	).Apply(
 		context.Background(),
@@ -420,10 +420,9 @@ func TestToolOutputTokenBudgetPreservesTailFailure(t *testing.T) {
 	}
 
 	for _, expected := range []string{
-		"[WARNING: Payload exceeded 32 tokens. Output truncated by proxy.",
+		"token_budget: status=truncated max_tokens=128",
 		"$ pytest tests",
-		"token budget hard stop",
-		"full output: " + output.Record.EvidencePath,
+		"full_output=" + output.Record.EvidencePath,
 		"E   AssertionError: expected failure remains visible",
 	} {
 		if !strings.Contains(output.Text, expected) {
@@ -434,6 +433,7 @@ func TestToolOutputTokenBudgetPreservesTailFailure(t *testing.T) {
 	if output.Record.PolicyID != "proxy.token_budget" ||
 		output.Record.Decision != "truncate" ||
 		output.Record.EvidencePath == "" ||
+		output.Record.OutputTokens > 128 ||
 		output.Metadata["coding_ethos.token_budget_exceeded"] != "true" {
 		t.Fatalf("token-budget record = %#v metadata = %#v", output.Record, output.Metadata)
 	}
@@ -456,9 +456,9 @@ func TestToolOutputTokenBudgetCountsDenseOneLinePayload(t *testing.T) {
 	output, err := agentproxy.NewPipeline(
 		nil,
 		agentproxy.ToolOutputTokenBudgetTransform{
-			MaxTokens:  64,
-			HeadTokens: 12,
-			TailTokens: 12,
+			MaxTokens:  128,
+			HeadTokens: 24,
+			TailTokens: 24,
 		},
 	).Apply(
 		context.Background(),
@@ -469,10 +469,11 @@ func TestToolOutputTokenBudgetCountsDenseOneLinePayload(t *testing.T) {
 	}
 
 	if output.Record.Decision != "truncate" ||
-		output.Record.InputTokens <= 64 ||
+		output.Record.InputTokens <= 128 ||
+		output.Record.OutputTokens > 128 ||
 		output.Record.OutputTokens >= output.Record.InputTokens ||
 		output.Record.EvidencePath == "" ||
-		!strings.Contains(output.Text, "[WARNING: Payload exceeded 64 tokens.") {
+		!strings.Contains(output.Text, "token_budget: status=truncated") {
 		t.Fatalf("dense token-budget output = %#v text=%q", output.Record, output.Text)
 	}
 
@@ -498,6 +499,7 @@ func TestToolOutputTokenBudgetDefaultsToApproximateTokenizer(t *testing.T) {
 
 	if output.Record.Decision != "truncate" ||
 		output.Record.InputTokens != (agentproxy.ApproximateTokenizer{}).Count(payload) ||
+		output.Record.OutputTokens > 32 ||
 		strings.Contains(output.Text, payload) {
 		t.Fatalf("token-budget default tokenizer output = %#v text=%q",
 			output.Record,
@@ -527,9 +529,9 @@ func TestToolOutputTokenBudgetReusesLineCompressionEvidencePath(t *testing.T) {
 			Tail:     2,
 		},
 		agentproxy.ToolOutputTokenBudgetTransform{
-			MaxTokens:  32,
-			HeadTokens: 8,
-			TailTokens: 8,
+			MaxTokens:  80,
+			HeadTokens: 16,
+			TailTokens: 16,
 		},
 	).Apply(
 		context.Background(),
@@ -550,15 +552,41 @@ func TestToolOutputTokenBudgetReusesLineCompressionEvidencePath(t *testing.T) {
 		t.Fatalf("record = %#v metadata = %#v", output.Record, output.Metadata)
 	}
 
-	if !strings.Contains(output.Text, "token budget hard stop") ||
-		!strings.Contains(output.Text, "full output: "+compressionPath) {
+	if !strings.Contains(output.Text, "token_budget: status=truncated") ||
+		!strings.Contains(output.Text, "full_output="+compressionPath) {
 		t.Fatalf(
 			"token-budget output did not expose original evidence path:\n%s",
 			output.Text,
 		)
 	}
 
+	if output.Record.OutputTokens > 80 {
+		t.Fatalf("token-budget output exceeded max tokens: %#v", output.Record)
+	}
+
 	assertEvidenceFileContains(t, compressionPath, input)
+}
+
+func TestToolOutputTokenBudgetFitsControlTextWithinSmallBudget(t *testing.T) {
+	t.Parallel()
+
+	output, err := agentproxy.ToolOutputTokenBudgetTransform{
+		MaxTokens:  32,
+		HeadTokens: 8,
+		TailTokens: 8,
+	}.Apply(
+		context.Background(),
+		agentproxy.TransformInput{Text: strings.Repeat("important output ", 100)},
+	)
+	if err != nil {
+		t.Fatalf("apply token budget: %v", err)
+	}
+
+	if output.Record.Decision != "truncate" ||
+		output.Record.OutputTokens > 32 ||
+		!strings.Contains(output.Text, "token_budget: status=truncated") {
+		t.Fatalf("small-budget output = %#v text=%q", output.Record, output.Text)
+	}
 }
 
 func repeatedLines(line string, count int) []string {

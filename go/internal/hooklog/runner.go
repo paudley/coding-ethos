@@ -30,8 +30,13 @@ const (
 	loggedStreamCount = 2
 )
 
-const hookLogIgnoreRequiredMessage = "FATAL: %s is not ignored; add " +
-	".coding-ethos/ to the repo .gitignore before hook logs are written"
+const (
+	hookLogIgnoreRequiredMessage = "FATAL: %s is not ignored; add generated " +
+		".coding-ethos runtime subpaths to the repo .gitignore before hook logs are written"
+	hookLogBroadIgnoreMessage = "FATAL: .coding-ethos/ is ignored; remove the broad " +
+		".coding-ethos ignore so repo memories remain trackable"
+	hookLogRunDirPath = ".coding-ethos/hook-runs/"
+)
 
 var (
 	errCommandRequired               = apperror.StaticError("command is required")
@@ -643,17 +648,11 @@ func normalizedOptions(options Options) (Options, error) {
 }
 
 func requireHookLogIgnores(options Options) error {
-	for _, requiredIgnore := range []string{
-		".coding-ethos/",
-		".coding-ethos/hook-runs/example/stdout.log",
-	} {
-		err := requireIgnored(options, requiredIgnore)
-		if err != nil {
-			return err
-		}
+	if gitignoreContains(options.Root, ".coding-ethos/") {
+		return apperror.StaticError(hookLogBroadIgnoreMessage)
 	}
 
-	return nil
+	return requireIgnored(options, hookLogRunDirPath)
 }
 
 func hookRunID(startedAt time.Time) string {

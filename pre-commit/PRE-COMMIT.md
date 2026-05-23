@@ -49,11 +49,13 @@ entries that name the stale or missing surface and the next action.
 
 Each top-level hook runner invocation logs stdout, stderr, and run metadata
 under `.coding-ethos/hook-runs/<run-id>/` in the repo being checked. Keep
-`.coding-ethos/` and `.code-ethos/cache/` ignored in both the bundle repo and
-consuming repos; they are runtime evidence/cache paths for later analysis, not
-source. The cutover gate reports missing ignore rules before installation, and
-normal hook execution still fails before writing logs when required runtime
-paths are not ignored.
+generated runtime subpaths such as `.coding-ethos/hook-runs/`,
+`.coding-ethos/lint-runs/`, `.coding-ethos/cache/`, and `.code-ethos/cache/`
+ignored in both the bundle repo and consuming repos; do not ignore the parent
+`.coding-ethos/` directory, because `.coding-ethos/memories/` is repo source.
+The cutover gate reports missing or overly broad ignore rules before
+installation, and normal hook execution still fails before writing logs when
+required runtime paths are not ignored.
 
 Required tools:
 
@@ -403,7 +405,7 @@ compiler downloads that SPDX license text into the policy bundle, the hook
 verifies `LICENSE` without overwriting it, and source files must carry the
 configured SPDX license and copyright headers. The same compiled file-policy
 path also enforces configured PII scrub patterns and required runtime ignore
-paths such as `.coding-ethos/`.
+paths such as `.coding-ethos/hook-runs/`.
 
 Generated config drift is checked with:
 

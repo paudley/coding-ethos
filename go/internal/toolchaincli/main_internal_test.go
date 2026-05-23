@@ -629,7 +629,10 @@ func TestCutoverVerifyPassesAllSurfaces(t *testing.T) {
 
 	err := os.WriteFile(
 		filepath.Join(root, ".gitignore"),
-		[]byte(".coding-ethos/\n"),
+		[]byte(".code-ethos/cache/\n.coding-ethos/cache/\n"+
+			".coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n"+
+			".coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n"+
+			".coding-ethos/state/\n"),
 		privateFileMode,
 	)
 	if err != nil {
@@ -1171,13 +1174,16 @@ func TestRepoIgnoreFixItemLines(t *testing.T) {
 		t.Fatalf("repo ignore fix items before ignore: %v", err)
 	}
 
-	if len(items) != 2 {
+	if len(items) != 7 {
 		t.Fatalf("items before ignore = %#v", items)
 	}
 
 	inlineErr8 := os.WriteFile(
 		filepath.Join(repo, ".gitignore"),
-		[]byte(".coding-ethos/\n"),
+		[]byte(".code-ethos/cache/\n.coding-ethos/cache/\n"+
+			".coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n"+
+			".coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n"+
+			".coding-ethos/state/\n"),
 		privateFileMode,
 	)
 	if inlineErr8 != nil {
@@ -1206,8 +1212,33 @@ func TestRepoIgnoreFixItemsCommandPrintsItems(t *testing.T) {
 			t.Fatalf("repoIgnoreFixItems: %v", err)
 		}
 	})
-	if !strings.Contains(stdout, ".coding-ethos/ is not ignored") {
+	if !strings.Contains(stdout, ".coding-ethos/hook-runs/ is not ignored") {
 		t.Fatalf("repo ignore fix stdout = %q", stdout)
+	}
+}
+
+func TestRepoIgnoreFixItemsRejectsBroadCodingEthosIgnore(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+
+	err := os.WriteFile(
+		filepath.Join(repo, ".gitignore"),
+		[]byte(".coding-ethos/\n"),
+		privateFileMode,
+	)
+	if err != nil {
+		t.Fatalf("write gitignore: %v", err)
+	}
+
+	items, err := repoIgnoreFixItemLines("git", repo)
+	if err != nil {
+		t.Fatalf("repo ignore fix items: %v", err)
+	}
+
+	if len(items) == 0 || !strings.Contains(items[0], "repo memories remain trackable") {
+		t.Fatalf("items = %#v, want broad ignore finding", items)
 	}
 }
 
@@ -1431,7 +1462,7 @@ func toolchainRepoIgnoreFixItemsCase(paths toolchainCLIPaths) toolchainCLICase {
 			"--real-git",
 			"git",
 		},
-		want: ".coding-ethos/ is not ignored",
+		want: ".coding-ethos/hook-runs/ is not ignored",
 	}
 }
 

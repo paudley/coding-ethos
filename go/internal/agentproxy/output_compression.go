@@ -485,19 +485,62 @@ func budgetedOutput(
 		0,
 		tokenizer.Count(text)-headTokens-tailTokens,
 	)
+	marker := "token_budget: status=truncated max_tokens=" +
+		strconv.Itoa(limits.MaxTokens) +
+		" omitted_tokens=" + strconv.Itoa(omittedTokens) +
+		" full_output=" + evidencePath
+	trailingNewline := strings.HasSuffix(text, "\n")
 
+	for {
+		output := tokenBudgetOutputLines(marker, head, tail)
+		joined := joinOutputLines(output, trailingNewline)
+
+		if tokenizer.Count(joined) <= limits.MaxTokens {
+			return joined
+		}
+
+		if len(head) > 0 {
+			head = head[:len(head)-1]
+
+			continue
+		}
+
+		if len(tail) > 0 {
+			tail = tail[1:]
+
+			continue
+		}
+
+		return compactTokenBudgetOutput(marker, limits, tokenizer, trailingNewline)
+	}
+}
+
+func tokenBudgetOutputLines(marker string, head, tail []string) []string {
 	output := make([]string, 0, len(head)+len(tail)+1)
-	output = append(output, "[WARNING: Payload exceeded "+
-		strconv.Itoa(limits.MaxTokens)+
-		" tokens. Output truncated by proxy. "+
-		"Please use a grep tool or smaller file range.]")
 	output = append(output, head...)
-	output = append(output, "[coding-ethos: token budget hard stop; "+
-		strconv.Itoa(omittedTokens)+" tokens omitted; full output: "+
-		evidencePath+"; use a narrower command]")
+	output = append(output, marker)
 	output = append(output, tail...)
 
-	return joinOutputLines(output, strings.HasSuffix(text, "\n"))
+	return output
+}
+
+func compactTokenBudgetOutput(
+	marker string,
+	limits toolOutputTokenBudgetLimits,
+	tokenizer Tokenizer,
+	trailingNewline bool,
+) string {
+	for _, lines := range [][]string{
+		{marker},
+		{"token_budget: status=truncated full_output=ledger"},
+	} {
+		output := joinOutputLines(lines, trailingNewline)
+		if tokenizer.Count(output) <= limits.MaxTokens {
+			return output
+		}
+	}
+
+	return tokenBudgetLineHead("token_budget: status=truncated", limits.MaxTokens)
 }
 
 func writeFullOutputEvidence(

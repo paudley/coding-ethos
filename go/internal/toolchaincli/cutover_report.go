@@ -374,11 +374,34 @@ func repoIgnoreFixItems(args []string) error {
 
 func repoIgnoreFixItemLines(realGit, repoRoot string) ([]string, error) {
 	requiredIgnores := []string{
-		".coding-ethos/",
-		".coding-ethos/hook-runs/example/stdout.log",
+		".code-ethos/cache/",
+		".coding-ethos/cache/",
+		".coding-ethos/code-intel.db",
+		".coding-ethos/hook-runs/",
+		".coding-ethos/lint-runs/",
+		".coding-ethos/prune-runs/",
+		".coding-ethos/state/",
 	}
 
 	items := make([]string, 0, len(requiredIgnores))
+
+	memoryIgnored, err := gitCheckIgnore(
+		realGit,
+		repoRoot,
+		".coding-ethos/memories/MEMORY.md",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if memoryIgnored {
+		items = append(
+			items,
+			"  repo-ignores,.coding-ethos/memories/MEMORY.md is ignored,"+
+				"remove broad .coding-ethos ignores so repo memories remain trackable",
+		)
+	}
+
 	for _, requiredIgnore := range requiredIgnores {
 		ignored, err := gitCheckIgnore(realGit, repoRoot, requiredIgnore)
 		if err != nil {
@@ -389,7 +412,7 @@ func repoIgnoreFixItemLines(realGit, repoRoot string) ([]string, error) {
 			items = append(
 				items,
 				fmt.Sprintf(
-					"  repo-ignores,%s is not ignored,add .coding-ethos/ to .gitignore",
+					"  repo-ignores,%s is not ignored,add generated runtime subpaths to .gitignore",
 					requiredIgnore,
 				),
 			)

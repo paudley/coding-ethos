@@ -2886,8 +2886,8 @@ func TestRunEmitsTokenBudgetedFileReadWithinPageLineCount(t *testing.T) {
 	}
 
 	context := result.HookSpecificOutput.AdditionalContext
-	if !strings.Contains(context, "token budget hard stop") ||
-		!strings.Contains(context, "full output:") {
+	if !strings.Contains(context, "token_budget: status=truncated") ||
+		!strings.Contains(context, "full_output=") {
 		t.Fatalf("missing token-budget context: %s", context)
 	}
 
@@ -4668,6 +4668,8 @@ func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 
 	context := result.HookSpecificOutput.AdditionalContext
 	for _, expected := range []string{
+		"event: SessionStart",
+		"guidance[2]{message}:",
 		"coding_ethos_repo_map:",
 		"pkg/app.py",
 		"def run():",
@@ -4680,6 +4682,9 @@ func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 
 	if strings.Contains(context, "pkg/new_file.py") {
 		t.Fatalf("session context refreshed unindexed file:\n%s", context)
+	}
+	if strings.Contains(context, "\n- ") {
+		t.Fatalf("session context used markdown bullets instead of TOON rows:\n%s", context)
 	}
 }
 

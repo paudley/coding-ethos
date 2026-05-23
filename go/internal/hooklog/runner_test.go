@@ -404,8 +404,35 @@ func TestRunRequiresCodingEthosLogsIgnored(t *testing.T) {
 		BundleRoot: filepath.Join(root, "pre-commit"),
 		Command:    commandThatPrints(t),
 	})
-	if err == nil || !strings.Contains(err.Error(), ".coding-ethos/") {
+	if err == nil || !strings.Contains(err.Error(), ".coding-ethos/hook-runs/") {
 		t.Fatalf("Run() error = %v, want missing ignore", err)
+	}
+}
+
+func TestRunRejectsBroadCodingEthosIgnore(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	err := os.WriteFile(
+		filepath.Join(root, ".gitignore"),
+		[]byte(".coding-ethos/\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write gitignore: %v", err)
+	}
+
+	err = Run(Options{
+		Stdin:      strings.NewReader(""),
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+		GitPath:    fakeGit(t),
+		Root:       root,
+		BundleRoot: filepath.Join(root, "pre-commit"),
+		Command:    commandThatPrints(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "repo memories remain trackable") {
+		t.Fatalf("Run() error = %v, want broad ignore rejection", err)
 	}
 }
 
@@ -460,7 +487,7 @@ func writeHookLogIgnore(t *testing.T, root string) {
 
 	err := os.WriteFile(
 		filepath.Join(root, ".gitignore"),
-		[]byte(".coding-ethos/\n"),
+		[]byte(".coding-ethos/hook-runs/\n"),
 		0o600,
 	)
 	if err != nil {

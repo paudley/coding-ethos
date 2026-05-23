@@ -769,8 +769,12 @@ func expressionRequiredIgnorePaths(policyID string, config map[string]any) []str
 		[]string{"filesystem", "required_ignores", "paths"},
 		[]string{
 			".code-ethos/cache/",
-			".coding-ethos/",
-			".coding-ethos/hook-runs/example/stdout.log",
+			".coding-ethos/cache/",
+			".coding-ethos/code-intel.db",
+			".coding-ethos/hook-runs/",
+			".coding-ethos/lint-runs/",
+			".coding-ethos/prune-runs/",
+			".coding-ethos/state/",
 		},
 	)
 }

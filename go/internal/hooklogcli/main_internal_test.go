@@ -185,7 +185,7 @@ func writeHookLogGitignore(t *testing.T, root string) {
 
 	err := os.WriteFile(
 		filepath.Join(root, ".gitignore"),
-		[]byte(".coding-ethos/\n"),
+		[]byte(".coding-ethos/hook-runs/\n"),
 		0o600,
 	)
 	if err != nil {

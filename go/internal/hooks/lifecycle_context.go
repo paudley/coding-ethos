@@ -17,6 +17,7 @@ const (
 	defaultStartupRepoMapLimit          = 16
 	defaultStartupRepoMapSymbolsPerFile = 3
 	defaultStartupRepoMapTimeout        = 5 * time.Second
+	sessionStartHeaderLineCount         = 2
 )
 
 func lifecycleOutput(event Event) *HookSpecificOutput {
@@ -84,13 +85,12 @@ func lifecycleContext(event Event) string {
 }
 
 func sessionStartContext(event Event) string {
-	context := buildGuidanceContext(
+	context := buildSessionStartGuidanceContext(
 		[]string{
 			"Load repository conventions, managed toolchain rules, " +
 				"and generated skills before editing.",
 			"Use the repo map to choose focused reads before broad exploration.",
 		},
-		"",
 	)
 
 	repoMap := startupRepoMap(event.Cwd)
@@ -99,6 +99,21 @@ func sessionStartContext(event Event) string {
 	}
 
 	return context + "\n\n" + repoMap
+}
+
+func buildSessionStartGuidanceContext(guidance []string) string {
+	lines := make([]string, 0, sessionStartHeaderLineCount+len(guidance))
+	lines = append(
+		lines,
+		"event: SessionStart",
+		fmt.Sprintf("guidance[%d]{message}:", len(guidance)),
+	)
+
+	for _, item := range guidance {
+		lines = append(lines, "  "+toonCell(item))
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func startupRepoMap(cwd string) string {
