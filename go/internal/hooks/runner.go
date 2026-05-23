@@ -20,6 +20,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/memories"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
@@ -150,6 +151,7 @@ func evaluateInspection(
 func routeToolUse(ctx InspectionContext) InspectionRoute {
 	for _, routeFor := range []func(Event) InspectionRoute{
 		parallelToolBatchRouteFor,
+		memoryRouteFor,
 		malformedShellRouteFor,
 		shellFileToolRouteFor,
 		gitWrapperRouteFor,
@@ -285,6 +287,10 @@ func hookSpecificOutput(
 			PermissionDecisionReason: route.Reason,
 			UpdatedInput:             route.UpdatedInput,
 		}, nil
+	}
+
+	if output := sessionMemoryImportOutput(event); output != nil {
+		return output, nil
 	}
 
 	if output := continuationOutput(event); output != nil {
@@ -746,6 +752,22 @@ func evaluateHookPolicy(
 	}
 
 	return nil, nil
+}
+
+func sessionMemoryImportOutput(event Event) *HookSpecificOutput {
+	if event.HookEventName != eventSessionStart || strings.TrimSpace(event.Cwd) == "" {
+		return nil
+	}
+
+	_, err := memories.ImportExisting(event.Cwd)
+	if err == nil {
+		return nil
+	}
+
+	return &HookSpecificOutput{
+		HookEventName:     event.HookEventName,
+		AdditionalContext: "memory import failed: " + err.Error(),
+	}
 }
 
 func evaluatorContext(ctx InspectionContext) evaluators.Context {
