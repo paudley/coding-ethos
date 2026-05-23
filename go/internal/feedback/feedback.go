@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 )
 
@@ -295,22 +294,21 @@ func Cell(value string) string {
 		return ""
 	}
 
-	escaped := strings.NewReplacer(
+	return strings.NewReplacer(
 		"\\", "\\\\",
 		"\n", "\\n",
 		"\r", "\\r",
 		",", "\\,",
 	).Replace(value)
-
-	if needsQuote(escaped) {
-		return strconv.Quote(escaped)
-	}
-
-	return escaped
 }
 
 func tableHeader(table Table) string {
-	columns := strings.Join(table.Columns, ",")
+	escapedColumns := make([]string, 0, len(table.Columns))
+	for _, column := range table.Columns {
+		escapedColumns = append(escapedColumns, Cell(column))
+	}
+
+	columns := strings.Join(escapedColumns, ",")
 	if columns == "" {
 		columns = "value"
 	}
@@ -384,10 +382,4 @@ func normalizedFormat(format string) string {
 
 func humanLabel(key string) string {
 	return strings.ReplaceAll(key, "_", " ")
-}
-
-func needsQuote(value string) bool {
-	return strings.HasPrefix(value, " ") ||
-		strings.HasSuffix(value, " ") ||
-		strings.ContainsAny(value, `":{}[]#`)
 }

@@ -216,9 +216,14 @@ principles:
                 !has_prefix(line.file, "go/internal/feedback/") &&
                 (
                   line.text.contains("fmt.Fprint") ||
+                  line.text.contains("fmt.Fprintf") ||
                   line.text.contains("fmt.Print") ||
+                  line.text.contains("fmt.Printf") ||
+                  line.text.contains("io.WriteString") ||
                   line.text.contains("os.Stdout.Write") ||
+                  line.text.contains("os.Stdout.WriteString") ||
                   line.text.contains("os.Stderr.Write") ||
+                  line.text.contains("os.Stderr.WriteString") ||
                   line.text.contains("format: toon")
                 )
               )

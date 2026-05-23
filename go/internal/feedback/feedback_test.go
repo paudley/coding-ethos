@@ -93,3 +93,37 @@ func TestMessageExposesStructuredLogFields(t *testing.T) {
 		t.Fatalf("log fields = %#v", fields)
 	}
 }
+
+func TestTOONCellsUseSingleBackslashEscapes(t *testing.T) {
+	t.Parallel()
+
+	message := Message{
+		Scalars: []Scalar{
+			S("summary", "value: {a,b}\nnext"),
+		},
+		Tables: []Table{T(
+			"items",
+			[]string{"path,name", "message"},
+			[][]string{{"a,b", "line\nnext"}},
+		)},
+	}
+
+	toon, err := Render(message, FormatTOON)
+	if err != nil {
+		t.Fatalf("render TOON: %v", err)
+	}
+
+	for _, want := range []string{
+		"summary: value: {a\\,b}\\nnext",
+		"items[1]{path\\,name,message}:",
+		"  a\\,b,line\\nnext",
+	} {
+		if !strings.Contains(toon, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, toon)
+		}
+	}
+
+	if strings.Contains(toon, `"value`) || strings.Contains(toon, `\\\,`) {
+		t.Fatalf("TOON output used JSON-style or double escaping:\n%s", toon)
+	}
+}
