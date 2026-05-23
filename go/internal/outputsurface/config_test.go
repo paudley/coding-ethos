@@ -41,6 +41,19 @@ max_age = "12h"
 	}
 }
 
+func TestDefaultSettingsAvoidAutomaticCodeIntelVacuum(t *testing.T) {
+	t.Parallel()
+
+	settings := DefaultSettings()
+	policy := settings.Prune.Surfaces[codeIntelDBSurfaceID]
+	if !policy.Auto || policy.RowRetentionDays != DefaultCodeIntelRowRetentionDays {
+		t.Fatalf("code-intel auto retention defaults = %#v", policy)
+	}
+	if policy.VacuumAfterPrune {
+		t.Fatalf("code-intel auto pruning should not vacuum by default: %#v", policy)
+	}
+}
+
 func TestLoadSettingsRejectsUnknownSurface(t *testing.T) {
 	t.Parallel()
 

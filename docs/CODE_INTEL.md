@@ -144,8 +144,9 @@ auditable source of truth.
 
 Automatic output pruning applies the configured `code_intel_db` row-retention
 policy after high-volume code-intel writes. The default keeps 90 days of trace
-and proxy-event rows and leaves current AST/code chunks to the index refresh
-path.
+and proxy-event rows, leaves current AST/code chunks to the index refresh path,
+and does not run SQLite `VACUUM` automatically. Use explicit output-prune
+maintenance when database compaction is needed.
 
 Hook traces are also normalized into analytics tables. Each hook event stores
 provider, tool, status, tracking ID, operation kind, target kind, risk category,

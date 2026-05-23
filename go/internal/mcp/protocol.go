@@ -825,7 +825,7 @@ func semanticSearchToolDefinition() map[string]any {
 			"limit":      map[string]any{"type": "integer"},
 			"filters":    stringMapSchema(),
 		},
-		[]string{"query"},
+		nil,
 		toolMetadata{
 			Advisory:      true,
 			ExecutesTools: false,

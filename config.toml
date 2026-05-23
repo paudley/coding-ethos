@@ -12,14 +12,14 @@ write_prune_trace = true
 
 [outputs.prune.surfaces.hook_runs]
 enabled = true
-auto = false
+auto = true
 max_age = "30d"
 keep_last = 200
 require_code_intel_ingest = true
 
 [outputs.prune.surfaces.lint_traces]
 enabled = true
-auto = false
+auto = true
 max_age = "30d"
 keep_last = 500
 require_code_intel_ingest = true
@@ -39,7 +39,7 @@ max_bytes = "512MiB"
 [outputs.prune.surfaces.code_intel_db]
 enabled = true
 auto = true
-vacuum_after_prune = true
+vacuum_after_prune = false
 max_bytes = "2GiB"
 row_retention_days = 90
 

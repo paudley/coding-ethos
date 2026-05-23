@@ -284,7 +284,7 @@ func repoCacheDefinitions() []Definition {
 		),
 		repoDir(
 			"runtime_cache",
-			".code-ethos/cache",
+			".coding-ethos/cache",
 			"Generated runtime cache root.",
 			"go/internal/hookrunnercli",
 			"runtime and Gemini cache users",

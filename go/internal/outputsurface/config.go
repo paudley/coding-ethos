@@ -125,7 +125,7 @@ func DefaultSettings() Settings {
 			MaxAgeText:             durationText(definition.maxAge),
 			MaxBytes:               defaultMaxBytes,
 			RequireCodeIntelIngest: definition.RequiresIngest,
-			VacuumAfterPrune:       definition.DBMaintenance,
+			VacuumAfterPrune:       false,
 		}
 		if definition.ID == codeIntelDBSurfaceID {
 			policy := settings.Prune.Surfaces[definition.ID]

@@ -928,12 +928,14 @@ for generated tool configs and hook policy.
 
 Per-surface retention keys are `enabled`, `auto`, `max_age`, `keep_last`,
 `max_bytes`, `require_code_intel_ingest`, `row_retention_days`, and
-`vacuum_after_prune`. Automatic pruning is intentionally conservative:
-repo-configured proxy temp evidence is pruned before new evidence files are
-written, `code_intel_db` rows are pruned after code-intel writes, lint traces
-are pruned after managed lint trace writes when
-`outputs.prune.surfaces.lint_traces.auto = true`, and hook run directories
-prune after hook maintenance when `outputs.prune.surfaces.hook_runs.auto = true`.
+`vacuum_after_prune`. Automatic pruning covers repo-local runtime outputs:
+proxy temp evidence is pruned before new evidence files are written,
+`code_intel_db` rows are pruned after code-intel writes, lint traces are pruned
+after managed lint trace writes, hook run directories prune after hook
+maintenance, and cache surfaces prune according to their per-surface retention.
+Automatic `code_intel_db` pruning does not vacuum by default; use
+manual `output prune --scope code_intel_db --apply --vacuum` for explicit
+database compaction.
 
 See [repo_config.example.toml](repo_config.example.toml).
 

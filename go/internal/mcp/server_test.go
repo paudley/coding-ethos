@@ -83,6 +83,37 @@ func TestServerListsTools(t *testing.T) {
 	}
 }
 
+func TestServerSemanticSearchSchemaAllowsVectorOnlyInput(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	response := decodeResponse(t, output)
+	result := mapValue(t, response["result"])
+
+	for _, toolValue := range listValue(t, result["tools"]) {
+		tool := mapValue(t, toolValue)
+		if tool["name"] != "semantic_search" {
+			continue
+		}
+
+		inputSchema := mapValue(t, tool["inputSchema"])
+		if _, found := inputSchema["required"]; found {
+			t.Fatalf("semantic_search schema should not require query: %#v", inputSchema)
+		}
+
+		properties := mapValue(t, inputSchema["properties"])
+		for _, property := range []string{"query", "text", "vector"} {
+			if _, found := properties[property]; !found {
+				t.Fatalf("semantic_search schema missing %s: %#v", property, properties)
+			}
+		}
+
+		return
+	}
+
+	t.Fatal("semantic_search tool was not listed")
+}
+
 func TestServerReportsToolCapabilities(t *testing.T) {
 	t.Parallel()
 

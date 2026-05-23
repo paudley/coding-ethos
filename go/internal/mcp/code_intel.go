@@ -33,7 +33,7 @@ func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 
 	text := firstNonEmpty(input.Text, input.Query)
 	if strings.TrimSpace(text) == "" && len(input.Vector) == 0 {
-		return nil, apperror.StaticError("text or vector is required")
+		return nil, apperror.StaticError("text/query or vector is required")
 	}
 
 	store, index, closeAll, err := server.openCodeIntel()
@@ -87,7 +87,7 @@ func (server Server) semanticSearch(args json.RawMessage) (any, error) {
 
 	text := firstNonEmpty(input.Query, input.Text)
 	if strings.TrimSpace(text) == "" && len(input.Vector) == 0 {
-		return nil, apperror.StaticError("query or vector is required")
+		return nil, apperror.StaticError("query/text or vector is required")
 	}
 
 	store, index, closeAll, err := server.openCodeIntel()
