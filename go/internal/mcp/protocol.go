@@ -746,84 +746,8 @@ func codeIntelToolDefinitions() []map[string]any {
 
 func codeIntelSearchToolDefinitions() []map[string]any {
 	return []map[string]any{
-		toolDefinition(
-			"code_intel_search",
-			toolText(
-				"Search stored remediation, SARIF, policy, and embedding",
-				"evidence with FTS plus sqlite-vec when a query vector is",
-				"supplied.",
-			),
-			map[string]any{
-				"text": map[string]any{"type": "string"},
-				"query": map[string]any{
-					"type":        "string",
-					"description": "Alias for text.",
-				},
-				"record_kind": map[string]any{"type": "string"},
-				"vector": map[string]any{
-					"type":  "array",
-					"items": map[string]any{"type": "number"},
-				},
-				"collection": map[string]any{"type": "string"},
-				"model_id":   map[string]any{"type": "string"},
-				"policy_id":  map[string]any{"type": "string"},
-				"skill_id":   map[string]any{"type": "string"},
-				"path":       map[string]any{"type": "string"},
-				"limit":      map[string]any{"type": "integer"},
-				"filters": map[string]any{
-					"type":                 "object",
-					"additionalProperties": map[string]any{"type": "string"},
-				},
-			},
-			nil,
-			toolMetadata{
-				Advisory:      true,
-				ExecutesTools: false,
-				ReadsFiles:    true,
-				PreferredUse: toolText(
-					"retrieve prior fixes, related SARIF findings, and",
-					"policy evidence before broad file reads",
-				),
-				TracePersisted: false,
-			},
-		),
-		toolDefinition(
-			"semantic_search",
-			toolText(
-				"Search indexed repository code semantically and return",
-				"exact code chunks with path and line metadata.",
-			),
-			map[string]any{
-				"query": map[string]any{"type": "string"},
-				"text": map[string]any{
-					"type":        "string",
-					"description": "Alias for query.",
-				},
-				"vector": map[string]any{
-					"type":  "array",
-					"items": map[string]any{"type": "number"},
-				},
-				"collection": map[string]any{"type": "string"},
-				"model_id":   map[string]any{"type": "string"},
-				"path":       map[string]any{"type": "string"},
-				"limit":      map[string]any{"type": "integer"},
-				"filters": map[string]any{
-					"type":                 "object",
-					"additionalProperties": map[string]any{"type": "string"},
-				},
-			},
-			[]string{"query"},
-			toolMetadata{
-				Advisory:      true,
-				ExecutesTools: false,
-				ReadsFiles:    true,
-				PreferredUse: toolText(
-					"find exact indexed code blocks before broad grep or",
-					"repo-wide file reads",
-				),
-				TracePersisted: false,
-			},
-		),
+		codeIntelSearchToolDefinition(),
+		semanticSearchToolDefinition(),
 		toolDefinition(
 			"code_intel_index_status",
 			toolText(
@@ -846,6 +770,93 @@ func codeIntelSearchToolDefinitions() []map[string]any {
 				TracePersisted: false,
 			},
 		),
+	}
+}
+
+func codeIntelSearchToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_search",
+		toolText(
+			"Search stored remediation, SARIF, policy, and embedding",
+			"evidence with FTS plus sqlite-vec when a query vector is",
+			"supplied.",
+		),
+		map[string]any{
+			"text":        map[string]any{"type": "string"},
+			"query":       aliasSchema("text"),
+			"record_kind": map[string]any{"type": "string"},
+			"vector":      vectorSchema(),
+			"collection":  map[string]any{"type": "string"},
+			"model_id":    map[string]any{"type": "string"},
+			"policy_id":   map[string]any{"type": "string"},
+			"skill_id":    map[string]any{"type": "string"},
+			"path":        map[string]any{"type": "string"},
+			"limit":       map[string]any{"type": "integer"},
+			"filters":     stringMapSchema(),
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"retrieve prior fixes, related SARIF findings, and",
+				"policy evidence before broad file reads",
+			),
+			TracePersisted: false,
+		},
+	)
+}
+
+func semanticSearchToolDefinition() map[string]any {
+	return toolDefinition(
+		"semantic_search",
+		toolText(
+			"Search indexed repository code semantically and return",
+			"exact code chunks with path and line metadata.",
+		),
+		map[string]any{
+			"query":      map[string]any{"type": "string"},
+			"text":       aliasSchema("query"),
+			"vector":     vectorSchema(),
+			"collection": map[string]any{"type": "string"},
+			"model_id":   map[string]any{"type": "string"},
+			"path":       map[string]any{"type": "string"},
+			"limit":      map[string]any{"type": "integer"},
+			"filters":    stringMapSchema(),
+		},
+		[]string{"query"},
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"find exact indexed code blocks before broad grep or",
+				"repo-wide file reads",
+			),
+			TracePersisted: false,
+		},
+	)
+}
+
+func aliasSchema(name string) map[string]any {
+	return map[string]any{
+		"type":        "string",
+		"description": "Alias for " + name + ".",
+	}
+}
+
+func vectorSchema() map[string]any {
+	return map[string]any{
+		"type":  "array",
+		"items": map[string]any{"type": "number"},
+	}
+}
+
+func stringMapSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": map[string]any{"type": "string"},
 	}
 }
 

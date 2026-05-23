@@ -230,6 +230,13 @@ func otherRepoAuditDefinitions() []Definition {
 }
 
 func repoStateDefinitions() []Definition {
+	definitions := repoCacheDefinitions()
+	definitions = append(definitions, repoMutableStateDefinitions()...)
+
+	return definitions
+}
+
+func repoCacheDefinitions() []Definition {
 	return []Definition{
 		repoDir(
 			"sandbox_tmp",
@@ -276,6 +283,22 @@ func repoStateDefinitions() []Definition {
 			false,
 		),
 		repoDir(
+			"runtime_cache",
+			".code-ethos/cache",
+			"Generated runtime cache root.",
+			"go/internal/hookrunnercli",
+			"runtime and Gemini cache users",
+			"medium",
+			"low",
+			"cache",
+			false,
+		),
+	}
+}
+
+func repoMutableStateDefinitions() []Definition {
+	return []Definition{
+		repoDir(
 			"agent_shell_state",
 			".coding-ethos/state/agent-shell-tools",
 			"Reusable agent-shell managed tool copies.",
@@ -297,17 +320,6 @@ func repoStateDefinitions() []Definition {
 			"state",
 			true,
 			false,
-			false,
-		),
-		repoDir(
-			"runtime_cache",
-			".code-ethos/cache",
-			"Generated runtime cache root.",
-			"go/internal/hookrunnercli",
-			"runtime and Gemini cache users",
-			"medium",
-			"low",
-			"cache",
 			false,
 		),
 	}
