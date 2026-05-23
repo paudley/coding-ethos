@@ -1237,6 +1237,37 @@ func TestRunAllowsCodexReadOnlyGitInspectionWithoutRewrite(t *testing.T) {
 	}
 }
 
+func TestRunBlocksCodexReadOnlyGitChainWithShellSideEffect(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           t.TempDir(),
+			HookEventName: eventPreToolUse,
+			ProviderHint:  "codex",
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "git status --short && rm generated.txt",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf(
+			"status mismatch: got %q decisions %#v",
+			result.Status,
+			result.Decisions,
+		)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
+	}
+}
+
 func TestRunBlocksCodexMutatingGitWhenRewriteCannotBeApplied(t *testing.T) {
 	t.Parallel()
 

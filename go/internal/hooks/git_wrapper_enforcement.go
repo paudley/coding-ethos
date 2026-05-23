@@ -575,7 +575,7 @@ func readOnlyGitInspectionChain(command string) bool {
 		}
 
 		if segment[0] != tokenGit {
-			if segmentMentionsUnmanagedGit(segment) {
+			if !readOnlyInspectionHelperSegment(segment) {
 				return false
 			}
 
@@ -590,6 +590,20 @@ func readOnlyGitInspectionChain(command string) bool {
 	}
 
 	return sawReadOnlyGit
+}
+
+func readOnlyInspectionHelperSegment(segment []string) bool {
+	args, redirections := splitShellRedirections(segment)
+	if redirectsWriteFile(redirections) || len(args) == 0 {
+		return false
+	}
+
+	switch filepath.Base(args[0]) {
+	case "echo", "printf", "pwd", "true":
+		return !segmentMentionsUnmanagedGit(args)
+	default:
+		return false
+	}
 }
 
 func readOnlyGitInspectionSegment(args []string) bool {
