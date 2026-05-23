@@ -17,6 +17,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/memories"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
@@ -29,7 +30,7 @@ const (
 	eventSessionStart        = "SessionStart"
 	eventUserPromptSubmit    = "UserPromptSubmit"
 	eventStop                = "Stop"
-	agentMemoryAuditPath     = "/workspace/.claude/projects/repo/memory/" +
+	memoryAuditPath          = "/workspace/.claude/projects/repo/memory/" +
 		"project_g8a_precision_audit.md"
 	permissionAllow = "allow"
 	preToolUse      = "PreToolUse"
@@ -2400,9 +2401,11 @@ func TestRunAllowsAgentWorkspaceMemoryWithGitLearning(t *testing.T) {
 	result, err := Run(policy.ExampleBundle(), Options{
 		Event: Event{
 			HookEventName: eventPreToolUse,
+			Cwd:           t.TempDir(),
+			ProviderHint:  "claude",
 			ToolName:      "Write",
 			ToolInput: map[string]any{
-				"file_path": agentMemoryAuditPath,
+				"file_path": memoryAuditPath,
 				"content":   `import subprocess; subprocess.run(["/usr/bin/git", "status"])`,
 			},
 		},
@@ -2426,9 +2429,11 @@ func TestRunAllowsAgentWorkspaceMemoryWithHookMarker(t *testing.T) {
 	result, err := Run(policy.ExampleBundle(), Options{
 		Event: Event{
 			HookEventName: eventPreToolUse,
+			Cwd:           t.TempDir(),
+			ProviderHint:  "claude",
 			ToolName:      "Write",
 			ToolInput: map[string]any{
-				"file_path": agentMemoryAuditPath,
+				"file_path": memoryAuditPath,
 				"content":   "blocked coding-ethos-hooks/coding-ethos-git-hook marker",
 			},
 		},
@@ -2472,17 +2477,18 @@ func TestRunBlocksProtectedPathWrite(t *testing.T) {
 	}
 }
 
-func TestRunAllowsAgentMemoryWriteWithHookReferences(t *testing.T) {
+func TestRunAllowsMemoryWriteWithHookReferences(t *testing.T) {
 	t.Parallel()
 
 	for _, filePath := range []string{
 		"/workspace/.claude/projects/repo/memory/project.md",
 		"/workspace/.claude/plans/adaptive-exploring-toast.md",
-		".codex/MEMORY.md",
 	} {
 		result, err := Run(policy.ExampleBundle(), Options{
 			Event: Event{
 				HookEventName: eventPreToolUse,
+				Cwd:           t.TempDir(),
+				ProviderHint:  "claude",
 				ToolName:      "Edit",
 				ToolInput: map[string]any{
 					"file_path":  filePath,
@@ -4674,6 +4680,51 @@ func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 
 	if strings.Contains(context, "pkg/new_file.py") {
 		t.Fatalf("session context refreshed unindexed file:\n%s", context)
+	}
+}
+
+func TestRunImportsMemoriesOnSessionStart(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	sourcePath := filepath.Join(
+		repo,
+		".claude",
+		"projects",
+		"repo",
+		"memory",
+		"project.md",
+	)
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create memory dir: %v", err)
+	}
+
+	err = os.WriteFile(sourcePath, []byte("fresh session memory\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write memory source: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventSessionStart,
+			Cwd:           repo,
+			SessionID:     "session-memory-import",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run session start: %v", err)
+	}
+	if result.Status != statusAllowed {
+		t.Fatalf("session start status = %q decisions %#v", result.Status, result.Decisions)
+	}
+
+	data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(memories.PrimaryFile)))
+	if err != nil {
+		t.Fatalf("read central memory: %v", err)
+	}
+	if !strings.Contains(string(data), "fresh session memory") {
+		t.Fatalf("central memory missing session import:\n%s", data)
 	}
 }
 

@@ -24,6 +24,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/execguard"
+	"blackcat.ca/coding-ethos/go/internal/memories"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"blackcat.ca/coding-ethos/go/internal/toolaliases"
@@ -255,6 +256,11 @@ func SyncSettings(root, hookCommand string) error {
 	err = removeStaleCodexHooksFile(paths.CodexHooks)
 	if err != nil {
 		return err
+	}
+
+	_, err = memories.ImportExisting(root)
+	if err != nil {
+		return fmt.Errorf("import existing memories: %w", err)
 	}
 
 	err = syncSettingsFile(paths.Gemini, func(payload map[string]any) {
@@ -731,6 +737,11 @@ func DoctorSettings(root, hookCommand string) error {
 
 	if !codexConfigContainsExpectedMCPServer(string(config), expectedMCP) {
 		return errSettingsMismatch
+	}
+
+	err = memories.Verify(root)
+	if err != nil {
+		return fmt.Errorf("verify memory surfaces: %w", err)
 	}
 
 	return nil

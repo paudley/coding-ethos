@@ -757,6 +757,33 @@ func TestSyncSettingsPreservesNonHookSettings(t *testing.T) {
 	}
 }
 
+func TestSyncSettingsImportsProviderMemory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	source := filepath.Join(root, ".claude", "projects", "repo", "memory", "project.md")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatalf("create memory dir: %v", err)
+	}
+	if err := os.WriteFile(source, []byte("session finding\n"), 0o600); err != nil {
+		t.Fatalf("write memory source: %v", err)
+	}
+
+	err := agenthooks.SyncSettings(root, testHookCommand)
+	if err != nil {
+		t.Fatalf("sync settings: %v", err)
+	}
+
+	central := filepath.Join(root, ".coding-ethos", "memories", "MEMORY.md")
+	payload, err := os.ReadFile(central)
+	if err != nil {
+		t.Fatalf("read central memory: %v", err)
+	}
+	if !strings.Contains(string(payload), "session finding") {
+		t.Fatalf("central memory missing import:\n%s", payload)
+	}
+}
+
 func TestDoctorSettingsRejectsWrongCommand(t *testing.T) {
 	t.Parallel()
 
