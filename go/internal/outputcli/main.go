@@ -91,17 +91,9 @@ func report(ctx context.Context, args []string) error {
 	case "json":
 		return encodeJSON(report)
 	case outputFormatTOON:
-		err = feedback.WriteRendered(
-			os.Stdout,
-			outputsurface.FormatTOON(report),
-			feedback.FormatTOON,
-		)
+		err = writeFormattedOutput(outputsurface.FormatTOON(report), feedback.FormatTOON)
 	case "human":
-		err = feedback.WriteRendered(
-			os.Stdout,
-			outputsurface.FormatHuman(report),
-			feedback.FormatHuman,
-		)
+		err = writeFormattedOutput(outputsurface.FormatHuman(report), feedback.FormatHuman)
 	default:
 		return fmt.Errorf("%w: %q", errUnsupportedReportFormat, *format)
 	}
@@ -190,14 +182,9 @@ func writePruneReport(format string, report outputsurface.PruneReport) error {
 	case "json":
 		return encodeJSON(report)
 	case outputFormatTOON:
-		err = feedback.WriteRendered(
-			os.Stdout,
-			outputsurface.FormatPruneTOON(report),
-			feedback.FormatTOON,
-		)
+		err = writeFormattedOutput(outputsurface.FormatPruneTOON(report), feedback.FormatTOON)
 	case "human":
-		err = feedback.WriteRendered(
-			os.Stdout,
+		err = writeFormattedOutput(
 			outputsurface.FormatPruneHuman(report),
 			feedback.FormatHuman,
 		)
@@ -207,6 +194,15 @@ func writePruneReport(format string, report outputsurface.PruneReport) error {
 
 	if err != nil {
 		return fmt.Errorf("write output prune report: %w", err)
+	}
+
+	return nil
+}
+
+func writeFormattedOutput(output, format string) error {
+	err := feedback.WriteRendered(os.Stdout, strings.TrimSuffix(output, "\n"), format)
+	if err != nil {
+		return fmt.Errorf("write formatted output: %w", err)
 	}
 
 	return nil

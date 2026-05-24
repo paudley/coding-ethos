@@ -99,6 +99,7 @@ func TestReportWritesHumanOutputWithConfiguredTempInclude(t *testing.T) {
 		!strings.Contains(output, "- proxy_temp_evidence:") {
 		t.Fatalf("human report missing temp surface:\n%s", output)
 	}
+	assertSingleTrailingNewline(t, output)
 }
 
 func TestReportWritesDefaultTOONOutput(t *testing.T) {
@@ -113,6 +114,7 @@ func TestReportWritesDefaultTOONOutput(t *testing.T) {
 	if !strings.Contains(output, "surfaces[") {
 		t.Fatalf("default report output was not TOON:\n%s", output)
 	}
+	assertSingleTrailingNewline(t, output)
 }
 
 func TestPruneRejectsUnsupportedFormat(t *testing.T) {
@@ -232,6 +234,7 @@ func TestPruneDryRunWritesDefaultTOONReport(t *testing.T) {
 		!strings.Contains(output, "lint_traces") {
 		t.Fatalf("default prune output was not TOON:\n%s", output)
 	}
+	assertSingleTrailingNewline(t, output)
 }
 
 func TestPruneUsesConfiguredDefaultFormat(t *testing.T) {
@@ -322,6 +325,7 @@ func TestPruneApplyWritesHumanReport(t *testing.T) {
 		!strings.Contains(output, "- lint_traces deleted") {
 		t.Fatalf("human prune report missing apply details:\n%s", output)
 	}
+	assertSingleTrailingNewline(t, output)
 	if _, err := os.Stat(tracePath); !os.IsNotExist(err) {
 		t.Fatalf("apply did not delete trace: %v", err)
 	}
@@ -414,6 +418,17 @@ func captureStdout(t *testing.T, action func()) string {
 	}
 
 	return string(payload)
+}
+
+func assertSingleTrailingNewline(t *testing.T, output string) {
+	t.Helper()
+
+	if !strings.HasSuffix(output, "\n") {
+		t.Fatalf("output missing trailing newline: %q", output)
+	}
+	if strings.HasSuffix(output, "\n\n") {
+		t.Fatalf("output has extra trailing newline: %q", output)
+	}
 }
 
 func captureStderr(t *testing.T, action func()) string {
