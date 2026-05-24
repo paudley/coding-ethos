@@ -37,24 +37,25 @@ type Import struct {
 }
 
 type Symbol struct {
-	SymbolKind      string
-	SymbolName      string
-	Language        string
-	NodeKind        string
-	Path            string
-	SymbolPath      string
-	RawText         string
-	ContentHash     string
-	NormalizedHash  string
-	MinHashSig      []uint64
-	ReferencedNames []string
-	CallNames       []string
-	BaseNames       []string
-	StartByte       int
-	EndLine         int
-	LineCount       int
-	EndByte         int
-	StartLine       int
+	SymbolKind       string
+	SymbolName       string
+	Language         string
+	NodeKind         string
+	Path             string
+	SymbolPath       string
+	RawText          string
+	ContentHash      string
+	NormalizedHash   string
+	MinHashSig       []uint64
+	ReferencedNames  []string
+	CallNames        []string
+	OrderedCallNames []string
+	BaseNames        []string
+	StartByte        int
+	EndLine          int
+	LineCount        int
+	EndByte          int
+	StartLine        int
 }
 
 func CollectSymbols(
@@ -158,24 +159,25 @@ func SymbolFromNode(
 	sig := minhash.ComputeSignature(normalizedTokens, config)
 
 	return Symbol{
-		RawText:         raw,
-		ContentHash:     ContentHash([]byte(raw)),
-		NormalizedHash:  normalizedHash,
-		MinHashSig:      sig.Values,
-		Language:        language,
-		NodeKind:        node.Kind(),
-		Path:            path,
-		ReferencedNames: ReferencedNames(language, contents, node),
-		CallNames:       CallNames(language, contents, node),
-		BaseNames:       BaseNames(language, contents, node),
-		SymbolKind:      symbolKind,
-		SymbolName:      name,
-		SymbolPath:      symbolPath,
-		StartByte:       startByte,
-		EndByte:         endByte,
-		StartLine:       startLine,
-		EndLine:         endLine,
-		LineCount:       max(endLine-startLine+1, 0),
+		RawText:          raw,
+		ContentHash:      ContentHash([]byte(raw)),
+		NormalizedHash:   normalizedHash,
+		MinHashSig:       sig.Values,
+		Language:         language,
+		NodeKind:         node.Kind(),
+		Path:             path,
+		ReferencedNames:  ReferencedNames(language, contents, node),
+		CallNames:        CallNames(language, contents, node),
+		OrderedCallNames: OrderedCallNames(language, contents, node),
+		BaseNames:        BaseNames(language, contents, node),
+		SymbolKind:       symbolKind,
+		SymbolName:       name,
+		SymbolPath:       symbolPath,
+		StartByte:        startByte,
+		EndByte:          endByte,
+		StartLine:        startLine,
+		EndLine:          endLine,
+		LineCount:        max(endLine-startLine+1, 0),
 	}
 }
 
@@ -214,6 +216,43 @@ func CallNames(
 	visit(node)
 
 	return sortedMapKeys(names)
+}
+
+func OrderedCallNames(
+	language string,
+	contents []byte,
+	node *tree_sitter.Node,
+) []string {
+	names := []string{}
+
+	var visit func(candidate *tree_sitter.Node)
+
+	visit = func(candidate *tree_sitter.Node) {
+		if candidate == nil {
+			return
+		}
+
+		if isCallNode(language, candidate.Kind()) {
+			name := callFunctionName(language, contents, candidate)
+			if name != "" {
+				names = append(names, name)
+			}
+		}
+
+		childCount := candidate.NamedChildCount()
+
+		for index := range childCount {
+			child := candidate.NamedChild(index)
+			if _, ok := SymbolKindForNode(language, child.Kind()); ok {
+				continue
+			}
+
+			visit(child)
+		}
+	}
+	visit(node)
+
+	return names
 }
 
 func processCall(

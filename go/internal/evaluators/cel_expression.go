@@ -30,6 +30,8 @@ const (
 	coverageThresholdsOption   = "coverage_thresholds"
 	goExtension                = ".go"
 	lineLimitThresholdsOption  = "line_limit_thresholds"
+	metadataScopeBeforeRun     = "changed_file_scope_before_run"
+	metadataUnsafeUnscopedRun  = "unsafe_unscoped_path_sensitive_run"
 	pythonExtension            = ".py"
 	shellExtension             = ".sh"
 	scriptsPrefix              = "scripts/"
@@ -156,6 +158,12 @@ func celDiagnostic(
 		return diagnostic
 	}
 
+	if policyDef.ID == hookChangedFileScopePolicy {
+		applyHookCommandDiagnostic(&diagnostic, activation)
+
+		return diagnostic
+	}
+
 	if policyDef.ID == similarCodeDetectedPolicy {
 		applySimilarityDiagnostic(&diagnostic, activation)
 
@@ -165,6 +173,45 @@ func celDiagnostic(
 	applyGrowingSymbolDiagnostic(&diagnostic, activation)
 
 	return diagnostic
+}
+
+func applyHookCommandDiagnostic(
+	diagnostic *diagnostics.Diagnostic,
+	activation map[string]any,
+) {
+	command, ok := firstUnsafeHookCommand(activation)
+	if !ok {
+		return
+	}
+
+	diagnostic.File = command.File
+	diagnostic.Line = int(command.Line)
+	diagnostic.Metadata["ast_language"] = "go"
+	diagnostic.Metadata["ast_node_kind"] = "function_declaration"
+	diagnostic.Metadata["ast_symbol_kind"] = "function"
+	diagnostic.Metadata["ast_symbol_name"] = command.SymbolName
+	diagnostic.Metadata["ast_symbol_path"] = command.SymbolPath
+	diagnostic.Metadata[metadataScopeBeforeRun] = command.ChangedFileScopeBeforeRun
+	diagnostic.Metadata["hook_command_calls"] = append([]string(nil), command.CallNames...)
+	diagnostic.Metadata["runs_path_sensitive_check"] = command.RunsPathSensitiveCheck
+	diagnostic.Metadata[metadataUnsafeUnscopedRun] = command.UnsafeUnscopedPathSensitiveRun
+}
+
+func firstUnsafeHookCommand(
+	activation map[string]any,
+) (celexpr.HookCommandInput, bool) {
+	commands, ok := activation["hook_commands"].([]celexpr.HookCommandInput)
+	if !ok {
+		return celexpr.HookCommandInput{}, false
+	}
+
+	for _, command := range commands {
+		if command.UnsafeUnscopedPathSensitiveRun {
+			return command, true
+		}
+	}
+
+	return celexpr.HookCommandInput{}, false
 }
 
 func applyGrowingSymbolDiagnostic(
@@ -562,6 +609,7 @@ func celActivation(context Context, source string) map[string]any {
 		Diagnostic:         context.Diagnostic,
 		Diagnostics:        context.Diagnostics,
 		Findings:           celFindings(context.Findings),
+		HookCommands:       celHookCommands(context, source),
 		LineLimits:         celLineLimitThresholds(context.EvaluatorOptions),
 		CoverageThresholds: celCoverageThresholds(context.EvaluatorOptions),
 		PythonASTFacts:     celPythonASTFacts(context, source),

@@ -71,6 +71,7 @@ func TestSchemasDocumentCoreInputsAndHelpers(t *testing.T) {
 		"strategic_intent",
 		"active_todo",
 		"python_ast: list(",
+		"hook_commands: list(",
 		"tool_capabilities: list(",
 	} {
 		if !strings.Contains(inputSchema, want) {
@@ -90,6 +91,98 @@ func TestSchemasDocumentCoreInputsAndHelpers(t *testing.T) {
 			t.Fatalf("helper schema missing %q:\n%s", want, helperSchema)
 		}
 	}
+}
+
+func TestHookCommandInputsDetectUnsafeDocstringCoverageFlow(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	source := filepath.Join(root, "docstring_coverage.go")
+	if err := os.WriteFile(
+		source,
+		[]byte(`package hookrunnercli
+
+func checkDocstringCoverageCommand() int {
+	exitCode := runDocstringCoverage()
+	return exitCode
+}
+
+func checkedDocstringCoverageCommand() int {
+	if !scopeDocstringCoverageForHook() {
+		return 0
+	}
+	return runDocstringCoverage()
+}
+`),
+		0o600,
+	); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	facts := HookCommandInputs(root, []string{"docstring_coverage.go"})
+	if len(facts) != 2 {
+		t.Fatalf("hook command facts = %#v, want two facts", facts)
+	}
+
+	unsafe, found := hookCommandFactByName(facts, "checkDocstringCoverageCommand")
+	if !found {
+		t.Fatalf("missing unsafe command fact: %#v", facts)
+	}
+	if !unsafe.UnsafeUnscopedPathSensitiveRun {
+		t.Fatalf("unsafe command fact did not flag unscoped run: %#v", unsafe)
+	}
+
+	safe, found := hookCommandFactByName(facts, "checkedDocstringCoverageCommand")
+	if !found {
+		t.Fatalf("missing safe command fact: %#v", facts)
+	}
+	if safe.UnsafeUnscopedPathSensitiveRun || !safe.ChangedFileScopeBeforeRun {
+		t.Fatalf("safe command fact = %#v, want scoped before run", safe)
+	}
+}
+
+func TestHookCommandsCELInputAllowsChangedFileScopePolicy(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.hook_scope",
+		`hook_commands.exists(command,
+			command.command_function &&
+			command.runs_path_sensitive_check &&
+			!command.changed_file_scope_before_run
+		)`,
+	)
+	if err != nil {
+		t.Fatalf("compile hook command CEL expression: %v", err)
+	}
+
+	output, _, err := program.Eval(Activation(ActivationInput{
+		HookCommands: []HookCommandInput{{
+			SymbolName:                "checkDocstringCoverageCommand",
+			CommandFunction:           true,
+			RunsPathSensitiveCheck:    true,
+			ChangedFileScopeBeforeRun: false,
+		}},
+	}))
+	if err != nil {
+		t.Fatalf("evaluate hook command CEL expression: %v", err)
+	}
+	if matched, ok := output.Value().(bool); !ok || !matched {
+		t.Fatalf("hook command CEL output = %#v, want true", output.Value())
+	}
+}
+
+func hookCommandFactByName(
+	facts []HookCommandInput,
+	name string,
+) (HookCommandInput, bool) {
+	for _, fact := range facts {
+		if fact.SymbolName == name {
+			return fact, true
+		}
+	}
+
+	return HookCommandInput{}, false
 }
 
 func TestActivationCarriesStrategicIntentFact(t *testing.T) {

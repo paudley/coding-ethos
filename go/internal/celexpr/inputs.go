@@ -333,6 +333,7 @@ type ActivationInput struct {
 	Argv               []string
 	ChangedFiles       []string
 	ToolInputKeys      []string
+	HookCommands       []HookCommandInput
 	PythonASTFacts     []PythonASTFactInput
 	SimilarityFacts    []SimilarityFactInput
 	Source             SourceActivation
@@ -527,6 +528,7 @@ func policyContextInputSchema() []string {
 		schemaList("coverage", coverageSchemaFields()...),
 		schemaObject("coverage_thresholds", coverageThresholdSchemaFields()...),
 		schemaList("python_ast", pythonASTSchemaFields()...),
+		schemaList("hook_commands", hookCommandSchemaFields()...),
 		schemaList("similarity_facts", similaritySchemaFields()...),
 		schemaObject("finding", findingSchemaFields()...),
 		schemaList("findings", findingSchemaFields()...),
@@ -699,6 +701,14 @@ func pythonASTSchemaFields() []string {
 	}
 }
 
+func hookCommandSchemaFields() []string {
+	return []string{
+		"file", "symbol_name", "symbol_path", "call_names", "line",
+		"command_function", "runs_path_sensitive_check",
+		"changed_file_scope_before_run", "unsafe_unscoped_path_sensitive_run",
+	}
+}
+
 func similaritySchemaFields() []string {
 	return []string{
 		"file", "symbol_name", "symbol_kind", "symbol_path", "language",
@@ -784,6 +794,7 @@ func nativeTypeOptions() []cel.EnvOption {
 			reflect.TypeFor[CoverageThresholdsInput](),
 			reflect.TypeFor[CoverageThresholdBandInput](),
 			reflect.TypeFor[PythonASTFactInput](),
+			reflect.TypeFor[HookCommandInput](),
 			reflect.TypeFor[FindingInput](),
 			reflect.TypeFor[SourceInput](),
 			reflect.TypeFor[RepoInput](),
@@ -882,6 +893,10 @@ func collectionVariableOptions() []cel.EnvOption {
 		cel.Variable(
 			"python_ast",
 			cel.ListType(cel.ObjectType("celexpr.PythonASTFactInput")),
+		),
+		cel.Variable(
+			"hook_commands",
+			cel.ListType(cel.ObjectType("celexpr.HookCommandInput")),
 		),
 		cel.Variable(
 			"similarity_facts",
@@ -997,6 +1012,7 @@ func Activation(input ActivationInput) map[string]any {
 		"coverage":            coverageInputs(input.Diagnostics, input.Diagnostic),
 		"coverage_thresholds": input.CoverageThresholds,
 		"python_ast":          append([]PythonASTFactInput(nil), input.PythonASTFacts...),
+		"hook_commands":       append([]HookCommandInput(nil), input.HookCommands...),
 		"similarity_facts":    append([]SimilarityFactInput(nil), input.SimilarityFacts...),
 		"finding":             findingInput(input.Finding),
 		"findings":            findingInputs(input.Findings, input.Finding),

@@ -19,6 +19,7 @@ const (
 	sourcePathClauseCapacityFactor = 2
 	sourcePathQueryArgFactor       = 4
 	schemaVersion                  = 1
+	sqliteImmediateTxParam         = "_txlock=immediate"
 	storeDirMode                   = 0o700
 )
 
@@ -72,7 +73,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("create code intelligence store dir: %w", inlineErr0)
 	}
 
-	database, err := sql.Open("sqlite", path)
+	database, err := sql.Open("sqlite", sqliteStoreDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
@@ -94,6 +95,15 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 
 	return store, nil
+}
+
+func sqliteStoreDSN(path string) string {
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+
+	return path + separator + sqliteImmediateTxParam
 }
 
 func (store *Store) Database() *sql.DB {

@@ -137,6 +137,39 @@ syntax:
       - '|||||||'
 
 policy:
+  expressions:
+    - id: hook.changed_file_scope
+      scope: file
+      severity: block
+      mode: block
+      protected: true
+      allow_override: false
+      allow_severity_weaken: false
+      tools: []
+      hook_events: []
+      lint_scopes:
+        - files
+        - staged
+        - smoke
+        - full
+      principle_ids:
+        - static-analysis-is-the-first-line-of-defense
+        - validation-at-the-gate
+        - functional-testing-is-the-proof
+      skill_id: managed-toolchain
+      message: >-
+        Hook-stage path-sensitive checks must scope to changed files before
+        running.
+      advice: >-
+        Use hook-provided file lists in pre-commit and pre-push command
+        implementations before invoking whole-surface or configured-path
+        runners.
+      when: >-
+        hook_commands.exists(command,
+          command.command_function &&
+          command.runs_path_sensitive_check &&
+          !command.changed_file_scope_before_run)
+
   evidence_maps:
     - source: ruff
       codes:

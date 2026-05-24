@@ -77,6 +77,13 @@ content hashes, action, and line-count delta. Large-file and large-symbol
 policies use these symbol deltas so shrinking refactors remain allowed while
 growth is blocked before commit.
 
+For hook command implementations, `hook_commands` maps Go command functions to
+ordered call facts. Hook-stage commands that run path-sensitive checks in
+`pre-commit` or `pre-push` must apply the hook-provided changed-file list before
+invoking whole-surface or configured-path runners. CEL owns the policy decision;
+Go owns the ordered call facts and diagnostic location for the offending command
+function.
+
 For persisted context, code-intelligence indexing uses the same parser
 foundation to store code chunks, config entries, parent/child relationships,
 graph edges, parser metadata, and AST-to-finding links in

@@ -373,6 +373,83 @@ policy:
 	assertExpressionPolicyBlocksGitSubprocess(t, bundle)
 }
 
+func TestCompileHookChangedFileScopeExpressionPolicy(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML(t))
+	writeTestFile(t, configPath, testConfigYAML+strings.Join([]string{
+		"policy:",
+		"  expressions:",
+		"    - id: hook.changed_file_scope",
+		"      scope: file",
+		"      severity: block",
+		"      mode: block",
+		"      tools: []",
+		"      hook_events: []",
+		"      lint_scopes: [files]",
+		"      principle_ids: [validation-at-the-gate]",
+		"      skill_id: managed-toolchain",
+		"      when: >-",
+		"        hook_commands.exists(command,",
+		"          command.command_function &&",
+		"          command.runs_path_sensitive_check &&",
+		"          !command.changed_file_scope_before_run)",
+		"      message: Hook-stage path-sensitive checks must scope first.",
+		"      advice: Use hook-provided changed-file lists.",
+	}, "\n")+"\n")
+	writeTestFile(
+		t,
+		filepath.Join(dir, "hook_command.go"),
+		`// SPDX-FileCopyrightText: 2026 Example Inc.
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package hookrunnercli
+
+func checkDocstringCoverageCommand() int {
+	return runDocstringCoverage()
+}
+`,
+	)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	assertPolicyDispatched(t, bundle.Dispatch.Linter["files"], "hook.changed_file_scope")
+
+	result, err := lint.Run(bundle, lint.Options{
+		Scope: lint.ScopeFiles,
+		Cwd:   dir,
+		Files: []string{"hook_command.go"},
+	})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+
+	if !result.Blocked() ||
+		!resultHasDiagnostic(result, "hook.changed_file_scope", "hook_command.go") {
+		t.Fatalf("hook changed-file scope result = %#v", result)
+	}
+}
+
+func resultHasDiagnostic(result lint.Result, policyID, file string) bool {
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.PolicyID == policyID && diagnostic.File == file {
+			return true
+		}
+	}
+
+	return false
+}
+
 func assertExpressionPolicyDefinition(t *testing.T, policyDef Policy) {
 	t.Helper()
 

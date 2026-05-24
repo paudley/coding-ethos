@@ -29,6 +29,7 @@ type Context struct {
 	ToolResponseKeys   []string
 	ToolInputKeys      []string
 	Findings           []Finding
+	HookCommands       []celexpr.HookCommandInput
 	SimilarityFacts    []celexpr.SimilarityFactInput
 	Diagnostics        []diagnostics.Diagnostic
 	Files              []string

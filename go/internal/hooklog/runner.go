@@ -266,8 +266,6 @@ func shouldForceCodeIntelRefresh(command []string) bool {
 		commandContains(command, "parent-check") ||
 		commandContains(command, "parent-lint") ||
 		commandContains(command, "policy-lint") ||
-		commandContains(command, "policy-tool") ||
-		commandContains(command, "policy-tool-group") ||
 		commandContainsSequence(command, "git-hook", "pre-commit") ||
 		commandContainsSequence(command, "git-hook", "pre-push") ||
 		commandContainsSequence(command, "make", "pre-commit") ||
