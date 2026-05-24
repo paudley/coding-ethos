@@ -186,11 +186,19 @@ func pythonWalkAllNodes(root *tree_sitter.Node, visit func(*tree_sitter.Node)) {
 		return
 	}
 
-	visit(root)
+	stack := []*tree_sitter.Node{root}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
 
-	childCount := root.ChildCount()
-	for index := range childCount {
-		pythonWalkAllNodes(root.Child(index), visit)
+		visit(node)
+
+		for index := node.ChildCount(); index > 0; index-- {
+			child := node.Child(index - 1)
+			if child != nil {
+				stack = append(stack, child)
+			}
+		}
 	}
 }
 
@@ -699,7 +707,7 @@ func pythonEnclosingFunction(
 }
 
 func pythonSuppressionComment(text string) (bool, string) {
-	lower := strings.ToLower(strings.TrimSpace(text))
+	lower := strings.ToLower(text)
 	switch {
 	case strings.Contains(lower, "ruff: noqa"):
 		return true, "ruff: noqa"

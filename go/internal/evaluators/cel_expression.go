@@ -38,6 +38,12 @@ const (
 	scriptsPrefix                = "scripts/"
 )
 
+var pythonWriteFunctionPrefixes = []string{ //nolint:gochecknoglobals
+	"append", "commit", "create", "delete", "emit", "flush", "index",
+	"ingest", "insert", "persist", "record", "remove", "replace",
+	"save", "store", "sync", "update", "upsert", "write",
+}
+
 type lineLimitThresholds struct {
 	goHard     int64
 	pythonHard int64
@@ -229,13 +235,9 @@ func pythonWriteFunctionName(name string) bool {
 		return false
 	}
 
-	prefixes := []string{
-		"append", "commit", "create", "delete", "emit", "flush", "index",
-		"ingest", "insert", "persist", "record", "remove", "replace",
-		"save", "store", "sync", "update", "upsert", "write",
-	}
-	for _, prefix := range prefixes {
-		if name == prefix || strings.HasPrefix(name, prefix+"_") {
+	for _, prefix := range pythonWriteFunctionPrefixes {
+		if strings.HasPrefix(name, prefix) &&
+			(len(name) == len(prefix) || name[len(prefix)] == '_') {
 			return true
 		}
 	}

@@ -537,50 +537,29 @@ principles:
             python_ast.exists(fact,
               fact.is_suppression &&
               fact.enclosing_function != "" &&
-              (
-                list_contains(
-                  [
-                    "append",
-                    "commit",
-                    "create",
-                    "delete",
-                    "emit",
-                    "flush",
-                    "index",
-                    "ingest",
-                    "insert",
-                    "persist",
-                    "record",
-                    "remove",
-                    "replace",
-                    "save",
-                    "store",
-                    "sync",
-                    "update",
-                    "upsert",
-                    "write"
-                  ],
-                  fact.enclosing_function
-                ) ||
-                has_prefix(fact.enclosing_function, "append_") ||
-                has_prefix(fact.enclosing_function, "commit_") ||
-                has_prefix(fact.enclosing_function, "create_") ||
-                has_prefix(fact.enclosing_function, "delete_") ||
-                has_prefix(fact.enclosing_function, "emit_") ||
-                has_prefix(fact.enclosing_function, "flush_") ||
-                has_prefix(fact.enclosing_function, "index_") ||
-                has_prefix(fact.enclosing_function, "ingest_") ||
-                has_prefix(fact.enclosing_function, "insert_") ||
-                has_prefix(fact.enclosing_function, "persist_") ||
-                has_prefix(fact.enclosing_function, "record_") ||
-                has_prefix(fact.enclosing_function, "remove_") ||
-                has_prefix(fact.enclosing_function, "replace_") ||
-                has_prefix(fact.enclosing_function, "save_") ||
-                has_prefix(fact.enclosing_function, "store_") ||
-                has_prefix(fact.enclosing_function, "sync_") ||
-                has_prefix(fact.enclosing_function, "update_") ||
-                has_prefix(fact.enclosing_function, "upsert_") ||
-                has_prefix(fact.enclosing_function, "write_")
+              any_glob_match(
+                [
+                  "append", "append_*",
+                  "commit", "commit_*",
+                  "create", "create_*",
+                  "delete", "delete_*",
+                  "emit", "emit_*",
+                  "flush", "flush_*",
+                  "index", "index_*",
+                  "ingest", "ingest_*",
+                  "insert", "insert_*",
+                  "persist", "persist_*",
+                  "record", "record_*",
+                  "remove", "remove_*",
+                  "replace", "replace_*",
+                  "save", "save_*",
+                  "store", "store_*",
+                  "sync", "sync_*",
+                  "update", "update_*",
+                  "upsert", "upsert_*",
+                  "write", "write_*"
+                ],
+                fact.enclosing_function
               )
             )
     sections:
