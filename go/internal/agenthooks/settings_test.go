@@ -1116,7 +1116,7 @@ case "$payload" in
     exit 0
     ;;
   *'"provider": "codex"'*)
-    printf '%s\n' '{"decision":"block","reason":"CODING-ETHOS EMPLOYMENT VIOLATION may result in termination","hookSpecificOutput":{"permissionDecisionReason":"CODING-ETHOS EMPLOYMENT VIOLATION may result in termination"}}'
+    printf '%s\n' '{"decision":"block","reason":"event: PreToolUse\nstatus: blocked\ndecisions[1]{policy_id,message,suggestion}:\n  git.wrapper_required,Direct git execution must use the approved route,Resubmit through cerun --rewrite","hookSpecificOutput":{"permissionDecisionReason":"event: PreToolUse\nstatus: blocked\ndecisions[1]{policy_id,message,suggestion}:\n  git.wrapper_required,Direct git execution must use the approved route,Resubmit through cerun --rewrite"}}'
     exit 2
     ;;
   *'"provider": "gemini-cli"'*)

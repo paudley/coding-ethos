@@ -16,6 +16,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/execguard"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 )
 
 var errSandboxExecCommand = apperror.StaticError("sandbox exec requires command")
@@ -63,7 +64,11 @@ func Run(args []string) int {
 			return exitErr.ExitCode()
 		}
 
-		fmt.Fprintln(os.Stderr, sandboxExecErrorPrefix, err)
+		feedback.Emit(
+			os.Stderr,
+			feedback.Error{Message: sandboxExecErrorPrefix + " " + err.Error()},
+			feedback.FormatTOON,
+		)
 
 		return sandboxExecFailureExitCode
 	}
@@ -268,8 +273,25 @@ func gitMetadataRoots(repoRoot string) []string {
 
 func allowedSystemWritePath(path string) bool {
 	return path == os.DevNull ||
+		allowedTerminalWritePath(path) ||
 		allowedManagedTempWritePath(path) ||
+		allowedGPGHomeWritePath(path) ||
 		allowedGPGRuntimeWritePath(path)
+}
+
+func allowedTerminalWritePath(path string) bool {
+	for _, fd := range []string{"0", "1", "2"} {
+		target, err := os.Readlink(filepath.Join("/proc/self/fd", fd))
+		if err != nil {
+			continue
+		}
+
+		if filepath.Clean(target) == path {
+			return true
+		}
+	}
+
+	return false
 }
 
 func allowedManagedTempWritePath(path string) bool {
@@ -304,6 +326,89 @@ func allowedGPGRuntimeWritePath(path string) bool {
 	}
 
 	return pathWithin(filepath.Join(runtimeRoot, "gnupg"), path)
+}
+
+func allowedGPGHomeWritePath(path string) bool {
+	gpgHome := strings.TrimSpace(os.Getenv("GNUPGHOME"))
+	if gpgHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil || strings.TrimSpace(home) == "" {
+			return false
+		}
+
+		gpgHome = filepath.Join(home, ".gnupg")
+	}
+
+	gpgHome = filepath.Clean(gpgHome)
+	if pathWithin(gpgHome, path) {
+		return true
+	}
+
+	for _, root := range resolvedGPGHomeWriteRoots(gpgHome) {
+		if pathWithin(root, path) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func resolvedGPGHomeWriteRoots(gpgHome string) []string {
+	roots := []string{}
+	seen := map[string]bool{}
+	appendRoot := func(path string) {
+		path = filepath.Clean(strings.TrimSpace(path))
+		if path == "." || seen[path] {
+			return
+		}
+
+		seen[path] = true
+		roots = append(roots, path)
+	}
+
+	resolvedHome, err := filepath.EvalSymlinks(gpgHome)
+	if err == nil {
+		appendRoot(resolvedHome)
+	}
+
+	appendResolvedGPGSymlinkRoots(gpgHome, appendRoot)
+	appendResolvedGPGSymlinkRoots(filepath.Join(gpgHome, "private-keys-v1.d"), appendRoot)
+
+	return roots
+}
+
+func appendResolvedGPGSymlinkRoots(dir string, appendRoot func(string)) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+
+	for _, entry := range entries {
+		entryPath := filepath.Join(dir, entry.Name())
+
+		info, err := os.Lstat(entryPath)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+
+		resolved, err := filepath.EvalSymlinks(entryPath)
+		if err != nil {
+			continue
+		}
+
+		appendResolvedGPGPath(resolved, appendRoot)
+	}
+}
+
+func appendResolvedGPGPath(resolved string, appendRoot func(string)) {
+	resolvedInfo, err := os.Stat(resolved)
+	if err == nil && resolvedInfo.IsDir() {
+		appendRoot(resolved)
+
+		return
+	}
+
+	appendRoot(filepath.Dir(resolved))
 }
 
 func joinPolicyErrors(errs ...error) error {

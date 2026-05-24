@@ -13,6 +13,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/managedcapture"
@@ -528,7 +529,7 @@ func runLintMode(config lintCLIConfig, bundle policy.Bundle) int {
 func logLintResult(cwd string, result lint.Result) {
 	_, logErr := lint.LogResult(cwd, result)
 	if logErr != nil {
-		fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", logErr)
+		writeLintCLIText("warning: lint trace not written: " + logErr.Error())
 
 		return
 	}
@@ -540,7 +541,7 @@ func logLintResult(cwd string, result lint.Result) {
 		false,
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARN: lint trace auto-prune failed: %v\n", err)
+		writeLintCLIText("warning: lint trace auto-prune failed: " + err.Error())
 	}
 }
 
@@ -773,8 +774,16 @@ func splitNonEmpty(raw, separator string) []string {
 }
 
 func exitErr(err error) {
-	fmt.Fprintf(os.Stderr, "%s\n", err)
+	feedback.Emit(
+		os.Stderr,
+		feedback.Error{Message: err.Error()},
+		feedback.FormatTOON,
+	)
 	os.Exit(1)
+}
+
+func writeLintCLIText(text string) {
+	feedback.Emit(os.Stderr, feedback.Text{Text: text}, feedback.FormatTOON)
 }
 
 type scopeFlag struct {

@@ -5,10 +5,10 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 
 	"blackcat.ca/coding-ethos/go/internal/execguard"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/policygitcli"
 )
@@ -26,6 +26,10 @@ func main() {
 		os.Exit(exitError.Code)
 	}
 
-	fmt.Fprintf(os.Stderr, "%s\n", err)
+	feedback.Emit(
+		os.Stderr,
+		feedback.Error{Message: err.Error()},
+		feedback.FormatTOON,
+	)
 	os.Exit(1)
 }

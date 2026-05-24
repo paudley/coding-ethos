@@ -15,6 +15,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
@@ -214,7 +215,11 @@ func enrichDirectoryListing(ctx context.Context, args []string) error {
 		return fmt.Errorf("enrich directory listing: %w", err)
 	}
 
-	_, err = fmt.Fprint(os.Stdout, output.Text)
+	err = feedback.WriteRendered(
+		os.Stdout,
+		strings.TrimSuffix(output.Text, "\n"),
+		feedback.FormatTOON,
+	)
 	if err != nil {
 		return fmt.Errorf("write enriched listing: %w", err)
 	}
@@ -353,7 +358,7 @@ func printDirectoryAnatomyTOON(anatomy codeintel.DirectoryAnatomy) error {
 		return nil
 	}
 
-	_, err := fmt.Fprintln(os.Stdout, output)
+	err := feedback.WriteRendered(os.Stdout, output, feedback.FormatTOON)
 	if err != nil {
 		return fmt.Errorf("write anatomy map TOON: %w", err)
 	}

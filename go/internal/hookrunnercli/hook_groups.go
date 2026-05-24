@@ -43,7 +43,7 @@ func (group hookGroup) matchesFiles(files []string) bool {
 
 func runHookGroupCommand(cfg Config, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: coding-ethos-hook run-group <group> [files...]")
+		writeLine(os.Stderr, "Usage: coding-ethos-hook run-group <group> [files...]")
 
 		return 1
 	}
@@ -52,7 +52,7 @@ func runHookGroupCommand(cfg Config, args []string) int {
 
 	group, ok := canonicalHookGroups()[groupName]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "FATAL: unknown hook group %q\n", groupName)
+		writef(os.Stderr, "FATAL: unknown hook group %q\n", groupName)
 
 		return 1
 	}

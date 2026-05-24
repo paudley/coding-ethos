@@ -160,7 +160,8 @@ func TestParentRuntimeCerunGitAddFailsFastWithoutPolicyBundle(t *testing.T) {
 	)
 	add.RequireExit(t, 127)
 	for _, want := range []string{
-		"FATAL: coding-ethos hook runtime is missing or invalid",
+		"status: fatal",
+		"summary: coding-ethos hook runtime is missing or invalid",
 		"missing compiled policy bundle",
 		policyBundle,
 		"action: run make build",

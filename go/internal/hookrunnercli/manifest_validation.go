@@ -238,7 +238,7 @@ func validateManifestEntryStrings(
 func validateManifestCommand(_ Config, _ []string) int {
 	settings, err := loadManifestValidationSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -249,14 +249,14 @@ func validateManifestCommand(_ Config, _ []string) int {
 
 	manifestPath, err := findManifestPath(settings)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+		writef(os.Stderr, "ERROR: %v\n", err)
 
 		return 1
 	}
 
 	content, err := os.ReadFile(manifestPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Could not read %s: %v\n", manifestPath, err)
+		writef(os.Stderr, "ERROR: Could not read %s: %v\n", manifestPath, err)
 
 		return 1
 	}
@@ -265,8 +265,8 @@ func validateManifestCommand(_ Config, _ []string) int {
 
 	err = yaml.Unmarshal(content, &data)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Invalid YAML syntax in %s:\n", manifestPath)
-		fmt.Fprintf(os.Stderr, "  %v\n", err)
+		writef(os.Stderr, "ERROR: Invalid YAML syntax in %s:\n", manifestPath)
+		writef(os.Stderr, "  %v\n", err)
 
 		return 1
 	}

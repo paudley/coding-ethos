@@ -1884,11 +1884,11 @@ func validateCodexBlockProbe(result hookProbeResult) error {
 		)
 	}
 
-	if !strings.Contains(reason, "CODING-ETHOS EMPLOYMENT VIOLATION") ||
-		!strings.Contains(reason, "may result in termination") {
+	if !strings.Contains(reason, "git.wrapper_required") ||
+		!strings.Contains(reason, "cerun --rewrite") {
 		return apperror.Wrapf(
-			apperror.StaticError("codex block reason lost severe warning: %s"),
-			"codex block reason lost severe warning: %s",
+			apperror.StaticError("codex block reason lost git remediation: %s"),
+			"codex block reason lost git remediation: %s",
 			reason,
 		)
 	}

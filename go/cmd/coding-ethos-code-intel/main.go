@@ -5,11 +5,11 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 
 	"blackcat.ca/coding-ethos/go/internal/codeintelcli"
 	"blackcat.ca/coding-ethos/go/internal/execguard"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 )
 
 func main() {
@@ -17,7 +17,11 @@ func main() {
 
 	err := codeintelcli.Run(context.Background(), os.Args[1:])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err)
+		feedback.Emit(
+			os.Stderr,
+			feedback.Error{Message: err.Error()},
+			feedback.FormatTOON,
+		)
 		os.Exit(1)
 	}
 }

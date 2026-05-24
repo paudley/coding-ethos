@@ -76,12 +76,12 @@ func hookLogSummaryCommand(_ Config, args []string) int {
 
 	summary, err := loadHookLogSummary(logRoot, selectedHookOutputFormat())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
 
-	fmt.Fprintln(os.Stdout, formatHookLogSummary(summary))
+	writeLine(os.Stdout, formatHookLogSummary(summary))
 
 	return 0
 }
@@ -94,12 +94,12 @@ func hookLogAnalyzeCommand(_ Config, args []string) int {
 
 	analysis, err := analyzeHookLogs(logRoot, selectedHookOutputFormat())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
 
-	fmt.Fprintln(os.Stdout, formatHookLogAnalysis(analysis))
+	writeLine(os.Stdout, formatHookLogAnalysis(analysis))
 
 	return 0
 }

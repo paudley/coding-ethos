@@ -165,6 +165,79 @@ require_code_intel_ingest = false
 	}
 }
 
+func TestAutoPruneCodeIntelDBUsesDefaultRowRetention(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+
+	oldAt := time.Now().UTC().Add(
+		-time.Duration(DefaultCodeIntelRowRetentionDays+1) * 24 * time.Hour,
+	)
+	newAt := time.Now().UTC()
+	for _, trace := range []codeintel.Trace{
+		{
+			ID:            "old-trace",
+			Kind:          "lint",
+			RecordedAtUTC: oldAt.Format(time.RFC3339),
+			RepoRoot:      root,
+			Raw:           []byte("{}"),
+		},
+		{
+			ID:            "new-trace",
+			Kind:          "lint",
+			RecordedAtUTC: newAt.Format(time.RFC3339),
+			RepoRoot:      root,
+			Raw:           []byte("{}"),
+		},
+	} {
+		if err := store.IngestTrace(ctx, trace); err != nil {
+			t.Fatalf("ingest trace: %v", err)
+		}
+	}
+	if err := store.RecordProxyEvent(ctx, agentproxy.ProviderEvent{
+		ID:            "old-event",
+		SessionID:     "session-1",
+		Kind:          agentproxy.EventFileRead,
+		RecordedAtUTC: oldAt,
+	}); err != nil {
+		t.Fatalf("record old proxy event: %v", err)
+	}
+	if err := store.RecordProxyEvent(ctx, agentproxy.ProviderEvent{
+		ID:            "new-event",
+		SessionID:     "session-1",
+		Kind:          agentproxy.EventFileRead,
+		RecordedAtUTC: newAt,
+	}); err != nil {
+		t.Fatalf("record new proxy event: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close code-intel store: %v", err)
+	}
+
+	if err := AutoPruneCodeIntelDB(ctx, root); err != nil {
+		t.Fatalf("AutoPruneCodeIntelDB returned error: %v", err)
+	}
+
+	store, err = codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("reopen code-intel store: %v", err)
+	}
+	defer store.Close()
+
+	stats, err := store.Stats(ctx)
+	if err != nil {
+		t.Fatalf("read code-intel stats: %v", err)
+	}
+	if stats.Traces != 1 || stats.ProxyEvents != 1 {
+		t.Fatalf("auto-pruned stats = %#v", stats)
+	}
+}
+
 func TestPruneIncludesTempSurfacesWhenRequested(t *testing.T) {
 	root := t.TempDir()
 	tempRoot := t.TempDir()

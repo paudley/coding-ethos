@@ -24,6 +24,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
+	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
@@ -219,6 +220,7 @@ func TestRuntimePathSetDerivesManagedPaths(t *testing.T) {
 		RealGit:       "/usr/bin/git",
 		InvocationCWD: "/repo/pkg",
 		LocalRoot:     "/repo",
+		GitDir:        "/repo/.git",
 		GitCommonDir:  "/repo/.git",
 		Root:          "/repo",
 		HooksDir:      "/repo/.git/hooks",
@@ -233,6 +235,10 @@ func TestRuntimePathSetDerivesManagedPaths(t *testing.T) {
 
 	if paths.PolicyBundle != "/repo/coding-ethos/build/policy/policy-bundle.json" {
 		t.Fatalf("policy bundle = %q", paths.PolicyBundle)
+	}
+
+	if paths.GitDir != "/repo/.git" {
+		t.Fatalf("git dir = %q", paths.GitDir)
 	}
 
 	if paths.ManagedGoBin != "/repo/coding-ethos/build/toolchain/go-bin" {
@@ -655,7 +661,6 @@ func TestPrintParentWorkflowReportEmitsTOON(t *testing.T) { //nolint:paralleltes
 	})
 
 	for _, want := range []string{
-		"format: toon",
 		"tool: parent-check",
 		"status: fail",
 		"repo: /repo",
@@ -1001,6 +1006,97 @@ func TestRuntimeGitCommonDirFallbackReadsLinkedWorktreeDotGitFile(t *testing.T) 
 	}
 }
 
+func TestRuntimeGitDirFallbackReadsLinkedWorktreeDotGitFile(t *testing.T) {
+	parent := t.TempDir()
+	commonDir := filepath.Join(parent, ".git")
+	worktreeGitDir := filepath.Join(
+		commonDir,
+		"worktrees",
+		"feature-branch",
+		"modules",
+		"coding-ethos",
+	)
+	worktreeRoot := filepath.Join(parent, "feature", "coding-ethos")
+
+	err := os.MkdirAll(worktreeGitDir, 0o700)
+	if err != nil {
+		t.Fatalf("create worktree git dir: %v", err)
+	}
+
+	err = os.MkdirAll(worktreeRoot, 0o700)
+	if err != nil {
+		t.Fatalf("create worktree root: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(worktreeRoot, ".git"),
+		[]byte("gitdir: "+worktreeGitDir+"\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write worktree .git file: %v", err)
+	}
+
+	hooksDir := filepath.Join(worktreeRoot, ".git", "hooks")
+	got := resolveRuntimeGitDir("/missing/git", worktreeRoot, hooksDir)
+	if got != worktreeGitDir {
+		t.Fatalf("git dir = %q, want %q", got, worktreeGitDir)
+	}
+}
+
+func TestRuntimeGitCommonDirFallbackReadsCommonDirFile(t *testing.T) {
+	parent := t.TempDir()
+	commonDir := filepath.Join(parent, ".git", "modules", "coding-ethos")
+	worktreeGitDir := filepath.Join(
+		parent,
+		".git",
+		"worktrees",
+		"feature-branch",
+		"modules",
+		"coding-ethos",
+	)
+	worktreeRoot := filepath.Join(parent, "feature", "coding-ethos")
+
+	err := os.MkdirAll(worktreeGitDir, 0o700)
+	if err != nil {
+		t.Fatalf("create worktree git dir: %v", err)
+	}
+
+	err = os.MkdirAll(worktreeRoot, 0o700)
+	if err != nil {
+		t.Fatalf("create worktree root: %v", err)
+	}
+
+	relativeCommonDir, err := filepath.Rel(worktreeGitDir, commonDir)
+	if err != nil {
+		t.Fatalf("rel commondir: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(worktreeGitDir, "commondir"),
+		[]byte(relativeCommonDir+"\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write commondir: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(worktreeRoot, ".git"),
+		[]byte("gitdir: "+worktreeGitDir+"\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write worktree .git file: %v", err)
+	}
+
+	hooksDir := filepath.Join(worktreeRoot, ".git", "hooks")
+	got := resolveRuntimeGitCommonDir("/missing/git", worktreeRoot, hooksDir)
+	if got != commonDir {
+		t.Fatalf("git common dir = %q, want %q", got, commonDir)
+	}
+}
+
 func TestRuntimePathsExportManagedEnvironment(t *testing.T) {
 	testlock.ProcessState(t, "coding-ethos-run-env")
 
@@ -1023,6 +1119,7 @@ func TestRuntimePathsExportManagedEnvironment(t *testing.T) {
 		RealGit:       "/usr/bin/git",
 		InvocationCWD: "/repo/pkg",
 		LocalRoot:     "/repo",
+		GitDir:        "/repo/.git",
 		GitCommonDir:  "/repo/.git",
 		Root:          "/repo",
 		HooksDir:      "/repo/.git/hooks",
@@ -1258,7 +1355,67 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 		t.Skip("agent-shell native sandbox is Linux-only")
 	}
 
+	home := t.TempDir()
+	runtimeDir := t.TempDir()
+	resolvedGPGHome := filepath.Join(t.TempDir(), "dot-gnupg")
+	if err := os.MkdirAll(resolvedGPGHome, 0o700); err != nil {
+		t.Fatalf("create resolved GPG home fixture: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(resolvedGPGHome, "trustdb.gpg"),
+		[]byte{},
+		0o600,
+	); err != nil {
+		t.Fatalf("create resolved GPG file fixture: %v", err)
+	}
+	resolvedPrivateKeys := filepath.Join(resolvedGPGHome, "private-keys-v1.d")
+	if err := os.MkdirAll(resolvedPrivateKeys, 0o700); err != nil {
+		t.Fatalf("create resolved private key fixture: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(resolvedPrivateKeys, "key.key"),
+		[]byte{},
+		0o600,
+	); err != nil {
+		t.Fatalf("create private key fixture: %v", err)
+	}
+	gpgHome := filepath.Join(home, ".gnupg")
+	if err := os.MkdirAll(gpgHome, 0o700); err != nil {
+		t.Fatalf("create GPG home fixture: %v", err)
+	}
+	privateKeys := filepath.Join(gpgHome, "private-keys-v1.d")
+	if err := os.MkdirAll(privateKeys, 0o700); err != nil {
+		t.Fatalf("create GPG private key directory fixture: %v", err)
+	}
+	if err := os.Symlink(
+		filepath.Join(resolvedGPGHome, "trustdb.gpg"),
+		filepath.Join(gpgHome, "trustdb.gpg"),
+	); err != nil {
+		t.Fatalf("create GPG symlink fixture: %v", err)
+	}
+	if err := os.Symlink(
+		filepath.Join(resolvedPrivateKeys, "key.key"),
+		filepath.Join(privateKeys, "key.key"),
+	); err != nil {
+		t.Fatalf("create private key symlink fixture: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("GNUPGHOME", "")
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+	t.Setenv("DISPLAY", ":0")
+	t.Setenv("GPG_TTY", "/stale/tty")
+	t.Setenv("TMPDIR", "/tmp/stale")
+	t.Setenv("WAYLAND_DISPLAY", "wayland-1")
+	t.Setenv("XAUTHORITY", filepath.Join(home, ".Xauthority"))
+
 	paths := runtimeTestPaths(t)
+	paths.GitDir = filepath.Join(
+		filepath.Dir(paths.GitCommonDir),
+		"worktrees",
+		"feature",
+		"modules",
+		"coding-ethos",
+	)
 	writeExecutableFixture(
 		t,
 		filepath.Join(paths.BinDir, "coding-ethos-sandbox"),
@@ -1289,6 +1446,28 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	if !slices.Contains(env, "CODING_ETHOS_AGENT_SHELL_SANDBOX=1") {
 		t.Fatalf("agent-shell env does not mark sandbox execution: %#v", env)
 	}
+	if !slices.Contains(
+		env,
+		"TMPDIR="+filepath.Join(paths.Root, sandbox.SandboxTempWritePath),
+	) {
+		t.Fatalf("agent-shell env does not route temp files into sandbox: %#v", env)
+	}
+	for _, unwanted := range []string{"DISPLAY=", "WAYLAND_DISPLAY=", "XAUTHORITY="} {
+		if slices.ContainsFunc(env, func(item string) bool {
+			return strings.HasPrefix(item, unwanted)
+		}) {
+			t.Fatalf("agent-shell env leaked GUI pinentry variable %q: %#v", unwanted, env)
+		}
+	}
+	for _, item := range env {
+		if item == "GPG_TTY=/stale/tty" || item == "TMPDIR=/tmp/stale" {
+			t.Fatalf("agent-shell env leaked stale process variable: %#v", env)
+		}
+	}
+	if gpgTTY := agentShellGPGTTY(); gpgTTY != "" &&
+		!slices.Contains(env, "GPG_TTY="+gpgTTY) {
+		t.Fatalf("agent-shell env does not set current GPG_TTY %q: %#v", gpgTTY, env)
+	}
 	if !slices.ContainsFunc(env, func(item string) bool {
 		return strings.HasPrefix(item, "CODING_ETHOS_REAL_GIT="+filepath.Join(
 			paths.Root,
@@ -1301,6 +1480,21 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	}
 	if !plan.Evidence.RequiresGit {
 		t.Fatalf("agent-shell plan must preserve git-required evidence: %#v", plan.Evidence)
+	}
+	if !plan.Evidence.RequiresProcesses || plan.Evidence.ProcessIsolated {
+		t.Fatalf("agent-shell plan must allow hook subprocess sandboxes: %#v", plan.Evidence)
+	}
+	for _, want := range []string{
+		paths.GitDir,
+		paths.GitCommonDir,
+		filepath.Join(home, ".gnupg"),
+		resolvedGPGHome,
+		resolvedPrivateKeys,
+		filepath.Join(runtimeDir, "gnupg"),
+	} {
+		if !containsFlagValue(plan.Args, "--write-path", want) {
+			t.Fatalf("plan args missing git write path %q: %#v", want, plan.Args)
+		}
 	}
 	for _, unwanted := range []string{"--git-wrapper", "--real-git-path", "--git-target"} {
 		if slices.Contains(plan.Args, unwanted) {
@@ -1316,6 +1510,54 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 			t.Fatalf("plan args missing %q: %#v", want, plan.Args)
 		}
 	}
+}
+
+func TestAgentShellGitWritePathsDeduplicatesGitDirs(t *testing.T) {
+	t.Parallel()
+
+	gitDir := "/repo/.git"
+	got := agentShellGitWritePaths(runtimePaths{
+		GitDir:       gitDir,
+		GitCommonDir: gitDir,
+	})
+	if !slices.Equal(got, []string{gitDir}) {
+		t.Fatalf("agentShellGitWritePaths() = %#v, want %#v", got, []string{gitDir})
+	}
+}
+
+func TestAppendExistingGPGHomeWritePathsSkipsMissingHome(t *testing.T) {
+	t.Parallel()
+
+	missing := filepath.Join(t.TempDir(), "missing-gnupg")
+	got := appendExistingGPGHomeWritePaths([]string{"/repo/.git"}, missing)
+	if !slices.Equal(got, []string{"/repo/.git"}) {
+		t.Fatalf("write paths = %#v, want only existing paths", got)
+	}
+}
+
+func TestAgentShellTerminalPathAllowsCurrentPTYOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"/dev/pts/18", "/dev/tty"} {
+		if !agentShellTerminalPath(path) {
+			t.Fatalf("agentShellTerminalPath(%q) = false", path)
+		}
+	}
+	for _, path := range []string{"/dev/pts", "/dev/null", "/tmp/tty"} {
+		if agentShellTerminalPath(path) {
+			t.Fatalf("agentShellTerminalPath(%q) = true", path)
+		}
+	}
+}
+
+func containsFlagValue(args []string, flag, value string) bool {
+	for index := 0; index < len(args)-1; index++ {
+		if args[index] == flag && args[index+1] == value {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestAgentShellWorktreeWritePathsExcludeProtectedRuntimeDirs(t *testing.T) {
@@ -2446,6 +2688,7 @@ func runtimeTestPaths(t *testing.T) runtimePaths {
 		RealGit:        realGitPath,
 		InvocationCWD:  filepath.Join(root, "pkg"),
 		Root:           root,
+		GitDir:         filepath.Join(root, ".git"),
 		GitCommonDir:   filepath.Join(root, ".git"),
 		HooksDir:       filepath.Join(root, ".git", "hooks"),
 		BinDir:         binDir,

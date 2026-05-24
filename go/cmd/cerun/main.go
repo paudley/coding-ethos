@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"blackcat.ca/coding-ethos/go/internal/execguard"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
@@ -31,7 +32,7 @@ func main() {
 func runCerun(args []string) int {
 	runner, err := siblingRunner()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "cerun: %s\n", err)
+		emitCerunError("cerun: " + err.Error())
 
 		return cerunMissingRuntimeExitCode
 	}
@@ -54,13 +55,17 @@ func runCerunWithRunner(args []string, runner string) int {
 	if err != nil {
 		var execErr *exec.Error
 		if errors.As(err, &execErr) {
-			fmt.Fprintf(os.Stderr, "cerun: exec %s: %s\n", runner, err)
+			emitCerunError(fmt.Sprintf("cerun: exec %s: %s", runner, err))
 		}
 
 		return cerunExitCode(err)
 	}
 
 	return 0
+}
+
+func emitCerunError(message string) {
+	feedback.Emit(os.Stderr, feedback.Error{Message: message}, feedback.FormatTOON)
 }
 
 func cerunRuntimeArgs(args []string) []string {

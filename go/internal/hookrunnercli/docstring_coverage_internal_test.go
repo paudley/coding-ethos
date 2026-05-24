@@ -230,6 +230,110 @@ python:
 	}
 }
 
+func TestScopeDocstringCoverageForHookUsesChangedPythonFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "coding-ethos", "coding_ethos", "sample.py"),
+		strings.TrimSpace(`
+"""Documented module."""
+
+def documented():
+    """Documented function."""
+    return 1
+`)+"\n",
+	)
+	mustWriteTestFile(t, filepath.Join(tempDir, "README.md"), "# docs\n")
+
+	settings := docstringCoverageSettings{
+		ConsumerRoot:             tempDir,
+		Threshold:                100,
+		CheckPaths:               []string{"coding_ethos"},
+		IgnoreInitMethod:         true,
+		IgnoreInitModule:         true,
+		IgnoreMagic:              true,
+		IgnorePrivate:            true,
+		IgnoreSemiprivate:        true,
+		IgnoreNestedFunctions:    true,
+		IgnoreNestedClasses:      true,
+		IgnorePropertyDecorators: true,
+	}
+
+	if !scopeDocstringCoverageForHook(
+		&settings,
+		Config{HookStage: hookStagePrePush},
+		[]string{
+			"coding-ethos/coding_ethos/sample.py",
+			"README.md",
+		},
+	) {
+		t.Fatal("docstring coverage unexpectedly skipped Python hook files")
+	}
+
+	if len(settings.CheckPaths) != 1 ||
+		settings.CheckPaths[0] != "coding-ethos/coding_ethos/sample.py" {
+		t.Fatalf("scoped check paths = %#v", settings.CheckPaths)
+	}
+
+	exitCode, stdout, stderr, err := runNativeDocstringCoverage(settings)
+	if err != nil {
+		t.Fatalf("runNativeDocstringCoverage() error = %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf(
+			"runNativeDocstringCoverage() exit = %d, stdout %q, stderr %q",
+			exitCode,
+			stdout,
+			stderr,
+		)
+	}
+}
+
+func TestScopeDocstringCoverageForHookSkipsWithoutPythonFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+
+	mustWriteTestFile(t, filepath.Join(tempDir, "README.md"), "# docs\n")
+
+	settings := docstringCoverageSettings{CheckPaths: []string{"coding_ethos"}}
+	if scopeDocstringCoverageForHook(
+		&settings,
+		Config{HookStage: hookStagePrePush},
+		[]string{"README.md"},
+	) {
+		t.Fatal("docstring coverage should skip hook stages without Python files")
+	}
+}
+
+func TestRunNativeDocstringCoverageFailsForMissingConfiguredPath(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	_, _, _, err := runNativeDocstringCoverage(
+		docstringCoverageSettings{
+			ConsumerRoot:             tempDir,
+			Threshold:                100,
+			CheckPaths:               []string{"coding_ethos"},
+			IgnoreInitMethod:         true,
+			IgnoreInitModule:         true,
+			IgnoreMagic:              true,
+			IgnorePrivate:            true,
+			IgnoreSemiprivate:        true,
+			IgnoreNestedFunctions:    true,
+			IgnoreNestedClasses:      true,
+			IgnorePropertyDecorators: true,
+		},
+	)
+	if err == nil {
+		t.Fatal("runNativeDocstringCoverage() error = nil, want missing path failure")
+	}
+	if !strings.Contains(err.Error(), "walk docstring coverage path") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunNativeDocstringCoverageReportsMissingSymbols(t *testing.T) {
 	t.Parallel()
 

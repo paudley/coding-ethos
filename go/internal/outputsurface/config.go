@@ -119,13 +119,18 @@ func DefaultSettings() Settings {
 
 	for _, definition := range Definitions() {
 		settings.Prune.Surfaces[definition.ID] = SurfaceRetentionPolicy{
-			Enabled:                definition.CommandPrune,
+			Enabled:                definition.CommandPrune || definition.DBMaintenance,
 			Auto:                   definition.AutomaticPrune,
 			MaxAge:                 definition.maxAge,
 			MaxAgeText:             durationText(definition.maxAge),
 			MaxBytes:               defaultMaxBytes,
 			RequireCodeIntelIngest: definition.RequiresIngest,
-			VacuumAfterPrune:       definition.DBMaintenance,
+			VacuumAfterPrune:       false,
+		}
+		if definition.ID == codeIntelDBSurfaceID {
+			policy := settings.Prune.Surfaces[definition.ID]
+			policy.RowRetentionDays = DefaultCodeIntelRowRetentionDays
+			settings.Prune.Surfaces[definition.ID] = policy
 		}
 	}
 

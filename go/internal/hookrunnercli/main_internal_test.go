@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 	if len(os.Args) >= minCollectionItems && os.Args[1] == "run-group" {
 		cfg, err := loadConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+			writef(os.Stderr, "FATAL: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -46,7 +46,7 @@ func TestMain(m *testing.M) {
 
 	err := installHostGoTestGuard()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		writeLine(os.Stderr, err)
 		os.Exit(1)
 	}
 

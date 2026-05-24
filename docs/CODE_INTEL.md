@@ -142,6 +142,12 @@ over policy IDs, skill IDs, paths, messages, code chunks, and remediation text.
 sqlite-vec is active for derived vector rows, but SQLite facts remain the
 auditable source of truth.
 
+Automatic output pruning applies the configured `code_intel_db` row-retention
+policy after high-volume code-intel writes. The default keeps 90 days of trace
+and proxy-event rows, leaves current AST/code chunks to the index refresh path,
+and does not run SQLite `VACUUM` automatically. Use explicit output-prune
+maintenance when database compaction is needed.
+
 Hook traces are also normalized into analytics tables. Each hook event stores
 provider, tool, status, tracking ID, operation kind, target kind, risk category,
 command and target-set fingerprints, runtime, rewrite state, and target paths.
@@ -425,6 +431,8 @@ Add tools only after the store has a stable schema:
 
 - `code_intel_search`: hybrid semantic/FTS search over stored SARIF,
   remediation, and AST chunk memory.
+- `semantic_search`: code-focused hybrid search that returns exact indexed code
+  chunks with path, symbol, raw text, and line metadata.
 - `code_intel_repo_map`: return compact ranked files, symbols, and signatures
   from the repo-local AST index for session orientation.
 - `code_intel_index_code`: refresh Tree-sitter code chunks for selected paths.
@@ -537,8 +545,8 @@ Acceptance criteria:
 
 ### Phase 5 - MCP Search Tools
 
-- [x] Add code intelligence MCP tools for search, index status, embedding
-  candidates, code indexing, and chunk lookup.
+- [x] Add code intelligence MCP tools for search, semantic search, index
+  status, embedding candidates, code indexing, and chunk lookup.
 - [x] Return compact, traceable result packets suitable for agent context
   windows.
 - [ ] Include follow-up MCP calls for expanding results or explaining policy

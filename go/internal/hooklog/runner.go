@@ -606,7 +606,11 @@ func copyLoggedStream(
 
 	_, err := io.Copy(writer, reader)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARN: failed to copy hook log stream: %v\n", err)
+		feedback.Emit(
+			os.Stderr,
+			feedback.Text{Text: "warning: failed to copy hook log stream: " + err.Error()},
+			feedback.FormatTOON,
+		)
 	}
 }
 

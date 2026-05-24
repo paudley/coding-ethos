@@ -297,7 +297,7 @@ func runDocstringCoverage(
 func checkDocstringCoverageCommand(cfg Config, args []string) int {
 	settings, err := loadDocstringCoverageSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writeText(os.Stderr, "fatal: "+err.Error())
 
 		return 1
 	}
@@ -306,17 +306,13 @@ func checkDocstringCoverageCommand(cfg Config, args []string) int {
 		return 0
 	}
 
-	if cfg.HookStage == hookStagePreCommit && len(pythonGateRelevantFiles(args)) == 0 {
+	if !scopeDocstringCoverageForHook(&settings, cfg, args) {
 		return 0
 	}
 
 	exitCode, stdout, stderr, err := runDocstringCoverage(settings)
 	if err != nil {
-		fmt.Fprintf(
-			os.Stderr,
-			"ERROR: failed to run docstring coverage command: %v\n",
-			err,
-		)
+		writeText(os.Stderr, "error: failed to run docstring coverage command: "+err.Error())
 
 		return 1
 	}
@@ -325,7 +321,7 @@ func checkDocstringCoverageCommand(cfg Config, args []string) int {
 		return 0
 	}
 
-	_, _ = fmt.Fprintln(
+	writeText(
 		os.Stdout,
 		formatDocstringCoverageFailure(
 			settings,
@@ -334,14 +330,43 @@ func checkDocstringCoverageCommand(cfg Config, args []string) int {
 			selectedHookOutputFormat(),
 		),
 	)
+
 	if strings.TrimSpace(stderr) != "" {
-		_, _ = fmt.Fprint(os.Stderr, stderr)
-		if !strings.HasSuffix(stderr, "\n") {
-			_, _ = fmt.Fprintln(os.Stderr)
-		}
+		writeText(os.Stderr, stderr)
 	}
 
 	return 1
+}
+
+func scopeDocstringCoverageForHook(
+	settings *docstringCoverageSettings,
+	cfg Config,
+	args []string,
+) bool {
+	if cfg.HookStage != hookStagePreCommit && cfg.HookStage != hookStagePrePush {
+		return true
+	}
+
+	paths := docstringCoverageHookPythonFiles(args)
+	if len(paths) == 0 {
+		return false
+	}
+
+	settings.CheckPaths = paths
+
+	return true
+}
+
+func docstringCoverageHookPythonFiles(args []string) []string {
+	paths := make([]string, 0)
+
+	for _, path := range existingFiles(args) {
+		if filepath.Ext(path) == extPy {
+			paths = append(paths, path)
+		}
+	}
+
+	return paths
 }
 
 func formatDocstringCoverageFailure(

@@ -17,6 +17,7 @@ import (
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hookrunnercli"
@@ -465,14 +466,14 @@ func readBundle(path string) (policy.Bundle, error) {
 func encodeLintResult(result lint.Result) {
 	err := encodeLintResultTo(os.Stderr, result)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "coding-ethos policy blocked %s\n", result.Scope)
+		writeGitHookText("coding-ethos policy blocked " + result.Scope)
 	}
 }
 
 func logLintResult(cwd string, result lint.Result) {
 	_, inlineErrA := lint.LogResult(cwd, result)
 	if inlineErrA != nil {
-		fmt.Fprintf(os.Stderr, "WARN: lint trace not written: %v\n", inlineErrA)
+		writeGitHookText("warning: lint trace not written: " + inlineErrA.Error())
 
 		return
 	}
@@ -484,7 +485,7 @@ func logLintResult(cwd string, result lint.Result) {
 		false,
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARN: lint trace auto-prune failed: %v\n", err)
+		writeGitHookText("warning: lint trace auto-prune failed: " + err.Error())
 	}
 }
 
@@ -556,5 +557,13 @@ func setenvForHookRunner(name, value string) func() {
 }
 
 func printErr(err error) {
-	fmt.Fprintf(os.Stderr, "%s\n", err)
+	feedback.Emit(
+		os.Stderr,
+		feedback.Error{Message: err.Error()},
+		feedback.FormatTOON,
+	)
+}
+
+func writeGitHookText(text string) {
+	feedback.Emit(os.Stderr, feedback.Text{Text: text}, feedback.FormatTOON)
 }

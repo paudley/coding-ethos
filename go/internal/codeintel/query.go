@@ -33,8 +33,9 @@ type RepeatedFailure struct {
 }
 
 type SearchQuery struct {
-	Text  string `json:"text"`
-	Limit int    `json:"limit"`
+	Text       string `json:"text"`
+	RecordKind string `json:"record_kind,omitempty"`
+	Limit      int    `json:"limit"`
 }
 
 type SearchResult struct {
@@ -103,6 +104,7 @@ type EmbeddingCandidate struct {
 type HybridSearchQuery struct {
 	Filters    map[string]string
 	Text       string
+	RecordKind string
 	Collection string
 	ModelID    string
 	PolicyID   string
@@ -208,15 +210,18 @@ func (store *Store) Search(
 		ctx,
 		`SELECT code_intel_fts.kind, record_id, trace_id, policy_id, skill_id,
 			code_intel_fts.path, message
-		FROM code_intel_fts
-		LEFT JOIN code_files ON code_intel_fts.kind = 'code_chunk'
-			AND code_files.path = code_intel_fts.path
-		WHERE code_intel_fts MATCH ?
-			AND (code_intel_fts.kind != 'code_chunk'
-				OR COALESCE(code_files.deleted_at_utc, '') = '')
-		ORDER BY rank
-		LIMIT ?`,
+			FROM code_intel_fts
+			LEFT JOIN code_files ON code_intel_fts.kind = 'code_chunk'
+				AND code_files.path = code_intel_fts.path
+			WHERE code_intel_fts MATCH ?
+				AND (? = '' OR code_intel_fts.kind = ?)
+				AND (code_intel_fts.kind != 'code_chunk'
+					OR COALESCE(code_files.deleted_at_utc, '') = '')
+			ORDER BY rank
+			LIMIT ?`,
 		query.Text,
+		query.RecordKind,
+		query.RecordKind,
 		limit,
 	)
 	if err != nil {

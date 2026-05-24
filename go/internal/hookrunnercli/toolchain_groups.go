@@ -226,7 +226,7 @@ func runGoCoverageThreshold(cfg Config, paths []string) int {
 
 	coverProfile, cleanup, err := goCoverageProfilePath(worktree)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -277,7 +277,7 @@ func shouldRunGoCoverage(paths []string) (bool, int) {
 
 	configured, err := goCoveragePolicyConfigured()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return false, 1
 	}
@@ -770,7 +770,7 @@ func managedPolicyToolArgsForFiles(name string, files []string) []string {
 func runManagedPolicyTool(name string, args []string) int {
 	bundleRoot, consumer, _, err := loadBundleConsumerAndConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -779,7 +779,7 @@ func runManagedPolicyTool(name string, args []string) int {
 
 	policyContext, err := managedPolicyContext(ethosRoot)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -835,7 +835,7 @@ func openPolicyBundleFile(path string) (*os.File, error) {
 func configuredGoWorktreeName() (string, bool) {
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return "", false
 	}
@@ -860,7 +860,7 @@ func configuredGoWorktreeName() (string, bool) {
 func configuredGoWorktree() (string, bool) {
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return "", false
 	}

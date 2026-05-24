@@ -37,12 +37,52 @@ func Write(writer io.Writer, payload Payload, format string) error {
 		return err
 	}
 
-	_, err = fmt.Fprintln(writer, output)
+	return WriteRendered(writer, output, normalizedFormat(format))
+}
+
+// Emit renders payload through the central output boundary and records local
+// write failures as best-effort fallback text.
+func Emit(writer io.Writer, payload Payload, format string) {
+	err := Write(writer, payload, format)
+	if err != nil {
+		writeFallback(writer, "feedback emit failed: "+err.Error())
+	}
+}
+
+// WriteRendered emits already-rendered output through the central output boundary.
+func WriteRendered(writer io.Writer, output, format string) error {
+	_, err := fmt.Fprintln(writer, output)
 	if err != nil {
 		return fmt.Errorf("write feedback %s: %w", normalizedFormat(format), err)
 	}
 
 	return nil
+}
+
+// EmitRendered emits already-rendered output and records local write failures
+// as best-effort fallback text.
+func EmitRendered(writer io.Writer, output, format string) {
+	err := WriteRendered(writer, output, format)
+	if err != nil {
+		writeFallback(writer, "feedback emit failed: "+err.Error())
+	}
+}
+
+// WriteJSON emits JSON through the central output boundary.
+func WriteJSON(writer io.Writer, value any) error {
+	output, err := marshalIndented(value)
+	if err != nil {
+		return fmt.Errorf("encode feedback JSON: %w", err)
+	}
+
+	return WriteRendered(writer, output, FormatJSON)
+}
+
+func writeFallback(writer io.Writer, text string) {
+	_, err := fmt.Fprintln(writer, "error: "+Cell(text))
+	if err != nil {
+		return
+	}
 }
 
 // Render returns payload in the requested feedback format.
@@ -98,6 +138,16 @@ type Table struct {
 type Message struct {
 	Scalars []Scalar `json:"scalars"`
 	Tables  []Table  `json:"tables,omitempty"`
+}
+
+// Text emits caller-provided text through the central feedback interface.
+type Text struct {
+	Text string `json:"text"`
+}
+
+// Error emits an application error through the central feedback interface.
+type Error struct {
+	Message string `json:"message"`
 }
 
 // SARIFLog is a minimal SARIF-compatible envelope for recording feedback
@@ -169,6 +219,46 @@ func S(key, value string) Scalar {
 
 func T(name string, columns []string, rows [][]string) Table {
 	return Table{Name: name, Columns: columns, Rows: rows}
+}
+
+func (text Text) MarshalFeedbackJSON() any {
+	return map[string]string{"text": text.Text}
+}
+
+func (text Text) MarshalFeedbackTOON() string {
+	return text.Text
+}
+
+func (text Text) MarshalFeedbackHuman() string {
+	return text.Text
+}
+
+func (text Text) MarshalFeedbackSARIF() SARIFLog {
+	return messageSARIFLog("feedback.text", text.Text)
+}
+
+func (text Text) FeedbackLogFields() map[string]any {
+	return map[string]any{"text": text.Text}
+}
+
+func (feedbackError Error) MarshalFeedbackJSON() any {
+	return map[string]string{"error": feedbackError.Message}
+}
+
+func (feedbackError Error) MarshalFeedbackTOON() string {
+	return "error: " + Cell(feedbackError.Message)
+}
+
+func (feedbackError Error) MarshalFeedbackHuman() string {
+	return "Error: " + feedbackError.Message
+}
+
+func (feedbackError Error) MarshalFeedbackSARIF() SARIFLog {
+	return messageSARIFLog("feedback.error", feedbackError.Message)
+}
+
+func (feedbackError Error) FeedbackLogFields() map[string]any {
+	return map[string]any{"error": feedbackError.Message}
 }
 
 func (message Message) MarshalFeedbackJSON() any {
@@ -354,6 +444,30 @@ func sarifLevel(value string) string {
 		return sarifLevelWarning
 	default:
 		return "note"
+	}
+}
+
+func messageSARIFLog(ruleID, text string) SARIFLog {
+	return SARIFLog{
+		Version: "2.1.0",
+		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
+		Runs: []SARIFRun{{
+			Tool: SARIFTool{Driver: SARIFDriver{
+				Name: "coding-ethos",
+				Rules: []SARIFRule{{
+					ID:   ruleID,
+					Name: ruleID,
+					ShortDescription: &SARIFMessage{
+						Text: text,
+					},
+				}},
+			}},
+			Results: []SARIFResult{{
+				RuleID:  ruleID,
+				Level:   "note",
+				Message: SARIFMessage{Text: text},
+			}},
+		}},
 	}
 }
 

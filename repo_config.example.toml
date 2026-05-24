@@ -10,11 +10,13 @@ enabled = true
 auto_enabled = true
 
 [outputs.prune.surfaces.hook_runs]
+auto = true
 max_age = "90d"
 keep_last = 500
 require_code_intel_ingest = true
 
 [outputs.prune.surfaces.lint_traces]
+auto = true
 max_age = "45d"
 keep_last = 1000
 require_code_intel_ingest = true
@@ -27,6 +29,11 @@ keep_last = 100
 auto = true
 max_age = "24h"
 max_bytes = "512MiB"
+
+[outputs.prune.surfaces.code_intel_db]
+auto = true
+row_retention_days = 90
+vacuum_after_prune = false
 
 [outputs.prune.surfaces.sandbox_go_cache]
 auto = true

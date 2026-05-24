@@ -59,7 +59,7 @@ func githubAssetURL(args []string) error {
 		return err
 	}
 
-	fmt.Fprintln(os.Stdout, url)
+	writeToolchainText(os.Stdout, url)
 
 	return nil
 }
@@ -173,7 +173,7 @@ func printSHA256(args []string) error {
 		return err
 	}
 
-	fmt.Fprintln(os.Stdout, sum)
+	writeToolchainText(os.Stdout, sum)
 
 	return nil
 }

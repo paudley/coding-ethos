@@ -54,7 +54,7 @@ func cutoverReport(args []string) error {
 	}
 
 	for _, line := range cutoverReportLines(report) {
-		fmt.Fprintln(os.Stdout, line)
+		writeToolchainText(os.Stdout, line)
 	}
 
 	return nil
@@ -259,7 +259,7 @@ func gitHookFixItems(args []string) error {
 	}
 
 	for _, item := range items {
-		fmt.Fprintln(os.Stdout, item)
+		writeToolchainText(os.Stdout, item)
 	}
 
 	return nil
@@ -277,7 +277,7 @@ func agentHookFixItems(args []string) error {
 	}
 
 	for _, item := range agentHookFixItemLines(string(payload)) {
-		fmt.Fprintln(os.Stdout, item)
+		writeToolchainText(os.Stdout, item)
 	}
 
 	return nil
@@ -325,7 +325,7 @@ func runtimeFixItems(args []string) error {
 	}
 
 	for _, item := range runtimeFixItemLines(string(payload)) {
-		fmt.Fprintln(os.Stdout, item)
+		writeToolchainText(os.Stdout, item)
 	}
 
 	return nil
@@ -366,7 +366,7 @@ func repoIgnoreFixItems(args []string) error {
 	}
 
 	for _, item := range items {
-		fmt.Fprintln(os.Stdout, item)
+		writeToolchainText(os.Stdout, item)
 	}
 
 	return nil
@@ -395,9 +395,9 @@ func repairRepoIgnores(args []string) error {
 		status = "repaired"
 	}
 
-	fmt.Fprintln(os.Stdout, "tool: repair-repo-ignores")
-	fmt.Fprintln(os.Stdout, "status: "+status)
-	fmt.Fprintln(os.Stdout, "repo: "+*repoRoot)
+	writeToolchainText(os.Stdout, "tool: repair-repo-ignores")
+	writeToolchainText(os.Stdout, "status: "+status)
+	writeToolchainText(os.Stdout, "repo: "+*repoRoot)
 
 	return nil
 }

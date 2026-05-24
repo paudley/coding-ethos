@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,9 +25,11 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
@@ -339,7 +340,11 @@ func emitAgentShellBlock(result hooks.Result) {
 	if err != nil {
 		err = hooks.EncodeProviderResult(os.Stderr, result)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, hooks.ProviderBlockMessage(result))
+			feedback.Emit(
+				os.Stderr,
+				feedback.Text{Text: hooks.ProviderBlockMessage(result)},
+				feedback.FormatTOON,
+			)
 		}
 	}
 
@@ -415,13 +420,9 @@ func emitAgentShellCheck(result hooks.Result, request agentShellRequest) error {
 		),
 	}
 
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-
-	err := encoder.Encode(payload)
+	err := feedback.WriteJSON(os.Stdout, payload)
 	if err != nil {
-		return fmt.Errorf("encode agent-shell check result: %w", err)
+		return fmt.Errorf("write agent-shell check result: %w", err)
 	}
 
 	return nil
@@ -559,15 +560,32 @@ func recordAgentShellExecution(
 		return
 	}
 
-	defer func() { _ = store.Close() }()
+	event := agentShellAuditEvent(paths, request, status, exitCode, result)
 
-	decision := ""
-	policyID := ""
-
-	if len(result.Decisions) > 0 {
-		decision = result.Decisions[0].Decision
-		policyID = result.Decisions[0].PolicyID
+	err = store.RecordProxyEvent(context.Background(), event)
+	if err != nil {
+		debuglog.Debug(
+			"agent-shell.audit.failed",
+			zap.String("phase", "record"),
+			zap.Error(err),
+		)
 	}
+
+	if !closeAgentShellAuditStore(store) {
+		return
+	}
+
+	autoPruneAgentShellCodeIntel(paths.Root)
+}
+
+func agentShellAuditEvent(
+	paths runtimePaths,
+	request agentShellRequest,
+	status string,
+	exitCode int,
+	result hooks.Result,
+) agentproxy.ProviderEvent {
+	decision, policyID := firstAgentShellDecision(result)
 
 	event := agentproxy.ProviderEvent{
 		ID: "cerun-" + sha256Text(
@@ -594,34 +612,72 @@ func recordAgentShellExecution(
 		},
 		PolicyID: policyID,
 		Decision: decision,
-		Metadata: map[string]string{
-			"status":           status,
-			"rewrite":          strconv.FormatBool(request.Rewrite),
-			"check":            strconv.FormatBool(request.Check),
-			"strategic_intent": request.Intent,
-			"sandbox_profile":  agentShellSandboxProfile(runtime.GOOS),
-			"sandbox_enforced": strconv.FormatBool(agentShellSandboxEnforced(runtime.GOOS)),
-			"goos":             runtime.GOOS,
-		},
+		Metadata: agentShellAuditMetadata(request, status, exitCode),
 	}
-	if exitCode >= 0 {
-		event.Metadata["exit_code"] = strconv.Itoa(exitCode)
-	}
-
 	if request.Intent != "" {
 		event.Policy = agentproxy.PolicyEvidence{
 			Reason: "strategic intent captured for contextual sandbox policy",
 		}
 	}
 
-	err = store.RecordProxyEvent(context.Background(), event)
-	if err != nil {
-		debuglog.Debug(
-			"agent-shell.audit.failed",
-			zap.String("phase", "record"),
-			zap.Error(err),
-		)
+	return event
+}
+
+func firstAgentShellDecision(result hooks.Result) (string, string) {
+	if len(result.Decisions) == 0 {
+		return "", ""
 	}
+
+	return result.Decisions[0].Decision, result.Decisions[0].PolicyID
+}
+
+func agentShellAuditMetadata(
+	request agentShellRequest,
+	status string,
+	exitCode int,
+) map[string]string {
+	metadata := map[string]string{
+		"status":           status,
+		"rewrite":          strconv.FormatBool(request.Rewrite),
+		"check":            strconv.FormatBool(request.Check),
+		"strategic_intent": request.Intent,
+		"sandbox_profile":  agentShellSandboxProfile(runtime.GOOS),
+		"sandbox_enforced": strconv.FormatBool(agentShellSandboxEnforced(runtime.GOOS)),
+		"goos":             runtime.GOOS,
+	}
+	if exitCode >= 0 {
+		metadata["exit_code"] = strconv.Itoa(exitCode)
+	}
+
+	return metadata
+}
+
+func closeAgentShellAuditStore(store *codeintel.Store) bool {
+	err := store.Close()
+	if err == nil {
+		return true
+	}
+
+	debuglog.Debug(
+		"agent-shell.audit.failed",
+		zap.String("phase", "close"),
+		zap.Error(err),
+	)
+
+	return false
+}
+
+func autoPruneAgentShellCodeIntel(root string) {
+	err := outputsurface.AutoPruneCodeIntelDB(context.Background(), root)
+	if err == nil {
+		return
+	}
+
+	debuglog.Debug(
+		"agent-shell.audit.auto_prune.warn",
+		zap.String("root", root),
+		zap.Error(err),
+	)
 }
 
 func agentShellStrategicIntent() string {

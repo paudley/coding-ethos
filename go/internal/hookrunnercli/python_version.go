@@ -305,7 +305,7 @@ func firstNonEmpty(values ...string) string {
 func checkPythonVersionConsistencyCommand(_ Config, _ []string) int {
 	settings, expected, consumerRoot, err := loadPythonVersionConsistencySettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -316,7 +316,7 @@ func checkPythonVersionConsistencyCommand(_ Config, _ []string) int {
 
 	issues, err := collectPythonVersionIssues(expected, consumerRoot)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: python version consistency: %v\n", err)
+		writef(os.Stderr, "FATAL: python version consistency: %v\n", err)
 
 		return 1
 	}

@@ -11,14 +11,19 @@ import (
 	"os"
 	"time"
 
+	"go.uber.org/zap"
+
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-const blockedExitCode = 2
+const blockedExitCode = hooks.AgentHookBlockedExitCode
 
 var (
 	errBundleRequired = apperror.StaticError("--bundle is required")
@@ -95,7 +100,9 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	if result.Blocked() {
-		printBlocked(stderr, result)
+		if !*jsonOutput {
+			printBlocked(stderr, result)
+		}
 
 		return blockedExitCode
 	}
@@ -142,9 +149,24 @@ func writeProxyEvents(result hooks.Result) error {
 		if closeErr != nil {
 			return fmt.Errorf("close proxy output ledger: %w", closeErr)
 		}
+
+		autoPruneCodeIntelDB(root)
 	}
 
 	return nil
+}
+
+func autoPruneCodeIntelDB(root string) {
+	err := outputsurface.AutoPruneCodeIntelDB(context.Background(), root)
+	if err == nil {
+		return
+	}
+
+	debuglog.Debug(
+		"hookcli.code_intel.auto_prune.warn",
+		zap.String("root", root),
+		zap.Error(err),
+	)
 }
 
 func recordProxyEvents(
@@ -186,9 +208,9 @@ func printBlocked(writer io.Writer, result hooks.Result) {
 		return
 	}
 
-	fmt.Fprintln(writer, advice)
+	feedback.Emit(writer, feedback.Text{Text: advice}, feedback.FormatTOON)
 }
 
 func printErr(writer io.Writer, err error) {
-	fmt.Fprintf(writer, "%s\n", err)
+	feedback.Emit(writer, feedback.Error{Message: err.Error()}, feedback.FormatTOON)
 }

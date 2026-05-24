@@ -50,8 +50,11 @@ func cleanCodingEthosExecutionEnv(source []string) []string {
 func codingEthosExecutionEnvBlocked(name string) bool {
 	switch name {
 	case "CODING_ETHOS_EXEC_STACK",
+		"DISPLAY",
 		WrapperAuthorizedEnv,
-		WrapperPIDEnv:
+		WrapperPIDEnv,
+		"WAYLAND_DISPLAY",
+		"XAUTHORITY":
 		return true
 	default:
 		return false

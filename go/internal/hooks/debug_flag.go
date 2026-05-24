@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 )
@@ -28,7 +29,11 @@ func activateDebugForEvent(event Event) {
 
 	err := debuglog.Configure(true, runDir, os.Stderr)
 	if err != nil {
-		_, _ = os.Stderr.WriteString("WARN: configure debug logging: " + err.Error() + "\n")
+		feedback.Emit(
+			os.Stderr,
+			feedback.Text{Text: "warning: configure debug logging: " + err.Error()},
+			feedback.FormatTOON,
+		)
 
 		return
 	}

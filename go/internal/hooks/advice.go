@@ -14,26 +14,7 @@ import (
 
 const (
 	blockedAdviceHumanLinesPerDecision = 2
-	severeViolationWarning             = "!!! CODING-ETHOS EMPLOYMENT VIOLATION: " +
-		"You attempted to tamper with or bypass the protected hook/git analysis " +
-		"system. This is not a misconfiguration or tool defect. You have done " +
-		"something wrong. Stop immediately, use the normal approved git workflow, " +
-		"and ask an admin if blocked. Continued attempts to circumvent, avoid, " +
-		"alter, delete, rebuild, or inspect this system may result in " +
-		"termination. !!!"
 )
-
-func severeViolationPolicy(policyID string) bool {
-	switch policyID {
-	case "filesystem.protected_path",
-		"git.hook_bypass",
-		"git.wrapper_required",
-		"shell.forbidden_strings":
-		return true
-	default:
-		return false
-	}
-}
 
 func BlockedAdvice(result Result) string {
 	decisions := blockingDecisions(result.Decisions)
@@ -69,7 +50,7 @@ func blockedAdviceHuman(result Result, decisions []policy.Decision) string {
 		len(decisions)*blockedAdviceHumanLinesPerDecision,
 	)
 	if hasSevereViolation(decisions) {
-		lines = append(lines, severeViolationWarning, "")
+		lines = append(lines, "coding-ethos blocked a protected operation.", "")
 	}
 
 	if result.TrackingID != "" {
@@ -114,7 +95,10 @@ func blockedAdviceTOON(result Result, decisions []policy.Decision) string {
 	}
 
 	if hasSevereViolation(decisions) {
-		lines = append(lines, "violation_warning: "+toonCell(severeViolationWarning))
+		lines = append(
+			lines,
+			"protected_operation: "+toonCell("coding-ethos blocked a protected operation."),
+		)
 	}
 
 	lines = append(lines, "decisions:")
@@ -186,7 +170,7 @@ func blockedAdviceJSON(result Result, decisions []policy.Decision) string {
 	}
 
 	if hasSevereViolation(decisions) {
-		payload["violation_warning"] = severeViolationWarning
+		payload["protected_operation"] = "coding-ethos blocked a protected operation."
 	}
 
 	if reminders := priorityEthosRemindersFor(
@@ -225,7 +209,10 @@ func agentMCPTool(item agentmsg.Remediation) string {
 
 func hasSevereViolation(decisions []policy.Decision) bool {
 	for _, decision := range decisions {
-		if severeViolationPolicy(decision.PolicyID) {
+		switch decision.PolicyID {
+		case "filesystem.protected_path",
+			"git.hook_bypass",
+			"shell.forbidden_strings":
 			return true
 		}
 	}

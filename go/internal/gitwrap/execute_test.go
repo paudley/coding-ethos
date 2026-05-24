@@ -46,8 +46,11 @@ func TestExecuteDoesNotLeakRunnerStackToRealGit(t *testing.T) {
 	fakeGit := fakeEnvGit(t, logPath)
 
 	t.Setenv("CODING_ETHOS_EXEC_STACK", "coding-ethos-run")
+	t.Setenv("DISPLAY", ":0")
 	t.Setenv(WrapperAuthorizedEnv, "spoofed")
 	t.Setenv(WrapperPIDEnv, "999999")
+	t.Setenv("WAYLAND_DISPLAY", "wayland-0")
+	t.Setenv("XAUTHORITY", "/tmp/xauthority")
 
 	err := Execute(fakeGit, Options{Argv: []string{"status"}, AdminApproved: true})
 	if err != nil {
@@ -57,6 +60,15 @@ func TestExecuteDoesNotLeakRunnerStackToRealGit(t *testing.T) {
 	log := readText(t, logPath)
 	if strings.Contains(log, "CODING_ETHOS_EXEC_STACK=coding-ethos-run") {
 		t.Fatalf("runner stack leaked into real git env:\n%s", log)
+	}
+	for _, blocked := range []string{
+		"DISPLAY=:0",
+		"WAYLAND_DISPLAY=wayland-0",
+		"XAUTHORITY=/tmp/xauthority",
+	} {
+		if strings.Contains(log, blocked) {
+			t.Fatalf("GUI pinentry environment leaked into real git env:\n%s", log)
+		}
 	}
 
 	if !strings.Contains(log, "CODE_ETHOS_ADMIN_APPROVED=1") {
@@ -308,6 +320,9 @@ printf 'CODING_ETHOS_EXEC_STACK=%s\n' "${CODING_ETHOS_EXEC_STACK:-}" >> "$log_pa
 printf 'CODE_ETHOS_ADMIN_APPROVED=%s\n' "${CODE_ETHOS_ADMIN_APPROVED:-}" >> "$log_path"
 printf 'CODE_ETHOS_GIT_WRAPPER_AUTHORIZED=%s\n' "${CODE_ETHOS_GIT_WRAPPER_AUTHORIZED:-}" >> "$log_path"
 printf 'CODE_ETHOS_GIT_WRAPPER_PID=%s\n' "${CODE_ETHOS_GIT_WRAPPER_PID:-}" >> "$log_path"
+printf 'DISPLAY=%s\n' "${DISPLAY:-}" >> "$log_path"
+printf 'WAYLAND_DISPLAY=%s\n' "${WAYLAND_DISPLAY:-}" >> "$log_path"
+printf 'XAUTHORITY=%s\n' "${XAUTHORITY:-}" >> "$log_path"
 `
 
 	writeExecutableGitFixture(t, scriptPath, script)

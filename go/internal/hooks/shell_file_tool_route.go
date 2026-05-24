@@ -21,6 +21,10 @@ func shellFileToolRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
+	if !providerSupportsShellFileToolReplacement(event.Provider()) {
+		return InspectionRoute{}
+	}
+
 	command := strings.TrimSpace(event.Command())
 	if command == "" {
 		return InspectionRoute{}
@@ -41,6 +45,15 @@ func shellFileToolRouteFor(event Event) InspectionRoute {
 	}
 
 	return InspectionRoute{}
+}
+
+func providerSupportsShellFileToolReplacement(provider string) bool {
+	switch provider {
+	case providerClaude, providerGemini:
+		return true
+	default:
+		return false
+	}
 }
 
 func shellCommandEmulatesDisallowedFileTool(command shellparse.Command) bool {

@@ -199,6 +199,7 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "skill_lookup", Handler: server.lookupSkill},
 		{Name: "remediation_explain", Handler: server.explainRemediation},
 		{Name: "code_intel_search", Handler: server.codeIntelSearch},
+		{Name: "semantic_search", Handler: server.semanticSearch},
 		{Name: "code_intel_index_status", Handler: server.codeIntelIndexStatus},
 		{Name: "code_intel_hook_usage", Handler: server.codeIntelHookUsage},
 		{Name: "code_intel_index_code", Handler: server.codeIntelIndexCode},

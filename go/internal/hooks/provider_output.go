@@ -12,10 +12,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
-	"blackcat.ca/coding-ethos/go/internal/policy"
 )
-
-const denialMessagePartCap = 3
 
 type providerHookOutput struct {
 	HookSpecificOutput *HookSpecificOutput    `json:"hookSpecificOutput,omitempty"`
@@ -180,93 +177,45 @@ func providerBlockedOutput(result Result) providerHookOutput {
 }
 
 func ProviderBlockMessage(result Result) string {
-	if result.Provider == providerCodex {
-		return withTrackingID(result, codexBlockMessage(result))
-	}
-
-	message := providerBlockReason(result)
-
-	return withTrackingID(result, message)
-}
-
-func withTrackingID(result Result, message string) string {
-	if result.TrackingID == "" {
-		return message
-	}
-
-	return "trackingID: " + result.TrackingID + ". " + message
-}
-
-func codexBlockMessage(result Result) string {
 	blocking := blockingDecisions(result.Decisions)
 	if len(blocking) == 0 {
-		return "coding-ethos blocked this action."
+		return feedback.MustRender(feedback.Message{
+			Scalars: []feedback.Scalar{
+				feedback.S("event", result.Event),
+				feedback.S("status", statusBlocked),
+				feedback.S("summary", "coding-ethos blocked this action"),
+			},
+		}, feedback.FormatTOON)
 	}
 
-	policyIDs := make([]string, 0, len(blocking))
+	scalars := []feedback.Scalar{
+		feedback.S("event", result.Event),
+		feedback.S("tool", result.Tool),
+		feedback.S("status", result.Status),
+	}
+	if result.TrackingID != "" {
+		scalars = append(scalars, feedback.S("trackingID", result.TrackingID))
+	}
+
+	rows := make([][]string, 0, len(blocking))
 	for _, decision := range blocking {
-		if decision.PolicyID != "" {
-			policyIDs = append(policyIDs, decision.PolicyID)
-		}
+		rows = append(rows, []string{
+			decision.PolicyID,
+			decision.Decision,
+			decision.Severity,
+			decision.Message,
+			decision.Suggestion,
+		})
 	}
 
-	prefix := "coding-ethos blocked this action"
-	if len(policyIDs) > 0 {
-		prefix += " (" + strings.Join(policyIDs, ", ") + ")"
-	}
-
-	parts := make([]string, 0, denialMessagePartCap)
-
-	parts = append(parts, prefix+".")
-	if hasSevereViolation(blocking) && !decisionsContainSevereWarning(blocking) {
-		parts = append(parts, severeViolationWarning)
-	}
-
-	decision := blocking[0]
-
-	reason := decision.Message
-	if decision.Suggestion != "" && !strings.Contains(reason, decision.Suggestion) {
-		reason = sentence(reason, decision.Suggestion)
-	}
-
-	if reason != "" {
-		parts = append(parts, reason)
-	}
-
-	return compactProviderMessage(strings.Join(parts, " "))
-}
-
-func providerBlockReason(result Result) string {
-	blocking := blockingDecisions(result.Decisions)
-	if len(blocking) == 0 {
-		return "Blocked by coding-ethos policy."
-	}
-
-	parts := make([]string, 0, len(blocking))
-	if hasSevereViolation(blocking) && !decisionsContainSevereWarning(blocking) {
-		parts = append(parts, severeViolationWarning)
-	}
-
-	for _, decision := range blocking {
-		part := decision.Message
-		if decision.Suggestion != "" && !strings.Contains(part, decision.Suggestion) {
-			part = sentence(part, decision.Suggestion)
-		}
-
-		parts = append(parts, part)
-	}
-
-	return strings.Join(parts, "\n")
-}
-
-func decisionsContainSevereWarning(decisions []policy.Decision) bool {
-	for _, decision := range decisions {
-		if strings.Contains(decision.Message, severeViolationWarning) {
-			return true
-		}
-	}
-
-	return false
+	return feedback.MustRender(feedback.Message{
+		Scalars: scalars,
+		Tables: []feedback.Table{feedback.T(
+			"decisions",
+			[]string{"policy_id", "decision", "severity", "message", "suggestion"},
+			rows,
+		)},
+	}, feedback.FormatTOON)
 }
 
 func providerContextSummary(context string) string {
@@ -354,8 +303,4 @@ func codexSessionStartAllowedMessage(context string) string {
 			},
 		)},
 	}, feedback.FormatTOON)
-}
-
-func compactProviderMessage(message string) string {
-	return strings.Join(strings.Fields(message), " ")
 }

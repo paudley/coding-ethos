@@ -4,12 +4,15 @@
 package policygitcli
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
@@ -138,7 +141,14 @@ func readValidatedBundle(bundlePath string) (policy.Bundle, error) {
 
 func printAllowedCheck(jsonOutput bool) {
 	if !jsonOutput {
-		fmt.Fprintln(os.Stdout, "git policy check allowed")
+		feedback.Emit(
+			os.Stdout,
+			feedback.Message{Scalars: []feedback.Scalar{
+				feedback.S("status", "allowed"),
+				feedback.S("summary", "git policy check allowed"),
+			}},
+			feedback.FormatTOON,
+		)
 	}
 }
 
@@ -269,9 +279,20 @@ func maybePrintJSON(jsonOutput bool, result gitwrap.Result) error {
 		return nil
 	}
 
-	err := gitwrap.EncodeResult(os.Stdout, result)
+	var buffer bytes.Buffer
+
+	err := gitwrap.EncodeResult(&buffer, result)
 	if err != nil {
 		return fmt.Errorf("encode result: %w", err)
+	}
+
+	err = feedback.WriteRendered(
+		os.Stdout,
+		strings.TrimSuffix(buffer.String(), "\n"),
+		feedback.FormatJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("write result: %w", err)
 	}
 
 	return nil
@@ -295,16 +316,20 @@ func readBundle(path string) (policy.Bundle, error) {
 func printBlocked(result gitwrap.Result) {
 	for _, decision := range result.Decisions {
 		if decision.Decision == "block" || decision.Severity == "block" {
-			fmt.Fprintf(
-				os.Stderr,
-				"[coding-ethos:%s] %s\n",
-				decision.PolicyID,
-				decision.Message,
-			)
-
-			if decision.Suggestion != "" {
-				fmt.Fprintf(os.Stderr, "Suggestion: %s\n", decision.Suggestion)
+			scalars := []feedback.Scalar{
+				feedback.S("status", "blocked"),
+				feedback.S("policy_id", decision.PolicyID),
+				feedback.S("message", decision.Message),
 			}
+			if decision.Suggestion != "" {
+				scalars = append(scalars, feedback.S("suggestion", decision.Suggestion))
+			}
+
+			feedback.Emit(
+				os.Stderr,
+				feedback.Message{Scalars: scalars},
+				feedback.FormatTOON,
+			)
 		}
 	}
 }

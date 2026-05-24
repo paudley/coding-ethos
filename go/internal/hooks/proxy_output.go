@@ -178,6 +178,7 @@ func semanticFileReadPageEnd(root, targetPath, output string) int {
 	if err != nil {
 		return pageEnd
 	}
+	defer autoPruneCodeIntelDB(root)
 	defer store.Close()
 
 	contentHash := astfacts.ContentHash([]byte(output))
@@ -369,6 +370,7 @@ func enrichDirectoryListingToolOutput(
 	if err != nil {
 		return proxied
 	}
+	defer autoPruneCodeIntelDB(root)
 	defer store.Close()
 
 	indexer := codeintel.NewASTIndexer(store)
@@ -796,6 +798,19 @@ func (options hookOutputCompressionOptions) withRepoConfig(
 	}
 
 	return options
+}
+
+func autoPruneCodeIntelDB(root string) {
+	err := outputsurface.AutoPruneCodeIntelDB(context.Background(), root)
+	if err == nil {
+		return
+	}
+
+	debuglog.Debug(
+		"hooks.code_intel.auto_prune.warn",
+		zap.String("root", root),
+		zap.Error(err),
+	)
 }
 
 func loadHookRepoConfig(root string) (configdata.Map, error) {

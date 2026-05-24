@@ -322,6 +322,8 @@ The first tools are intentionally narrow and auditable:
   policy, principle, skill, and retry guidance.
 - `code_intel_search`: retrieve stored SARIF/remediation/code-chunk evidence
   with FTS and sqlite-vec vector search.
+- `semantic_search`: retrieve exact indexed repository code chunks by semantic
+  query before broad grep or whole-file reads.
 - `code_intel_index_status`: report SQLite/sqlite-vec index freshness and
   embedding coverage.
 - `code_similarity_check`: preflight proposed code against indexed repository
@@ -926,11 +928,14 @@ for generated tool configs and hook policy.
 
 Per-surface retention keys are `enabled`, `auto`, `max_age`, `keep_last`,
 `max_bytes`, `require_code_intel_ingest`, `row_retention_days`, and
-`vacuum_after_prune`. Automatic pruning is intentionally conservative:
-repo-configured proxy temp evidence is pruned before new evidence files are
-written, lint traces are pruned after managed lint trace writes when
-`outputs.prune.surfaces.lint_traces.auto = true`, and hook run directories
-prune after hook maintenance when `outputs.prune.surfaces.hook_runs.auto = true`.
+`vacuum_after_prune`. Automatic pruning covers repo-local runtime outputs:
+proxy temp evidence is pruned before new evidence files are written,
+`code_intel_db` rows are pruned after code-intel writes, lint traces are pruned
+after managed lint trace writes, hook run directories prune after hook
+maintenance, and cache surfaces prune according to their per-surface retention.
+Automatic `code_intel_db` pruning does not vacuum by default; use
+manual `output prune --scope code_intel_db --apply --vacuum` for explicit
+database compaction.
 
 See [repo_config.example.toml](repo_config.example.toml).
 
@@ -1352,18 +1357,22 @@ tampering. Banned strings are rejected when they appear directly in a command
 and when they appear in regular files referenced by the command.
 
 Direct attempts to inspect, delete, rebuild, replace, chmod, or write managed
-hook binaries under `coding-ethos/bin/` are treated as tampering, not as
-ordinary lint failures. Blocked tamper and Git-bypass responses start with a
-uniform `CODING-ETHOS EMPLOYMENT VIOLATION` warning before the policy-specific
-finding, including explicit language that the actor has done something wrong
-and that continued circumvention attempts may result in termination.
+hook binaries under `coding-ethos/bin/` are treated as protected-operation
+policy failures, not ordinary lint failures. Blocked tamper and Git-bypass
+responses use the normal structured provider output with a policy-specific
+finding and remediation that points back to the approved git workflow.
+
+Agent hook JSON mode writes the hook result to stdout and keeps stderr reserved
+for runner/configuration errors. A blocked provider decision exits with code 1
+and carries the denial details in the JSON result instead of duplicating a
+second compact denial line on stderr.
 
 Provider output uses the strongest native shape each agent supports:
 
 | Provider | Block shape | Context/advice shape |
 | --- | --- | --- |
 | Claude | `hookSpecificOutput.permissionDecision = deny` | full `hookSpecificOutput`, including `updatedInput` |
-| Codex | `decision: "block"` plus `permissionDecision: "deny"` for `PreToolUse`; compact `reason` text for exit-code-2 stderr | compact native `additionalContext` for supported lifecycle/post-tool advice; compact `systemMessage` only where Codex exposes no `additionalContext` |
+| Codex | `decision: "block"` plus `permissionDecision: "deny"` for `PreToolUse`; JSON-mode block details on stdout with empty stderr | compact native `additionalContext` for supported lifecycle/post-tool advice; compact `systemMessage` only where Codex exposes no `additionalContext` |
 | Gemini | `decision: "deny"` plus `systemMessage` | `additionalContext` on supported lifecycle hooks |
 
 ### Agent-Hook Scope

@@ -5,7 +5,6 @@ package codeintelcli
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -14,6 +13,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 )
 
 const (
@@ -747,11 +747,7 @@ func resolvedDBPath(root, dbPath string) string {
 }
 
 func encodeJSON(output *os.File, value any) error {
-	encoder := json.NewEncoder(output)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-
-	err := encoder.Encode(value)
+	err := feedback.WriteJSON(output, value)
 	if err != nil {
 		return fmt.Errorf("encode JSON: %w", err)
 	}

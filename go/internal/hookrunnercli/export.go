@@ -3,10 +3,7 @@
 
 package hookrunnercli
 
-import (
-	"fmt"
-	"os"
-)
+import "os"
 
 // Run executes the hook runner command family.
 func Run(args []string) int {
@@ -18,7 +15,7 @@ func Run(args []string) int {
 
 	cfg, err := loadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}

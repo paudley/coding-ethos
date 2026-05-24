@@ -22,6 +22,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 )
 
 const (
@@ -35,6 +36,7 @@ const (
 	severityInfo       = "INFO"
 	severityWarning    = "WARNING"
 	hookStagePreCommit = "pre-commit"
+	hookStagePrePush   = "pre-push"
 )
 
 type Config struct {
@@ -149,14 +151,13 @@ var (
 type CommandFunc func(Config, []string) int
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "Usage: coding-ethos-hook <command> [files...]")
-	fmt.Fprintln(
+	writeText(
 		os.Stderr,
-		"  gemini-check supports --dry-run, --full-check, and --check-type <name>",
-	)
-	fmt.Fprintln(
-		os.Stderr,
-		"  config-get <dot.path> [default] prints merged config values",
+		strings.Join([]string{
+			"Usage: coding-ethos-hook <command> [files...]",
+			"  gemini-check supports --dry-run, --full-check, and --check-type <name>",
+			"  config-get <dot.path> [default] prints merged config values",
+		}, "\n"),
 	)
 }
 
@@ -214,12 +215,16 @@ func decodeOptionalConfigSection(
 	return true, nil
 }
 
-func writeLine(writer io.Writer, text string) {
-	_, _ = fmt.Fprintln(writer, text)
+func writeLine(writer io.Writer, values ...any) {
+	feedback.Emit(
+		writer,
+		feedback.Text{Text: strings.TrimSuffix(fmt.Sprintln(values...), "\n")},
+		feedback.FormatTOON,
+	)
 }
 
 func writef(writer io.Writer, format string, args ...any) {
-	_, _ = fmt.Fprintf(writer, format, args...)
+	writeText(writer, fmt.Sprintf(format, args...))
 }
 
 func writeText(writer io.Writer, text string) {
@@ -227,14 +232,11 @@ func writeText(writer io.Writer, text string) {
 		return
 	}
 
-	_, err := io.WriteString(writer, text)
-	if err != nil {
-		return
+	if trimmed, found := strings.CutSuffix(text, "\n"); found {
+		text = trimmed
 	}
 
-	if !strings.HasSuffix(text, "\n") {
-		_, _ = fmt.Fprintln(writer)
-	}
+	feedback.Emit(writer, feedback.Text{Text: text}, feedback.FormatTOON)
 }
 
 func loadConfig() (Config, error) {
@@ -736,7 +738,7 @@ func configGet(_ Config, args []string) int {
 
 	_, rootConfig, err := loadMergedRootConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -830,7 +832,7 @@ func fixText(_ Config, paths []string) int {
 	for _, path := range existingFiles(paths) {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+			writef(os.Stderr, "%s: %v\n", path, err)
 
 			failed = true
 
@@ -857,7 +859,7 @@ func fixText(_ Config, paths []string) int {
 		if fixed != string(data) {
 			err := writeRootedFile(path, []byte(fixed), hookRewriteFilePerm)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+				writef(os.Stderr, "%s: %v\n", path, err)
 
 				failed = true
 			}

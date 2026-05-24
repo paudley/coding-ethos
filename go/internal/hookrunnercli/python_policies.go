@@ -1672,7 +1672,7 @@ func checkSingleFileDocstring(
 func checkFileDocstringsCommand(_ Config, args []string) int {
 	settings, err := loadFileDocstringsSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -1691,7 +1691,7 @@ func checkFileDocstringsCommand(_ Config, args []string) int {
 
 		violation, err := checkSingleFileDocstring(path, settings)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
+			writef(os.Stderr, "  skipping %s: %v\n", path, err)
 
 			continue
 		}
@@ -1736,7 +1736,7 @@ func checkFileDocstringsCommand(_ Config, args []string) int {
 func checkPytestGateCommand(cfg Config, args []string) int {
 	settings, err := loadPytestGateSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -1757,12 +1757,12 @@ func checkPytestGateCommand(cfg Config, args []string) int {
 	}
 
 	if hookVerboseSuccessOutputEnabled() {
-		fmt.Fprintln(os.Stderr, "Running pytest gate...")
+		writeLine(os.Stderr, "Running pytest gate...")
 	}
 
 	result, err := runPytestCommand(settings)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -1827,7 +1827,7 @@ func collectPytestGateMarkerViolations(
 
 		pathViolations, pathErr := findPytestMarkerViolations(path, settings)
 		if pathErr != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, pathErr)
+			writef(os.Stderr, "  skipping %s: %v\n", path, pathErr)
 
 			continue
 		}
@@ -1922,7 +1922,7 @@ func trimmedPytestOutput(result pytestRunResult) string {
 func checkDirectImportsCommand(_ Config, args []string) int {
 	settings, err := loadDirectImportsSettings()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
 	}
@@ -1944,7 +1944,7 @@ func checkDirectImportsCommand(_ Config, args []string) int {
 
 		found, err := findDirectImportViolations(path, settings)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  skipping %s: %v\n", path, err)
+			writef(os.Stderr, "  skipping %s: %v\n", path, err)
 
 			continue
 		}

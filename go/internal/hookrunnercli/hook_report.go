@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/outputsurface"
@@ -105,7 +106,7 @@ func emitHookReport(writer io.Writer, producer hookDiagnosticProducer, format st
 
 	_, err := lint.LogResult(repoRoot(), result)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARN: hook report trace not written: %v\n", err)
+		writeText(os.Stderr, "warning: hook report trace not written: "+err.Error())
 	} else {
 		err = outputsurface.AutoPruneSurface(
 			context.Background(),
@@ -114,13 +115,13 @@ func emitHookReport(writer io.Writer, producer hookDiagnosticProducer, format st
 			false,
 		)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "WARN: hook report trace auto-prune failed: %v\n", err)
+			writeText(os.Stderr, "warning: hook report trace auto-prune failed: "+err.Error())
 		}
 	}
 
-	_, err = fmt.Fprintln(writer, formatHookReport(report, format))
+	err = feedback.WriteRendered(writer, formatHookReport(report, format), format)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARN: hook report not rendered: %v\n", err)
+		writeText(os.Stderr, "warning: hook report not rendered: "+err.Error())
 	}
 }
 

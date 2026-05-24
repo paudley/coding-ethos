@@ -38,11 +38,10 @@ const (
 )
 
 const (
-	gitWrapperCircumventionRefusal = severeViolationWarning
-	gitWrapperUseManagedSuggestion = "Run ordinary git commands without bypass flags " +
-		"or shell indirection; approved git operations are routed by the hook " +
-		"automatically. Do not try alternate shells, absolute git paths, Python " +
-		"subprocesses, PATH edits, aliases, or other bypasses."
+	gitWrapperCircumventionRefusal = "Direct git execution must use the approved " +
+		"coding-ethos git route for this agent provider."
+	gitWrapperUseManagedSuggestion = "Resubmit the command through the suggested " +
+		"cerun --rewrite command so git operations stay inside the managed policy path."
 )
 
 func gitWrapperRouteFor(event Event) InspectionRoute {
