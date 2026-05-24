@@ -25,12 +25,8 @@ type agentHookFixtureCase struct {
 }
 
 func TestAgentHookProviderPayloadFixtures(t *testing.T) {
-	t.Parallel()
-
 	for _, testCase := range agentHookFixtureCases() {
 		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
 			repo := preparedAgentHookRepo(t)
 			payload := loadAgentHookPayload(t, repo, testCase.fixture)
 			prepareAgentHookFixtureState(t, repo, payload)

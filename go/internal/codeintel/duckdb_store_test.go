@@ -5,6 +5,9 @@ package codeintel
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
@@ -144,6 +147,52 @@ func TestRebuildDuckDBIndexImportsLegacySQLite(t *testing.T) {
 	if analysis.IssueSummary.StorageDecision == "" {
 		t.Fatalf("missing issue summary: %#v", analysis.IssueSummary)
 	}
+}
+
+func TestAnalyzeDownstreamDuckDBReportsStorePath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	customPath := filepath.Join(root, ".coding-ethos", "custom.duckdb")
+
+	store, err := OpenDuckDB(ctx, customPath)
+	if err != nil {
+		t.Fatalf("open custom DuckDB: %v", err)
+	}
+	defer store.Close()
+
+	analysis, err := AnalyzeDownstreamDuckDB(ctx, root, store, 5)
+	if err != nil {
+		t.Fatalf("analyze custom DuckDB: %v", err)
+	}
+
+	if analysis.StorageHealth.Path != customPath {
+		t.Fatalf("storage path = %q, want %q", analysis.StorageHealth.Path, customPath)
+	}
+}
+
+func TestDuckDBRebuildLockRemovesStaleLock(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	lockPath := filepath.Join(root, downstreamStateDir, "code-intel-rebuild.lock")
+
+	err := os.MkdirAll(filepath.Dir(lockPath), duckDBStoreMode)
+	if err != nil {
+		t.Fatalf("create lock dir: %v", err)
+	}
+
+	err = os.WriteFile(lockPath, []byte(strconv.Itoa(-1)+"\n"), duckDBLockFileMode)
+	if err != nil {
+		t.Fatalf("write stale lock: %v", err)
+	}
+
+	release, err := acquireDuckDBRebuildLock(root)
+	if err != nil {
+		t.Fatalf("acquire stale lock: %v", err)
+	}
+	defer release()
 }
 
 const extendedLegacySeedSQL = `INSERT INTO hook_targets(trace_id, ordinal, target_path, target_kind)

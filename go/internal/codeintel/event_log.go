@@ -8,7 +8,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"iter"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,8 +21,15 @@ import (
 )
 
 const (
-	eventLogDirMode  = 0o700
-	eventLogFileMode = 0o600
+	eventLogDirMode          = 0o700
+	eventLogFileMode         = 0o600
+	eventLogScannerInitBytes = 64 * 1024
+	eventLogMaxRecordBytes   = 64 * 1024 * 1024
+	eventLogMaxCreateTries   = 10_000
+)
+
+var errEventLogCreateAttemptsExhausted = errors.New(
+	"create unique code-intel event log attempts exhausted",
 )
 
 // EventRecord is the durable append-only code-intel telemetry unit.
@@ -67,16 +76,9 @@ func (log EventLog) Append(runID string, records []EventRecord) error {
 		return fmt.Errorf("create code-intel event log dir: %w", err)
 	}
 
-	path := uniqueEventLogPath(log.dir, runID)
-	tmpPath := path + ".tmp"
-
-	file, err := os.OpenFile(
-		filepath.Clean(tmpPath),
-		os.O_CREATE|os.O_EXCL|os.O_WRONLY,
-		eventLogFileMode,
-	)
+	path, file, err := createUniqueEventLogFile(log.dir, runID)
 	if err != nil {
-		return fmt.Errorf("open code-intel event log %q: %w", tmpPath, err)
+		return err
 	}
 
 	closed := false
@@ -84,7 +86,7 @@ func (log EventLog) Append(runID string, records []EventRecord) error {
 	defer func() {
 		if !closed {
 			_ = file.Close()
-			_ = os.Remove(filepath.Clean(tmpPath))
+			_ = os.Remove(filepath.Clean(path))
 		}
 	}()
 
@@ -106,79 +108,85 @@ func (log EventLog) Append(runID string, records []EventRecord) error {
 
 	err = file.Close()
 	if err != nil {
-		return fmt.Errorf("close code-intel event log %q: %w", tmpPath, err)
+		return fmt.Errorf("close code-intel event log %q: %w", path, err)
 	}
 
 	closed = true
 
-	err = os.Rename(filepath.Clean(tmpPath), filepath.Clean(path))
-	if err != nil {
-		return fmt.Errorf("publish code-intel event log %q: %w", path, err)
-	}
-
 	return nil
+}
+
+func (log EventLog) Records() iter.Seq2[EventRecord, error] {
+	return func(yield func(EventRecord, error) bool) {
+		err := filepath.WalkDir(
+			log.dir,
+			func(path string, entry os.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+
+				if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+					return nil
+				}
+
+				return yieldEventLogFile(path, yield)
+			},
+		)
+		if err != nil && !os.IsNotExist(err) {
+			var record EventRecord
+
+			_ = yield(record, fmt.Errorf("read code-intel event logs: %w", err))
+		}
+	}
 }
 
 func (log EventLog) ReadAll() ([]EventRecord, error) {
 	records := []EventRecord{}
 
-	err := filepath.WalkDir(
-		log.dir,
-		func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
-				return nil
-			}
-
-			fileRecords, readErr := readEventLogFile(path)
-			if readErr != nil {
-				return readErr
-			}
-
-			records = append(records, fileRecords...)
-
-			return nil
-		},
-	)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return records, nil
+	for record, err := range log.Records() {
+		if err != nil {
+			return nil, err
 		}
 
-		return nil, fmt.Errorf("read code-intel event logs: %w", err)
+		records = append(records, record)
 	}
 
 	return records, nil
 }
 
 func EventLogStats(root string) (int, error) {
-	records, err := NewEventLog(DefaultEventLogDir(root)).ReadAll()
-	if err != nil {
-		return 0, err
+	count := 0
+
+	for _, err := range NewEventLog(DefaultEventLogDir(root)).Records() {
+		if err != nil {
+			return 0, err
+		}
+
+		count++
 	}
 
-	return len(records), nil
+	return count, nil
 }
 
-func readEventLogFile(path string) ([]EventRecord, error) {
+func yieldEventLogFile(
+	path string,
+	yield func(EventRecord, error) bool,
+) error {
 	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
-		return nil, fmt.Errorf("open code-intel event log %q: %w", path, err)
+		return fmt.Errorf("open code-intel event log %q: %w", path, err)
 	}
 	defer file.Close()
 
-	records := []EventRecord{}
-
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, eventLogScannerInitBytes), eventLogMaxRecordBytes)
+
 	for line := 1; scanner.Scan(); line++ {
 		var record EventRecord
 
 		unmarshalErr := json.Unmarshal(scanner.Bytes(), &record)
 		if unmarshalErr != nil {
-			return nil, fmt.Errorf(
+			return fmt.Errorf(
 				"decode code-intel event %s:%d: %w",
 				path,
 				line,
@@ -188,7 +196,7 @@ func readEventLogFile(path string) ([]EventRecord, error) {
 
 		validateErr := validateEventRecord(record)
 		if validateErr != nil {
-			return nil, fmt.Errorf(
+			return fmt.Errorf(
 				"validate code-intel event %s:%d: %w",
 				path,
 				line,
@@ -196,19 +204,24 @@ func readEventLogFile(path string) ([]EventRecord, error) {
 			)
 		}
 
-		records = append(records, record)
+		if !yield(record, nil) {
+			return nil
+		}
 	}
 
 	err = scanner.Err()
 	if err != nil {
-		return nil, fmt.Errorf("scan code-intel event log %q: %w", path, err)
+		return fmt.Errorf("scan code-intel event log %q: %w", path, err)
 	}
 
-	return records, nil
+	return nil
 }
 
-func uniqueEventLogPath(dir, runID string) string {
-	for index := 0; ; index++ {
+func createUniqueEventLogFile(
+	dir string,
+	runID string,
+) (string, *os.File, error) {
+	for index := range eventLogMaxCreateTries {
 		name := runID
 		if index > 0 {
 			name += "-" + strconv.Itoa(index)
@@ -216,11 +229,28 @@ func uniqueEventLogPath(dir, runID string) string {
 
 		path := filepath.Join(dir, name+".jsonl")
 
-		_, err := os.Stat(path)
-		if os.IsNotExist(err) {
-			return path
+		file, err := os.OpenFile(
+			filepath.Clean(path),
+			os.O_CREATE|os.O_EXCL|os.O_WRONLY,
+			eventLogFileMode,
+		)
+		if err == nil {
+			return path, file, nil
 		}
+
+		if os.IsExist(err) {
+			continue
+		}
+
+		return "", nil, fmt.Errorf("open code-intel event log %q: %w", path, err)
 	}
+
+	return "", nil, fmt.Errorf(
+		"%w: run %q after %d attempts",
+		errEventLogCreateAttemptsExhausted,
+		runID,
+		eventLogMaxCreateTries,
+	)
 }
 
 func normalizeEventRecord(record EventRecord, runID string, ordinal int) EventRecord {

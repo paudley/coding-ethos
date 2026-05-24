@@ -161,7 +161,7 @@ func (store *DuckDBStore) repoMapSymbols(
 	}
 	defer rows.Close()
 
-	return scanRepoMapSymbols(rows)
+	return scanRepoMapSymbols(rows, "DuckDB global")
 }
 
 func (store *Store) repoMapFiles(
@@ -313,41 +313,10 @@ func (store *Store) repoMapSymbols(
 	}
 	defer rows.Close()
 
-	symbols := []RepoMapSymbol{}
-
-	for rows.Next() {
-		var (
-			symbol  RepoMapSymbol
-			rawText string
-		)
-
-		err = rows.Scan(
-			&symbol.Path,
-			&symbol.Language,
-			&symbol.Kind,
-			&symbol.Name,
-			&symbol.SymbolPath,
-			&symbol.StartLine,
-			&symbol.EndLine,
-			&rawText,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("scan global repo map symbol: %w", err)
-		}
-
-		symbol.Signature = repoMapSignature(rawText)
-		symbols = append(symbols, symbol)
-	}
-
-	err = rows.Err()
-	if err != nil {
-		return nil, fmt.Errorf("iterate global repo map symbols: %w", err)
-	}
-
-	return symbols, nil
+	return scanRepoMapSymbols(rows, "global")
 }
 
-func scanRepoMapSymbols(rows *sql.Rows) ([]RepoMapSymbol, error) {
+func scanRepoMapSymbols(rows *sql.Rows, label string) ([]RepoMapSymbol, error) {
 	symbols := []RepoMapSymbol{}
 
 	for rows.Next() {
@@ -367,7 +336,7 @@ func scanRepoMapSymbols(rows *sql.Rows) ([]RepoMapSymbol, error) {
 			&rawText,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("scan global repo map symbol: %w", err)
+			return nil, fmt.Errorf("scan %s repo map symbol: %w", label, err)
 		}
 
 		symbol.Signature = repoMapSignature(rawText)
@@ -376,7 +345,7 @@ func scanRepoMapSymbols(rows *sql.Rows) ([]RepoMapSymbol, error) {
 
 	err := rows.Err()
 	if err != nil {
-		return nil, fmt.Errorf("iterate global repo map symbols: %w", err)
+		return nil, fmt.Errorf("iterate %s repo map symbols: %w", label, err)
 	}
 
 	return symbols, nil

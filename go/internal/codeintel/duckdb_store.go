@@ -6,18 +6,24 @@ package codeintel
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	_ "github.com/duckdb/duckdb-go/v2"
+
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 const (
 	duckDBStoreMode    = 0o700
 	duckDBLockFileMode = 0o600
+	duckDBStaleLockAge = 30 * time.Minute
 )
 
 // DuckDBStore is the code-intel analytical query store.
@@ -219,13 +225,9 @@ func acquireDuckDBRebuildLock(root string) (func(), error) {
 		return nil, fmt.Errorf("create code-intel rebuild lock dir: %w", err)
 	}
 
-	file, err := os.OpenFile(
-		filepath.Clean(lockPath),
-		os.O_CREATE|os.O_EXCL|os.O_WRONLY,
-		duckDBLockFileMode,
-	)
+	file, err := openDuckDBRebuildLock(lockPath)
 	if err != nil {
-		return nil, fmt.Errorf("acquire code-intel rebuild lock: %w", err)
+		return nil, err
 	}
 
 	_, err = file.WriteString(strconv.Itoa(os.Getpid()) + "\n")
@@ -243,6 +245,101 @@ func acquireDuckDBRebuildLock(root string) (func(), error) {
 	return func() {
 		_ = os.Remove(filepath.Clean(lockPath))
 	}, nil
+}
+
+func openDuckDBRebuildLock(lockPath string) (*os.File, error) {
+	file, err := os.OpenFile(
+		filepath.Clean(lockPath),
+		os.O_CREATE|os.O_EXCL|os.O_WRONLY,
+		duckDBLockFileMode,
+	)
+	if err == nil {
+		return file, nil
+	}
+
+	if !os.IsExist(err) {
+		return nil, fmt.Errorf("acquire code-intel rebuild lock: %w", err)
+	}
+
+	stale, staleErr := duckDBRebuildLockStale(lockPath)
+	if staleErr != nil {
+		return nil, staleErr
+	}
+
+	if !stale {
+		return nil, fmt.Errorf(
+			"%w: %s",
+			apperror.StaticError("active code-intel rebuild lock exists"),
+			lockPath,
+		)
+	}
+
+	removeErr := os.Remove(filepath.Clean(lockPath))
+	if removeErr != nil && !os.IsNotExist(removeErr) {
+		return nil, fmt.Errorf("remove stale code-intel rebuild lock: %w", removeErr)
+	}
+
+	file, err = os.OpenFile(
+		filepath.Clean(lockPath),
+		os.O_CREATE|os.O_EXCL|os.O_WRONLY,
+		duckDBLockFileMode,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"acquire code-intel rebuild lock after stale cleanup: %w",
+			err,
+		)
+	}
+
+	return file, nil
+}
+
+func duckDBRebuildLockStale(lockPath string) (bool, error) {
+	content, err := os.ReadFile(filepath.Clean(lockPath))
+	if err != nil {
+		return false, fmt.Errorf("read code-intel rebuild lock: %w", err)
+	}
+
+	pid, stalePID := parseDuckDBRebuildLockPID(strings.TrimSpace(string(content)))
+	if stalePID {
+		return true, nil
+	}
+
+	if hostSupportsProcStatus() {
+		return duckDBRebuildLockPIDStale(pid)
+	}
+
+	info, err := os.Stat(filepath.Clean(lockPath))
+	if err != nil {
+		return false, fmt.Errorf("stat code-intel rebuild lock: %w", err)
+	}
+
+	return time.Since(info.ModTime()) > duckDBStaleLockAge, nil
+}
+
+func hostSupportsProcStatus() bool {
+	_, err := os.Stat("/proc")
+
+	return err == nil
+}
+
+func parseDuckDBRebuildLockPID(pidText string) (int, bool) {
+	pid, err := strconv.Atoi(pidText)
+
+	return pid, err != nil || pid <= 0
+}
+
+func duckDBRebuildLockPIDStale(pid int) (bool, error) {
+	err := syscall.Kill(pid, 0)
+	if err == nil || errors.Is(err, syscall.EPERM) {
+		return false, nil
+	}
+
+	if errors.Is(err, syscall.ESRCH) {
+		return true, nil
+	}
+
+	return false, fmt.Errorf("inspect code-intel rebuild lock pid %d: %w", pid, err)
 }
 
 func importLegacySQLiteIntoDuckDB(
@@ -337,12 +434,14 @@ func (store *DuckDBStore) ImportEventLog(
 	ctx context.Context,
 	log EventLog,
 ) (int, error) {
-	records, err := log.ReadAll()
+	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("begin DuckDB event import transaction: %w", err)
 	}
 
-	_, err = store.database.ExecContext(
+	defer rollbackUnlessCommitted(transaction)
+
+	_, err = transaction.ExecContext(
 		ctx,
 		"DELETE FROM code_intel_events",
 	)
@@ -350,17 +449,23 @@ func (store *DuckDBStore) ImportEventLog(
 		return 0, fmt.Errorf("clear DuckDB event table: %w", err)
 	}
 
-	for _, record := range records {
+	imported := 0
+
+	for record, readErr := range log.Records() {
+		if readErr != nil {
+			return 0, readErr
+		}
+
 		payload := string(record.Payload)
 		if payload == "" {
 			payload = "{}"
 		}
 
-		_, err = store.database.ExecContext(
+		_, err = transaction.ExecContext(
 			ctx,
 			`INSERT INTO code_intel_events(
-					event_id, event_kind, recorded_at_utc, source_run_id, trace_id,
-					provider, tool, command_shape_sha256, policy_id, skill_id, path,
+				event_id, event_kind, recorded_at_utc, source_run_id, trace_id,
+				provider, tool, command_shape_sha256, policy_id, skill_id, path,
 				payload_json
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			record.ID,
@@ -379,9 +484,16 @@ func (store *DuckDBStore) ImportEventLog(
 		if err != nil {
 			return 0, fmt.Errorf("insert DuckDB event %q: %w", record.ID, err)
 		}
+
+		imported++
 	}
 
-	return len(records), nil
+	err = transaction.Commit()
+	if err != nil {
+		return 0, fmt.Errorf("commit DuckDB event import transaction: %w", err)
+	}
+
+	return imported, nil
 }
 
 func (store *DuckDBStore) migrate(ctx context.Context) error {
@@ -1007,6 +1119,13 @@ func copyTableRows(
 
 	destinationTable := table.target()
 
+	transaction, err := destination.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin DuckDB table %s transaction: %w", destinationTable, err)
+	}
+
+	defer rollbackUnlessCommitted(transaction)
+
 	// #nosec G202 -- table metadata is fixed in legacyImportTableSpecs.
 	insert := "INSERT INTO " + destinationTable + " (" +
 		strings.Join(table.columns, ", ") + ") VALUES (" +
@@ -1024,7 +1143,7 @@ func copyTableRows(
 			return fmt.Errorf("scan legacy SQLite table %s: %w", table.name, err)
 		}
 
-		_, err = destination.ExecContext(ctx, insert, values...)
+		_, err = transaction.ExecContext(ctx, insert, values...)
 		if err != nil {
 			return fmt.Errorf("insert DuckDB table %s: %w", destinationTable, err)
 		}
@@ -1033,6 +1152,11 @@ func copyTableRows(
 	err = rows.Err()
 	if err != nil {
 		return fmt.Errorf("iterate legacy SQLite table %s: %w", table.name, err)
+	}
+
+	err = transaction.Commit()
+	if err != nil {
+		return fmt.Errorf("commit DuckDB table %s transaction: %w", destinationTable, err)
 	}
 
 	return nil

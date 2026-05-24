@@ -241,7 +241,7 @@ func AnalyzeDownstreamDuckDB(
 		StorageHealth: DownstreamStorageHealth{
 			Backend:                 "duckdb",
 			SourceOfTruth:           "event_log",
-			Path:                    DefaultDuckDBPath(root),
+			Path:                    downstreamDuckDBStorePath(root, store),
 			LegacySQLitePath:        DefaultDBPath(root),
 			EventCount:              downstreamEventCount(root),
 			ImportedEventCount:      downstreamImportedEventCount(ctx, store),
@@ -292,6 +292,14 @@ func AnalyzeDownstreamDuckDB(
 	analysis.IssueSummary = downstreamIssueSummary(analysis)
 
 	return analysis, nil
+}
+
+func downstreamDuckDBStorePath(root string, store *DuckDBStore) string {
+	if store == nil || strings.TrimSpace(store.path) == "" {
+		return DefaultDuckDBPath(root)
+	}
+
+	return store.path
 }
 
 func downstreamSingleConnectionPool(store *Store) bool {
