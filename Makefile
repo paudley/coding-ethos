@@ -406,6 +406,11 @@ parent-update-submodule: ## Update this coding-ethos submodule in the parent rep
 	$(call print_info,parent: $(HOOK_CONSUMER_ROOT)); \
 	$(call print_info,submodule: $$submodule_path); \
 	"$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" submodule update --remote --merge -- "$$submodule_path"; \
+	if "$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" add -- "$$submodule_path"; then \
+		$(call print_info,staged: $$submodule_path); \
+	else \
+		$(call print_warn,could not stage $$submodule_path; stage it manually in the parent repo); \
+	fi; \
 	"$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" status --short -- "$$submodule_path"
 
 ##@ Quality
