@@ -19,7 +19,7 @@ func TestCollectInspectionContextAnnotatesAdminReadOnlyOnce(t *testing.T) {
 		ProviderHint:  "codex",
 		ToolName:      "Bash",
 		ToolInput: map[string]any{
-			"command": `git diff --stat -- go/internal/hooks/json.go`,
+			"command": `rg -n "PreToolUse" README.md`,
 		},
 	}, stubAdminApprovedForCWD(true))
 

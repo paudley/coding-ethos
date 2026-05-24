@@ -1202,7 +1202,7 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 	}
 }
 
-func TestRunAllowsCodexReadOnlyGitInspectionWithoutRewrite(t *testing.T) {
+func TestRunBlocksCodexReadOnlyRawGitInspection(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -1220,7 +1220,7 @@ func TestRunAllowsCodexReadOnlyGitInspectionWithoutRewrite(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusAllowed {
+	if result.Status != statusBlocked {
 		t.Fatalf(
 			"status mismatch: got %q decisions %#v",
 			result.Status,
@@ -1228,12 +1228,39 @@ func TestRunAllowsCodexReadOnlyGitInspectionWithoutRewrite(t *testing.T) {
 		)
 	}
 
-	if result.HookSpecificOutput != nil &&
-		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksNamespacedCodexExecCommandRawGit(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "functions.exec_command",
+		"input": {"cmd": "git switch main"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
 		t.Fatalf(
-			"Codex read-only inspection must not receive updatedInput: %#v",
-			result.HookSpecificOutput,
+			"status mismatch: got %q decisions %#v",
+			result.Status,
+			result.Decisions,
 		)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
 	}
 }
 
@@ -1806,7 +1833,7 @@ func TestRunBlocksMalformedShellCommand(t *testing.T) {
 	}
 }
 
-func TestRunAllowsReadOnlyGitStatusWithStderrRedirect(t *testing.T) {
+func TestRunRewritesReadOnlyGitStatusWithStderrRedirect(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -1827,9 +1854,9 @@ func TestRunAllowsReadOnlyGitStatusWithStderrRedirect(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	if result.HookSpecificOutput != nil &&
-		len(result.HookSpecificOutput.UpdatedInput) > 0 {
-		t.Fatalf("read-only git status should not require rewrite: %#v", result)
+	if result.HookSpecificOutput == nil ||
+		len(result.HookSpecificOutput.UpdatedInput) == 0 {
+		t.Fatalf("read-only git status must be rewritten: %#v", result)
 	}
 }
 

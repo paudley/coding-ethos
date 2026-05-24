@@ -42,7 +42,7 @@ func TestRunAllowsAdminReadOnlyHookImplementationInspection(t *testing.T) {
 	}
 }
 
-func TestRunAllowsAdminReadOnlyGitDiffWithoutRewrite(t *testing.T) {
+func TestRunBlocksAdminReadOnlyRawGitDiffForCodex(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -53,7 +53,7 @@ func TestRunAllowsAdminReadOnlyGitDiffWithoutRewrite(t *testing.T) {
 			ProviderHint:  "codex",
 			ToolName:      "Bash",
 			ToolInput: map[string]any{
-				"command": `git diff --stat -- go/internal/hooks/json.go .codex/config.toml`,
+				"command": `git diff --stat -- README.md`,
 			},
 		},
 	})
@@ -61,7 +61,7 @@ func TestRunAllowsAdminReadOnlyGitDiffWithoutRewrite(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != hookStatusAllowed {
+	if result.Status != hookStatusBlocked {
 		t.Fatalf(
 			"status mismatch: got %q decisions %#v",
 			result.Status,
@@ -69,12 +69,8 @@ func TestRunAllowsAdminReadOnlyGitDiffWithoutRewrite(t *testing.T) {
 		)
 	}
 
-	if result.HookSpecificOutput != nil &&
-		len(result.HookSpecificOutput.UpdatedInput) > 0 {
-		t.Fatalf(
-			"admin read-only inspection must not emit updatedInput: %#v",
-			result.HookSpecificOutput,
-		)
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
 	}
 }
 
@@ -105,7 +101,7 @@ func TestRunRoutesCodingEthosGitRewriteInsideAdminCheckout(t *testing.T) {
 	}
 }
 
-func TestRunAllowsAdminReadOnlyRedirectCapture(t *testing.T) {
+func TestRunBlocksAdminReadOnlyRawGitRedirectCaptureForCodex(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -124,12 +120,16 @@ func TestRunAllowsAdminReadOnlyRedirectCapture(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != hookStatusAllowed {
+	if result.Status != hookStatusBlocked {
 		t.Fatalf(
 			"status mismatch: got %q decisions %#v",
 			result.Status,
 			result.Decisions,
 		)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
 	}
 }
 

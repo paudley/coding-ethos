@@ -1476,7 +1476,7 @@ func HookProbeSummaries() []HookProbeSummary {
 	return summaries
 }
 
-const hookProbeCapacity = 10
+const hookProbeCapacity = 11
 
 const (
 	hookTamperProbeCommand = "rm /repo/.git/coding-ethos-hooks/coding-ethos-git-hook" +
@@ -1521,7 +1521,19 @@ func codexHookProbes() []hookProbe {
 				"tool": "exec_command",
 				"input": {"command": "git status --short"}
 			}`,
-			validate: validateCodexRewriteProbe,
+			validate: validateCodexBlockProbe,
+		},
+		{
+			provider: string(ProviderCodex),
+			event:    eventPreToolUse,
+			tool:     "functions.exec_command",
+			payload: `{
+				"provider": "codex",
+				"event": "PreToolUse",
+				"tool": "functions.exec_command",
+				"input": {"cmd": "git switch main"}
+			}`,
+			validate: validateCodexBlockProbe,
 		},
 		{
 			provider: string(ProviderCodex),

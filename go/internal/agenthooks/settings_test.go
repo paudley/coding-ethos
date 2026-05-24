@@ -598,8 +598,8 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
 	}
 
-	if len(report.Checks) != 14 {
-		t.Fatalf("check count = %d, want 14: %#v", len(report.Checks), report.Checks)
+	if len(report.Checks) != 15 {
+		t.Fatalf("check count = %d, want 15: %#v", len(report.Checks), report.Checks)
 	}
 
 	for _, check := range report.Checks {
