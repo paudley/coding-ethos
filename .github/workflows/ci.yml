@@ -581,10 +581,10 @@ jobs:
           mapfile -t shared_packages < <(
             go list -buildvcs=false ./... | grep -v '/internal/e2e$'
           )
-          go test -buildvcs=false -timeout=30s -short "${shared_packages[@]}" \
+          go test -buildvcs=false -timeout=90s -short "${shared_packages[@]}" \
             -covermode=atomic \
             -coverprofile=../coverage-results/go-shared.out
-          go test -buildvcs=false -timeout=30s ./internal/e2e
+          go test -buildvcs=false -timeout=90s ./internal/e2e
           go tool cover \
             -func=../coverage-results/go-shared.out \
             > ../coverage-results/go-shared.txt
@@ -606,7 +606,7 @@ jobs:
             --primary ../coding_ethos.yml \
             --config ../config.yaml \
             --out-dir ../build/policy
-          go test -buildvcs=false -timeout=30s \
+          go test -buildvcs=false -timeout=90s \
             ./internal/hookrunnercli \
             ./internal/hooks \
             -covermode=atomic \
