@@ -53,8 +53,35 @@ func LoadIndexOptions(root string) (IndexOptions, error) {
 	patterns := configdata.StringList(
 		configdata.GetPath(config, "code_intel.exclude_paths", []any{}),
 	)
+	patterns = append(defaultCodeIntelExcludePatterns(), patterns...)
 
 	return validateIndexOptions(IndexOptions{ExcludePatterns: patterns})
+}
+
+func defaultCodeIntelExcludePatterns() []string {
+	return []string{
+		".agent-context/**",
+		".agents/**",
+		".claude/**",
+		".code-ethos/**",
+		".coding-ethos/**",
+		".codex/**",
+		".gemini/**",
+		".github/workflows/coding-ethos-sarif.yml",
+		".gitlab-ci.yml",
+		".golangci.yml",
+		".venv/**",
+		".bandit.yml",
+		".pylintrc",
+		".sqlfluff",
+		".yamllint.yml",
+		"coding-ethos/**",
+		"coding-ethos-hooks/**",
+		"mypy.ini",
+		"pyrightconfig.json",
+		"ruff.toml",
+		"tombi.toml",
+	}
 }
 
 func loadRepoConfig(root string) (configdata.Map, error) {

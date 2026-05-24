@@ -1265,20 +1265,33 @@ func TestAgentShellCommandBuildsShellCommand(t *testing.T) {
 		t.Fatalf("agent shell command: %v", err)
 	}
 
-	if request.Command != "git status 'pkg/a b.py'" || request.Rewrite {
+	if request.Command != "git status 'pkg/a b.py'" || !request.Rewrite {
 		t.Fatalf("request = %#v", request)
 	}
 }
 
-func TestAgentShellCommandParsesRewriteFlag(t *testing.T) {
+func TestAgentShellCommandDefaultsRewrite(t *testing.T) {
 	t.Parallel()
 
-	request, err := agentShellCommand([]string{"--rewrite", "--", "git status"})
+	request, err := agentShellCommand([]string{"--", "git status"})
 	if err != nil {
 		t.Fatalf("agent shell command: %v", err)
 	}
 
 	if request.Command != "git status" || !request.Rewrite {
+		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestAgentShellCommandParsesNoRewriteFlag(t *testing.T) {
+	t.Parallel()
+
+	request, err := agentShellCommand([]string{"--no-rewrite", "--", "git status"})
+	if err != nil {
+		t.Fatalf("agent shell command: %v", err)
+	}
+
+	if request.Command != "git status" || request.Rewrite {
 		t.Fatalf("request = %#v", request)
 	}
 }
@@ -1310,7 +1323,7 @@ func TestAgentShellRewriteRoutesGitToPolicyGitWithoutNestedRunner(t *testing.T) 
 	writePolicyBundleForTest(t, hookPolicyBundlePath(paths))
 	t.Setenv("CODING_ETHOS_RUN_GO_HOOK", paths.RunBinary)
 
-	request, err := agentShellCommand([]string{"--rewrite", "--", "git", "status"})
+	request, err := agentShellCommand([]string{"--", "git", "status"})
 	if err != nil {
 		t.Fatalf("agent shell command: %v", err)
 	}
@@ -2283,7 +2296,7 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 	}{
 		{
 			name: "agent shell",
-			args: []string{"agent-shell", "--", "git", "status"},
+			args: []string{"agent-shell", "--no-rewrite", "--", "git", "status"},
 			want: "direct-run:coding-ethos-toolchain install-git-shim " +
 				"--dest-dir " + paths.BinDir +
 				" --real-git " + paths.RealGit + " --runner " + paths.RunBinary + "\n" +

@@ -30,6 +30,12 @@ func main() {
 }
 
 func runCerun(args []string) int {
+	if cerunHelpRequested(args) {
+		emitCerunHelp()
+
+		return 0
+	}
+
 	runner, err := siblingRunner()
 	if err != nil {
 		emitCerunError("cerun: " + err.Error())
@@ -66,6 +72,40 @@ func runCerunWithRunner(args []string, runner string) int {
 
 func emitCerunError(message string) {
 	feedback.Emit(os.Stderr, feedback.Error{Message: message}, feedback.FormatTOON)
+}
+
+func emitCerunHelp() {
+	feedback.Emit(os.Stdout, cerunHelpMessage(), feedback.FormatTOON)
+}
+
+func cerunHelpRequested(args []string) bool {
+	return len(args) == 1 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help")
+}
+
+func cerunHelpMessage() feedback.Message {
+	return feedback.Message{
+		Scalars: []feedback.Scalar{
+			feedback.S("command", "cerun"),
+			feedback.S(
+				"summary",
+				"Run agent shell commands through the managed coding-ethos boundary.",
+			),
+		},
+		Tables: []feedback.Table{
+			feedback.T(
+				"usage",
+				[]string{"command", "purpose"},
+				[][]string{
+					{"cerun -- <command>", "Execute with managed rewrites enabled."},
+					{"cerun --check -- <command>", "Preflight without executing."},
+					{"cerun --no-rewrite -- <command>", "Diagnostic execution without rewrites."},
+					{"cerun git <args>", "Shortcut for managed git routing."},
+					{"cerun python <args>", "Shortcut for managed Python routing."},
+					{"cerun lint <args>", "Run managed lint."},
+				},
+			),
+		},
+	}
 }
 
 func cerunRuntimeArgs(args []string) []string {

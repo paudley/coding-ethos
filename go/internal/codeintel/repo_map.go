@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -20,6 +22,7 @@ const (
 	repoMapLineDivisor           = 50
 	repoMapLineWeightLimit       = 20
 	repoMapSignatureMaxRunes     = 96
+	repoMapCandidateLimitFactor  = 5
 )
 
 // GlobalRepoMap returns a compact repository-level AST map for startup and MCP
@@ -71,6 +74,7 @@ func (store *Store) repoMapFiles(
 	ctx context.Context,
 	query RepoMapQuery,
 ) ([]RepoMapFile, error) {
+	ignoreMatcher := newGitIgnoreMatcher(ctx, strings.TrimSpace(query.Root))
 	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT file.path, file.language, file.line_count,
@@ -89,7 +93,7 @@ func (store *Store) repoMapFiles(
 		strings.TrimSpace(query.Path),
 		strings.TrimSpace(query.Language),
 		strings.TrimSpace(query.Language),
-		repoMapLimit(query),
+		repoMapCandidateLimit(query),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query global repo map files: %w", err)
@@ -112,8 +116,15 @@ func (store *Store) repoMapFiles(
 			return nil, fmt.Errorf("scan global repo map file: %w", err)
 		}
 
+		if repoMapPathExcluded(ctx, ignoreMatcher, file.Path) {
+			continue
+		}
+
 		file.Score = repoMapFileScore(file)
 		files = append(files, file)
+		if len(files) >= repoMapLimit(query) {
+			break
+		}
 	}
 
 	err = rows.Err()
@@ -122,6 +133,33 @@ func (store *Store) repoMapFiles(
 	}
 
 	return files, nil
+}
+
+func repoMapPathExcluded(
+	ctx context.Context,
+	ignoreMatcher gitIgnoreMatcher,
+	path string,
+) bool {
+	cleanPath := filepath.ToSlash(filepath.Clean(path))
+	if cleanPath == "." {
+		return false
+	}
+
+	if slices.Contains(repoMapExcludedExactPaths(), cleanPath) {
+		return true
+	}
+
+	for _, prefix := range repoMapExcludedPrefixes() {
+		if strings.HasPrefix(cleanPath, prefix) {
+			return true
+		}
+	}
+
+	if ignoreMatcher.root == "" {
+		return false
+	}
+
+	return ignoreMatcher.ignoredFile(ctx, filepath.Join(ignoreMatcher.root, cleanPath))
 }
 
 func (store *Store) repoMapSymbols(
@@ -245,6 +283,41 @@ func repoMapLimit(query RepoMapQuery) int {
 	}
 
 	return defaultRepoMapLimit
+}
+
+func repoMapCandidateLimit(query RepoMapQuery) int {
+	return repoMapLimit(query) * repoMapCandidateLimitFactor
+}
+
+func repoMapExcludedExactPaths() []string {
+	return []string{
+		".bandit.yml",
+		".github/workflows/coding-ethos-sarif.yml",
+		".gitlab-ci.yml",
+		".golangci.yml",
+		".pylintrc",
+		".sqlfluff",
+		".yamllint.yml",
+		"mypy.ini",
+		"pyrightconfig.json",
+		"ruff.toml",
+		"tombi.toml",
+	}
+}
+
+func repoMapExcludedPrefixes() []string {
+	return []string{
+		".agent-context/",
+		".agents/",
+		".claude/",
+		".code-ethos/",
+		".coding-ethos/",
+		".codex/",
+		".gemini/",
+		".venv/",
+		"coding-ethos/",
+		"coding-ethos-hooks/",
+	}
 }
 
 func repoMapSymbolsPerFile(query RepoMapQuery) int {

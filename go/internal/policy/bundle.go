@@ -716,7 +716,7 @@ func exampleEditEvasiveGitExecutionPolicy() Policy {
 		Message: "Direct git execution must use the approved coding-ethos " +
 			"git route for this agent provider.",
 		Suggestion: "Resubmit the git command through the suggested cerun " +
-			"--rewrite command so git operations stay inside the managed policy path.",
+			"command so git operations stay inside the managed policy path.",
 		DefenseLayers: CodeDefenseLayers(),
 		AppliesTo: AppliesTo{
 			Tools: []string{"Write", "Edit", "MultiEdit"},

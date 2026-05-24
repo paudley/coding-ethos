@@ -1847,7 +1847,7 @@ func validateRewriteProbe(result hookProbeResult, provider string) error {
 		)
 	}
 
-	if !strings.Contains(command, "agent-shell --rewrite --") ||
+	if !strings.Contains(command, "agent-shell --") ||
 		!strings.Contains(command, "git status --short") {
 		return apperror.Wrapf(
 			apperror.StaticError("%s rewrite lost git wrapper or redirection: %s"),
@@ -1885,7 +1885,7 @@ func validateCodexBlockProbe(result hookProbeResult) error {
 	}
 
 	if !strings.Contains(reason, "git.wrapper_required") ||
-		!strings.Contains(reason, "cerun --rewrite") {
+		!strings.Contains(reason, "cerun --") {
 		return apperror.Wrapf(
 			apperror.StaticError("codex block reason lost git remediation: %s"),
 			"codex block reason lost git remediation: %s",

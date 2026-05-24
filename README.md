@@ -1329,11 +1329,13 @@ the active TodoWrite item when a provider supplies one, so policies can connect
 shell activity to the agent's current task without reading provider memory.
 
 Agent shell commands are accepted through one runner boundary. `cerun -- ...`
-executes the target command under the managed runtime, `cerun --check -- ...`
-performs a non-executing preflight, `cerun git ...` and `cerun python ...`
-apply managed rewrites before execution, and `cerun lint ...` runs the managed
-policy-lint path. Nested `cerun`/`agent-shell` invocations are rejected because
-the first boundary is the enforcement point.
+executes the target command under the managed runtime with rewrites enabled,
+`cerun --check -- ...` performs a non-executing preflight on the same managed
+rewrite path, `cerun --no-rewrite -- ...` is reserved for explicit diagnostics,
+and `cerun lint ...` runs the managed policy-lint path. `cerun git ...` and
+`cerun python ...` remain shortcuts for managed routing. Nested
+`cerun`/`agent-shell` invocations are rejected because the first boundary is the
+enforcement point.
 
 Claude Bash file-tool emulation is blocked. Commands such as `cat README.md`,
 `sed -n '1,20p' README.md`, `awk '{print}' README.md`, `tee README.md`, and

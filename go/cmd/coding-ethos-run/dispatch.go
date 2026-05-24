@@ -136,7 +136,7 @@ func runHelpMessage() feedback.Message {
 					{"lint --changed", "Run managed lint checks for changed files."},
 					{"lint --full", "Run all configured managed lint checks."},
 					{"bin/lint --staged", "Short wrapper for managed lint."},
-					{"agent-shell --rewrite -- <command>", "Run shell through policy rewrite."},
+					{"agent-shell -- <command>", "Run shell through policy rewrite."},
 					{"output report", "Report managed output surfaces."},
 				},
 			),
@@ -244,7 +244,7 @@ func agentShellCommand(args []string) (agentShellRequest, error) {
 
 	if len(args) < 2 || args[0] != "--" {
 		return agentShellRequest{}, apperror.StaticError(
-			"agent-shell requires [--rewrite] [--check] [--intent <intent>] -- <command>",
+			"agent-shell requires [--no-rewrite] [--check] [--intent <intent>] -- <command>",
 		)
 	}
 
@@ -268,12 +268,15 @@ func agentShellCommand(args []string) (agentShellRequest, error) {
 }
 
 func parseAgentShellFlags(args []string) (agentShellRequest, []string, error) {
-	request := agentShellRequest{Intent: agentShellStrategicIntent()}
+	request := agentShellRequest{Intent: agentShellStrategicIntent(), Rewrite: true}
 
 	for len(args) > 0 {
 		switch {
 		case args[0] == "--rewrite":
 			request.Rewrite = true
+			args = args[1:]
+		case args[0] == "--no-rewrite":
+			request.Rewrite = false
 			args = args[1:]
 		case args[0] == "--check":
 			request.Check = true

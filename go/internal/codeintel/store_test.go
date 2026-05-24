@@ -2490,6 +2490,25 @@ func TestASTIndexerReturnsCompactCodeContext(t *testing.T) {
 			"    def run(self):\n"+
 			"        return helper()\n",
 	))
+	writeFile(t, filepath.Join(root, ".codex", "skills", "generated", "SKILL.md"), []byte(
+		"# Generated Skill\n\n"+
+			"Use generated agent context.\n",
+	))
+	writeFile(
+		t,
+		filepath.Join(root, ".venv", "lib", "python", "site-packages", "pkg.py"),
+		[]byte(
+			"def lib():\n"+
+				"    return \"ignored\"\n",
+		),
+	)
+	writeFile(t, filepath.Join(root, "coding-ethos", "go", "internal", "tool.go"), []byte(
+		"package internal\n\n"+
+			"func GeneratedTool() {}\n",
+	))
+	writeFile(t, filepath.Join(root, "ruff.toml"), []byte(
+		"line-length = 100\n",
+	))
 	store := openTestStoreAt(
 		t,
 		ctx,
@@ -2523,6 +2542,7 @@ func TestASTIndexerReturnsGlobalRepoMap(t *testing.T) {
 
 	ctx := context.Background()
 	root := t.TempDir()
+	runCodeIntelGit(t, root, "init")
 	writeFile(t, filepath.Join(root, "cmd", "main.go"), []byte(`package main
 
 import "fmt"
@@ -2536,6 +2556,29 @@ func main() { fmt.Println("x"); fmt.Println("y") }
 			"    def run(self):\n"+
 			"        return helper()\n",
 	))
+	writeFile(t, filepath.Join(root, ".codex", "skills", "generated", "SKILL.md"), []byte(
+		"# Generated Skill\n\n"+
+			"Use generated agent context.\n",
+	))
+	writeFile(
+		t,
+		filepath.Join(root, ".venv", "lib", "python", "site-packages", "pkg.py"),
+		[]byte(
+			"def lib():\n"+
+				"    return \"ignored\"\n",
+		),
+	)
+	writeFile(t, filepath.Join(root, "coding-ethos", "go", "internal", "tool.go"), []byte(
+		"package internal\n\n"+
+			"func GeneratedTool() {}\n",
+	))
+	writeFile(t, filepath.Join(root, "ignored", "cache.py"), []byte(
+		"def ignored_cache():\n"+
+			"    return \"ignored\"\n",
+	))
+	writeFile(t, filepath.Join(root, "ruff.toml"), []byte(
+		"line-length = 100\n",
+	))
 	store := openTestStoreAt(
 		t,
 		ctx,
@@ -2546,10 +2589,11 @@ func main() { fmt.Println("x"); fmt.Println("y") }
 	if err != nil {
 		t.Fatalf("index code: %v", err)
 	}
+	writeFile(t, filepath.Join(root, ".gitignore"), []byte("ignored/\n"))
 
 	repoMap, err := store.GlobalRepoMap(ctx, RepoMapQuery{
 		Root:           root,
-		Limit:          2,
+		Limit:          10,
 		SymbolsPerFile: 2,
 	})
 	if err != nil {
@@ -2561,6 +2605,11 @@ func main() { fmt.Println("x"); fmt.Println("y") }
 		!strings.Contains(rendered, "coding_ethos_repo_map:") ||
 		!strings.Contains(rendered, "pkg/worker.py") ||
 		!strings.Contains(rendered, "def helper():") ||
+		strings.Contains(rendered, ".codex/skills/generated/SKILL.md") ||
+		strings.Contains(rendered, ".venv/lib/python/site-packages/pkg.py") ||
+		strings.Contains(rendered, "coding-ethos/go/internal/tool.go") ||
+		strings.Contains(rendered, "ignored/cache.py") ||
+		strings.Contains(rendered, "ruff.toml") ||
 		strings.Contains(rendered, `fmt.Println("x");`) {
 		t.Fatalf("repo map = %#v\n%s", repoMap, rendered)
 	}

@@ -98,7 +98,7 @@ func TestRunRewritesNormalGitCommitThroughWrapper(t *testing.T) {
 	}
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
-	if !ok || !strings.Contains(rewritten, "agent-shell --rewrite --") ||
+	if !ok || !strings.Contains(rewritten, "agent-shell --") ||
 		!strings.Contains(rewritten, "commit") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
@@ -1196,7 +1196,7 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "agent-shell --") ||
 		!strings.Contains(rewritten, "git status && git log --oneline -1") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
@@ -1311,7 +1311,7 @@ func TestRunBlocksCodexMutatingGitWhenRewriteCannotBeApplied(t *testing.T) {
 	}
 
 	blockMessage := ProviderBlockMessage(result)
-	wantRemediation := filepath.ToSlash(cerunPath) + " --rewrite -- 'git add file.txt'"
+	wantRemediation := filepath.ToSlash(cerunPath) + " -- 'git add file.txt'"
 	if !strings.Contains(blockMessage, wantRemediation) {
 		t.Fatalf("missing repo-local cerun remediation:\n%s", blockMessage)
 	}
@@ -1323,8 +1323,10 @@ func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
 	for _, command := range []string{
 		"cerun -- git status",
 		"cerun --rewrite -- git status",
+		"cerun --no-rewrite -- git status",
 		"cerun --check -- git status",
 		"cerun --check --rewrite -- git status",
+		"cerun --check --no-rewrite -- git status",
 		"cerun --intent 'inspect repository' -- git status",
 		"cerun git status",
 		"cerun python -m pytest",
@@ -1332,6 +1334,7 @@ func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
 		"cerun --rewrite -- git status --short && printf '\\nbranch: ' && cerun --rewrite -- git branch --show-current",
 		"bin/coding-ethos-run agent-shell -- git status",
 		"bin/coding-ethos-run agent-shell --rewrite -- git status",
+		"bin/coding-ethos-run agent-shell --no-rewrite -- git status",
 		"bin/coding-ethos-run agent-shell --check -- git status",
 		"bin/coding-ethos-run agent-shell --check --rewrite -- git status",
 		"bin/coding-ethos-run agent-shell --intent 'inspect repository' -- git status",
@@ -1671,7 +1674,7 @@ func TestRunRewritesReportedGitAddStatusPipeline(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "agent-shell --") ||
 		!strings.Contains(rewritten, "git add ") ||
 		!strings.Contains(rewritten, "git status -s | grep tamperproofing") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
@@ -1705,7 +1708,7 @@ func TestRunRewritesMultilineGitAddWithoutNewlinePathspecs(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "agent-shell --") ||
 		!strings.Contains(rewritten, "git add") ||
 		!strings.Contains(
 			rewritten,
@@ -1757,7 +1760,7 @@ func TestRunRewritesCommentedMultilineGitAdd(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "agent-shell --") ||
 		!strings.Contains(rewritten, "git add") ||
 		!strings.Contains(
 			rewritten,
