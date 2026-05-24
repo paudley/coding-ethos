@@ -18,6 +18,11 @@ import (
 
 const pythonTypeIgnoreSuppressionLabel = "type: ignore"
 
+const (
+	pythonLoggerReceiverLogger = "logger"
+	pythonLoggerMethodInfo     = "info"
+)
+
 //nolint:gochecknoglobals
 var pythonSuppressionCommentPatterns = []pythonSuppressionPattern{
 	{
@@ -1102,13 +1107,13 @@ func pythonLoggerCallParts(callName string) (string, string) {
 	method := parts[len(parts)-1]
 
 	switch receiver {
-	case "logger", "_logger", "log", "_log":
+	case pythonLoggerReceiverLogger, "_logger", "log", "_log":
 	default:
 		return "", ""
 	}
 
 	switch method {
-	case "debug", "info", "warning", "error", "critical":
+	case "debug", pythonLoggerMethodInfo, "warning", "error", "critical":
 		return receiver, method
 	default:
 		return "", ""
