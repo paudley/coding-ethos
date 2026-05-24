@@ -184,6 +184,36 @@ func helperCommand() int {
 	}
 }
 
+func TestHookCommandInputsRejectBypassableBranchScopeGuard(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	source := filepath.Join(root, "docstring_coverage.go")
+	if err := os.WriteFile(
+		source,
+		[]byte(`package hookrunnercli
+
+func checkDocstringCoverageCommand() int {
+	if debugEnabled() {
+		scopeDocstringCoverageForHook()
+	}
+	return runDocstringCoverage()
+}
+`),
+		0o600,
+	); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	facts := HookCommandInputs(root, []string{"docstring_coverage.go"})
+	if len(facts) != 1 {
+		t.Fatalf("hook command facts = %#v, want one fact", facts)
+	}
+	if !facts[0].UnsafeUnscopedPathSensitiveRun || facts[0].ChangedFileScopeBeforeRun {
+		t.Fatalf("branch-only scope guard was treated as dominant: %#v", facts[0])
+	}
+}
+
 func TestHookCommandsCELInputAllowsChangedFileScopePolicy(t *testing.T) {
 	t.Parallel()
 
