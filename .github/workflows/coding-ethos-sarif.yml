@@ -168,7 +168,7 @@ jobs:
 
       - name: Upload coding-ethos SARIF
         if: ${{ always() && hashFiles(env.CODING_ETHOS_SARIF_PATH) != '' }}
-        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e
+        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba
         with:
           sarif_file: ${{ env.CODING_ETHOS_SARIF_PATH }}
           category: ${{ env.CODING_ETHOS_SARIF_CATEGORY }}
