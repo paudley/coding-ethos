@@ -4,10 +4,6 @@
 package evaluators
 
 import (
-	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
 	"testing"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -75,59 +71,22 @@ func TestPythonWalkAllNodesVisitsCommentsWithoutPunctuation(t *testing.T) {
 	}
 }
 
-func TestPythonWritePrefixesMatchSuppressionPolicy(t *testing.T) {
+func TestCollectPythonASTFactsSkipsNonSuppressionComments(t *testing.T) {
 	t.Parallel()
 
-	content, err := os.ReadFile(filepath.Join("..", "..", "..", "coding_ethos.yml"))
+	facts, err := collectPythonASTFacts(pythonSource{
+		Path: "src/repository.py",
+		Text: "def write_record(value):\n" +
+			"    value = value + 1  # noquality marker\n" +
+			"    return value  # ordinary comment\n",
+	})
 	if err != nil {
-		t.Fatalf("read coding_ethos.yml: %v", err)
+		t.Fatalf("collect python AST facts: %v", err)
 	}
 
-	counts := pythonSuppressionPolicyPrefixCounts(t, string(content))
-	for _, prefix := range pythonWriteFunctionPrefixes {
-		if counts[prefix] != 2 {
-			t.Fatalf(
-				"policy prefix %q count = %d, want base and wildcard entries; counts=%#v",
-				prefix,
-				counts[prefix],
-				counts,
-			)
+	for _, fact := range facts {
+		if fact.NodeKind == pythonKindComment || fact.IsSuppression {
+			t.Fatalf("non-suppression comments should not emit facts: %#v", facts)
 		}
-
-		delete(counts, prefix)
 	}
-
-	if len(counts) != 0 {
-		t.Fatalf("policy has prefixes not recognized by Go helper: %#v", counts)
-	}
-}
-
-func pythonSuppressionPolicyPrefixCounts(t *testing.T, content string) map[string]int {
-	t.Helper()
-
-	policyStart := strings.Index(content, "id: python.suppression_in_write_method")
-	if policyStart < 0 {
-		t.Fatal("missing python suppression policy")
-	}
-
-	globStart := strings.Index(content[policyStart:], "any_glob_match(")
-	if globStart < 0 {
-		t.Fatal("missing any_glob_match in python suppression policy")
-	}
-
-	listStart := strings.Index(content[policyStart+globStart:], "[")
-	listEnd := strings.Index(content[policyStart+globStart+listStart:], "]")
-	if listStart < 0 || listEnd < 0 {
-		t.Fatal("missing suppression policy glob list")
-	}
-
-	absoluteListStart := policyStart + globStart + listStart
-	list := content[absoluteListStart : absoluteListStart+listEnd]
-	matches := regexp.MustCompile(`"([a-z]+)(?:_\*)?"`).FindAllStringSubmatch(list, -1)
-	counts := map[string]int{}
-	for _, match := range matches {
-		counts[match[1]]++
-	}
-
-	return counts
 }

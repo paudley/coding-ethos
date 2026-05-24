@@ -6,6 +6,7 @@ package evaluators
 import (
 	"fmt"
 	"maps"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -21,28 +22,27 @@ type (
 )
 
 const (
-	bashExtension                = ".bash"
-	defaultGoHardLineLimit       = 2000
-	defaultPythonHardLineLimit   = 1000
-	defaultShellHardLineLimit    = 500
-	defaultCoverageFloor         = 80.0
-	defaultCoverageGoal          = 90.0
-	coverageThresholdsOption     = "coverage_thresholds"
-	goExtension                  = ".go"
-	lineLimitThresholdsOption    = "line_limit_thresholds"
-	metadataScopeBeforeRun       = "changed_file_scope_before_run"
-	metadataUnsafeUnscopedRun    = "unsafe_unscoped_path_sensitive_run"
-	pythonExtension              = ".py"
-	pythonSuppressionWritePolicy = "python.suppression_in_write_method"
-	shellExtension               = ".sh"
-	scriptsPrefix                = "scripts/"
+	bashExtension                   = ".bash"
+	defaultGoHardLineLimit          = 2000
+	defaultPythonHardLineLimit      = 1000
+	defaultShellHardLineLimit       = 500
+	defaultCoverageFloor            = 80.0
+	defaultCoverageGoal             = 90.0
+	coverageThresholdsOption        = "coverage_thresholds"
+	goExtension                     = ".go"
+	lineLimitThresholdsOption       = "line_limit_thresholds"
+	metadataScopeBeforeRun          = "changed_file_scope_before_run"
+	metadataUnsafeUnscopedRun       = "unsafe_unscoped_path_sensitive_run"
+	pythonExtension                 = ".py"
+	pythonSuppressionWritePolicy    = "python.suppression_in_write_method"
+	pythonSuppressionPatternMinimum = 2
+	shellExtension                  = ".sh"
+	scriptsPrefix                   = "scripts/"
 )
 
-var pythonWriteFunctionPrefixes = []string{ //nolint:gochecknoglobals
-	"append", "commit", "create", "delete", "emit", "flush", "index",
-	"ingest", "insert", "persist", "record", "remove", "replace",
-	"save", "store", "sync", "update", "upsert", "write",
-}
+var celQuotedGlobPattern = regexp.MustCompile(
+	`"([a-z]+(?:_\*)?)"`,
+)
 
 type lineLimitThresholds struct {
 	goHard     int64
@@ -178,7 +178,11 @@ func celDiagnostic(
 	}
 
 	if policyDef.ID == pythonSuppressionWritePolicy {
-		applyPythonSuppressionDiagnostic(&diagnostic, activation)
+		applyPythonSuppressionDiagnostic(
+			&diagnostic,
+			activation,
+			context.EvaluatorOptions,
+		)
 
 		return diagnostic
 	}
@@ -191,8 +195,9 @@ func celDiagnostic(
 func applyPythonSuppressionDiagnostic(
 	diagnostic *diagnostics.Diagnostic,
 	activation map[string]any,
+	evaluatorOptions map[string]any,
 ) {
-	fact, ok := firstPythonSuppressionInWriteMethod(activation)
+	fact, ok := firstPythonSuppressionInWriteMethod(activation, evaluatorOptions)
 	if !ok {
 		return
 	}
@@ -214,14 +219,23 @@ func applyPythonSuppressionDiagnostic(
 
 func firstPythonSuppressionInWriteMethod(
 	activation map[string]any,
+	evaluatorOptions map[string]any,
 ) (celexpr.PythonASTFactInput, bool) {
 	facts, ok := activation["python_ast"].([]celexpr.PythonASTFactInput)
 	if !ok {
 		return celexpr.PythonASTFactInput{}, false
 	}
 
+	patterns := pythonSuppressionWriteGlobPatterns(evaluatorOptions)
 	for _, fact := range facts {
-		if fact.IsSuppression && pythonWriteFunctionName(fact.EnclosingFunction) {
+		if fact.IsSuppression &&
+			pythonWriteFunctionMatches(fact.EnclosingFunction, patterns) {
+			return fact, true
+		}
+	}
+
+	for _, fact := range facts {
+		if fact.IsSuppression {
 			return fact, true
 		}
 	}
@@ -229,15 +243,38 @@ func firstPythonSuppressionInWriteMethod(
 	return celexpr.PythonASTFactInput{}, false
 }
 
-func pythonWriteFunctionName(name string) bool {
+func pythonSuppressionWriteGlobPatterns(evaluatorOptions map[string]any) []string {
+	when := stringOption(evaluatorOptions, "when", "")
+	if when == "" {
+		return nil
+	}
+
+	matches := celQuotedGlobPattern.FindAllStringSubmatch(when, -1)
+	patterns := make([]string, 0, len(matches))
+
+	for _, match := range matches {
+		if len(match) >= pythonSuppressionPatternMinimum {
+			patterns = append(patterns, match[1])
+		}
+	}
+
+	return patterns
+}
+
+func pythonWriteFunctionMatches(name string, patterns []string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		return false
 	}
 
-	for _, prefix := range pythonWriteFunctionPrefixes {
-		if strings.HasPrefix(name, prefix) &&
-			(len(name) == len(prefix) || name[len(prefix)] == '_') {
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == name {
+			return true
+		}
+
+		prefix, wildcard := strings.CutSuffix(pattern, "_*")
+		if wildcard && strings.HasPrefix(name, prefix+"_") {
 			return true
 		}
 	}

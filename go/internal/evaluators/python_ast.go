@@ -5,6 +5,7 @@ package evaluators
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -14,6 +15,39 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
+
+//nolint:gochecknoglobals
+var pythonSuppressionCommentPatterns = []pythonSuppressionPattern{
+	{
+		regex: regexp.MustCompile(`(?i)#\s*ruff:\s*noqa\b`),
+		label: "ruff: noqa",
+	},
+	{
+		regex: regexp.MustCompile(`(?i)#\s*mypy:\s*ignore-errors\b`),
+		label: "mypy: ignore-errors",
+	},
+	{
+		regex: regexp.MustCompile(`(?i)#\s*pyright:\s*ignore\b`),
+		label: "pyright: ignore",
+	},
+	{
+		regex: regexp.MustCompile(`(?i)#\s*pylint:\s*disable\b`),
+		label: "pylint: disable",
+	},
+	{
+		regex: regexp.MustCompile(`(?i)#\s*type:\s*ignore\b`),
+		label: "type: ignore",
+	},
+	{
+		regex: regexp.MustCompile(`(?i)#\s*noqa\b`),
+		label: "noqa",
+	},
+}
+
+type pythonSuppressionPattern struct {
+	regex *regexp.Regexp
+	label string
+}
 
 type pythonASTFact struct {
 	File              string
@@ -465,6 +499,9 @@ func pythonASTFactFromNode(
 	switch kind {
 	case pythonKindComment:
 		fact.IsSuppression, fact.SuppressionLabel = pythonSuppressionComment(text)
+		if !fact.IsSuppression {
+			return pythonASTFact{}, false
+		}
 	case pythonKindImport, pythonKindImportFrom:
 		fact.IsImport = true
 		fact.ImportModule = text
@@ -723,23 +760,13 @@ func pythonEnclosingFunction(
 }
 
 func pythonSuppressionComment(text string) (bool, string) {
-	lower := strings.ToLower(text)
-	switch {
-	case strings.Contains(lower, "ruff: noqa"):
-		return true, "ruff: noqa"
-	case strings.Contains(lower, "mypy: ignore-errors"):
-		return true, "mypy: ignore-errors"
-	case strings.Contains(lower, "pyright: ignore"):
-		return true, "pyright: ignore"
-	case strings.Contains(lower, "pylint: disable"):
-		return true, "pylint: disable"
-	case strings.Contains(lower, "type: ignore"):
-		return true, "type: ignore"
-	case strings.Contains(lower, "noqa"):
-		return true, "noqa"
-	default:
-		return false, ""
+	for _, pattern := range pythonSuppressionCommentPatterns {
+		if pattern.regex.MatchString(text) {
+			return true, pattern.label
+		}
 	}
+
+	return false, ""
 }
 
 func pythonFunctionName(node *tree_sitter.Node, contents []byte) string {

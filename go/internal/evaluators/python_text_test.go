@@ -214,6 +214,34 @@ func TestEvaluatePythonSuppressionInReadMethodAllowed(t *testing.T) {
 	}
 }
 
+func TestEvaluatePythonSuppressionDiagnosticUsesPolicyGlobList(t *testing.T) {
+	t.Parallel()
+
+	policyDef := compiledRepoBundle(t).Policies["python.suppression_in_write_method"]
+	policyDef.Evaluators[0].Options["when"] = `python_ast.exists(fact,
+		fact.is_suppression &&
+		any_glob_match(["persist", "persist_*"], fact.enclosing_function)
+	)`
+
+	decision := evaluateCELPythonPolicy(
+		t,
+		policyDef,
+		"src/repository.py",
+		"class Repository:\n"+
+			"    def read_record(self, value):\n"+
+			"        return value  # type: ignore\n"+
+			"    def persist_record(self, value):\n"+
+			"        self.backend.write(value)  # noqa\n",
+	)
+
+	if len(decision.Diagnostics) != 1 ||
+		decision.Diagnostics[0].Line != 5 ||
+		decision.Diagnostics[0].Code != "noqa" ||
+		decision.Diagnostics[0].Metadata["enclosing_function"] != "persist_record" {
+		t.Fatalf("diagnostic should use policy glob match: %#v", decision.Diagnostics)
+	}
+}
+
 func importlibImportModuleCEL() string {
 	return "python_ast.exists(fact, fact.is_dynamic_import && " +
 		"fact.call_name == 'importlib.import_module')"
