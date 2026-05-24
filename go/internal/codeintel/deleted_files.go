@@ -76,6 +76,7 @@ func (store *Store) markDeletedCodeFiles(
 	stagedDeletedPaths map[string]bool,
 ) error {
 	deletedAt := time.Now().UTC().Format(time.RFC3339)
+	headRevision := gitHeadRevision(ctx, root)
 
 	intentPaths, err := store.codeDeleteIntentPaths(ctx)
 	if err != nil {
@@ -95,6 +96,7 @@ func (store *Store) markDeletedCodeFiles(
 			deleteMarkContext{
 				root:               root,
 				deletedAt:          deletedAt,
+				headRevision:       headRevision,
 				intentPaths:        intentPaths,
 				stagedDeletedPaths: stagedDeletedPaths,
 			},
@@ -118,6 +120,7 @@ type deleteMarkContext struct {
 	stagedDeletedPaths map[string]bool
 	root               string
 	deletedAt          string
+	headRevision       string
 }
 
 func markDeletedCodeFile(
@@ -130,7 +133,12 @@ func markDeletedCodeFile(
 
 	if markContext.stagedDeletedPaths[path] {
 		intent := CodeDeleteIntent{
-			ID:            stableID("code-delete-intent", path, "git_index_delete"),
+			ID: stableID(
+				"code-delete-intent",
+				path,
+				"git_index_delete",
+				markContext.headRevision,
+			),
 			Path:          path,
 			IntentKind:    "git_index_delete",
 			RecordedAtUTC: markContext.deletedAt,
@@ -296,6 +304,25 @@ func gitStagedDeletedPaths(ctx context.Context, root string) map[string]bool {
 	}
 
 	return deleted
+}
+
+func gitHeadRevision(ctx context.Context, root string) string {
+	command := realgit.Command(
+		ctx,
+		false,
+		"-C",
+		root,
+		"rev-parse",
+		"HEAD",
+	)
+	command.Env = realgit.CleanGitLocalEnv(os.Environ())
+
+	output, err := command.Output()
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(output))
 }
 
 func (store *Store) codeDeleteIntentPaths(

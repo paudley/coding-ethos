@@ -397,8 +397,16 @@ parent-update-submodule: ## Update this coding-ethos submodule in the parent rep
 		printf '$(COLOR_WARN)No parent repo detected; this checkout is not running as a submodule.$(COLOR_RESET)\n' >&2; \
 		exit 2; \
 	fi
-	@submodule_path="$$("$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" \
-		ls-files --stage --full-name "$(LOCAL_REPO_ROOT)" | awk '$$1 == "160000" { print $$4; exit }')"; \
+	@local_root="$$(cd "$(LOCAL_REPO_ROOT)" && pwd -P)"; \
+	submodule_path="$$("$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" ls-files --stage --full-name | \
+		awk '$$1 == "160000" { print $$4 }' | \
+		while IFS= read -r candidate; do \
+			candidate_root="$$(cd "$(HOOK_CONSUMER_ROOT)/$$candidate" 2>/dev/null && pwd -P)" || continue; \
+			if [ "$$candidate_root" = "$$local_root" ]; then \
+				printf '%s\n' "$$candidate"; \
+				break; \
+			fi; \
+		done)"; \
 	if [ -z "$$submodule_path" ]; then \
 		printf '$(COLOR_WARN)Could not resolve coding-ethos as a tracked submodule under $(HOOK_CONSUMER_ROOT).$(COLOR_RESET)\n' >&2; \
 		exit 2; \

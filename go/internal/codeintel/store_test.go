@@ -601,6 +601,51 @@ func TestRefreshRepositoryMarksGitRMDeleteIntent(t *testing.T) {
 	if len(intents) != 1 {
 		t.Fatalf("duplicate delete intents after second refresh: %#v", intents)
 	}
+
+	firstIntentID := intents[0].ID
+	runCodeIntelGit(t, root, "commit", "-m", "delete app")
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def build_message():\n    return 'new'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("recreate source file: %v", err)
+	}
+
+	runCodeIntelGit(t, root, "add", "pkg/app.py")
+	runCodeIntelGit(t, root, "commit", "-m", "restore app")
+
+	_, err = RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("refresh recreated file: %v", err)
+	}
+
+	runCodeIntelGit(t, root, "rm", "pkg/app.py")
+	err = os.MkdirAll(filepath.Join(root, "pkg"), 0o700)
+	if err != nil {
+		t.Fatalf("restore second deleted parent dir: %v", err)
+	}
+
+	_, err = RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("second delete cycle refresh: %v", err)
+	}
+
+	intents, err = store.CodeDeleteIntents(ctx, "pkg/app.py")
+	if err != nil {
+		t.Fatalf("query delete intents after second delete cycle: %v", err)
+	}
+
+	if len(intents) != 2 {
+		t.Fatalf("delete intents after second delete cycle = %#v", intents)
+	}
+
+	if intents[0].ID == intents[1].ID ||
+		(intents[0].ID != firstIntentID && intents[1].ID != firstIntentID) {
+		t.Fatalf("delete intent IDs do not preserve history: %#v", intents)
+	}
 }
 
 func TestHookTraceDeleteIntentMarksMissingFileDeletedByIntent(t *testing.T) {
