@@ -44,44 +44,59 @@ var pythonSuppressionCommentPatterns = []pythonSuppressionPattern{
 	},
 }
 
+var pythonUnexplainedTypeIgnorePattern = regexp.MustCompile(
+	`(?i)#\s*type:\s*ignore\s*$`,
+)
+
 type pythonSuppressionPattern struct {
 	regex *regexp.Regexp
 	label string
 }
 
 type pythonASTFact struct {
-	File              string
-	Language          string
-	NodeKind          string
-	SymbolKind        string
-	SymbolName        string
-	SymbolPath        string
-	ParentSymbolPath  string
-	EnclosingFunction string
-	EnclosingSymbol   string
-	Text              string
-	ImportModule      string
-	CallName          string
-	AnnotationRole    string
-	SuppressionLabel  string
-	Line              int
-	Column            int
-	EndLine           int
-	ParameterCount    int
-	HasVarargs        bool
-	HasKwargs         bool
-	ModuleLevel       bool
-	UnderClass        bool
-	UnderConditional  bool
-	UnderFunction     bool
-	UnderTry          bool
-	UnderTypeChecking bool
-	IsImport          bool
-	IsImportFallback  bool
-	IsDynamicImport   bool
-	IsAssignedLambda  bool
-	IsClosureFactory  bool
-	IsSuppression     bool
+	File                    string
+	Language                string
+	NodeKind                string
+	SymbolKind              string
+	SymbolName              string
+	SymbolPath              string
+	ParentSymbolPath        string
+	EnclosingFunction       string
+	EnclosingSymbol         string
+	Text                    string
+	ReturnAnnotation        string
+	ExceptionType           string
+	ExceptionAction         string
+	ImportModule            string
+	CallName                string
+	AnnotationRole          string
+	SuppressionLabel        string
+	LoggerName              string
+	LoggerMethod            string
+	Line                    int
+	Column                  int
+	EndLine                 int
+	ParameterCount          int
+	HasVarargs              bool
+	HasKwargs               bool
+	ModuleLevel             bool
+	UnderClass              bool
+	UnderConditional        bool
+	UnderFunction           bool
+	UnderTry                bool
+	UnderTypeChecking       bool
+	IsImport                bool
+	IsImportFallback        bool
+	IsDynamicImport         bool
+	IsAssignedLambda        bool
+	IsClosureFactory        bool
+	IsSuppression           bool
+	IsOptionalReturn        bool
+	IsBareExcept            bool
+	IsSilentExcept          bool
+	IsStructuredLog         bool
+	IsDirectImport          bool
+	IsUnexplainedTypeIgnore bool
 }
 
 type pythonASTIssue struct {
@@ -502,22 +517,38 @@ func pythonASTFactFromNode(
 		if !fact.IsSuppression {
 			return pythonASTFact{}, false
 		}
+
+		fact.IsUnexplainedTypeIgnore = pythonSuppressionIsUnexplainedTypeIgnore(text)
 	case pythonKindImport, pythonKindImportFrom:
 		fact.IsImport = true
 		fact.ImportModule = text
+		fact.IsDirectImport = pythonImportTargetsProtectedPackage(text)
 	case pythonKindExceptClause:
 		fact.IsImportFallback = strings.Contains(text, "ImportError") ||
 			strings.Contains(text, "ModuleNotFoundError")
+		fact.ExceptionType = pythonExceptionType(node, contents)
+		fact.ExceptionAction = pythonExceptionAction(node, contents)
+		fact.IsBareExcept = fact.ExceptionType == ""
+		fact.IsSilentExcept = pythonExceptionActionIsSilent(fact.ExceptionAction)
 	case pythonKindCall:
 		fact.CallName = pythonCallName(node, contents)
 		fact.IsDynamicImport = fact.CallName == pythonBuiltinImport ||
 			fact.CallName == pythonImportlibImportModule
+		fact.LoggerName, fact.LoggerMethod = pythonLoggerCallParts(fact.CallName)
+		fact.IsStructuredLog = pythonCallHasUnstructuredLogMessage(
+			node,
+			contents,
+			fact.LoggerName,
+			fact.LoggerMethod,
+		)
 	case pythonKindLambda:
 		fact.IsAssignedLambda = pythonLambdaIsAssigned(node)
 	case pythonKindFunctionDef:
 		fact.ParameterCount, fact.HasVarargs, fact.HasKwargs = pythonFunctionParameters(
 			node,
 		)
+		fact.ReturnAnnotation = pythonReturnAnnotation(node, contents)
+		fact.IsOptionalReturn = pythonAnnotationIsOptional(fact.ReturnAnnotation)
 		fact.IsClosureFactory = closureFactories[pythonNodeKey(node, contents)]
 	}
 
@@ -769,6 +800,22 @@ func pythonSuppressionComment(text string) (bool, string) {
 	return false, ""
 }
 
+func pythonSuppressionIsUnexplainedTypeIgnore(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if !strings.Contains(strings.ToLower(trimmed), "type: ignore") {
+		return false
+	}
+
+	return pythonUnexplainedTypeIgnorePattern.MatchString(trimmed)
+}
+
+func pythonImportTargetsProtectedPackage(text string) bool {
+	trimmed := strings.TrimSpace(text)
+
+	return strings.HasPrefix(trimmed, "from coding_ethos.") ||
+		strings.HasPrefix(trimmed, "import coding_ethos.")
+}
+
 func pythonFunctionName(node *tree_sitter.Node, contents []byte) string {
 	name := node.ChildByFieldName("name")
 	if name == nil {
@@ -785,6 +832,128 @@ func pythonCallName(node *tree_sitter.Node, contents []byte) string {
 	}
 
 	return strings.TrimSpace(function.Utf8Text(contents))
+}
+
+func pythonLoggerCallParts(callName string) (string, string) {
+	receiver, method, found := strings.Cut(callName, ".")
+	if !found {
+		return "", ""
+	}
+
+	switch receiver {
+	case "logger", "_logger", "log", "_log":
+	default:
+		return "", ""
+	}
+
+	switch method {
+	case "debug", "info", "warning", "error", "critical":
+		return receiver, method
+	default:
+		return "", ""
+	}
+}
+
+func pythonCallHasUnstructuredLogMessage(
+	node *tree_sitter.Node,
+	contents []byte,
+	loggerName string,
+	loggerMethod string,
+) bool {
+	if loggerName == "" || loggerMethod == "" {
+		return false
+	}
+
+	text := strings.TrimSpace(node.Utf8Text(contents))
+	_, args, found := strings.Cut(text, "(")
+
+	if !found {
+		return false
+	}
+
+	args = strings.TrimSpace(strings.TrimSuffix(args, ")"))
+
+	return strings.HasPrefix(args, "f\"") ||
+		strings.HasPrefix(args, "f'") ||
+		strings.Contains(args, ".format(") ||
+		strings.Contains(args, "%")
+}
+
+func pythonReturnAnnotation(node *tree_sitter.Node, contents []byte) string {
+	returnType := node.ChildByFieldName("return_type")
+	if returnType != nil {
+		return strings.TrimSpace(returnType.Utf8Text(contents))
+	}
+
+	text := node.Utf8Text(contents)
+	header, _, _ := strings.Cut(text, ":")
+
+	_, annotation, found := strings.Cut(header, "->")
+	if !found {
+		return ""
+	}
+
+	return strings.TrimSpace(annotation)
+}
+
+func pythonAnnotationIsOptional(annotation string) bool {
+	normalized := strings.ReplaceAll(annotation, " ", "")
+
+	return strings.Contains(normalized, "|None") ||
+		strings.Contains(normalized, "None|") ||
+		strings.Contains(normalized, "Optional[") ||
+		strings.Contains(normalized, "Union[") &&
+			strings.Contains(normalized, "None")
+}
+
+func pythonExceptionType(node *tree_sitter.Node, contents []byte) string {
+	text := strings.TrimSpace(node.Utf8Text(contents))
+	if text == "" {
+		return ""
+	}
+
+	header, _, _ := strings.Cut(text, ":")
+	header = strings.TrimSpace(strings.TrimPrefix(header, "except"))
+	header, _, _ = strings.Cut(header, " as ")
+
+	return strings.TrimSpace(header)
+}
+
+func pythonExceptionAction(node *tree_sitter.Node, contents []byte) string {
+	body := node.ChildByFieldName("body")
+	if body != nil {
+		for index := range body.NamedChildCount() {
+			child := body.NamedChild(index)
+			if child == nil {
+				continue
+			}
+
+			text := strings.TrimSpace(child.Utf8Text(contents))
+			if text != "" {
+				return text
+			}
+		}
+	}
+
+	for line := range strings.SplitSeq(node.Utf8Text(contents), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "except") {
+			continue
+		}
+
+		return trimmed
+	}
+
+	return ""
+}
+
+func pythonExceptionActionIsSilent(action string) bool {
+	switch strings.TrimSpace(action) {
+	case "pass", "return", "return None":
+		return true
+	default:
+		return false
+	}
 }
 
 func pythonFunctionParameters(node *tree_sitter.Node) (int, bool, bool) {

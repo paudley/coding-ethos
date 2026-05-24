@@ -90,3 +90,87 @@ func TestCollectPythonASTFactsSkipsNonSuppressionComments(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectPythonASTFactsRecordsOptionalReturn(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"def load_service() -> Service | None:\n    return None\n",
+		func(fact pythonASTFact) bool { return fact.IsOptionalReturn },
+	)
+
+	if fact.SymbolName != "load_service" ||
+		fact.ReturnAnnotation != "Service | None" {
+		t.Fatalf("optional return fact = %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsRecordsSilentException(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"try:\n    run()\nexcept RuntimeError:\n    return None\n",
+		func(fact pythonASTFact) bool { return fact.IsSilentExcept },
+	)
+
+	if fact.ExceptionType != "RuntimeError" ||
+		fact.ExceptionAction != "return None" {
+		t.Fatalf("silent exception fact = %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsRecordsStructuredLoggerCall(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"logger.info(f'user={user_id}')\n",
+		func(fact pythonASTFact) bool { return fact.IsStructuredLog },
+	)
+
+	if fact.LoggerName != "logger" || fact.LoggerMethod != "info" {
+		t.Fatalf("structured log fact = %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsRecordsUnexplainedTypeIgnore(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"value = load()  # type: ignore\n",
+		func(fact pythonASTFact) bool { return fact.IsUnexplainedTypeIgnore },
+	)
+
+	if fact.SuppressionLabel != "type: ignore" {
+		t.Fatalf("type ignore fact = %#v", fact)
+	}
+}
+
+func firstPythonASTFact(
+	t *testing.T,
+	text string,
+	match func(pythonASTFact) bool,
+) pythonASTFact {
+	t.Helper()
+
+	facts, err := collectPythonASTFacts(pythonSource{
+		Path: "src/app.py",
+		Text: text,
+	})
+	if err != nil {
+		t.Fatalf("collect python AST facts: %v", err)
+	}
+
+	for _, fact := range facts {
+		if match(fact) {
+			return fact
+		}
+	}
+
+	t.Fatalf("missing matching fact: %#v", facts)
+
+	return pythonASTFact{}
+}
