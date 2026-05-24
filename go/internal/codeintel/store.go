@@ -98,6 +98,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 }
 
 func sqliteStoreDSN(path string) string {
+	if strings.Contains(path, sqliteImmediateTxParam) {
+		return path
+	}
+
 	separator := "?"
 	if strings.Contains(path, "?") {
 		separator = "&"

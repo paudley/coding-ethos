@@ -23,6 +23,16 @@ func TestSQLiteStoreDSNRequestsImmediateTransactions(t *testing.T) {
 			path: "file:/tmp/code-intel.db?_pragma=busy_timeout(30000)",
 			want: "file:/tmp/code-intel.db?_pragma=busy_timeout(30000)&_txlock=immediate",
 		},
+		{
+			name: "existing immediate transaction parameter",
+			path: "file:/tmp/code-intel.db?_txlock=immediate",
+			want: "file:/tmp/code-intel.db?_txlock=immediate",
+		},
+		{
+			name: "existing immediate transaction parameter after other query",
+			path: "file:/tmp/code-intel.db?_pragma=busy_timeout(30000)&_txlock=immediate",
+			want: "file:/tmp/code-intel.db?_pragma=busy_timeout(30000)&_txlock=immediate",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

@@ -6,15 +6,17 @@ package celexpr
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
 )
 
-const (
-	docstringCoverageRunCall   = "runDocstringCoverage"
-	docstringCoverageScopeCall = "scopeDocstringCoverageForHook"
-)
+type hookCommandScopeRule struct {
+	CommandFunctions      []string
+	PathSensitiveRunCalls []string
+	ScopeGuardCalls       []string
+}
 
 type HookCommandInput struct {
 	File                           string   `json:"file"`
@@ -61,11 +63,7 @@ func hookCommandInputsForFile(file astfacts.File) []HookCommandInput {
 		}
 
 		calls := append([]string(nil), symbol.OrderedCallNames...)
-		commandFunction := strings.HasSuffix(symbol.SymbolName, "Command")
-		runIndex := firstCallIndex(calls, docstringCoverageRunCall)
-		scopeIndex := firstCallIndex(calls, docstringCoverageScopeCall)
-		runsPathSensitive := runIndex >= 0
-		scopeBeforeRun := runsPathSensitive && scopeIndex >= 0 && scopeIndex < runIndex
+		scope := hookCommandScope(symbol.SymbolName, calls)
 
 		inputs = append(inputs, HookCommandInput{
 			File:                      cleanInputFile(symbol.Path),
@@ -73,20 +71,63 @@ func hookCommandInputsForFile(file astfacts.File) []HookCommandInput {
 			SymbolPath:                symbol.SymbolPath,
 			CallNames:                 calls,
 			Line:                      int64(symbol.StartLine),
-			CommandFunction:           commandFunction,
-			RunsPathSensitiveCheck:    runsPathSensitive,
-			ChangedFileScopeBeforeRun: scopeBeforeRun,
-			UnsafeUnscopedPathSensitiveRun: commandFunction &&
-				runsPathSensitive && !scopeBeforeRun,
+			CommandFunction:           scope.CommandFunction,
+			RunsPathSensitiveCheck:    scope.RunsPathSensitiveCheck,
+			ChangedFileScopeBeforeRun: scope.ChangedFileScopeBeforeRun,
+			UnsafeUnscopedPathSensitiveRun: scope.CommandFunction &&
+				scope.RunsPathSensitiveCheck && !scope.ChangedFileScopeBeforeRun,
 		})
 	}
 
 	return inputs
 }
 
-func firstCallIndex(calls []string, name string) int {
+type hookCommandScopeResult struct {
+	CommandFunction           bool
+	RunsPathSensitiveCheck    bool
+	ChangedFileScopeBeforeRun bool
+}
+
+func hookCommandScope(symbolName string, calls []string) hookCommandScopeResult {
+	for _, rule := range hookCommandScopeRules() {
+		if !slices.Contains(rule.CommandFunctions, symbolName) {
+			continue
+		}
+
+		runIndex := firstMatchingCallIndex(calls, rule.PathSensitiveRunCalls)
+		scopeIndex := firstMatchingCallIndex(calls, rule.ScopeGuardCalls)
+		runsPathSensitive := runIndex >= 0
+
+		return hookCommandScopeResult{
+			CommandFunction:        true,
+			RunsPathSensitiveCheck: runsPathSensitive,
+			ChangedFileScopeBeforeRun: runsPathSensitive && scopeIndex >= 0 &&
+				scopeIndex < runIndex,
+		}
+	}
+
+	return hookCommandScopeResult{}
+}
+
+func hookCommandScopeRules() []hookCommandScopeRule {
+	return []hookCommandScopeRule{
+		{
+			CommandFunctions: []string{
+				"checkDocstringCoverageCommand",
+			},
+			PathSensitiveRunCalls: []string{
+				"runDocstringCoverage",
+			},
+			ScopeGuardCalls: []string{
+				"scopeDocstringCoverageForHook",
+			},
+		},
+	}
+}
+
+func firstMatchingCallIndex(calls, names []string) int {
 	for index, call := range calls {
-		if call == name {
+		if slices.Contains(names, call) {
 			return index
 		}
 	}

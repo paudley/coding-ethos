@@ -97,20 +97,73 @@ func TestHookCommandInputsDetectUnsafeDocstringCoverageFlow(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	source := filepath.Join(root, "docstring_coverage.go")
+	unsafeSource := filepath.Join(root, "docstring_coverage_unsafe.go")
 	if err := os.WriteFile(
-		source,
+		unsafeSource,
 		[]byte(`package hookrunnercli
 
 func checkDocstringCoverageCommand() int {
 	exitCode := runDocstringCoverage()
 	return exitCode
 }
+`),
+		0o600,
+	); err != nil {
+		t.Fatalf("write unsafe source: %v", err)
+	}
 
-func checkedDocstringCoverageCommand() int {
+	safeSource := filepath.Join(root, "docstring_coverage_safe.go")
+	if err := os.WriteFile(
+		safeSource,
+		[]byte(`package hookrunnercli
+
+func checkDocstringCoverageCommand() int {
 	if !scopeDocstringCoverageForHook() {
 		return 0
 	}
+	return runDocstringCoverage()
+}
+`),
+		0o600,
+	); err != nil {
+		t.Fatalf("write safe source: %v", err)
+	}
+
+	facts := HookCommandInputs(
+		root,
+		[]string{"docstring_coverage_unsafe.go", "docstring_coverage_safe.go"},
+	)
+	if len(facts) != 2 {
+		t.Fatalf("hook command facts = %#v, want two facts", facts)
+	}
+
+	unsafe, found := hookCommandFactByFile(facts, "docstring_coverage_unsafe.go")
+	if !found {
+		t.Fatalf("missing unsafe command fact: %#v", facts)
+	}
+	if !unsafe.UnsafeUnscopedPathSensitiveRun {
+		t.Fatalf("unsafe command fact did not flag unscoped run: %#v", unsafe)
+	}
+
+	safe, found := hookCommandFactByFile(facts, "docstring_coverage_safe.go")
+	if !found {
+		t.Fatalf("missing safe command fact: %#v", facts)
+	}
+	if safe.UnsafeUnscopedPathSensitiveRun || !safe.ChangedFileScopeBeforeRun {
+		t.Fatalf("safe command fact = %#v, want scoped before run", safe)
+	}
+}
+
+func TestHookCommandInputsIgnoreCommandSuffixWithoutScopeRule(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	source := filepath.Join(root, "docstring_coverage.go")
+	if err := os.WriteFile(
+		source,
+		[]byte(`package hookrunnercli
+
+func helperCommand() int {
 	return runDocstringCoverage()
 }
 `),
@@ -120,24 +173,14 @@ func checkedDocstringCoverageCommand() int {
 	}
 
 	facts := HookCommandInputs(root, []string{"docstring_coverage.go"})
-	if len(facts) != 2 {
-		t.Fatalf("hook command facts = %#v, want two facts", facts)
+	if len(facts) != 1 {
+		t.Fatalf("hook command facts = %#v, want one fact", facts)
 	}
-
-	unsafe, found := hookCommandFactByName(facts, "checkDocstringCoverageCommand")
-	if !found {
-		t.Fatalf("missing unsafe command fact: %#v", facts)
-	}
-	if !unsafe.UnsafeUnscopedPathSensitiveRun {
-		t.Fatalf("unsafe command fact did not flag unscoped run: %#v", unsafe)
-	}
-
-	safe, found := hookCommandFactByName(facts, "checkedDocstringCoverageCommand")
-	if !found {
-		t.Fatalf("missing safe command fact: %#v", facts)
-	}
-	if safe.UnsafeUnscopedPathSensitiveRun || !safe.ChangedFileScopeBeforeRun {
-		t.Fatalf("safe command fact = %#v, want scoped before run", safe)
+	if facts[0].CommandFunction || facts[0].UnsafeUnscopedPathSensitiveRun {
+		t.Fatalf(
+			"unregistered Command-suffixed helper was treated as hook command: %#v",
+			facts[0],
+		)
 	}
 }
 
@@ -178,6 +221,19 @@ func hookCommandFactByName(
 ) (HookCommandInput, bool) {
 	for _, fact := range facts {
 		if fact.SymbolName == name {
+			return fact, true
+		}
+	}
+
+	return HookCommandInput{}, false
+}
+
+func hookCommandFactByFile(
+	facts []HookCommandInput,
+	file string,
+) (HookCommandInput, bool) {
+	for _, fact := range facts {
+		if fact.File == file {
 			return fact, true
 		}
 	}
