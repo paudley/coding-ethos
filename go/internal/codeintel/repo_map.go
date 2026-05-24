@@ -33,6 +33,35 @@ func (store *Store) GlobalRepoMap(
 	ctx context.Context,
 	query RepoMapQuery,
 ) (RepoMap, error) {
+	return globalRepoMap(ctx, query, store)
+}
+
+func (store *DuckDBStore) GlobalRepoMap(
+	ctx context.Context,
+	query RepoMapQuery,
+) (RepoMap, error) {
+	return globalRepoMap(ctx, query, store)
+}
+
+type globalRepoMapStore interface {
+	repoMapFiles(ctx context.Context, query RepoMapQuery) ([]RepoMapFile, error)
+	repoMapSymbols(
+		ctx context.Context,
+		query RepoMapQuery,
+		files []RepoMapFile,
+	) ([]RepoMapSymbol, error)
+	validateASTContextPathsFresh(
+		ctx context.Context,
+		root string,
+		paths []string,
+	) error
+}
+
+func globalRepoMap(
+	ctx context.Context,
+	query RepoMapQuery,
+	store globalRepoMapStore,
+) (RepoMap, error) {
 	files, err := store.repoMapFiles(ctx, query)
 	if err != nil {
 		return RepoMap{}, err
@@ -45,43 +74,6 @@ func (store *Store) GlobalRepoMap(
 	err = store.validateASTContextPathsFresh(ctx, query.Root, repoMapFilePaths(files))
 	if err != nil {
 		return RepoMap{}, err
-	}
-
-	symbols, err := store.repoMapSymbols(ctx, query, files)
-	if err != nil {
-		return RepoMap{}, err
-	}
-
-	symbolsByFile := map[string][]RepoMapSymbol{}
-	for _, symbol := range symbols {
-		if len(symbolsByFile[symbol.Path]) >= repoMapSymbolsPerFile(query) {
-			continue
-		}
-
-		symbolsByFile[symbol.Path] = append(symbolsByFile[symbol.Path], symbol)
-	}
-
-	for index := range files {
-		files[index].Symbols = symbolsByFile[files[index].Path]
-	}
-
-	return RepoMap{
-		Root:  strings.TrimSpace(query.Root),
-		Files: files,
-	}, nil
-}
-
-func (store *DuckDBStore) GlobalRepoMap(
-	ctx context.Context,
-	query RepoMapQuery,
-) (RepoMap, error) {
-	files, err := store.repoMapFiles(ctx, query)
-	if err != nil {
-		return RepoMap{}, err
-	}
-
-	if len(files) == 0 {
-		return RepoMap{Root: strings.TrimSpace(query.Root)}, nil
 	}
 
 	symbols, err := store.repoMapSymbols(ctx, query, files)

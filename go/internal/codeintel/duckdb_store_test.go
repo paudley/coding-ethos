@@ -8,9 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
+	"blackcat.ca/coding-ethos/go/internal/astfacts"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
@@ -169,6 +171,109 @@ func TestAnalyzeDownstreamDuckDBReportsStorePath(t *testing.T) {
 
 	if analysis.StorageHealth.Path != customPath {
 		t.Fatalf("storage path = %q, want %q", analysis.StorageHealth.Path, customPath)
+	}
+	if analysis.StorageHealth.ImportedLegacySQLite {
+		t.Fatalf("DuckDB read-only analysis should not report legacy import")
+	}
+}
+
+func TestDuckDBGlobalRepoMapRefusesStaleSource(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "pkg", "worker.py")
+	original := []byte("def helper():\n    return 'ok'\n")
+
+	writeDuckDBTestFile(t, sourcePath, original)
+
+	store, err := OpenDuckDB(
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
+	)
+	if err != nil {
+		t.Fatalf("open DuckDB: %v", err)
+	}
+	defer store.Close()
+
+	_, err = store.database.ExecContext(
+		ctx,
+		`INSERT INTO code_files(
+			path, language, content_hash, size_bytes, line_count, indexed_at_utc
+		) VALUES (?, ?, ?, ?, ?, ?)`,
+		"pkg/worker.py",
+		"python",
+		astfacts.ContentHash(original),
+		len(original),
+		2,
+		"2026-01-01T00:00:00Z",
+	)
+	if err != nil {
+		t.Fatalf("insert DuckDB code file: %v", err)
+	}
+
+	_, err = store.database.ExecContext(
+		ctx,
+		`INSERT INTO code_chunks(
+			chunk_id, path, language, start_byte, end_byte, start_line, end_line,
+			content_hash, normalized_hash, search_text, raw_text, symbol_path,
+			symbol_kind, symbol_name
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"chunk-1",
+		"pkg/worker.py",
+		"python",
+		0,
+		len(original),
+		1,
+		2,
+		astfacts.ContentHash(original),
+		"normalized",
+		string(original),
+		string(original),
+		"helper",
+		"function",
+		"helper",
+	)
+	if err != nil {
+		t.Fatalf("insert DuckDB code chunk: %v", err)
+	}
+
+	writeDuckDBTestFile(t, sourcePath, []byte("def helper():\n    return 'changed'\n"))
+
+	_, err = store.GlobalRepoMap(ctx, RepoMapQuery{
+		Root:           root,
+		Limit:          5,
+		SymbolsPerFile: 1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "stale code context") {
+		t.Fatalf("global repo map error = %v, want stale code context", err)
+	}
+}
+
+func TestDownstreamLegacyStorageHealthDoesNotReportImport(t *testing.T) {
+	t.Parallel()
+
+	health := downstreamLegacySQLiteStorageHealth(
+		t.TempDir(),
+		&Store{},
+		DownstreamLogSignals{},
+	)
+	if health.ImportedLegacySQLite {
+		t.Fatalf("legacy-only storage health should not report legacy import")
+	}
+}
+
+func writeDuckDBTestFile(t *testing.T, path string, payload []byte) {
+	t.Helper()
+
+	err := os.MkdirAll(filepath.Dir(path), duckDBStoreMode)
+	if err != nil {
+		t.Fatalf("create fixture dir: %v", err)
+	}
+
+	err = os.WriteFile(path, payload, 0o600)
+	if err != nil {
+		t.Fatalf("write fixture file: %v", err)
 	}
 }
 

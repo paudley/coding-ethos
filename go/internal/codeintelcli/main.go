@@ -529,7 +529,7 @@ func rebuildIndex(ctx context.Context, args []string) error {
 		return fmt.Errorf("rebuild DuckDB code intelligence index: %w", err)
 	}
 
-	return encodeJSON(stdoutFile(), summary)
+	return encodeJSON(os.Stdout, summary)
 }
 
 func printRepeatedFailures(ctx context.Context, args []string) error {
@@ -935,10 +935,6 @@ func encodeJSON(output *os.File, value any) error {
 	}
 
 	return nil
-}
-
-func stdoutFile() *os.File {
-	return os.NewFile(uintptr(1), "stdout")
 }
 
 func parseOptionalVector(value string) ([]float32, error) {

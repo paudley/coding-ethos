@@ -4900,6 +4900,59 @@ func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 	}
 }
 
+func TestRunFallsBackToLegacyRepoMapWhenDuckDBUpgradeIsLocked(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	sourcePath := filepath.Join(repo, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(sourcePath, []byte("def run():\n    return 'ok'\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	indexHookRepo(t, repo, []string{"pkg/app.py"})
+
+	lockPath := filepath.Join(repo, ".coding-ethos", "code-intel-rebuild.lock")
+	err = os.WriteFile(lockPath, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write active rebuild lock: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventSessionStart,
+			Cwd:           repo,
+			SessionID:     "session-legacy-repo-map",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run session start: %v", err)
+	}
+
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing session output: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"event: SessionStart",
+		"status: upgrade_failed",
+		"coding_ethos_repo_map:",
+		"pkg/app.py",
+		"def run():",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("session context missing %q:\n%s", expected, context)
+		}
+	}
+}
+
 func TestRunImportsMemoriesOnSessionStart(t *testing.T) {
 	t.Parallel()
 

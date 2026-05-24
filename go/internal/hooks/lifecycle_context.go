@@ -183,7 +183,7 @@ func startupRepoMap(cwd string) string {
 	if err != nil {
 		startupRepoMapWarning("open", err)
 
-		return ""
+		return startupLegacyRepoMap(ctx, root)
 	}
 	defer store.Close()
 
@@ -195,9 +195,36 @@ func startupRepoMap(cwd string) string {
 	if err != nil {
 		startupRepoMapWarning("query", err)
 
+		return startupLegacyRepoMap(ctx, root)
+	}
+
+	return renderStartupRepoMap(repoMap)
+}
+
+func startupLegacyRepoMap(ctx context.Context, root string) string {
+	store, err := codeintel.OpenReadOnly(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		startupRepoMapWarning("legacy-open", err)
+
+		return ""
+	}
+	defer store.Close()
+
+	repoMap, err := store.GlobalRepoMap(ctx, codeintel.RepoMapQuery{
+		Root:           root,
+		Limit:          defaultStartupRepoMapLimit,
+		SymbolsPerFile: defaultStartupRepoMapSymbolsPerFile,
+	})
+	if err != nil {
+		startupRepoMapWarning("legacy-query", err)
+
 		return ""
 	}
 
+	return renderStartupRepoMap(repoMap)
+}
+
+func renderStartupRepoMap(repoMap codeintel.RepoMap) string {
 	rendered := codeintel.RenderRepoMapTOON(repoMap)
 	if rendered == "" {
 		return ""

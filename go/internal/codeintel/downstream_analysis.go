@@ -247,7 +247,7 @@ func AnalyzeDownstreamDuckDB(
 			ImportedEventCount:      downstreamImportedEventCount(ctx, store),
 			StoreAvailable:          store != nil,
 			ReadOnlyAnalysis:        true,
-			ImportedLegacySQLite:    store != nil,
+			ImportedLegacySQLite:    false,
 			LogOnlySQLiteBusyCount:  logSignals.SQLiteBusyCount,
 			LogOnlyToolchainSignals: logSignals.ToolchainFailureCount,
 		},
@@ -325,7 +325,7 @@ func downstreamLegacySQLiteStorageHealth(
 		ImportedEventCount:      0,
 		StoreAvailable:          store != nil,
 		ReadOnlyAnalysis:        true,
-		ImportedLegacySQLite:    store != nil,
+		ImportedLegacySQLite:    false,
 		LogOnlySQLiteBusyCount:  logSignals.SQLiteBusyCount,
 		LogOnlyToolchainSignals: logSignals.ToolchainFailureCount,
 	}

@@ -7,6 +7,7 @@ require go.yaml.in/yaml/v3 v3.0.4
 require github.com/pelletier/go-toml/v2 v2.3.1
 
 require (
+	github.com/duckdb/duckdb-go/v2 v2.10503.0
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/tree-sitter-grammars/tree-sitter-toml v0.7.0
@@ -33,7 +34,6 @@ require (
 	github.com/duckdb/duckdb-go-bindings/lib/linux-amd64 v0.10503.0 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/linux-arm64 v0.10503.0 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/windows-amd64 v0.10503.0 // indirect
-	github.com/duckdb/duckdb-go/v2 v2.10503.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
