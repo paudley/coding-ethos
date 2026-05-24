@@ -23,10 +23,13 @@ type pythonASTFact struct {
 	SymbolName        string
 	SymbolPath        string
 	ParentSymbolPath  string
+	EnclosingFunction string
+	EnclosingSymbol   string
 	Text              string
 	ImportModule      string
 	CallName          string
 	AnnotationRole    string
+	SuppressionLabel  string
 	Line              int
 	Column            int
 	EndLine           int
@@ -44,6 +47,7 @@ type pythonASTFact struct {
 	IsDynamicImport   bool
 	IsAssignedLambda  bool
 	IsClosureFactory  bool
+	IsSuppression     bool
 }
 
 type pythonASTIssue struct {
@@ -70,6 +74,7 @@ const (
 	pythonKindAssign             = "assignment"
 	pythonKindCall               = "call"
 	pythonKindClassDef           = "class_definition"
+	pythonKindComment            = "comment"
 	pythonKindExceptClause       = "except_clause"
 	pythonKindFunctionDef        = "function_definition"
 	pythonKindImportFrom         = "import_from_statement"
@@ -157,7 +162,7 @@ func collectPythonASTFacts(source pythonSource) ([]pythonASTFact, error) {
 
 	facts := []pythonASTFact{}
 	closureFactories := pythonClosureFactorySymbols(root, contents)
-	astfacts.Walk(root, func(node *tree_sitter.Node) {
+	pythonWalkAllNodes(root, func(node *tree_sitter.Node) {
 		if fact, found := pythonASTFactFromNode(
 			source,
 			node,
@@ -174,6 +179,19 @@ func collectPythonASTFacts(source pythonSource) ([]pythonASTFact, error) {
 	}
 
 	return facts, nil
+}
+
+func pythonWalkAllNodes(root *tree_sitter.Node, visit func(*tree_sitter.Node)) {
+	if root == nil {
+		return
+	}
+
+	visit(root)
+
+	childCount := root.ChildCount()
+	for index := range childCount {
+		pythonWalkAllNodes(root.Child(index), visit)
+	}
 }
 
 func pythonSnippetFallbackASTFacts(source pythonSource) []pythonASTFact {
@@ -415,8 +433,14 @@ func pythonASTFactFromNode(
 		UnderTypeChecking: pythonUnderTypeChecking(node, contents),
 	}
 	fact.SymbolPath, fact.ParentSymbolPath = pythonSymbolPaths(node, contents)
+	fact.EnclosingFunction, fact.EnclosingSymbol = pythonEnclosingFunction(
+		node,
+		contents,
+	)
 
 	switch kind {
+	case pythonKindComment:
+		fact.IsSuppression, fact.SuppressionLabel = pythonSuppressionComment(text)
 	case pythonKindImport, pythonKindImportFrom:
 		fact.IsImport = true
 		fact.ImportModule = text
@@ -456,6 +480,7 @@ func pythonASTNodeIsFactCandidate(kind string) bool {
 		pythonKindAssign,
 		pythonKindCall,
 		pythonKindClassDef,
+		pythonKindComment,
 		pythonKindExceptClause,
 		pythonKindFunctionDef,
 		pythonKindImportFrom,
@@ -607,6 +632,8 @@ func pythonSymbolKind(node *tree_sitter.Node) string {
 		return "function"
 	case pythonKindClassDef:
 		return "class"
+	case pythonKindComment:
+		return "comment"
 	case "lambda":
 		return "lambda"
 	case "import_statement", "import_from_statement":
@@ -656,6 +683,38 @@ func pythonSymbolPaths(node *tree_sitter.Node, contents []byte) (string, string)
 		return name, ""
 	default:
 		return parent + "." + name, parent
+	}
+}
+
+func pythonEnclosingFunction(
+	node *tree_sitter.Node,
+	contents []byte,
+) (string, string) {
+	function := nearestPythonFunctionAncestor(node)
+	if function == nil {
+		return "", ""
+	}
+
+	return pythonFunctionName(function, contents), pythonNodeKey(function, contents)
+}
+
+func pythonSuppressionComment(text string) (bool, string) {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	switch {
+	case strings.Contains(lower, "ruff: noqa"):
+		return true, "ruff: noqa"
+	case strings.Contains(lower, "mypy: ignore-errors"):
+		return true, "mypy: ignore-errors"
+	case strings.Contains(lower, "pyright: ignore"):
+		return true, "pyright: ignore"
+	case strings.Contains(lower, "pylint: disable"):
+		return true, "pylint: disable"
+	case strings.Contains(lower, "type: ignore"):
+		return true, "type: ignore"
+	case strings.Contains(lower, "noqa"):
+		return true, "noqa"
+	default:
+		return false, ""
 	}
 }
 

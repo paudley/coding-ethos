@@ -11,10 +11,13 @@ type PythonASTFactInput struct {
 	SymbolName        string `json:"symbol_name"`
 	SymbolPath        string `json:"symbol_path"`
 	ParentSymbolPath  string `json:"parent_symbol_path"`
+	EnclosingFunction string `json:"enclosing_function"`
+	EnclosingSymbol   string `json:"enclosing_symbol"`
 	Text              string `json:"text"`
 	ImportModule      string `json:"import_module"`
 	CallName          string `json:"call_name"`
 	AnnotationRole    string `json:"annotation_role"`
+	SuppressionLabel  string `json:"suppression_label"`
 	Line              int64  `json:"line"`
 	Column            int64  `json:"column"`
 	EndLine           int64  `json:"end_line"`
@@ -32,4 +35,5 @@ type PythonASTFactInput struct {
 	IsDynamicImport   bool   `json:"is_dynamic_import"`
 	IsAssignedLambda  bool   `json:"is_assigned_lambda"`
 	IsClosureFactory  bool   `json:"is_closure_factory"`
+	IsSuppression     bool   `json:"is_suppression"`
 }

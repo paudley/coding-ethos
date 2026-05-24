@@ -512,6 +512,77 @@ principles:
       claude: Reference this rule explicitly when reviewing or merging repo guidance.
       gemini: Use this rule to keep high-level guidance concise, concrete, and
         enforceable.
+    policy:
+      expressions:
+        - id: python.suppression_in_write_method
+          scope: file
+          severity: block
+          mode: block
+          skill_id: lint-remediation
+          lint_scopes:
+            - files
+            - staged
+            - smoke
+            - full
+          tools: []
+          message: >-
+            Python write methods must not hide checker findings with
+            suppression comments.
+          advice: >-
+            Remove the suppression from the write-critical method and fix the
+            underlying lint or type issue structurally. If the checker is wrong,
+            move the narrow exception outside the write path and document the
+            issue explicitly.
+          when: >-
+            python_ast.exists(fact,
+              fact.is_suppression &&
+              fact.enclosing_function != "" &&
+              (
+                list_contains(
+                  [
+                    "append",
+                    "commit",
+                    "create",
+                    "delete",
+                    "emit",
+                    "flush",
+                    "index",
+                    "ingest",
+                    "insert",
+                    "persist",
+                    "record",
+                    "remove",
+                    "replace",
+                    "save",
+                    "store",
+                    "sync",
+                    "update",
+                    "upsert",
+                    "write"
+                  ],
+                  fact.enclosing_function
+                ) ||
+                has_prefix(fact.enclosing_function, "append_") ||
+                has_prefix(fact.enclosing_function, "commit_") ||
+                has_prefix(fact.enclosing_function, "create_") ||
+                has_prefix(fact.enclosing_function, "delete_") ||
+                has_prefix(fact.enclosing_function, "emit_") ||
+                has_prefix(fact.enclosing_function, "flush_") ||
+                has_prefix(fact.enclosing_function, "index_") ||
+                has_prefix(fact.enclosing_function, "ingest_") ||
+                has_prefix(fact.enclosing_function, "insert_") ||
+                has_prefix(fact.enclosing_function, "persist_") ||
+                has_prefix(fact.enclosing_function, "record_") ||
+                has_prefix(fact.enclosing_function, "remove_") ||
+                has_prefix(fact.enclosing_function, "replace_") ||
+                has_prefix(fact.enclosing_function, "save_") ||
+                has_prefix(fact.enclosing_function, "store_") ||
+                has_prefix(fact.enclosing_function, "sync_") ||
+                has_prefix(fact.enclosing_function, "update_") ||
+                has_prefix(fact.enclosing_function, "upsert_") ||
+                has_prefix(fact.enclosing_function, "write_")
+              )
+            )
     sections:
       - id: overview
         kind: overview

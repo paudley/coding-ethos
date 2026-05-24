@@ -692,12 +692,14 @@ func diagnosticSchemaFields() []string {
 func pythonASTSchemaFields() []string {
 	return []string{
 		"file", "language", "node_kind", "symbol_kind", "symbol_name",
-		"symbol_path", "parent_symbol_path", "text", "import_module",
-		"call_name", "annotation_role", "line", "column", "end_line",
+		"symbol_path", "parent_symbol_path", "enclosing_function",
+		"enclosing_symbol", "text", "import_module", "call_name",
+		"annotation_role", "suppression_label", "line", "column", "end_line",
 		"parameter_count", "has_varargs", "has_kwargs", "module_level",
 		"under_class", "under_conditional", "under_function", "under_try",
 		"under_type_checking", "is_import", "is_import_fallback",
 		"is_dynamic_import", "is_assigned_lambda", "is_closure_factory",
+		"is_suppression",
 	}
 }
 

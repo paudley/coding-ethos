@@ -51,10 +51,13 @@ func pythonASTFactInput(fact pythonASTFact) celexpr.PythonASTFactInput {
 		SymbolName:        fact.SymbolName,
 		SymbolPath:        fact.SymbolPath,
 		ParentSymbolPath:  fact.ParentSymbolPath,
+		EnclosingFunction: fact.EnclosingFunction,
+		EnclosingSymbol:   fact.EnclosingSymbol,
 		Text:              fact.Text,
 		ImportModule:      fact.ImportModule,
 		CallName:          fact.CallName,
 		AnnotationRole:    fact.AnnotationRole,
+		SuppressionLabel:  fact.SuppressionLabel,
 		Line:              int64(fact.Line),
 		Column:            int64(fact.Column),
 		EndLine:           int64(fact.EndLine),
@@ -72,5 +75,6 @@ func pythonASTFactInput(fact pythonASTFact) celexpr.PythonASTFactInput {
 		IsDynamicImport:   fact.IsDynamicImport,
 		IsAssignedLambda:  fact.IsAssignedLambda,
 		IsClosureFactory:  fact.IsClosureFactory,
+		IsSuppression:     fact.IsSuppression,
 	}
 }

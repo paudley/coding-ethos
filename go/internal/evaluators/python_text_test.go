@@ -169,9 +169,78 @@ func TestEvaluateCELExpressionCanUsePythonASTFacts(t *testing.T) {
 	}
 }
 
+func TestEvaluatePythonSuppressionInWriteMethod(t *testing.T) {
+	t.Parallel()
+
+	policyDef := compiledRepoBundle(t).Policies["python.suppression_in_write_method"]
+	decision := evaluateCELPythonPolicy(
+		t,
+		policyDef,
+		"src/repository.py",
+		"class Repository:\n"+
+			"    def write_record(self, value):\n"+
+			"        self.backend.write(value)  # type: ignore\n",
+	)
+
+	if decision.PolicyID != "python.suppression_in_write_method" {
+		t.Fatalf("policy mismatch: %#v", decision)
+	}
+
+	if len(decision.Diagnostics) != 1 ||
+		decision.Diagnostics[0].Line != 3 ||
+		decision.Diagnostics[0].Code != "type: ignore" ||
+		decision.Diagnostics[0].Metadata["enclosing_function"] != "write_record" {
+		t.Fatalf("unexpected suppression diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
+func TestEvaluatePythonSuppressionInReadMethodAllowed(t *testing.T) {
+	t.Parallel()
+
+	policyDef := compiledRepoBundle(t).Policies["python.suppression_in_write_method"]
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Files: []string{"src/repository.py"},
+		Content: "class Repository:\n" +
+			"    def read_record(self, value):\n" +
+			"        return self.backend.read(value)  # type: ignore\n",
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate suppression policy: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("read method suppression should not match: %#v", decisions)
+	}
+}
+
 func importlibImportModuleCEL() string {
 	return "python_ast.exists(fact, fact.is_dynamic_import && " +
 		"fact.call_name == 'importlib.import_module')"
+}
+
+func evaluateCELPythonPolicy(
+	t *testing.T,
+	policyDef policy.Policy,
+	path string,
+	content string,
+) policy.Decision {
+	t.Helper()
+
+	decisions, err := EvaluateCELExpression(policyDef, Context{
+		Files:            []string{path},
+		Content:          content,
+		EvaluatorOptions: policyDef.Evaluators[0].Options,
+	})
+	if err != nil {
+		t.Fatalf("evaluate %s: %v", policyDef.ID, err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decision count mismatch: %#v", decisions)
+	}
+
+	return decisions[0]
 }
 
 func TestEvaluatePythonOptionalReturns(t *testing.T) {

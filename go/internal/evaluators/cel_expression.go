@@ -21,20 +21,21 @@ type (
 )
 
 const (
-	bashExtension              = ".bash"
-	defaultGoHardLineLimit     = 2000
-	defaultPythonHardLineLimit = 1000
-	defaultShellHardLineLimit  = 500
-	defaultCoverageFloor       = 80.0
-	defaultCoverageGoal        = 90.0
-	coverageThresholdsOption   = "coverage_thresholds"
-	goExtension                = ".go"
-	lineLimitThresholdsOption  = "line_limit_thresholds"
-	metadataScopeBeforeRun     = "changed_file_scope_before_run"
-	metadataUnsafeUnscopedRun  = "unsafe_unscoped_path_sensitive_run"
-	pythonExtension            = ".py"
-	shellExtension             = ".sh"
-	scriptsPrefix              = "scripts/"
+	bashExtension                = ".bash"
+	defaultGoHardLineLimit       = 2000
+	defaultPythonHardLineLimit   = 1000
+	defaultShellHardLineLimit    = 500
+	defaultCoverageFloor         = 80.0
+	defaultCoverageGoal          = 90.0
+	coverageThresholdsOption     = "coverage_thresholds"
+	goExtension                  = ".go"
+	lineLimitThresholdsOption    = "line_limit_thresholds"
+	metadataScopeBeforeRun       = "changed_file_scope_before_run"
+	metadataUnsafeUnscopedRun    = "unsafe_unscoped_path_sensitive_run"
+	pythonExtension              = ".py"
+	pythonSuppressionWritePolicy = "python.suppression_in_write_method"
+	shellExtension               = ".sh"
+	scriptsPrefix                = "scripts/"
 )
 
 type lineLimitThresholds struct {
@@ -170,9 +171,76 @@ func celDiagnostic(
 		return diagnostic
 	}
 
+	if policyDef.ID == pythonSuppressionWritePolicy {
+		applyPythonSuppressionDiagnostic(&diagnostic, activation)
+
+		return diagnostic
+	}
+
 	applyGrowingSymbolDiagnostic(&diagnostic, activation)
 
 	return diagnostic
+}
+
+func applyPythonSuppressionDiagnostic(
+	diagnostic *diagnostics.Diagnostic,
+	activation map[string]any,
+) {
+	fact, ok := firstPythonSuppressionInWriteMethod(activation)
+	if !ok {
+		return
+	}
+
+	diagnostic.File = fact.File
+	diagnostic.Line = int(fact.Line)
+	diagnostic.Column = int(fact.Column)
+	diagnostic.Code = fact.SuppressionLabel
+	diagnostic.Detail = fact.Text
+	diagnostic.Metadata["ast_change_source"] = "source"
+	diagnostic.Metadata["ast_language"] = fact.Language
+	diagnostic.Metadata["ast_node_kind"] = fact.NodeKind
+	diagnostic.Metadata["ast_symbol_kind"] = fact.SymbolKind
+	diagnostic.Metadata["ast_symbol_path"] = fact.SymbolPath
+	diagnostic.Metadata["enclosing_function"] = fact.EnclosingFunction
+	diagnostic.Metadata["enclosing_symbol"] = fact.EnclosingSymbol
+	diagnostic.Metadata["suppression_label"] = fact.SuppressionLabel
+}
+
+func firstPythonSuppressionInWriteMethod(
+	activation map[string]any,
+) (celexpr.PythonASTFactInput, bool) {
+	facts, ok := activation["python_ast"].([]celexpr.PythonASTFactInput)
+	if !ok {
+		return celexpr.PythonASTFactInput{}, false
+	}
+
+	for _, fact := range facts {
+		if fact.IsSuppression && pythonWriteFunctionName(fact.EnclosingFunction) {
+			return fact, true
+		}
+	}
+
+	return celexpr.PythonASTFactInput{}, false
+}
+
+func pythonWriteFunctionName(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return false
+	}
+
+	prefixes := []string{
+		"append", "commit", "create", "delete", "emit", "flush", "index",
+		"ingest", "insert", "persist", "record", "remove", "replace",
+		"save", "store", "sync", "update", "upsert", "write",
+	}
+	for _, prefix := range prefixes {
+		if name == prefix || strings.HasPrefix(name, prefix+"_") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func applyHookCommandDiagnostic(
