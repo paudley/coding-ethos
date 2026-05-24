@@ -226,6 +226,7 @@ type externalToolCacheEnvironment struct {
 	GoTemp          string
 	GoCache         string
 	GolangCILintDir string
+	UVCache         string
 }
 
 func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
@@ -236,8 +237,9 @@ func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 	goTemp := filepath.Join(root, ".coding-ethos", "cache", "go-tmp")
 	goCache := filepath.Join(root, sandbox.SandboxGoCachePath)
 	golangCILintDir := filepath.Join(root, sandbox.SandboxGolangCIPath)
+	uvCache := filepath.Join(root, ".coding-ethos", "cache", "uv")
 
-	for _, dir := range []string{goTemp, goCache, golangCILintDir} {
+	for _, dir := range []string{goTemp, goCache, golangCILintDir, uvCache} {
 		err := os.MkdirAll(dir, externalToolCacheDirMode)
 		if err != nil {
 			return externalToolCacheEnvironment{}, fmt.Errorf(
@@ -252,6 +254,7 @@ func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 		GoTemp:          goTemp,
 		GoCache:         goCache,
 		GolangCILintDir: golangCILintDir,
+		UVCache:         uvCache,
 	}, nil
 }
 
@@ -262,7 +265,13 @@ func (environment externalToolCacheEnvironment) overrides(name string) bool {
 func (environment externalToolCacheEnvironment) items() []string {
 	items := []string{}
 
-	for _, name := range []string{"TMPDIR", "GOTMPDIR", "GOCACHE", "GOLANGCI_LINT_CACHE"} {
+	for _, name := range []string{
+		"TMPDIR",
+		"GOTMPDIR",
+		"GOCACHE",
+		"GOLANGCI_LINT_CACHE",
+		"UV_CACHE_DIR",
+	} {
 		value := environment.value(name)
 		if value != "" {
 			items = append(items, name+"="+value)
@@ -282,6 +291,8 @@ func (environment externalToolCacheEnvironment) value(name string) string {
 		return environment.GoCache
 	case "GOLANGCI_LINT_CACHE":
 		return environment.GolangCILintDir
+	case "UV_CACHE_DIR":
+		return environment.UVCache
 	default:
 		return ""
 	}

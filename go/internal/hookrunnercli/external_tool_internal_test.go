@@ -86,6 +86,13 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 		t.Fatalf("externalToolEnv did not set process temp dir: %#v", env)
 	}
 
+	if !slices.Contains(
+		env,
+		"UV_CACHE_DIR="+filepath.Join(repo, ".coding-ethos/cache/uv"),
+	) {
+		t.Fatalf("externalToolEnv did not set uv cache dir: %#v", env)
+	}
+
 	for _, item := range env {
 		if !strings.HasPrefix(item, "PATH=") {
 			continue
