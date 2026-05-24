@@ -193,13 +193,29 @@ func pythonWalkAllNodes(root *tree_sitter.Node, visit func(*tree_sitter.Node)) {
 
 		visit(node)
 
-		for index := node.ChildCount(); index > 0; index-- {
-			child := node.Child(index - 1)
-			if child != nil {
-				stack = append(stack, child)
-			}
+		stack = appendPythonTraversalChildren(stack, node)
+	}
+}
+
+func appendPythonTraversalChildren(
+	stack []*tree_sitter.Node,
+	node *tree_sitter.Node,
+) []*tree_sitter.Node {
+	for index := node.NamedChildCount(); index > 0; index-- {
+		child := node.NamedChild(index - 1)
+		if child != nil && child.Kind() != pythonKindComment {
+			stack = append(stack, child)
 		}
 	}
+
+	for index := node.ChildCount(); index > 0; index-- {
+		child := node.Child(index - 1)
+		if child != nil && child.Kind() == pythonKindComment {
+			stack = append(stack, child)
+		}
+	}
+
+	return stack
 }
 
 func pythonSnippetFallbackASTFacts(source pythonSource) []pythonASTFact {
