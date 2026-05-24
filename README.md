@@ -622,6 +622,7 @@ results from the packages that own those concerns.
 | Sync parent repo artifacts | `make parent-install` |
 | Check parent repo artifact freshness | `make parent-check` |
 | Sync and lint parent repo | `make parent-lint` |
+| Update parent coding-ethos submodule | `make parent-update-submodule` |
 | Run all configured formatters | `make format` |
 | Apply managed autofixers | `make fix` |
 | Format, then apply autofixers | `make lint-fix` |

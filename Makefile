@@ -204,6 +204,7 @@ endef
 	parent-install \
 	parent-check \
 	parent-lint \
+	parent-update-submodule \
 	build \
 	package-smoke \
 	release-dry-run \
@@ -389,6 +390,23 @@ parent-check: ensure-go ## Verify parent repo coding-ethos artifacts with TOON o
 parent-lint: ensure-go ## Sync and lint the parent repo with TOON output.
 	@$(quiet_build)
 	@"$(GO_HOOK)" parent-lint --repo "$(HOOK_CONSUMER_ROOT)"
+
+parent-update-submodule: ## Update this coding-ethos submodule in the parent repo to the latest configured remote head.
+	@$(call print_step,Updating parent coding-ethos submodule)
+	@if [ "$(abspath $(HOOK_CONSUMER_ROOT))" = "$(abspath $(LOCAL_REPO_ROOT))" ]; then \
+		printf '$(COLOR_WARN)No parent repo detected; this checkout is not running as a submodule.$(COLOR_RESET)\n' >&2; \
+		exit 2; \
+	fi
+	@submodule_path="$$("$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" \
+		ls-files --stage --full-name "$(LOCAL_REPO_ROOT)" | awk '$$1 == "160000" { print $$4; exit }')"; \
+	if [ -z "$$submodule_path" ]; then \
+		printf '$(COLOR_WARN)Could not resolve coding-ethos as a tracked submodule under $(HOOK_CONSUMER_ROOT).$(COLOR_RESET)\n' >&2; \
+		exit 2; \
+	fi; \
+	$(call print_info,parent: $(HOOK_CONSUMER_ROOT)); \
+	$(call print_info,submodule: $$submodule_path); \
+	"$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" submodule update --remote --merge -- "$$submodule_path"; \
+	"$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" status --short -- "$$submodule_path"
 
 ##@ Quality
 test: ensure-uv ## Run the current automated test suite.
