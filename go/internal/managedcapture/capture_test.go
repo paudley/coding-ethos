@@ -33,6 +33,19 @@ const (
 	streamDrainTimeout    = 2 * time.Second
 )
 
+const captureOutputHelperEnv = "CAPTURE_TEST_HELPER_OUTPUT"
+
+func TestCapturedOutputHelperProcess(t *testing.T) {
+	output, enabled := os.LookupEnv(captureOutputHelperEnv)
+	if !enabled {
+		return
+	}
+
+	var writer io.Writer = os.Stdout
+	_, _ = writer.Write([]byte(output))
+	os.Exit(0)
+}
+
 func TestRunCapturedToolLogsRuffTrace(t *testing.T) {
 	if runtime.GOOS == windowsGOOS {
 		t.Skip("shell fixture uses POSIX sh")
@@ -1115,12 +1128,9 @@ func goVetParsedDiagnosticOutput(format string) []string {
 }
 
 func TestRunCapturedGoTestCoverageCanBePromotedByCEL(t *testing.T) {
-	t.Parallel()
-
 	repo := t.TempDir()
-	tool := writeSuccessWithOutputCaptureFixtureTool(
+	tool, args := capturedOutputHelperTool(
 		t,
-		repo,
 		`{"Action":"output","Package":"blackcat.ca/coding-ethos/go/pkg",`+
 			`"Output":"pkg/app.go:12: App 74.2%\n"}`+"\n",
 	)
@@ -1131,7 +1141,7 @@ func TestRunCapturedGoTestCoverageCanBePromotedByCEL(t *testing.T) {
 		"go-test",
 		tool,
 		repo,
-		nil,
+		args,
 		PolicyContext{
 			Policies: []policy.Policy{{
 				ID:              "testing.coverage_floor",
@@ -1183,12 +1193,9 @@ func TestRunCapturedGoTestCoverageCanBePromotedByCEL(t *testing.T) {
 }
 
 func TestRunCapturedGoTestCoverageIsTraceEvidenceWithoutTOONNoise(t *testing.T) {
-	t.Parallel()
-
 	repo := t.TempDir()
-	tool := writeSuccessWithOutputCaptureFixtureTool(
+	tool, args := capturedOutputHelperTool(
 		t,
-		repo,
 		`{"Action":"output","Package":"blackcat.ca/coding-ethos/go/pkg",`+
 			`"Output":"coverage: 82.4% of statements\n"}`+"\n",
 	)
@@ -1199,7 +1206,7 @@ func TestRunCapturedGoTestCoverageIsTraceEvidenceWithoutTOONNoise(t *testing.T) 
 		"go-test",
 		tool,
 		repo,
-		nil,
+		args,
 		PolicyContext{},
 		hookoutput.FormatTOON,
 		&output,
@@ -2644,6 +2651,19 @@ exit 0
 	writeExecutableFixture(t, tool, script)
 
 	return tool
+}
+
+func capturedOutputHelperTool(t *testing.T, output string) (string, []string) {
+	t.Helper()
+
+	tool, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test helper executable: %v", err)
+	}
+
+	t.Setenv(captureOutputHelperEnv, output)
+
+	return tool, []string{"-test.run=^TestCapturedOutputHelperProcess$"}
 }
 
 func runCapturedToolForTest(
