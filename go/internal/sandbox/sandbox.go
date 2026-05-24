@@ -198,6 +198,13 @@ func BuildPlan(request Request) (Plan, error) {
 	evidence.Enabled = true
 	evidence.NamespaceEnforced = !request.Capabilities.RequiresProcesses
 
+	if activeAgentShellSandboxCovers(request) {
+		evidence.BackendPath = strings.TrimSpace(os.Getenv("CODING_ETHOS_REAL_GIT"))
+		evidence.Reason = "reusing active agent-shell sandbox"
+
+		return unsandboxedPlan(request, evidence), nil
+	}
+
 	if strings.TrimSpace(request.Capabilities.SeccompProfilePath) != "" {
 		return deniedSeccompPlan(evidence, errNativeSeccompUnsupported)
 	}
@@ -219,6 +226,30 @@ func BuildPlan(request Request) (Plan, error) {
 func sandboxRequired(request Request) bool {
 	return runtime.GOOS == "linux" &&
 		strings.TrimSpace(request.Capabilities.SandboxProfile) != ""
+}
+
+func activeAgentShellSandboxCovers(request Request) bool {
+	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") != "1" ||
+		os.Getenv("CODING_ETHOS_SANDBOX_ACTIVE") != "1" {
+		return false
+	}
+
+	root := filepath.Clean(strings.TrimSpace(os.Getenv("CODING_ETHOS_SANDBOX_ROOT")))
+
+	realGit := filepath.Clean(strings.TrimSpace(os.Getenv("CODING_ETHOS_REAL_GIT")))
+	if root == "." || realGit == "." {
+		return false
+	}
+
+	if !isWithinPath(request.RepoRoot, root) ||
+		!isWithinPath(request.Cwd, root) ||
+		!isWithinPath(realGit, root) {
+		return false
+	}
+
+	info, err := os.Stat(realGit)
+
+	return err == nil && !info.IsDir() && info.Mode().Perm()&0o111 != 0
 }
 
 func unsandboxedPlan(request Request, evidence Evidence) Plan {

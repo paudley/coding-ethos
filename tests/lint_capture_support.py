@@ -22,7 +22,7 @@ POLICY = REPO_ROOT / "bin" / "coding-ethos-policy"
 def _clean_subprocess_env(env: dict[str, str] | None) -> dict[str, str]:
     clean = dict(os.environ if env is None else env)
     for name in list(clean):
-        if name.startswith("GIT_"):
+        if name.startswith("GIT_") or name == "TMPDIR":
             clean.pop(name, None)
     return clean
 
