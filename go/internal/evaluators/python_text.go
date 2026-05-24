@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -108,29 +107,6 @@ type pythonSource struct {
 	Text string
 }
 
-func evaluatePythonLines(
-	policyDef policy.Policy,
-	context Context,
-	violates func(string) bool,
-) ([]policy.Decision, error) {
-	sources, err := pythonSources(context)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, source := range sources {
-		for idx, line := range strings.Split(source.Text, "\n") {
-			if violates(line) {
-				return []policy.Decision{
-					pythonDecision(policyDef, source, idx+1, strings.TrimSpace(line)),
-				}, nil
-			}
-		}
-	}
-
-	return nil, nil
-}
-
 func pythonSources(context Context) ([]pythonSource, error) {
 	if context.Content != "" {
 		return []pythonSource{
@@ -166,34 +142,6 @@ func firstFile(files []string) string {
 	}
 
 	return files[0]
-}
-
-func pythonDecision(
-	policyDef policy.Policy,
-	source pythonSource,
-	line int,
-	snippet string,
-) policy.Decision {
-	decision := policy.NewDecision(blockDecision, policyDef)
-	decision.Diagnostics = []diagnostics.Diagnostic{{
-		Tool:     policyDef.ID,
-		File:     source.Path,
-		Line:     line,
-		Severity: blockDecision,
-		PolicyID: policyDef.ID,
-		Message:  policyDef.Message,
-		Advice:   policyDef.Suggestion,
-	}}
-
-	decision.Evidence = map[string]any{
-		"line":    line,
-		"snippet": snippet,
-	}
-	if source.Path != "" {
-		decision.Evidence["file"] = source.Path
-	}
-
-	return decision
 }
 
 func leadingSpaces(line string) int {

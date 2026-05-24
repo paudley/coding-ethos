@@ -511,21 +511,35 @@ func pythonASTFactFromNode(
 		contents,
 	)
 
+	if !populatePythonASTFactDetails(&fact, kind, node, contents, closureFactories) {
+		return pythonASTFact{}, false
+	}
+
+	return fact, true
+}
+
+func populatePythonASTFactDetails(
+	fact *pythonASTFact,
+	kind string,
+	node *tree_sitter.Node,
+	contents []byte,
+	closureFactories map[string]bool,
+) bool {
 	switch kind {
 	case pythonKindComment:
-		fact.IsSuppression, fact.SuppressionLabel = pythonSuppressionComment(text)
+		fact.IsSuppression, fact.SuppressionLabel = pythonSuppressionComment(fact.Text)
 		if !fact.IsSuppression {
-			return pythonASTFact{}, false
+			return false
 		}
 
-		fact.IsUnexplainedTypeIgnore = pythonSuppressionIsUnexplainedTypeIgnore(text)
+		fact.IsUnexplainedTypeIgnore = pythonSuppressionIsUnexplainedTypeIgnore(fact.Text)
 	case pythonKindImport, pythonKindImportFrom:
 		fact.IsImport = true
-		fact.ImportModule = text
-		fact.IsDirectImport = pythonImportTargetsProtectedPackage(text)
+		fact.ImportModule = fact.Text
+		fact.IsDirectImport = pythonImportTargetsProtectedPackage(fact.Text)
 	case pythonKindExceptClause:
-		fact.IsImportFallback = strings.Contains(text, "ImportError") ||
-			strings.Contains(text, "ModuleNotFoundError")
+		fact.IsImportFallback = strings.Contains(fact.Text, "ImportError") ||
+			strings.Contains(fact.Text, "ModuleNotFoundError")
 		fact.ExceptionType = pythonExceptionType(node, contents)
 		fact.ExceptionAction = pythonExceptionAction(node, contents)
 		fact.IsBareExcept = fact.ExceptionType == ""
@@ -552,7 +566,7 @@ func pythonASTFactFromNode(
 		fact.IsClosureFactory = closureFactories[pythonNodeKey(node, contents)]
 	}
 
-	return fact, true
+	return true
 }
 
 func pythonNodeColumn(node *tree_sitter.Node) int {
