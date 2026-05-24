@@ -205,6 +205,8 @@ endef
 	parent-check \
 	parent-lint \
 	parent-update-submodule \
+	upgrade-parent-submodule \
+	upgrade \
 	build \
 	package-smoke \
 	release-dry-run \
@@ -291,6 +293,7 @@ help: ## Show the available targets and the most useful overrides.
 	@printf '  make doctor\n'
 	@printf '  make test\n'
 	@printf '  make validate\n'
+	@printf '  make upgrade\n'
 	@printf '  make parent-lint\n'
 	@printf '  make install-hooks\n'
 	@printf '  make cutover-install\n'
@@ -390,6 +393,12 @@ parent-check: ensure-go ## Verify parent repo coding-ethos artifacts with TOON o
 parent-lint: ensure-go ## Sync and lint the parent repo with TOON output.
 	@$(quiet_build)
 	@"$(GO_HOOK)" parent-lint --repo "$(HOOK_CONSUMER_ROOT)"
+
+upgrade: upgrade-parent-submodule build parent-install parent-check parent-lint cutover-verify ## Fully upgrade a parent repo coding-ethos submodule and verify the result.
+	@$(call print_step,Parent coding-ethos upgrade complete)
+	@$(call print_info,parent: $(HOOK_CONSUMER_ROOT))
+
+upgrade-parent-submodule: parent-update-submodule ## Alias for updating the parent repo coding-ethos submodule.
 
 parent-update-submodule: ## Update this coding-ethos submodule in the parent repo to the latest configured remote head.
 	@$(call print_step,Updating parent coding-ethos submodule)

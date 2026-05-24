@@ -616,12 +616,14 @@ results from the packages that own those concerns.
 | Show resolved paths and config | `make status` |
 | Check required local tools | `make doctor` |
 | Refresh generated configs, managed tools, hook entrypoints, and parent runtime | `make build` |
+| Fully upgrade a parent repo coding-ethos submodule and verify the result | `make upgrade` |
 | Run Python tests | `make test` |
 | Run full local check | `make check` |
 | Run all configured linters | `make lint` |
 | Sync parent repo artifacts | `make parent-install` |
 | Check parent repo artifact freshness | `make parent-check` |
 | Sync and lint parent repo | `make parent-lint` |
+| Alias for updating parent coding-ethos submodule | `make upgrade-parent-submodule` |
 | Update parent coding-ethos submodule | `make parent-update-submodule` |
 | Run all configured formatters | `make format` |
 | Apply managed autofixers | `make fix` |

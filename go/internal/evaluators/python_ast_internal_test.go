@@ -90,3 +90,294 @@ func TestCollectPythonASTFactsSkipsNonSuppressionComments(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectPythonASTFactsRecordsOptionalReturn(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"def load_service() -> Service | None:\n    return None\n",
+		func(fact pythonASTFact) bool { return fact.IsOptionalReturn },
+	)
+
+	if fact.SymbolName != "load_service" ||
+		fact.ReturnAnnotation != "Service | None" {
+		t.Fatalf("optional return fact = %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsRecordsSilentException(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"try:\n    run()\nexcept RuntimeError:\n    return None\n",
+		func(fact pythonASTFact) bool { return fact.IsSilentExcept },
+	)
+
+	if fact.ExceptionType != "RuntimeError" ||
+		fact.ExceptionAction != "return None" {
+		t.Fatalf("silent exception fact = %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsRecordsUnstructuredLoggerCall(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"self.logger.info(f'user={user_id}')\n",
+		func(fact pythonASTFact) bool { return fact.IsUnstructuredLogMessage },
+	)
+
+	if fact.LoggerName != "logger" || fact.LoggerMethod != "info" {
+		t.Fatalf("unstructured log fact = %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsAllowsLazyPercentLoggerCall(t *testing.T) {
+	t.Parallel()
+
+	facts, err := collectPythonASTFacts(pythonSource{
+		Path: "src/app.py",
+		Text: "logger.info('user=%s', user_id)\n",
+	})
+	if err != nil {
+		t.Fatalf("collect python AST facts: %v", err)
+	}
+
+	for _, fact := range facts {
+		if fact.IsUnstructuredLogMessage {
+			t.Fatalf("lazy percent logging should be allowed: %#v", fact)
+		}
+	}
+}
+
+func TestCollectPythonASTFactsRecordsExceptionAliasType(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"try:\n    run()\nexcept RuntimeError as err:\n    pass\n",
+		func(fact pythonASTFact) bool { return fact.IsSilentExcept },
+	)
+
+	if fact.ExceptionType != "RuntimeError" {
+		t.Fatalf("exception alias fact = %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsRecordsSnippetFallbackPolicyFacts(t *testing.T) {
+	t.Parallel()
+
+	facts, err := collectPythonASTFacts(pythonSource{
+		Path: "src/app.py",
+		Text: "    def load_service() -> Service | None:\n" +
+			"        return None\n" +
+			"    from coding_ethos.loaders import load\n" +
+			"except:\n" +
+			"    pass\n" +
+			"    logger.info(f'user={user_id}')\n" +
+			"    value = dynamic()  # type: ignore\n",
+	})
+	if err != nil {
+		t.Fatalf("collect python AST facts: %v", err)
+	}
+
+	assertPythonFactFound(
+		t,
+		facts,
+		"optional return",
+		func(fact pythonASTFact) bool { return fact.IsOptionalReturn },
+	)
+	assertPythonFactFound(
+		t,
+		facts,
+		"bare except",
+		func(fact pythonASTFact) bool { return fact.IsBareExcept },
+	)
+	assertPythonFactFound(
+		t,
+		facts,
+		"silent except",
+		func(fact pythonASTFact) bool { return fact.IsSilentExcept },
+	)
+	assertPythonFactFound(
+		t,
+		facts,
+		"unstructured log",
+		func(fact pythonASTFact) bool { return fact.IsUnstructuredLogMessage },
+	)
+	assertPythonFactFound(
+		t,
+		facts,
+		"direct import",
+		func(fact pythonASTFact) bool { return fact.IsDirectImport },
+	)
+	assertPythonFactFound(
+		t,
+		facts,
+		"unexplained type ignore",
+		func(fact pythonASTFact) bool { return fact.IsUnexplainedTypeIgnore },
+	)
+}
+
+func TestCollectPythonASTFactsSnippetFallbackFindsCompactPercentFormatting(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"    logger.info('user=%s'%user_id)\n",
+		func(fact pythonASTFact) bool { return fact.IsUnstructuredLogMessage },
+	)
+
+	if fact.LoggerName != "logger" || fact.LoggerMethod != "info" {
+		t.Fatalf("compact percent logging fact = %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsSnippetFallbackIgnoresPercentLiteral(t *testing.T) {
+	t.Parallel()
+
+	facts, err := collectPythonASTFacts(pythonSource{
+		Path: "src/app.py",
+		Text: "    logger.info('Progress: 50%')\n",
+	})
+	if err != nil {
+		t.Fatalf("collect python AST facts: %v", err)
+	}
+
+	for _, fact := range facts {
+		if fact.IsUnstructuredLogMessage {
+			t.Fatalf("percent literal should be allowed: %#v", fact)
+		}
+	}
+}
+
+func TestCollectPythonASTFactsSnippetFallbackIgnoresLoggerNameSubstring(t *testing.T) {
+	t.Parallel()
+
+	facts, err := collectPythonASTFacts(pythonSource{
+		Path: "src/app.py",
+		Text: "    mylogger.info(f'user={user_id}')\n",
+	})
+	if err != nil {
+		t.Fatalf("collect python AST facts: %v", err)
+	}
+
+	for _, fact := range facts {
+		if fact.IsUnstructuredLogMessage {
+			t.Fatalf("logger-name substring should not be logging fact: %#v", fact)
+		}
+	}
+}
+
+func TestCollectPythonASTFactsSnippetFallbackHandlesCompactTypeIgnore(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"    value = dynamic()  # type:ignore\n",
+		func(fact pythonASTFact) bool { return fact.IsUnexplainedTypeIgnore },
+	)
+
+	if fact.SuppressionLabel != pythonTypeIgnoreSuppressionLabel {
+		t.Fatalf("compact type ignore fact = %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsSnippetFallbackDoesNotUseSiblingAsExceptAction(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	facts, err := collectPythonASTFacts(pythonSource{
+		Path: "src/app.py",
+		Text: "    except RuntimeError:\n" +
+			"    pass\n",
+	})
+	if err != nil {
+		t.Fatalf("collect python AST facts: %v", err)
+	}
+
+	for _, fact := range facts {
+		if fact.IsSilentExcept {
+			t.Fatalf("sibling line should not be exception action: %#v", fact)
+		}
+	}
+}
+
+func TestCollectPythonASTFactsSnippetFallbackSkipsExceptComments(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"except RuntimeError:\n"+
+			"    # no recovery possible here\n"+
+			"    pass\n",
+		func(fact pythonASTFact) bool { return fact.IsSilentExcept },
+	)
+
+	if fact.ExceptionAction != "pass" {
+		t.Fatalf("comment should not be exception action: %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsRecordsUnexplainedTypeIgnore(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"value = load()  # type: ignore\n",
+		func(fact pythonASTFact) bool { return fact.IsUnexplainedTypeIgnore },
+	)
+
+	if fact.SuppressionLabel != "type: ignore" {
+		t.Fatalf("type ignore fact = %#v", fact)
+	}
+}
+
+func firstPythonASTFact(
+	t *testing.T,
+	text string,
+	match func(pythonASTFact) bool,
+) pythonASTFact {
+	t.Helper()
+
+	facts, err := collectPythonASTFacts(pythonSource{
+		Path: "src/app.py",
+		Text: text,
+	})
+	if err != nil {
+		t.Fatalf("collect python AST facts: %v", err)
+	}
+
+	for _, fact := range facts {
+		if match(fact) {
+			return fact
+		}
+	}
+
+	t.Fatalf("missing matching fact: %#v", facts)
+
+	return pythonASTFact{}
+}
+
+func assertPythonFactFound(
+	t *testing.T,
+	facts []pythonASTFact,
+	name string,
+	match func(pythonASTFact) bool,
+) {
+	t.Helper()
+
+	for _, fact := range facts {
+		if match(fact) {
+			return
+		}
+	}
+
+	t.Fatalf("missing %s fact: %#v", name, facts)
+}

@@ -3,56 +3,46 @@
 
 package evaluators
 
-import (
-	"regexp"
-
-	"blackcat.ca/coding-ethos/go/diagnostics"
-	"blackcat.ca/coding-ethos/go/internal/policy"
-)
-
-var (
-	bareExceptPattern = regexp.MustCompile(`(?m)^\s*except\s*:\s*$`)
-	typeIgnorePattern = regexp.MustCompile(`(?m)#\s*type:\s*ignore\s*$`)
-)
+import "blackcat.ca/coding-ethos/go/internal/policy"
 
 func EvaluatePythonBareExcept(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	if !bareExceptPattern.MatchString(context.Content) {
-		return nil, nil
-	}
-
-	return []policy.Decision{pythonContentDecision(policyDef, context)}, nil
+	return evaluatePythonAST(policyDef, context, firstPythonBareExceptIssue)
 }
 
 func EvaluatePythonUnexplainedTypeIgnore(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	if !typeIgnorePattern.MatchString(context.Content) {
-		return nil, nil
-	}
-
-	return []policy.Decision{pythonContentDecision(policyDef, context)}, nil
+	return evaluatePythonAST(policyDef, context, firstPythonUnexplainedTypeIgnoreIssue)
 }
 
-func pythonContentDecision(policyDef policy.Policy, context Context) policy.Decision {
-	decision := policy.NewDecision(blockDecision, policyDef)
-
-	decision.Diagnostics = []diagnostics.Diagnostic{{
-		Tool:     policyDef.ID,
-		File:     firstFile(context.Files),
-		Severity: blockDecision,
-		PolicyID: policyDef.ID,
-		Message:  policyDef.Message,
-		Advice:   policyDef.Suggestion,
-	}}
-	if len(context.Files) > 0 {
-		decision.Evidence = map[string]any{
-			"files": append([]string(nil), context.Files...),
+func firstPythonBareExceptIssue(facts []pythonASTFact) *pythonASTIssue {
+	for _, fact := range facts {
+		if fact.IsBareExcept {
+			return newPythonASTIssueFromFact(
+				fact,
+				"bare-except",
+				"Bare except clauses hide exception types and are forbidden.",
+			)
 		}
 	}
 
-	return decision
+	return nil
+}
+
+func firstPythonUnexplainedTypeIgnoreIssue(facts []pythonASTFact) *pythonASTIssue {
+	for _, fact := range facts {
+		if fact.IsUnexplainedTypeIgnore {
+			return newPythonASTIssueFromFact(
+				fact,
+				"unexplained-type-ignore",
+				"Type ignore suppressions require a narrow explanation.",
+			)
+		}
+	}
+
+	return nil
 }

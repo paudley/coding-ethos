@@ -3,6 +3,9 @@
 
 version: 2
 updates:
+  # Repository branch protection requires signed commits. Dependabot cannot
+  # satisfy that policy for version-update pull requests, so dependency
+  # updates are tracked externally and applied through locally signed commits.
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
@@ -12,7 +15,7 @@ updates:
       - "python"
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
 
   - package-ecosystem: "uv"
     directory: "/pre-commit/hooks"
@@ -24,7 +27,7 @@ updates:
       - "pre-commit"
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
 
   - package-ecosystem: "gomod"
     directory: "/go"
@@ -35,7 +38,7 @@ updates:
       - "go"
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -46,4 +49,4 @@ updates:
       - "github-actions"
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0

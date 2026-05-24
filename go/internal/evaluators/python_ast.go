@@ -16,6 +16,13 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+const pythonTypeIgnoreSuppressionLabel = "type: ignore"
+
+const (
+	pythonLoggerReceiverLogger = "logger"
+	pythonLoggerMethodInfo     = "info"
+)
+
 //nolint:gochecknoglobals
 var pythonSuppressionCommentPatterns = []pythonSuppressionPattern{
 	{
@@ -36,7 +43,7 @@ var pythonSuppressionCommentPatterns = []pythonSuppressionPattern{
 	},
 	{
 		regex: regexp.MustCompile(`(?i)#\s*type:\s*ignore\b`),
-		label: "type: ignore",
+		label: pythonTypeIgnoreSuppressionLabel,
 	},
 	{
 		regex: regexp.MustCompile(`(?i)#\s*noqa\b`),
@@ -44,44 +51,59 @@ var pythonSuppressionCommentPatterns = []pythonSuppressionPattern{
 	},
 }
 
+var pythonUnexplainedTypeIgnorePattern = regexp.MustCompile(
+	`(?i)#\s*type:\s*ignore\s*$`,
+)
+
 type pythonSuppressionPattern struct {
 	regex *regexp.Regexp
 	label string
 }
 
 type pythonASTFact struct {
-	File              string
-	Language          string
-	NodeKind          string
-	SymbolKind        string
-	SymbolName        string
-	SymbolPath        string
-	ParentSymbolPath  string
-	EnclosingFunction string
-	EnclosingSymbol   string
-	Text              string
-	ImportModule      string
-	CallName          string
-	AnnotationRole    string
-	SuppressionLabel  string
-	Line              int
-	Column            int
-	EndLine           int
-	ParameterCount    int
-	HasVarargs        bool
-	HasKwargs         bool
-	ModuleLevel       bool
-	UnderClass        bool
-	UnderConditional  bool
-	UnderFunction     bool
-	UnderTry          bool
-	UnderTypeChecking bool
-	IsImport          bool
-	IsImportFallback  bool
-	IsDynamicImport   bool
-	IsAssignedLambda  bool
-	IsClosureFactory  bool
-	IsSuppression     bool
+	File                     string
+	Language                 string
+	NodeKind                 string
+	SymbolKind               string
+	SymbolName               string
+	SymbolPath               string
+	ParentSymbolPath         string
+	EnclosingFunction        string
+	EnclosingSymbol          string
+	Text                     string
+	ReturnAnnotation         string
+	ExceptionType            string
+	ExceptionAction          string
+	ImportModule             string
+	CallName                 string
+	AnnotationRole           string
+	SuppressionLabel         string
+	LoggerName               string
+	LoggerMethod             string
+	Line                     int
+	Column                   int
+	EndLine                  int
+	ParameterCount           int
+	HasVarargs               bool
+	HasKwargs                bool
+	ModuleLevel              bool
+	UnderClass               bool
+	UnderConditional         bool
+	UnderFunction            bool
+	UnderTry                 bool
+	UnderTypeChecking        bool
+	IsImport                 bool
+	IsImportFallback         bool
+	IsDynamicImport          bool
+	IsAssignedLambda         bool
+	IsClosureFactory         bool
+	IsSuppression            bool
+	IsOptionalReturn         bool
+	IsBareExcept             bool
+	IsSilentExcept           bool
+	IsUnstructuredLogMessage bool
+	IsDirectImport           bool
+	IsUnexplainedTypeIgnore  bool
 }
 
 type pythonASTIssue struct {
@@ -128,6 +150,7 @@ const (
 	pythonDynamicImportCallCode  = "dynamic-import-call"
 	pythonAssignedLambdaCode     = "assigned-lambda"
 	pythonClosureFactoryCode     = "closure-factory"
+	pythonLoggerCallMinParts     = 2
 )
 
 func EvaluatePythonConditionalImports(
@@ -254,19 +277,52 @@ func appendPythonTraversalChildren(
 
 func pythonSnippetFallbackASTFacts(source pythonSource) []pythonASTFact {
 	facts := []pythonASTFact{}
+	lines := strings.Split(source.Text, "\n")
 
-	for index, line := range strings.Split(source.Text, "\n") {
+	for index, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
 
-		if fact, found := pythonSnippetFallbackFact(source, line, trimmed, index+1); found {
+		nextAction := pythonNextIndentedAction(lines, index)
+		if fact, found := pythonSnippetFallbackFact(
+			source,
+			line,
+			trimmed,
+			index+1,
+			nextAction,
+		); found {
 			facts = append(facts, fact)
 		}
 	}
 
 	return facts
+}
+
+func pythonNextIndentedAction(lines []string, currentIndex int) string {
+	currentIndent := leadingSpaces(lines[currentIndex])
+
+	for index := currentIndex + 1; index < len(lines); index++ {
+		line := lines[index]
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == "" {
+			continue
+		}
+
+		if leadingSpaces(line) <= currentIndent {
+			return ""
+		}
+
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		return trimmed
+	}
+
+	return ""
 }
 
 func pythonSourceNeedsSnippetFallback(source string) bool {
@@ -289,10 +345,44 @@ func pythonSnippetFallbackFact(
 	line string,
 	trimmed string,
 	lineNumber int,
+	nextAction string,
 ) (pythonASTFact, bool) {
 	indent := leadingSpaces(line)
+	fact := pythonBaseSnippetFact(source, line, trimmed, lineNumber)
 
-	fact := pythonASTFact{
+	switch {
+	case strings.HasPrefix(trimmed, "import "):
+		return pythonSnippetImportFact(fact, pythonKindImport, trimmed, indent), true
+	case strings.HasPrefix(trimmed, "from "):
+		return pythonSnippetImportFact(fact, pythonKindImportFrom, trimmed, indent), true
+	case strings.HasPrefix(trimmed, "except"):
+		return pythonSnippetExceptFact(fact, trimmed, nextAction), true
+	case strings.Contains(trimmed, "importlib.import_module("):
+		return pythonSnippetDynamicImportFact(fact, pythonImportlibImportModule), true
+	case strings.Contains(trimmed, "__import__("):
+		return pythonSnippetDynamicImportFact(fact, pythonBuiltinImport), true
+	case strings.HasPrefix(trimmed, "def __getattr__("):
+		return pythonSnippetModuleGetattrFact(fact), true
+	case strings.HasPrefix(trimmed, "def "):
+		return pythonSnippetFunctionFact(fact, trimmed), true
+	case pythonSnippetLineHasUnexplainedTypeIgnore(trimmed):
+		return pythonSnippetTypeIgnoreFact(fact), true
+	case pythonSnippetLoggerCallName(trimmed) != "":
+		return pythonSnippetLoggerFact(fact, trimmed), true
+	default:
+		return pythonASTFact{}, false
+	}
+}
+
+func pythonBaseSnippetFact(
+	source pythonSource,
+	line string,
+	trimmed string,
+	lineNumber int,
+) pythonASTFact {
+	indent := leadingSpaces(line)
+
+	return pythonASTFact{
 		File:        source.Path,
 		Language:    pythonLanguage,
 		Text:        trimmed,
@@ -301,57 +391,264 @@ func pythonSnippetFallbackFact(
 		EndLine:     lineNumber,
 		ModuleLevel: indent == 0,
 	}
-	switch {
-	case strings.HasPrefix(trimmed, "import "):
-		fact.NodeKind = pythonKindImport
-		fact.SymbolKind = pythonSymbolImport
-		fact.ImportModule = trimmed
-		fact.IsImport = true
-		fact.UnderFunction = indent > 0
-		fact.UnderConditional = indent > 0
+}
 
-		return fact, true
-	case strings.HasPrefix(trimmed, "from "):
-		fact.NodeKind = pythonKindImportFrom
-		fact.SymbolKind = pythonSymbolImport
-		fact.ImportModule = trimmed
-		fact.IsImport = true
-		fact.UnderFunction = indent > 0
-		fact.UnderConditional = indent > 0
+func pythonSnippetImportFact(
+	fact pythonASTFact,
+	kind string,
+	trimmed string,
+	indent int,
+) pythonASTFact {
+	fact.NodeKind = kind
+	fact.SymbolKind = pythonSymbolImport
+	fact.ImportModule = trimmed
+	fact.IsImport = true
+	fact.IsDirectImport = pythonImportTargetsProtectedPackage(trimmed)
+	fact.UnderFunction = indent > 0
+	fact.UnderConditional = indent > 0
 
-		return fact, true
-	case strings.HasPrefix(trimmed, "except ") &&
-		(strings.Contains(trimmed, "ImportError") ||
-			strings.Contains(trimmed, "ModuleNotFoundError")):
-		fact.NodeKind = pythonKindExceptClause
-		fact.SymbolKind = "except"
-		fact.IsImportFallback = true
+	return fact
+}
 
-		return fact, true
-	case strings.Contains(trimmed, "importlib.import_module("):
-		fact.NodeKind = pythonKindCall
-		fact.SymbolKind = pythonSymbolCall
-		fact.CallName = pythonImportlibImportModule
-		fact.IsDynamicImport = true
+func pythonSnippetExceptFact(
+	fact pythonASTFact,
+	trimmed string,
+	nextAction string,
+) pythonASTFact {
+	fact.NodeKind = pythonKindExceptClause
+	fact.SymbolKind = "except"
+	fact.ExceptionType = pythonSnippetExceptionType(trimmed)
+	fact.ExceptionAction = nextAction
+	fact.IsBareExcept = fact.ExceptionType == ""
+	fact.IsSilentExcept = pythonExceptionActionIsSilent(nextAction)
+	fact.IsImportFallback = strings.Contains(trimmed, "ImportError") ||
+		strings.Contains(trimmed, "ModuleNotFoundError")
 
-		return fact, true
-	case strings.Contains(trimmed, "__import__("):
-		fact.NodeKind = pythonKindCall
-		fact.SymbolKind = pythonSymbolCall
-		fact.CallName = pythonBuiltinImport
-		fact.IsDynamicImport = true
+	return fact
+}
 
-		return fact, true
-	case strings.HasPrefix(trimmed, "def __getattr__("):
-		fact.NodeKind = pythonKindFunctionDef
-		fact.SymbolKind = pythonSymbolFunction
-		fact.SymbolName = pythonModuleGetattr
-		fact.SymbolPath = pythonModuleGetattr
+func pythonSnippetDynamicImportFact(fact pythonASTFact, callName string) pythonASTFact {
+	fact.NodeKind = pythonKindCall
+	fact.SymbolKind = pythonSymbolCall
+	fact.CallName = callName
+	fact.IsDynamicImport = true
 
-		return fact, true
-	default:
-		return pythonASTFact{}, false
+	return fact
+}
+
+func pythonSnippetModuleGetattrFact(fact pythonASTFact) pythonASTFact {
+	fact.NodeKind = pythonKindFunctionDef
+	fact.SymbolKind = pythonSymbolFunction
+	fact.SymbolName = pythonModuleGetattr
+	fact.SymbolPath = pythonModuleGetattr
+
+	return fact
+}
+
+func pythonSnippetFunctionFact(fact pythonASTFact, trimmed string) pythonASTFact {
+	fact.NodeKind = pythonKindFunctionDef
+	fact.SymbolKind = pythonSymbolFunction
+	fact.SymbolName = pythonSnippetFunctionName(trimmed)
+	fact.SymbolPath = fact.SymbolName
+	fact.ReturnAnnotation = pythonSnippetReturnAnnotation(trimmed)
+	fact.IsOptionalReturn = pythonAnnotationIsOptional(fact.ReturnAnnotation)
+
+	return fact
+}
+
+func pythonSnippetTypeIgnoreFact(fact pythonASTFact) pythonASTFact {
+	fact.NodeKind = pythonKindComment
+	fact.SymbolKind = "comment"
+	fact.IsSuppression = true
+	fact.SuppressionLabel = pythonTypeIgnoreSuppressionLabel
+	fact.IsUnexplainedTypeIgnore = true
+
+	return fact
+}
+
+func pythonSnippetLoggerFact(fact pythonASTFact, trimmed string) pythonASTFact {
+	fact.NodeKind = pythonKindCall
+	fact.SymbolKind = pythonSymbolCall
+	fact.CallName = pythonSnippetLoggerCallName(trimmed)
+	fact.LoggerName, fact.LoggerMethod = pythonLoggerCallParts(fact.CallName)
+	fact.IsUnstructuredLogMessage = pythonSnippetHasUnstructuredLogMessage(
+		trimmed,
+		fact.LoggerName,
+		fact.LoggerMethod,
+	)
+
+	return fact
+}
+
+func pythonSnippetExceptionType(trimmed string) string {
+	header, _, _ := strings.Cut(trimmed, ":")
+	header = strings.TrimSpace(strings.TrimPrefix(header, "except"))
+	header, _, _ = strings.Cut(header, " as ")
+
+	return strings.TrimSpace(header)
+}
+
+func pythonSnippetFunctionName(trimmed string) string {
+	name, _, found := strings.Cut(strings.TrimPrefix(trimmed, "def "), "(")
+	if !found {
+		return ""
 	}
+
+	return strings.TrimSpace(name)
+}
+
+func pythonSnippetReturnAnnotation(trimmed string) string {
+	header, _, _ := strings.Cut(trimmed, ":")
+	_, annotation, found := strings.Cut(header, "->")
+
+	if !found {
+		return ""
+	}
+
+	return strings.TrimSpace(annotation)
+}
+
+func pythonSnippetLineHasUnexplainedTypeIgnore(trimmed string) bool {
+	index := strings.Index(trimmed, "#")
+	if index < 0 {
+		return false
+	}
+
+	return pythonSuppressionIsUnexplainedTypeIgnore(trimmed[index:])
+}
+
+func pythonSnippetLoggerCallName(trimmed string) string {
+	prefixes := []string{
+		"logger.",
+		"_logger.",
+		"log.",
+		"_log.",
+		"self.logger.",
+		"self._logger.",
+		"self.log.",
+		"self._log.",
+	}
+
+	for _, prefix := range prefixes {
+		afterPrefix, prefixFound := pythonSnippetLoggerPrefixSuffix(trimmed, prefix)
+		if !prefixFound {
+			continue
+		}
+
+		method, _, found := strings.Cut(afterPrefix, "(")
+
+		if !found {
+			continue
+		}
+
+		callName := prefix + strings.TrimSpace(method)
+		if _, loggerMethod := pythonLoggerCallParts(callName); loggerMethod != "" {
+			return callName
+		}
+	}
+
+	return ""
+}
+
+func pythonSnippetLoggerPrefixSuffix(trimmed, prefix string) (string, bool) {
+	remaining := trimmed
+	offset := 0
+
+	for {
+		index := strings.Index(remaining, prefix)
+		if index < 0 {
+			return "", false
+		}
+
+		start := offset + index
+		if pythonSnippetCallPrefixHasTokenBoundary(trimmed, start) {
+			return trimmed[start+len(prefix):], true
+		}
+
+		offset = start + len(prefix)
+		remaining = trimmed[offset:]
+	}
+}
+
+func pythonSnippetCallPrefixHasTokenBoundary(trimmed string, start int) bool {
+	if start == 0 {
+		return true
+	}
+
+	previous := trimmed[start-1]
+
+	return (previous < 'a' || previous > 'z') &&
+		(previous < 'A' || previous > 'Z') &&
+		(previous < '0' || previous > '9') &&
+		previous != '_'
+}
+
+func pythonSnippetHasUnstructuredLogMessage(
+	trimmed string,
+	loggerName string,
+	loggerMethod string,
+) bool {
+	if loggerName == "" || loggerMethod == "" {
+		return false
+	}
+
+	_, args, found := strings.Cut(trimmed, "(")
+	if !found {
+		return false
+	}
+
+	firstArg := pythonSnippetFirstPositionalArgument(strings.TrimSuffix(args, ")"))
+
+	return pythonStringLooksFormatted(firstArg) ||
+		strings.Contains(firstArg, ".format(") ||
+		pythonSnippetArgumentUsesPercentFormatting(firstArg)
+}
+
+func pythonSnippetFirstPositionalArgument(args string) string {
+	arg, _, _ := strings.Cut(args, ",")
+
+	return strings.TrimSpace(arg)
+}
+
+func pythonSnippetArgumentUsesPercentFormatting(arg string) bool {
+	return pythonSnippetContainsPercentOperator(arg)
+}
+
+func pythonSnippetContainsPercentOperator(arg string) bool {
+	var quote rune
+
+	escaped := false
+
+	for _, char := range arg {
+		if escaped {
+			escaped = false
+
+			continue
+		}
+
+		if char == '\\' {
+			escaped = true
+
+			continue
+		}
+
+		if quote != 0 {
+			if char == quote {
+				quote = 0
+			}
+
+			continue
+		}
+
+		switch char {
+		case '\'', '"':
+			quote = char
+		case '%':
+			return true
+		}
+	}
+
+	return false
 }
 
 func firstPythonConditionalImportIssue(facts []pythonASTFact) *pythonASTIssue {
@@ -496,32 +793,62 @@ func pythonASTFactFromNode(
 		contents,
 	)
 
+	if !populatePythonASTFactDetails(&fact, kind, node, contents, closureFactories) {
+		return pythonASTFact{}, false
+	}
+
+	return fact, true
+}
+
+func populatePythonASTFactDetails(
+	fact *pythonASTFact,
+	kind string,
+	node *tree_sitter.Node,
+	contents []byte,
+	closureFactories map[string]bool,
+) bool {
 	switch kind {
 	case pythonKindComment:
-		fact.IsSuppression, fact.SuppressionLabel = pythonSuppressionComment(text)
+		fact.IsSuppression, fact.SuppressionLabel = pythonSuppressionComment(fact.Text)
 		if !fact.IsSuppression {
-			return pythonASTFact{}, false
+			return false
 		}
+
+		fact.IsUnexplainedTypeIgnore = pythonSuppressionIsUnexplainedTypeIgnore(fact.Text)
 	case pythonKindImport, pythonKindImportFrom:
 		fact.IsImport = true
-		fact.ImportModule = text
+		fact.ImportModule = fact.Text
+		fact.IsDirectImport = pythonImportTargetsProtectedPackage(fact.Text)
 	case pythonKindExceptClause:
-		fact.IsImportFallback = strings.Contains(text, "ImportError") ||
-			strings.Contains(text, "ModuleNotFoundError")
+		fact.IsImportFallback = strings.Contains(fact.Text, "ImportError") ||
+			strings.Contains(fact.Text, "ModuleNotFoundError")
+		fact.ExceptionType = pythonExceptionType(node, contents)
+		fact.ExceptionAction = pythonExceptionAction(node, contents)
+		fact.IsBareExcept = fact.ExceptionType == ""
+		fact.IsSilentExcept = pythonExceptionActionIsSilent(fact.ExceptionAction)
 	case pythonKindCall:
 		fact.CallName = pythonCallName(node, contents)
 		fact.IsDynamicImport = fact.CallName == pythonBuiltinImport ||
 			fact.CallName == pythonImportlibImportModule
+		fact.LoggerName, fact.LoggerMethod = pythonLoggerCallParts(fact.CallName)
+		fact.IsUnstructuredLogMessage = pythonCallHasUnstructuredLogMessage(
+			node,
+			contents,
+			fact.LoggerName,
+			fact.LoggerMethod,
+		)
 	case pythonKindLambda:
 		fact.IsAssignedLambda = pythonLambdaIsAssigned(node)
 	case pythonKindFunctionDef:
 		fact.ParameterCount, fact.HasVarargs, fact.HasKwargs = pythonFunctionParameters(
 			node,
 		)
+		fact.ReturnAnnotation = pythonReturnAnnotation(node, contents)
+		fact.IsOptionalReturn = pythonAnnotationIsOptional(fact.ReturnAnnotation)
 		fact.IsClosureFactory = closureFactories[pythonNodeKey(node, contents)]
 	}
 
-	return fact, true
+	return true
 }
 
 func pythonNodeColumn(node *tree_sitter.Node) int {
@@ -769,6 +1096,19 @@ func pythonSuppressionComment(text string) (bool, string) {
 	return false, ""
 }
 
+func pythonSuppressionIsUnexplainedTypeIgnore(text string) bool {
+	trimmed := strings.TrimSpace(text)
+
+	return pythonUnexplainedTypeIgnorePattern.MatchString(trimmed)
+}
+
+func pythonImportTargetsProtectedPackage(text string) bool {
+	trimmed := strings.TrimSpace(text)
+
+	return strings.HasPrefix(trimmed, "from coding_ethos.") ||
+		strings.HasPrefix(trimmed, "import coding_ethos.")
+}
+
 func pythonFunctionName(node *tree_sitter.Node, contents []byte) string {
 	name := node.ChildByFieldName("name")
 	if name == nil {
@@ -785,6 +1125,165 @@ func pythonCallName(node *tree_sitter.Node, contents []byte) string {
 	}
 
 	return strings.TrimSpace(function.Utf8Text(contents))
+}
+
+func pythonLoggerCallParts(callName string) (string, string) {
+	parts := []string{}
+
+	for part := range strings.SplitSeq(callName, ".") {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+
+	if len(parts) < pythonLoggerCallMinParts {
+		return "", ""
+	}
+
+	receiver := parts[len(parts)-pythonLoggerCallMinParts]
+	method := parts[len(parts)-1]
+
+	switch receiver {
+	case pythonLoggerReceiverLogger, "_logger", "log", "_log":
+	default:
+		return "", ""
+	}
+
+	switch method {
+	case "debug", pythonLoggerMethodInfo, "warning", "error", "critical":
+		return receiver, method
+	default:
+		return "", ""
+	}
+}
+
+func pythonCallHasUnstructuredLogMessage(
+	node *tree_sitter.Node,
+	contents []byte,
+	loggerName string,
+	loggerMethod string,
+) bool {
+	if loggerName == "" || loggerMethod == "" {
+		return false
+	}
+
+	message := pythonFirstCallPositionalArgument(node)
+	if message == nil {
+		return false
+	}
+
+	text := strings.TrimSpace(message.Utf8Text(contents))
+
+	return pythonStringLooksFormatted(text) ||
+		message.Kind() == "call" && strings.Contains(text, ".format(") ||
+		message.Kind() == "binary_operator" && strings.Contains(text, "%")
+}
+
+func pythonStringLooksFormatted(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	lower := strings.ToLower(trimmed)
+
+	return strings.HasPrefix(lower, "f\"") ||
+		strings.HasPrefix(lower, "f'") ||
+		strings.HasPrefix(lower, "fr\"") ||
+		strings.HasPrefix(lower, "fr'") ||
+		strings.HasPrefix(lower, "rf\"") ||
+		strings.HasPrefix(lower, "rf'")
+}
+
+func pythonFirstCallPositionalArgument(node *tree_sitter.Node) *tree_sitter.Node {
+	args := node.ChildByFieldName("arguments")
+	if args == nil {
+		return nil
+	}
+
+	for index := range args.NamedChildCount() {
+		child := args.NamedChild(index)
+		if child == nil || child.Kind() == "keyword_argument" {
+			continue
+		}
+
+		return child
+	}
+
+	return nil
+}
+
+func pythonReturnAnnotation(node *tree_sitter.Node, contents []byte) string {
+	returnType := node.ChildByFieldName("return_type")
+	if returnType != nil {
+		return strings.TrimSpace(returnType.Utf8Text(contents))
+	}
+
+	return ""
+}
+
+func pythonAnnotationIsOptional(annotation string) bool {
+	normalized := strings.ReplaceAll(annotation, " ", "")
+
+	return strings.Contains(normalized, "|None") ||
+		strings.Contains(normalized, "None|") ||
+		strings.Contains(normalized, "Optional[") ||
+		strings.Contains(normalized, "Union[") &&
+			strings.Contains(normalized, "None")
+}
+
+func pythonExceptionType(node *tree_sitter.Node, contents []byte) string {
+	for index := range node.NamedChildCount() {
+		child := node.NamedChild(index)
+		if child == nil || child.Kind() == "block" {
+			continue
+		}
+
+		return pythonExceptionTypeFromNode(child, contents)
+	}
+
+	return ""
+}
+
+func pythonExceptionTypeFromNode(node *tree_sitter.Node, contents []byte) string {
+	if node.Kind() == "as_pattern" && node.NamedChildCount() > 0 {
+		return strings.TrimSpace(node.NamedChild(0).Utf8Text(contents))
+	}
+
+	return strings.TrimSpace(node.Utf8Text(contents))
+}
+
+func pythonExceptionAction(node *tree_sitter.Node, contents []byte) string {
+	body := node.ChildByFieldName("body")
+	if body != nil {
+		for index := range body.NamedChildCount() {
+			child := body.NamedChild(index)
+			if child == nil {
+				continue
+			}
+
+			text := strings.TrimSpace(child.Utf8Text(contents))
+			if text != "" {
+				return text
+			}
+		}
+	}
+
+	for line := range strings.SplitSeq(node.Utf8Text(contents), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "except") {
+			continue
+		}
+
+		return trimmed
+	}
+
+	return ""
+}
+
+func pythonExceptionActionIsSilent(action string) bool {
+	switch strings.TrimSpace(action) {
+	case "pass", "return", "return None":
+		return true
+	default:
+		return false
+	}
 }
 
 func pythonFunctionParameters(node *tree_sitter.Node) (int, bool, bool) {

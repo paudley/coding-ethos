@@ -90,6 +90,48 @@ func TestEvaluatePythonConditionalImportsCatchesMalformedEditSnippets(t *testing
 	}
 }
 
+func TestEvaluateLiftedPythonPoliciesCatchMalformedEditSnippets(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		policyID string
+		content  string
+	}{
+		{
+			name:     "optional return",
+			policyID: "python.optional_returns",
+			content:  "    def load_service() -> Service | None:\n",
+		},
+		{
+			name:     "silent exception",
+			policyID: "python.catch_and_silence",
+			content:  "except RuntimeError:\n    pass\n",
+		},
+		{
+			name:     "unstructured logging",
+			policyID: "python.structured_logging",
+			content:  "    self.logger.info(f'user={user_id}')\n",
+		},
+		{
+			name:     "direct import",
+			policyID: "python.direct_imports",
+			content:  "    from coding_ethos.loaders import load\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			decision := evaluatePythonPolicy(t, test.policyID, test.content)
+			if decision.PolicyID != test.policyID {
+				t.Fatalf("policy mismatch: %#v", decision)
+			}
+		})
+	}
+}
+
 func TestEvaluatePythonConditionalImportsAllowsModuleImports(t *testing.T) {
 	t.Parallel()
 
@@ -245,6 +287,71 @@ func TestEvaluatePythonSuppressionDiagnosticUsesPolicyGlobList(t *testing.T) {
 func importlibImportModuleCEL() string {
 	return "python_ast.exists(fact, fact.is_dynamic_import && " +
 		"fact.call_name == 'importlib.import_module')"
+}
+
+func TestEvaluateCELUsesLiftedPythonASTPolicyFacts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		when    string
+		content string
+	}{
+		{
+			name: "optional return",
+			when: "python_ast.exists(fact, fact.is_optional_return && " +
+				"fact.return_annotation == 'Service | None')",
+			content: "def load_service() -> Service | None:\n    return None\n",
+		},
+		{
+			name: "silent exception",
+			when: "python_ast.exists(fact, fact.is_silent_except && " +
+				"fact.exception_type == 'RuntimeError' && " +
+				"fact.exception_action == 'pass')",
+			content: "try:\n    run()\nexcept RuntimeError:\n    pass\n",
+		},
+		{
+			name: "unstructured logging message",
+			when: "python_ast.exists(fact, fact.is_unstructured_log_message && " +
+				"fact.logger_name == 'logger' && fact.logger_method == 'info')",
+			content: "logger.info(f'user={user_id}')\n",
+		},
+		{
+			name: "direct import",
+			when: "python_ast.exists(fact, fact.is_direct_import && " +
+				"fact.import_module == 'from coding_ethos.loaders import load')",
+			content: "from coding_ethos.loaders import load\n",
+		},
+		{
+			name: "unexplained type ignore",
+			when: "python_ast.exists(fact, fact.is_unexplained_type_ignore && " +
+				"fact.suppression_label == 'type: ignore')",
+			content: "value = dynamic()  # type: ignore\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			policyDef := compiledPythonPolicy(t, conditionalImportsPolicyID)
+			policyDef.ID = "python.lifted_ast_fact"
+			policyDef.Evaluators = []policy.Evaluator{{
+				Kind: "cel",
+				Name: "cel.expression",
+				Options: map[string]any{
+					"when": test.when,
+				},
+			}}
+
+			_ = evaluateCELPythonPolicy(
+				t,
+				policyDef,
+				"src/app.py",
+				test.content,
+			)
+		})
+	}
 }
 
 func evaluateCELPythonPolicy(

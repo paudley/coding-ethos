@@ -7,195 +7,104 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
-	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
-)
-
-var (
-	optionalReturnPattern = regexp.MustCompile(
-		`^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*->\s*([^:]+):`,
-	)
-	logCallPattern = regexp.MustCompile(
-		`\b(?:logger|_logger|log|_log)\.(?:debug|info|warning|error|critical)\s*\((.*)`,
-	)
-	directImportPattern = regexp.MustCompile(
-		`^\s*(?:from\s+(coding_ethos)\.|import\s+(coding_ethos)\.)`,
-	)
-)
-
-const (
-	logCallMatchCount        = 2
-	optionalReturnMatchCount = 3
 )
 
 func EvaluatePythonOptionalReturns(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	return evaluatePythonLines(policyDef, context, func(line string) bool {
-		matches := optionalReturnPattern.FindStringSubmatch(line)
-		if len(matches) != optionalReturnMatchCount {
-			return false
-		}
-
-		if matches[1] == "__exit__" || matches[1] == "__aexit__" {
-			return false
-		}
-
-		annotation := strings.ReplaceAll(matches[2], " ", "")
-
-		return strings.Contains(annotation, "|None") ||
-			strings.Contains(annotation, "Optional[") ||
-			strings.Contains(annotation, "Union[") &&
-				strings.Contains(annotation, "None")
-	})
+	return evaluatePythonAST(policyDef, context, firstPythonOptionalReturnIssue)
 }
 
 func EvaluatePythonCatchAndSilence(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	sources, err := pythonSources(context)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, source := range sources {
-		decision := silentExceptionDecision(policyDef, source)
-		if decision != nil {
-			return []policy.Decision{*decision}, nil
-		}
-	}
-
-	return nil, nil
-}
-
-func silentExceptionDecision(
-	policyDef policy.Policy,
-	source pythonSource,
-) *policy.Decision {
-	lines := strings.Split(source.Text, "\n")
-	for idx, line := range lines {
-		if !strings.HasPrefix(strings.TrimSpace(line), "except") {
-			continue
-		}
-
-		decision := firstSilentExceptionBody(policyDef, source, lines, idx)
-		if decision != nil {
-			return decision
-		}
-	}
-
-	return nil
-}
-
-func firstSilentExceptionBody(
-	policyDef policy.Policy,
-	source pythonSource,
-	lines []string,
-	exceptIndex int,
-) *policy.Decision {
-	indent := leadingSpaces(lines[exceptIndex])
-	for next := exceptIndex + 1; next < len(lines); next++ {
-		trimmed := strings.TrimSpace(lines[next])
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		if leadingSpaces(lines[next]) <= indent {
-			return nil
-		}
-
-		if isSilentExceptionBody(trimmed) {
-			decision := pythonDecision(policyDef, source, next+1, trimmed)
-
-			return &decision
-		}
-
-		return nil
-	}
-
-	return nil
-}
-
-func isSilentExceptionBody(trimmed string) bool {
-	return trimmed == "pass" || trimmed == "return None" || trimmed == "return"
+	return evaluatePythonAST(policyDef, context, firstPythonSilentExceptionIssue)
 }
 
 func EvaluatePythonStructuredLogging(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	return evaluatePythonLines(policyDef, context, func(line string) bool {
-		matches := logCallPattern.FindStringSubmatch(line)
-		if len(matches) != logCallMatchCount {
-			return false
-		}
-
-		args := strings.TrimSpace(matches[1])
-
-		return strings.HasPrefix(args, "f\"") ||
-			strings.HasPrefix(args, "f'") ||
-			strings.Contains(args, ".format(") ||
-			strings.Contains(args, "%")
-	})
+	return evaluatePythonAST(policyDef, context, firstPythonStructuredLogIssue)
 }
 
 func EvaluatePythonDirectImports(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
-	sources, err := pythonSources(context)
-	if err != nil {
-		return nil, err
-	}
+	return evaluatePythonAST(policyDef, context, firstPythonDirectImportIssue)
+}
 
-	for _, source := range sources {
-		if insidePackage(source.Path, "coding_ethos") {
+func firstPythonOptionalReturnIssue(facts []pythonASTFact) *pythonASTIssue {
+	for _, fact := range facts {
+		if !fact.IsOptionalReturn ||
+			fact.SymbolName == "__exit__" ||
+			fact.SymbolName == "__aexit__" {
 			continue
 		}
 
-		for idx, line := range strings.Split(source.Text, "\n") {
-			if directImportPattern.MatchString(line) {
-				return []policy.Decision{
-					pythonDecision(policyDef, source, idx+1, strings.TrimSpace(line)),
-				}, nil
-			}
+		return newPythonASTIssueFromFact(
+			fact,
+			"optional-return",
+			"Required return values must not be modeled as optional.",
+		)
+	}
+
+	return nil
+}
+
+func firstPythonSilentExceptionIssue(facts []pythonASTFact) *pythonASTIssue {
+	for _, fact := range facts {
+		if fact.IsSilentExcept {
+			return newPythonASTIssueFromFact(
+				fact,
+				"silent-exception",
+				"Exception handlers must not silently swallow failures.",
+			)
 		}
 	}
 
-	return nil, nil
+	return nil
+}
+
+func firstPythonStructuredLogIssue(facts []pythonASTFact) *pythonASTIssue {
+	for _, fact := range facts {
+		if fact.IsUnstructuredLogMessage {
+			return newPythonASTIssueFromFact(
+				fact,
+				"unstructured-log-message",
+				"Logger calls should preserve structured context.",
+			)
+		}
+	}
+
+	return nil
+}
+
+func firstPythonDirectImportIssue(facts []pythonASTFact) *pythonASTIssue {
+	for _, fact := range facts {
+		if !fact.IsDirectImport || insidePackage(fact.File, "coding_ethos") {
+			continue
+		}
+
+		return newPythonASTIssueFromFact(
+			fact,
+			"direct-import",
+			"Import protected packages through their public API boundary.",
+		)
+	}
+
+	return nil
 }
 
 type pythonSource struct {
 	Path string
 	Text string
-}
-
-func evaluatePythonLines(
-	policyDef policy.Policy,
-	context Context,
-	violates func(string) bool,
-) ([]policy.Decision, error) {
-	sources, err := pythonSources(context)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, source := range sources {
-		for idx, line := range strings.Split(source.Text, "\n") {
-			if violates(line) {
-				return []policy.Decision{
-					pythonDecision(policyDef, source, idx+1, strings.TrimSpace(line)),
-				}, nil
-			}
-		}
-	}
-
-	return nil, nil
 }
 
 func pythonSources(context Context) ([]pythonSource, error) {
@@ -233,34 +142,6 @@ func firstFile(files []string) string {
 	}
 
 	return files[0]
-}
-
-func pythonDecision(
-	policyDef policy.Policy,
-	source pythonSource,
-	line int,
-	snippet string,
-) policy.Decision {
-	decision := policy.NewDecision(blockDecision, policyDef)
-	decision.Diagnostics = []diagnostics.Diagnostic{{
-		Tool:     policyDef.ID,
-		File:     source.Path,
-		Line:     line,
-		Severity: blockDecision,
-		PolicyID: policyDef.ID,
-		Message:  policyDef.Message,
-		Advice:   policyDef.Suggestion,
-	}}
-
-	decision.Evidence = map[string]any{
-		"line":    line,
-		"snippet": snippet,
-	}
-	if source.Path != "" {
-		decision.Evidence["file"] = source.Path
-	}
-
-	return decision
 }
 
 func leadingSpaces(line string) int {
