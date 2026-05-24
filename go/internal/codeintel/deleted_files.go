@@ -56,55 +56,100 @@ func (store *Store) MarkMissingCodeFilesDeleted(
 		return deleted, nil
 	}
 
-	deletedAt := time.Now().UTC().Format(time.RFC3339)
-
-	intentPaths, err := store.codeDeleteIntentPaths(ctx)
+	err = store.markDeletedCodeFiles(
+		ctx,
+		root,
+		deleted,
+		stagedDeletedPaths,
+	)
 	if err != nil {
 		return nil, err
 	}
 
+	return deleted, nil
+}
+
+func (store *Store) markDeletedCodeFiles(
+	ctx context.Context,
+	root string,
+	deleted []string,
+	stagedDeletedPaths map[string]bool,
+) error {
+	deletedAt := time.Now().UTC().Format(time.RFC3339)
+
+	intentPaths, err := store.codeDeleteIntentPaths(ctx)
+	if err != nil {
+		return err
+	}
+
 	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("begin deleted code file refresh: %w", err)
+		return fmt.Errorf("begin deleted code file refresh: %w", err)
 	}
 	defer rollbackUnlessCommitted(transaction)
 
 	for _, path := range deleted {
-		reason := codeFileStaleDeleted
-
-		if stagedDeletedPaths[path] {
-			intent := CodeDeleteIntent{
-				Path:          path,
-				IntentKind:    "git_index_delete",
-				RecordedAtUTC: deletedAt,
-				Status:        "allowed",
-				Cwd:           root,
-			}
-
-			err = insertDeleteIntents(ctx, transaction, []CodeDeleteIntent{intent})
-			if err != nil {
-				return nil, err
-			}
-
-			intentPaths[path] = true
-		}
-
-		if intentPaths[path] {
-			reason = codeFileStaleDeletedByIntent
-		}
-
-		err = markCodeFileInactive(ctx, transaction, path, deletedAt, reason)
+		err = markDeletedCodeFile(
+			ctx,
+			transaction,
+			deleteMarkContext{
+				root:               root,
+				deletedAt:          deletedAt,
+				intentPaths:        intentPaths,
+				stagedDeletedPaths: stagedDeletedPaths,
+			},
+			path,
+		)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	err = transaction.Commit()
 	if err != nil {
-		return nil, fmt.Errorf("commit deleted code file refresh: %w", err)
+		return fmt.Errorf("commit deleted code file refresh: %w", err)
 	}
 
-	return deleted, nil
+	return nil
+}
+
+type deleteMarkContext struct {
+	intentPaths        map[string]bool
+	stagedDeletedPaths map[string]bool
+	root               string
+	deletedAt          string
+}
+
+func markDeletedCodeFile(
+	ctx context.Context,
+	transaction *sql.Tx,
+	markContext deleteMarkContext,
+	path string,
+) error {
+	reason := codeFileStaleDeleted
+
+	if markContext.stagedDeletedPaths[path] {
+		intent := CodeDeleteIntent{
+			Path:          path,
+			IntentKind:    "git_index_delete",
+			RecordedAtUTC: markContext.deletedAt,
+			Status:        "allowed",
+			Cwd:           markContext.root,
+		}
+
+		err := insertDeleteIntents(ctx, transaction, []CodeDeleteIntent{intent})
+		if err != nil {
+			return err
+		}
+
+		markContext.intentPaths[path] = true
+	}
+
+	if markContext.intentPaths[path] {
+		reason = codeFileStaleDeletedByIntent
+	}
+
+	return markCodeFileInactive(ctx, transaction, path, markContext.deletedAt, reason)
 }
 
 func (store *Store) activeCodeFilePaths(
@@ -385,15 +430,6 @@ func (store *Store) MarkIgnoredCodeFilesDeleted(
 	}
 
 	return ignored, nil
-}
-
-func markCodeFileDeleted(
-	ctx context.Context,
-	transaction *sql.Tx,
-	path string,
-	deletedAt string,
-) error {
-	return markCodeFileInactive(ctx, transaction, path, deletedAt, codeFileStaleDeleted)
 }
 
 func markCodeFileInactive(
