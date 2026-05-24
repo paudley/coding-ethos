@@ -337,8 +337,41 @@ func pythonSnippetFallbackFact(
 	nextAction string,
 ) (pythonASTFact, bool) {
 	indent := leadingSpaces(line)
+	fact := pythonBaseSnippetFact(source, line, trimmed, lineNumber)
 
-	fact := pythonASTFact{
+	switch {
+	case strings.HasPrefix(trimmed, "import "):
+		return pythonSnippetImportFact(fact, pythonKindImport, trimmed, indent), true
+	case strings.HasPrefix(trimmed, "from "):
+		return pythonSnippetImportFact(fact, pythonKindImportFrom, trimmed, indent), true
+	case strings.HasPrefix(trimmed, "except"):
+		return pythonSnippetExceptFact(fact, trimmed, nextAction), true
+	case strings.Contains(trimmed, "importlib.import_module("):
+		return pythonSnippetDynamicImportFact(fact, pythonImportlibImportModule), true
+	case strings.Contains(trimmed, "__import__("):
+		return pythonSnippetDynamicImportFact(fact, pythonBuiltinImport), true
+	case strings.HasPrefix(trimmed, "def __getattr__("):
+		return pythonSnippetModuleGetattrFact(fact), true
+	case strings.HasPrefix(trimmed, "def "):
+		return pythonSnippetFunctionFact(fact, trimmed), true
+	case pythonSnippetLineHasUnexplainedTypeIgnore(trimmed):
+		return pythonSnippetTypeIgnoreFact(fact), true
+	case pythonSnippetLoggerCallName(trimmed) != "":
+		return pythonSnippetLoggerFact(fact, trimmed), true
+	default:
+		return pythonASTFact{}, false
+	}
+}
+
+func pythonBaseSnippetFact(
+	source pythonSource,
+	line string,
+	trimmed string,
+	lineNumber int,
+) pythonASTFact {
+	indent := leadingSpaces(line)
+
+	return pythonASTFact{
 		File:        source.Path,
 		Language:    pythonLanguage,
 		Text:        trimmed,
@@ -347,91 +380,93 @@ func pythonSnippetFallbackFact(
 		EndLine:     lineNumber,
 		ModuleLevel: indent == 0,
 	}
-	switch {
-	case strings.HasPrefix(trimmed, "import "):
-		fact.NodeKind = pythonKindImport
-		fact.SymbolKind = pythonSymbolImport
-		fact.ImportModule = trimmed
-		fact.IsImport = true
-		fact.IsDirectImport = pythonImportTargetsProtectedPackage(trimmed)
-		fact.UnderFunction = indent > 0
-		fact.UnderConditional = indent > 0
+}
 
-		return fact, true
-	case strings.HasPrefix(trimmed, "from "):
-		fact.NodeKind = pythonKindImportFrom
-		fact.SymbolKind = pythonSymbolImport
-		fact.ImportModule = trimmed
-		fact.IsImport = true
-		fact.IsDirectImport = pythonImportTargetsProtectedPackage(trimmed)
-		fact.UnderFunction = indent > 0
-		fact.UnderConditional = indent > 0
+func pythonSnippetImportFact(
+	fact pythonASTFact,
+	kind string,
+	trimmed string,
+	indent int,
+) pythonASTFact {
+	fact.NodeKind = kind
+	fact.SymbolKind = pythonSymbolImport
+	fact.ImportModule = trimmed
+	fact.IsImport = true
+	fact.IsDirectImport = pythonImportTargetsProtectedPackage(trimmed)
+	fact.UnderFunction = indent > 0
+	fact.UnderConditional = indent > 0
 
-		return fact, true
-	case strings.HasPrefix(trimmed, "except"):
-		fact.NodeKind = pythonKindExceptClause
-		fact.SymbolKind = "except"
-		fact.ExceptionType = pythonSnippetExceptionType(trimmed)
-		fact.ExceptionAction = nextAction
-		fact.IsBareExcept = fact.ExceptionType == ""
-		fact.IsSilentExcept = pythonExceptionActionIsSilent(nextAction)
-		fact.IsImportFallback = strings.Contains(trimmed, "ImportError") ||
-			strings.Contains(trimmed, "ModuleNotFoundError")
+	return fact
+}
 
-		return fact, true
-	case strings.Contains(trimmed, "importlib.import_module("):
-		fact.NodeKind = pythonKindCall
-		fact.SymbolKind = pythonSymbolCall
-		fact.CallName = pythonImportlibImportModule
-		fact.IsDynamicImport = true
+func pythonSnippetExceptFact(
+	fact pythonASTFact,
+	trimmed string,
+	nextAction string,
+) pythonASTFact {
+	fact.NodeKind = pythonKindExceptClause
+	fact.SymbolKind = "except"
+	fact.ExceptionType = pythonSnippetExceptionType(trimmed)
+	fact.ExceptionAction = nextAction
+	fact.IsBareExcept = fact.ExceptionType == ""
+	fact.IsSilentExcept = pythonExceptionActionIsSilent(nextAction)
+	fact.IsImportFallback = strings.Contains(trimmed, "ImportError") ||
+		strings.Contains(trimmed, "ModuleNotFoundError")
 
-		return fact, true
-	case strings.Contains(trimmed, "__import__("):
-		fact.NodeKind = pythonKindCall
-		fact.SymbolKind = pythonSymbolCall
-		fact.CallName = pythonBuiltinImport
-		fact.IsDynamicImport = true
+	return fact
+}
 
-		return fact, true
-	case strings.HasPrefix(trimmed, "def __getattr__("):
-		fact.NodeKind = pythonKindFunctionDef
-		fact.SymbolKind = pythonSymbolFunction
-		fact.SymbolName = pythonModuleGetattr
-		fact.SymbolPath = pythonModuleGetattr
+func pythonSnippetDynamicImportFact(fact pythonASTFact, callName string) pythonASTFact {
+	fact.NodeKind = pythonKindCall
+	fact.SymbolKind = pythonSymbolCall
+	fact.CallName = callName
+	fact.IsDynamicImport = true
 
-		return fact, true
-	case strings.HasPrefix(trimmed, "def "):
-		fact.NodeKind = pythonKindFunctionDef
-		fact.SymbolKind = pythonSymbolFunction
-		fact.SymbolName = pythonSnippetFunctionName(trimmed)
-		fact.SymbolPath = fact.SymbolName
-		fact.ReturnAnnotation = pythonSnippetReturnAnnotation(trimmed)
-		fact.IsOptionalReturn = pythonAnnotationIsOptional(fact.ReturnAnnotation)
+	return fact
+}
 
-		return fact, true
-	case pythonSnippetLineHasUnexplainedTypeIgnore(trimmed):
-		fact.NodeKind = pythonKindComment
-		fact.SymbolKind = "comment"
-		fact.IsSuppression = true
-		fact.SuppressionLabel = pythonTypeIgnoreSuppressionLabel
-		fact.IsUnexplainedTypeIgnore = true
+func pythonSnippetModuleGetattrFact(fact pythonASTFact) pythonASTFact {
+	fact.NodeKind = pythonKindFunctionDef
+	fact.SymbolKind = pythonSymbolFunction
+	fact.SymbolName = pythonModuleGetattr
+	fact.SymbolPath = pythonModuleGetattr
 
-		return fact, true
-	case pythonSnippetLoggerCallName(trimmed) != "":
-		fact.NodeKind = pythonKindCall
-		fact.SymbolKind = pythonSymbolCall
-		fact.CallName = pythonSnippetLoggerCallName(trimmed)
-		fact.LoggerName, fact.LoggerMethod = pythonLoggerCallParts(fact.CallName)
-		fact.IsUnstructuredLogMessage = pythonSnippetHasUnstructuredLogMessage(
-			trimmed,
-			fact.LoggerName,
-			fact.LoggerMethod,
-		)
+	return fact
+}
 
-		return fact, true
-	default:
-		return pythonASTFact{}, false
-	}
+func pythonSnippetFunctionFact(fact pythonASTFact, trimmed string) pythonASTFact {
+	fact.NodeKind = pythonKindFunctionDef
+	fact.SymbolKind = pythonSymbolFunction
+	fact.SymbolName = pythonSnippetFunctionName(trimmed)
+	fact.SymbolPath = fact.SymbolName
+	fact.ReturnAnnotation = pythonSnippetReturnAnnotation(trimmed)
+	fact.IsOptionalReturn = pythonAnnotationIsOptional(fact.ReturnAnnotation)
+
+	return fact
+}
+
+func pythonSnippetTypeIgnoreFact(fact pythonASTFact) pythonASTFact {
+	fact.NodeKind = pythonKindComment
+	fact.SymbolKind = "comment"
+	fact.IsSuppression = true
+	fact.SuppressionLabel = pythonTypeIgnoreSuppressionLabel
+	fact.IsUnexplainedTypeIgnore = true
+
+	return fact
+}
+
+func pythonSnippetLoggerFact(fact pythonASTFact, trimmed string) pythonASTFact {
+	fact.NodeKind = pythonKindCall
+	fact.SymbolKind = pythonSymbolCall
+	fact.CallName = pythonSnippetLoggerCallName(trimmed)
+	fact.LoggerName, fact.LoggerMethod = pythonLoggerCallParts(fact.CallName)
+	fact.IsUnstructuredLogMessage = pythonSnippetHasUnstructuredLogMessage(
+		trimmed,
+		fact.LoggerName,
+		fact.LoggerMethod,
+	)
+
+	return fact
 }
 
 func pythonSnippetExceptionType(trimmed string) string {
