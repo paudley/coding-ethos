@@ -262,14 +262,14 @@ func agentShellSigningWritePaths() []string {
 	writePaths := make([]string, 0, agentShellGitPathCap)
 
 	if gpgHome := strings.TrimSpace(os.Getenv("GNUPGHOME")); gpgHome != "" {
-		writePaths = append(writePaths, gpgHome)
-		writePaths = append(writePaths, agentShellResolvedGPGHomeWritePaths(gpgHome)...)
+		writePaths = appendExistingGPGHomeWritePaths(writePaths, gpgHome)
 	} else {
 		home, err := os.UserHomeDir()
 		if err == nil && strings.TrimSpace(home) != "" {
-			gpgHome := filepath.Join(home, ".gnupg")
-			writePaths = append(writePaths, gpgHome)
-			writePaths = append(writePaths, agentShellResolvedGPGHomeWritePaths(gpgHome)...)
+			writePaths = appendExistingGPGHomeWritePaths(
+				writePaths,
+				filepath.Join(home, ".gnupg"),
+			)
 		}
 	}
 
@@ -278,6 +278,23 @@ func agentShellSigningWritePaths() []string {
 	}
 
 	writePaths = append(writePaths, agentShellTerminalWritePaths()...)
+
+	return writePaths
+}
+
+func appendExistingGPGHomeWritePaths(writePaths []string, gpgHome string) []string {
+	cleanGPGHome := filepath.Clean(strings.TrimSpace(gpgHome))
+	if cleanGPGHome == "." || !filepath.IsAbs(cleanGPGHome) {
+		return writePaths
+	}
+
+	info, err := os.Stat(cleanGPGHome)
+	if err != nil || !info.IsDir() {
+		return writePaths
+	}
+
+	writePaths = append(writePaths, cleanGPGHome)
+	writePaths = append(writePaths, agentShellResolvedGPGHomeWritePaths(cleanGPGHome)...)
 
 	return writePaths
 }

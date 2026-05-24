@@ -1525,6 +1525,16 @@ func TestAgentShellGitWritePathsDeduplicatesGitDirs(t *testing.T) {
 	}
 }
 
+func TestAppendExistingGPGHomeWritePathsSkipsMissingHome(t *testing.T) {
+	t.Parallel()
+
+	missing := filepath.Join(t.TempDir(), "missing-gnupg")
+	got := appendExistingGPGHomeWritePaths([]string{"/repo/.git"}, missing)
+	if !slices.Equal(got, []string{"/repo/.git"}) {
+		t.Fatalf("write paths = %#v, want only existing paths", got)
+	}
+}
+
 func TestAgentShellTerminalPathAllowsCurrentPTYOnly(t *testing.T) {
 	t.Parallel()
 
