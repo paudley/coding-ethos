@@ -7,7 +7,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-13T04:06:21.136090123Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -1270,24 +1270,24 @@ wheels = [
 
 [[package]]
 name = "tombi"
-version = "0.11.0"
+version = "0.11.5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/77/4f/fd3ae2b79f60808dfa36f22956cee8d45deca0d9ee27d46bd0a6b03ee281/tombi-0.11.0.tar.gz", hash = "sha256:a38f01ff19af402c9393b44d6db73b1dadbdb1e87ba4536a0e01b93cb52223a7", size = 687683, upload-time = "2026-05-08T09:44:28.189Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/39/8c/3dad08999de09f07941c473aa3cb80e54a1a3dc6213002421ec18165844a/tombi-0.11.5.tar.gz", hash = "sha256:16f58179b2a96f7e0150979182e0bba55d101762a7a16dc9c7daa3881ae864b1", size = 691093, upload-time = "2026-05-17T01:50:38.486Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/90/25/b83371bab8ad56b0da0cba992749ab5be8cab85059e13fe93070df463c8d/tombi-0.11.0-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:143d75a5a2f0ca6274709fcd561c78318ccbaee29d5f91e93e604b8d12285125", size = 10405840, upload-time = "2026-05-08T09:44:17.408Z" },
-    { url = "https://files.pythonhosted.org/packages/3f/44/40127a65b1e643b2fe09f6a35f4c83c4311de5e607d5c832aa3e3c005ae1/tombi-0.11.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:9911f126fbe2c83cdbd9ded5d9118b66d83fbd9f0eee21de0392880df1e689b9", size = 10095885, upload-time = "2026-05-08T09:44:15.102Z" },
-    { url = "https://files.pythonhosted.org/packages/70/32/121e102a2c027439012805f21d68e23aa83deb5173a152645478d206ca54/tombi-0.11.0-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:dea8e4dae8c62ee7704ff6fcc32bbe5192f13b4c534de296e69464407204620e", size = 10398544, upload-time = "2026-05-08T09:44:05.208Z" },
-    { url = "https://files.pythonhosted.org/packages/b6/76/45d01d12959b643112b7a35fd5058817137a36b3d801b23c9b7804251451/tombi-0.11.0-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:10fcf90c16652268ad2968fc067a2f8153fdbf0db2d825c413e0d62d96154506", size = 11744879, upload-time = "2026-05-08T09:44:11.159Z" },
-    { url = "https://files.pythonhosted.org/packages/87/d6/528fd3f3ab30849f2c3302ad94fa5ae02ce9e32c1f8c904527a9d0951750/tombi-0.11.0-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:7df5be0dbf47b000b447ecbb267df5e15c4e761e818fa5f4837bb394860a95bb", size = 11729685, upload-time = "2026-05-08T09:44:07.218Z" },
-    { url = "https://files.pythonhosted.org/packages/b3/d9/960edf83938722d1a3adb08d1485607eea415beff6e20e3050fbf0b44589/tombi-0.11.0-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:9a55b8f302feaec173553d31e9f9306eb7f02ad45644688890af4798e8551025", size = 10438528, upload-time = "2026-05-08T09:44:08.995Z" },
-    { url = "https://files.pythonhosted.org/packages/4a/d8/7ba4ee6f425290d84c0b3bb06c42487d40f2c24e332e54dbea32345ba78b/tombi-0.11.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ac11d56ec24c42c857dd25ca93a0e68623eb5846eeb89bb3f1ba93931d6d79fb", size = 10864050, upload-time = "2026-05-08T09:44:13.144Z" },
-    { url = "https://files.pythonhosted.org/packages/f3/d9/e45fb8c93c5f2b5d3dc9f3d9b7810d42093ff7a340ce317f7e95112aa97e/tombi-0.11.0-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:37dfec261cd2177ddcc6ef48746eba5e439664894a0ea3c5885820121136d71a", size = 10644392, upload-time = "2026-05-08T09:44:02.748Z" },
-    { url = "https://files.pythonhosted.org/packages/0c/e0/3e3d0bb8bf5494963a8066b11e0c944e2034704acb313667ff0082373d8d/tombi-0.11.0-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:d76aec4d2d9c153197073b4b2b161888c2a65fda5bc506811ba12e386ca8587d", size = 10679719, upload-time = "2026-05-08T09:44:19.536Z" },
-    { url = "https://files.pythonhosted.org/packages/1b/14/a12551acede66c3432c66594f40e795fab5f753f901e9a002f6a11cec56f/tombi-0.11.0-py3-none-musllinux_1_2_armv7l.whl", hash = "sha256:3f076ba8224983c17b3aa88cb39735d8d47c87264b96c5f92c1b99a8836e81f6", size = 10448851, upload-time = "2026-05-08T09:44:22.134Z" },
-    { url = "https://files.pythonhosted.org/packages/bf/01/9e0e2c198006984398147ebb02cbd1a802b74d4de8e41e8c630304e7be33/tombi-0.11.0-py3-none-musllinux_1_2_i686.whl", hash = "sha256:f0ae98005e8cf79fa62258b028779b666bbe7591c51ade02b40af02a8b18169a", size = 11152548, upload-time = "2026-05-08T09:44:24.657Z" },
-    { url = "https://files.pythonhosted.org/packages/72/ba/f7ea9a40274e0281442aea928aaca562bf1a1303bfcc5cb3bb8c751c20dd/tombi-0.11.0-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:d34239d65aa0c5f4ca4b722d2ea2dc624ca5c6bed2d1567db12e8544d35f8067", size = 11105761, upload-time = "2026-05-08T09:44:26.489Z" },
-    { url = "https://files.pythonhosted.org/packages/4e/ed/3c8cce14557966c47c07fa4423c44e656d2cef142afc1465ad4d241cb43a/tombi-0.11.0-py3-none-win32.whl", hash = "sha256:46d68a42d06c9c43f0d3de7745efb8e693cb15ebd26b7296bcf8211b3569e9fc", size = 8426674, upload-time = "2026-05-08T09:44:31.333Z" },
-    { url = "https://files.pythonhosted.org/packages/ac/2c/97e1529dd9c565bb34d0fbaa7192cddaa4978abd7ca48b08cc1e6c98362c/tombi-0.11.0-py3-none-win_amd64.whl", hash = "sha256:578926d50cc445447859da7290563e0233309109eb85f5354cc87877ecd9449b", size = 9815540, upload-time = "2026-05-08T09:44:29.281Z" },
+    { url = "https://files.pythonhosted.org/packages/18/09/f98759bd844bbff7d7c335b4ef664e2c8f720d73f30dbfd322809a29a367/tombi-0.11.5-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:aa2cb09621b36fdcfea06924510992a1ac36e73d5a83a4a0aaa60fef8ee83bbd", size = 10400173, upload-time = "2026-05-17T01:50:24.93Z" },
+    { url = "https://files.pythonhosted.org/packages/23/b4/22d576daaf919aff631dfc77bba6f5c5333ce8def85d1916954d1b6bffc2/tombi-0.11.5-py3-none-macosx_11_0_arm64.whl", hash = "sha256:e81c81cdfbd4c584ebfcf1e5ad906a46b40df7d3211d034dec68cfa35337d6d8", size = 10099584, upload-time = "2026-05-17T01:50:22.44Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/76/e668e0ea87a1fb2523cc22157ad871d319bf7b544d02dd392411bebb01fb/tombi-0.11.5-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:33981e93b75f26953dc1c6992e2877ebe0089785b08d9f2261942037cecfcbb7", size = 10408432, upload-time = "2026-05-17T01:50:09.073Z" },
+    { url = "https://files.pythonhosted.org/packages/39/05/ca751dc7b86891273e95926ff26cb7bcb82d48a17bf02313dea258321cdc/tombi-0.11.5-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:e73e88682003f6d1a42e7185b57f8030eeb6e919e24918fde5c300323a7638f5", size = 11738101, upload-time = "2026-05-17T01:50:17.32Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/0c/8c214b74c208bdf7ce6bf37b78928993f1817227756f07547badf61ca13b/tombi-0.11.5-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:a0bf49b8aec6d5f7da397613dd63ec9a7bda935147f4ceec3dbd92527758b777", size = 11782947, upload-time = "2026-05-17T01:50:11.816Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/86/68a0dbdc871828a2faeacba69badd1b030a956d1f585b88b4f2dd0debfff/tombi-0.11.5-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:f3f31d4b8e3a902b0251cffd41cf16065e1122a9f93a27fb9776a846360abc7e", size = 10423667, upload-time = "2026-05-17T01:50:14.417Z" },
+    { url = "https://files.pythonhosted.org/packages/45/80/340280e3a32b134d0447a866341f9c919c4a4166ed90b48ecfd512e6b3c1/tombi-0.11.5-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:df631bdceb7d58615bebd89464450f501d949f80293f16e02d57c8ce3a05b370", size = 10860129, upload-time = "2026-05-17T01:50:19.975Z" },
+    { url = "https://files.pythonhosted.org/packages/14/d1/9030fdb90e5a1293a5089576a04955b9c6bc698d63ffc67af996518576d0/tombi-0.11.5-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:5b40294861111906d18a8f52a9ce10a97b7631249f2c2b7d496058f0b5dcb131", size = 10648091, upload-time = "2026-05-17T01:50:05.045Z" },
+    { url = "https://files.pythonhosted.org/packages/e6/51/cc0e8796c25215100842f520287720dd14f46c9c14c472f62422fbf9cb0f/tombi-0.11.5-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:daa220f608cb76798f0f1957aff9f036b42a2f1b4c4f6122db1e0e275460a7b7", size = 10673541, upload-time = "2026-05-17T01:50:27.459Z" },
+    { url = "https://files.pythonhosted.org/packages/50/e1/1489b16322e27edb7788d8eb914278a2dab1528d21ea04321082a6e6b8ca/tombi-0.11.5-py3-none-musllinux_1_2_armv7l.whl", hash = "sha256:078887f8dbdcffcb8083f7348491ae4393dd481dc0f280361457c09bc379f159", size = 10458941, upload-time = "2026-05-17T01:50:29.972Z" },
+    { url = "https://files.pythonhosted.org/packages/32/99/fb87b6c2de87d891fbc4c807f71c4b9382ae446a3b3e0de01d2fe0f3a3d4/tombi-0.11.5-py3-none-musllinux_1_2_i686.whl", hash = "sha256:33e233c4d5e6ab6f5d4c7110b3c11cdd4e7fc909c0fda31c3527e223c6a4e0ad", size = 11135135, upload-time = "2026-05-17T01:50:32.914Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/35/751b9351cf63a4e4053d4593c89f821ee228e4d911d18ee9e2e30b629306/tombi-0.11.5-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:5397f12c6d68be9e86a224359ffb82cc6700ba2e113f22cce839cc4cf2e965d3", size = 11099695, upload-time = "2026-05-17T01:50:35.629Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/b6/7f3c2d4937db3472ac1c24a0a76f9871a278b05e2b38fdf303fa2e7173b0/tombi-0.11.5-py3-none-win32.whl", hash = "sha256:2419c220b543caace7b3561c7e2596ff104472fb88c729aec20d93c772b9ceca", size = 8458415, upload-time = "2026-05-17T01:50:43.235Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/fd/ae01728e35571a063101559cb3f67a6e206763bb8c99ea3e06d3822c70d0/tombi-0.11.5-py3-none-win_amd64.whl", hash = "sha256:1458c9756a02efe33224a803f69ed16f78f7c01a1e88be1ce18797295851916a", size = 9825141, upload-time = "2026-05-17T01:50:40.639Z" },
 ]
 
 [[package]]
