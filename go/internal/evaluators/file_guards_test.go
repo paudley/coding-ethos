@@ -452,6 +452,57 @@ func TestEvaluateLicenseHeaderAllowsConfiguredLicenseContract(t *testing.T) {
 	}
 }
 
+func TestEvaluateLicenseHeaderAllowsWrappedMITLicenseFile(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	expectedLicense := "" +
+		"MIT License\n\n" +
+		"Copyright (c) 2026 Example Inc.\n\n" +
+		"Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction.\n"
+	wrappedLicense := "" +
+		"MIT License\n\n" +
+		"Copyright (c) 2026 Example Inc.\n\n" +
+		"Permission is hereby granted, free of charge, to any person obtaining a copy\n" +
+		"of this software and associated documentation files (the \"Software\"), to deal\n" +
+		"in the Software without restriction.\n"
+
+	err := os.WriteFile(filepath.Join(repo, "LICENSE"), []byte(wrappedLicense), 0o600)
+	if err != nil {
+		t.Fatalf("write license: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(repo, "app.py"),
+		[]byte("# SPDX-License-Identifier: MIT\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write app: %v", err)
+	}
+
+	decisions, err := EvaluateLicenseHeader(
+		fileGuardPolicy("repo.license_header"),
+		Context{
+			Cwd:   repo,
+			Files: []string{"app.py"},
+			EvaluatorOptions: map[string]any{
+				"expected_license_text": expectedLicense,
+				"license_file":          "LICENSE",
+				"spdx_id":               "MIT",
+				"required":              []string{"SPDX-License-Identifier: MIT"},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate license header: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("unexpected decisions: %#v", decisions)
+	}
+}
+
 func evaluateFileGuardPolicy(
 	t *testing.T,
 	policyID string,
