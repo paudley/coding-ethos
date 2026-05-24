@@ -315,6 +315,10 @@ func pythonNextIndentedAction(lines []string, currentIndex int) string {
 			return ""
 		}
 
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
 		return trimmed
 	}
 
@@ -526,7 +530,7 @@ func pythonSnippetLoggerCallName(trimmed string) string {
 	}
 
 	for _, prefix := range prefixes {
-		_, afterPrefix, prefixFound := strings.Cut(trimmed, prefix)
+		afterPrefix, prefixFound := pythonSnippetLoggerPrefixSuffix(trimmed, prefix)
 		if !prefixFound {
 			continue
 		}
@@ -544,6 +548,39 @@ func pythonSnippetLoggerCallName(trimmed string) string {
 	}
 
 	return ""
+}
+
+func pythonSnippetLoggerPrefixSuffix(trimmed, prefix string) (string, bool) {
+	remaining := trimmed
+	offset := 0
+
+	for {
+		index := strings.Index(remaining, prefix)
+		if index < 0 {
+			return "", false
+		}
+
+		start := offset + index
+		if pythonSnippetCallPrefixHasTokenBoundary(trimmed, start) {
+			return trimmed[start+len(prefix):], true
+		}
+
+		offset = start + len(prefix)
+		remaining = trimmed[offset:]
+	}
+}
+
+func pythonSnippetCallPrefixHasTokenBoundary(trimmed string, start int) bool {
+	if start == 0 {
+		return true
+	}
+
+	previous := trimmed[start-1]
+
+	return (previous < 'a' || previous > 'z') &&
+		(previous < 'A' || previous > 'Z') &&
+		(previous < '0' || previous > '9') &&
+		previous != '_'
 }
 
 func pythonSnippetHasUnstructuredLogMessage(

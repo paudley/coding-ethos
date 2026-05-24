@@ -256,6 +256,24 @@ func TestCollectPythonASTFactsSnippetFallbackIgnoresPercentLiteral(t *testing.T)
 	}
 }
 
+func TestCollectPythonASTFactsSnippetFallbackIgnoresLoggerNameSubstring(t *testing.T) {
+	t.Parallel()
+
+	facts, err := collectPythonASTFacts(pythonSource{
+		Path: "src/app.py",
+		Text: "    mylogger.info(f'user={user_id}')\n",
+	})
+	if err != nil {
+		t.Fatalf("collect python AST facts: %v", err)
+	}
+
+	for _, fact := range facts {
+		if fact.IsUnstructuredLogMessage {
+			t.Fatalf("logger-name substring should not be logging fact: %#v", fact)
+		}
+	}
+}
+
 func TestCollectPythonASTFactsSnippetFallbackHandlesCompactTypeIgnore(t *testing.T) {
 	t.Parallel()
 
@@ -288,6 +306,22 @@ func TestCollectPythonASTFactsSnippetFallbackDoesNotUseSiblingAsExceptAction(
 		if fact.IsSilentExcept {
 			t.Fatalf("sibling line should not be exception action: %#v", fact)
 		}
+	}
+}
+
+func TestCollectPythonASTFactsSnippetFallbackSkipsExceptComments(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"except RuntimeError:\n"+
+			"    # no recovery possible here\n"+
+			"    pass\n",
+		func(fact pythonASTFact) bool { return fact.IsSilentExcept },
+	)
+
+	if fact.ExceptionAction != "pass" {
+		t.Fatalf("comment should not be exception action: %#v", fact)
 	}
 }
 
