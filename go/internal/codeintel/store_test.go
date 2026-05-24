@@ -587,6 +587,20 @@ func TestRefreshRepositoryMarksGitRMDeleteIntent(t *testing.T) {
 		intents[0].Status != "allowed" {
 		t.Fatalf("delete intents = %#v", intents)
 	}
+
+	_, err = RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("second delete refresh: %v", err)
+	}
+
+	intents, err = store.CodeDeleteIntents(ctx, "pkg/app.py")
+	if err != nil {
+		t.Fatalf("query delete intents after second refresh: %v", err)
+	}
+
+	if len(intents) != 1 {
+		t.Fatalf("duplicate delete intents after second refresh: %#v", intents)
+	}
 }
 
 func TestHookTraceDeleteIntentMarksMissingFileDeletedByIntent(t *testing.T) {

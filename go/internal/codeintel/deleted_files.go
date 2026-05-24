@@ -130,6 +130,7 @@ func markDeletedCodeFile(
 
 	if markContext.stagedDeletedPaths[path] {
 		intent := CodeDeleteIntent{
+			ID:            stableID("code-delete-intent", path, "git_index_delete"),
 			Path:          path,
 			IntentKind:    "git_index_delete",
 			RecordedAtUTC: markContext.deletedAt,

@@ -513,27 +513,19 @@ func deleteIntentPathsFromShell(command string) []string {
 
 func rmIntentPaths(args []string) []string {
 	paths := []string{}
-	skipNext := false
+	onlyPaths := false
 
 	for _, arg := range args {
-		if skipNext {
-			skipNext = false
+		if onlyPaths {
+			if path, ok := cleanRepoRelativeIntentPath(arg); ok {
+				paths = append(paths, path)
+			}
 
 			continue
 		}
 
 		if arg == "--" {
-			continue
-		}
-
-		if strings.HasPrefix(arg, "--") {
-			if strings.Contains(arg, "=") {
-				continue
-			}
-
-			if arg == "--interactive" {
-				skipNext = true
-			}
+			onlyPaths = true
 
 			continue
 		}
@@ -559,8 +551,8 @@ func gitRMIntentPaths(args []string) []string {
 }
 
 func cleanRepoRelativeIntentPath(path string) (string, bool) {
-	path = filepath.ToSlash(strings.TrimSpace(path))
-	if path == "" || strings.HasPrefix(path, "/") {
+	path = strings.TrimSpace(path)
+	if path == "" || filepath.IsAbs(path) || windowsAbsoluteIntentPath(path) {
 		return "", false
 	}
 
@@ -570,6 +562,13 @@ func cleanRepoRelativeIntentPath(path string) (string, bool) {
 	}
 
 	return cleaned, true
+}
+
+func windowsAbsoluteIntentPath(path string) bool {
+	return len(path) >= 3 &&
+		((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) &&
+		path[1] == ':' &&
+		(path[2] == '\\' || path[2] == '/')
 }
 
 func cleanDeleteIntentPaths(paths []string) []string {
