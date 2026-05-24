@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/configdata"
+	"blackcat.ca/coding-ethos/go/internal/repoignore"
 )
 
 type pythonSourceDetector interface {
@@ -18,6 +19,8 @@ type pythonSourceDetector interface {
 type walkingPythonSourceDetector struct {
 	pythonSources map[string]bool
 }
+
+const generatedSiteExtraIgnoreCount = 2
 
 // Apply merges repo-kind/profile defaults into base before explicit repo
 // overrides are applied. Explicit repo_config.yaml values always win.
@@ -158,20 +161,21 @@ func nonPythonOverlay() configdata.Map {
 }
 
 func generatedSiteOutputOverlay() configdata.Map {
+	paths := make(
+		[]any,
+		0,
+		len(repoignore.RuntimePaths())+generatedSiteExtraIgnoreCount,
+	)
+	for _, path := range repoignore.RuntimePaths() {
+		paths = append(paths, path)
+	}
+
+	paths = append(paths, "site/", "dist/")
+
 	return configdata.Map{
 		"filesystem": map[string]any{
 			"required_ignores": map[string]any{
-				"paths": []any{
-					".code-ethos/cache/",
-					".coding-ethos/cache/",
-					".coding-ethos/code-intel.db",
-					".coding-ethos/hook-runs/",
-					".coding-ethos/lint-runs/",
-					".coding-ethos/prune-runs/",
-					".coding-ethos/state/",
-					"site/",
-					"dist/",
-				},
+				"paths": paths,
 			},
 		},
 	}

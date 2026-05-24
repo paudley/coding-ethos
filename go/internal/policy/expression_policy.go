@@ -10,6 +10,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
+	"blackcat.ca/coding-ethos/go/internal/repoignore"
 )
 
 const (
@@ -775,15 +776,7 @@ func expressionRequiredIgnorePaths(policyID string, config map[string]any) []str
 	return stringSliceAt(
 		config,
 		[]string{"filesystem", "required_ignores", "paths"},
-		[]string{
-			".code-ethos/cache/",
-			".coding-ethos/cache/",
-			".coding-ethos/code-intel.db",
-			".coding-ethos/hook-runs/",
-			".coding-ethos/lint-runs/",
-			".coding-ethos/prune-runs/",
-			".coding-ethos/state/",
-		},
+		repoignore.RuntimePaths(),
 	)
 }
 

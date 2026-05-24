@@ -9,20 +9,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
+	"blackcat.ca/coding-ethos/go/internal/repoignore"
 )
 
 func TestEvaluateRequiredIgnoresCELAllowsIgnoredPaths(t *testing.T) {
 	t.Parallel()
 
 	repo := newRequiredIgnoreRepo(t)
-	writeRequiredIgnoreFile(t, repo, ".code-ethos/cache/\n.coding-ethos/cache/\n"+
-		".coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n"+
-		".coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n"+
-		".coding-ethos/state/\n")
+	writeRequiredIgnoreFile(t, repo, strings.Join(repoignore.RuntimePaths(), "\n")+"\n")
 	policyDef := compiledRepoBundle(t).Policies["repo.required_ignores"]
 
 	decisions, err := EvaluateCELExpression(policyDef, Context{

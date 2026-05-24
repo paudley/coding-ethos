@@ -645,6 +645,7 @@ func TestCutoverVerifyPassesAllSurfaces(t *testing.T) {
 		filepath.Join(root, ".gitignore"),
 		[]byte(".code-ethos/cache/\n.coding-ethos/cache/\n"+
 			".coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n"+
+			".coding-ethos/code-intel.db-shm\n.coding-ethos/code-intel.db-wal\n"+
 			".coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n"+
 			".coding-ethos/state/\n"),
 		privateFileMode,
@@ -1188,7 +1189,7 @@ func TestRepoIgnoreFixItemLines(t *testing.T) {
 		t.Fatalf("repo ignore fix items before ignore: %v", err)
 	}
 
-	if len(items) != 7 {
+	if len(items) != 9 {
 		t.Fatalf("items before ignore = %#v", items)
 	}
 
@@ -1196,6 +1197,7 @@ func TestRepoIgnoreFixItemLines(t *testing.T) {
 		filepath.Join(repo, ".gitignore"),
 		[]byte(".code-ethos/cache/\n.coding-ethos/cache/\n"+
 			".coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n"+
+			".coding-ethos/code-intel.db-shm\n.coding-ethos/code-intel.db-wal\n"+
 			".coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n"+
 			".coding-ethos/state/\n"),
 		privateFileMode,

@@ -931,7 +931,7 @@ func TestCheckRuntimeIgnoresCommandUsesGitIgnoreContract(t *testing.T) {
 		filepath.Join(fakeBin, "git"),
 		`#!/usr/bin/env sh
 case "$*" in
-  "check-ignore --quiet .code-ethos/cache/"|"check-ignore --quiet .coding-ethos/cache/"|"check-ignore --quiet .coding-ethos/code-intel.db"|"check-ignore --quiet .coding-ethos/hook-runs/"|"check-ignore --quiet .coding-ethos/lint-runs/"|"check-ignore --quiet .coding-ethos/prune-runs/"|"check-ignore --quiet .coding-ethos/state/")
+  "check-ignore --quiet .code-ethos/cache/"|"check-ignore --quiet .coding-ethos/cache/"|"check-ignore --quiet .coding-ethos/code-intel.db"|"check-ignore --quiet .coding-ethos/code-intel.db-shm"|"check-ignore --quiet .coding-ethos/code-intel.db-wal"|"check-ignore --quiet .coding-ethos/hook-runs/"|"check-ignore --quiet .coding-ethos/lint-runs/"|"check-ignore --quiet .coding-ethos/prune-runs/"|"check-ignore --quiet .coding-ethos/state/")
     exit 0
     ;;
   "check-ignore --quiet .coding-ethos/memories/MEMORY.md")
@@ -949,7 +949,7 @@ exit 2
 		t.Fatalf("checkRuntimeIgnoresCommand() = %d, want 0", got)
 	}
 
-	if got := requiredRuntimeIgnorePaths(); len(got) != 7 {
+	if got := requiredRuntimeIgnorePaths(); len(got) != 9 {
 		t.Fatalf("requiredRuntimeIgnorePaths() = %#v", got)
 	}
 }

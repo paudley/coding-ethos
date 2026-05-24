@@ -152,7 +152,7 @@ mkdir -p "$git_repo/scripts" && printf '%s\n%s\n' '#!/usr/bin/env bash' \
   "$(cat "$repo_root/go/scripts/testdata/forbidden-hook-marker.txt")" \
   > "$git_repo/scripts/forbidden.sh"
 expect_compiled_file_block scripts/forbidden.sh shell.forbidden_strings && rm -f "$git_repo/scripts/forbidden.sh"
-printf '.code-ethos/cache/\n.coding-ethos/cache/\n.coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n.coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n.coding-ethos/state/\n' > "$git_repo/.gitignore"
+printf '.code-ethos/cache/\n.coding-ethos/cache/\n.coding-ethos/code-intel.db\n.coding-ethos/code-intel.db-shm\n.coding-ethos/code-intel.db-wal\n.coding-ethos/hook-runs/\n.coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n.coding-ethos/state/\n' > "$git_repo/.gitignore"
 printf 'x\n' > "$git_repo/file.txt"
 git -C "$git_repo" add .gitignore file.txt
 printf '==> validating git wrapper allows normal commit\n'
@@ -293,7 +293,7 @@ git -C "$wrapper_repo" config user.email test@example.com
 git -C "$wrapper_repo" config user.name Test
 git -C "$wrapper_repo" checkout -b feature/wrapper-smoke > /dev/null
 "$repo_root/go/scripts/smoke_hook_edges.sh" install-runtime "$repo_root" "$go_bin" "$policy_dir" "$wrapper_repo"
-printf '.code-ethos/cache/\n.coding-ethos/cache/\n.coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n.coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n.coding-ethos/state/\n' > "$wrapper_repo/.gitignore"
+printf '.code-ethos/cache/\n.coding-ethos/cache/\n.coding-ethos/code-intel.db\n.coding-ethos/code-intel.db-shm\n.coding-ethos/code-intel.db-wal\n.coding-ethos/hook-runs/\n.coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n.coding-ethos/state/\n' > "$wrapper_repo/.gitignore"
 printf '%s\nours\n%s\ntheirs\n%s\n' '<''<<<<<< HEAD' '=======' '>''>>>>>> feature' > "$wrapper_repo/conflict.txt"
 git -C "$wrapper_repo" add .gitignore conflict.txt
 set +e
@@ -320,7 +320,7 @@ printf '==> validating agent hook settings sync, doctor, and verify\n'
 agent_settings_root="$tmp_root/agent-settings"
 mkdir -p "$agent_settings_root"
 git -C "$agent_settings_root" init > /dev/null
-printf '.code-ethos/cache/\n.coding-ethos/cache/\n.coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n.coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n.coding-ethos/state/\n' > "$agent_settings_root/.gitignore"
+printf '.code-ethos/cache/\n.coding-ethos/cache/\n.coding-ethos/code-intel.db\n.coding-ethos/code-intel.db-shm\n.coding-ethos/code-intel.db-wal\n.coding-ethos/hook-runs/\n.coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n.coding-ethos/state/\n' > "$agent_settings_root/.gitignore"
 "$run_go_hook" agent-hooks doctor \
   --root "$agent_settings_root" > /tmp/coding-ethos-agent-doctor-missing.out 2>&1 && {
   printf 'expected missing settings doctor to fail\n' >&2
