@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Dependabot policy contract tests.
 
 This module verifies repository automation cannot reintroduce unsigned
