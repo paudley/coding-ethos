@@ -19,6 +19,7 @@ const (
 	defaultStartupRepoMapLimit          = 16
 	defaultStartupRepoMapSymbolsPerFile = 3
 	defaultStartupRepoMapTimeout        = 5 * time.Second
+	defaultStartupStorageUpgradeTimeout = 30 * time.Second
 	sessionStartHeaderLineCount         = 2
 )
 
@@ -116,7 +117,7 @@ func sessionStartStorageUpgradeContext(cwd string) string {
 
 	ctx, cancel := context.WithTimeout(
 		context.Background(),
-		defaultStartupRepoMapTimeout,
+		defaultStartupStorageUpgradeTimeout,
 	)
 	defer cancel()
 
