@@ -413,8 +413,11 @@ evaluation.
 `downstream-analysis` is the read-only support view for downstream repo
 ergonomics. It opens an existing code-intelligence database in read-only mode,
 scans retained hook logs, and reports hook friction, blocker trends, lint
-hotspots, large-file pressure, toolchain failures, stale code context, and
-SQLite lock evidence without creating or migrating the store.
+hotspots, affected command families for blocking policies, repeated remediation
+loops, large-file pressure, toolchain failures, stale code context, and SQLite
+lock evidence without creating or migrating the store. When the database is
+missing or unavailable it still scans retained hook-run and lint-run logs for
+support signals.
 
 Inspect the repo-local disk output surface before pruning or deeper analysis:
 

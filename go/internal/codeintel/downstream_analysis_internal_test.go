@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
@@ -42,6 +43,12 @@ func TestAnalyzeDownstreamSummarizesFrictionAndLogs(t *testing.T) {
 			"warning: startup repo map query failed: stale code context for src/app.py\n"+
 			"error: coding-ethos-sandbox: exec sandboxed command: no such file or directory\n",
 	)
+	writeDownstreamLintRun(
+		t,
+		root,
+		"20260524T000000Z-tool_pyupgrade.json",
+		`{"tool":"pyupgrade","sandbox":{"reason":"sandbox backend unavailable"}}`,
+	)
 
 	readOnlyStore, err := OpenReadOnly(ctx, dbPath)
 	if err != nil {
@@ -62,11 +69,15 @@ func TestAnalyzeDownstreamSummarizesFrictionAndLogs(t *testing.T) {
 
 	if analysis.LogSignals.SQLiteBusyCount != 1 ||
 		analysis.LogSignals.StaleRepoMapCount != 1 ||
-		analysis.LogSignals.SandboxMissingCount != 1 {
+		analysis.LogSignals.SandboxMissingCount != 1 ||
+		analysis.LogSignals.LintRunCount != 1 ||
+		analysis.LogSignals.ToolchainFailureCount == 0 {
 		t.Fatalf("log signals = %#v", analysis.LogSignals)
 	}
 
 	assertDownstreamPolicyBlocker(t, analysis, "filesystem.line_limits")
+	assertDownstreamAffectedCommand(t, analysis, "filesystem.line_limits", "Bash")
+	assertDownstreamRemediationLoop(t, analysis, "filesystem.line_limits")
 	assertDownstreamFindingHotspot(t, analysis, "src/app.py", "python.optional_returns")
 	assertDownstreamFilePressure(t, analysis, "src/big.py")
 	assertDownstreamToolchainFailure(t, analysis, "runtime.sandbox_denial")
@@ -108,13 +119,14 @@ func seedDownstreamAnalysisStore(ctx context.Context, store *Store) error {
 		Status:        "blocked",
 		Raw:           []byte(`{"trace_id":"trace-1"}`),
 		HookEvent: &HookEventAnalytics{
-			TraceID:       "trace-1",
-			Tool:          "Bash",
-			Status:        "blocked",
-			OperationKind: "lint",
-			TargetKind:    "unknown",
-			RiskCategory:  "policy_block",
-			Blocked:       true,
+			TraceID:            "trace-1",
+			Tool:               "Bash",
+			Status:             "blocked",
+			OperationKind:      "lint",
+			TargetKind:         "unknown",
+			RiskCategory:       "policy_block",
+			CommandShapeSHA256: "git-add-shape",
+			Blocked:            true,
 		},
 		HookDecisions: []HookDecisionAnalytics{
 			{
@@ -146,6 +158,50 @@ func seedDownstreamAnalysisStore(ctx context.Context, store *Store) error {
 				Severity: "error",
 			},
 		},
+		AgentRemediation: []agentmsg.Remediation{
+			{
+				ID:       "rem-line-limits",
+				PolicyID: "filesystem.line_limits",
+				SkillID:  "managed-toolchain",
+				File:     "src/big.py",
+				Message:  "Large source files must not keep growing",
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	err = store.IngestTrace(ctx, Trace{
+		ID:            "trace-2",
+		Kind:          "hook",
+		RecordedAtUTC: "2026-05-24T00:01:00Z",
+		Tool:          "Bash",
+		Status:        "blocked",
+		Raw:           []byte(`{"trace_id":"trace-2"}`),
+		AgentRemediation: []agentmsg.Remediation{
+			{
+				ID:       "rem-line-limits",
+				PolicyID: "filesystem.line_limits",
+				SkillID:  "managed-toolchain",
+				File:     "src/big.py",
+				Message:  "Large source files must not keep growing",
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	err = store.RecordRemediationOutcome(ctx, RemediationOutcome{
+		ID:            "outcome-1",
+		RemediationID: "rem-line-limits",
+		SourceTraceID: "trace-1",
+		PolicyID:      "filesystem.line_limits",
+		SkillID:       "managed-toolchain",
+		File:          "src/big.py",
+		Outcome:       "repeated",
+		RecordedAtUTC: "2026-05-24T00:02:00Z",
 	})
 	if err != nil {
 		return err
@@ -192,6 +248,26 @@ func writeDownstreamHookLog(
 	}
 }
 
+func writeDownstreamLintRun(
+	t *testing.T,
+	root string,
+	name string,
+	content string,
+) {
+	t.Helper()
+
+	runDir := filepath.Join(root, downstreamLintRunsSubpath)
+	err := os.MkdirAll(runDir, 0o700)
+	if err != nil {
+		t.Fatalf("create lint run dir: %v", err)
+	}
+
+	err = os.WriteFile(filepath.Join(runDir, name), []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write lint run log: %v", err)
+	}
+}
+
 func assertDownstreamPolicyBlocker(
 	t *testing.T,
 	analysis DownstreamAnalysis,
@@ -206,6 +282,55 @@ func assertDownstreamPolicyBlocker(
 	}
 
 	t.Fatalf("missing policy blocker %q: %#v", policyID, analysis.PolicyBlockers)
+}
+
+func assertDownstreamAffectedCommand(
+	t *testing.T,
+	analysis DownstreamAnalysis,
+	policyID string,
+	tool string,
+) {
+	t.Helper()
+
+	for _, blocker := range analysis.PolicyBlockers {
+		if blocker.PolicyID != policyID {
+			continue
+		}
+
+		for _, command := range blocker.AffectedCommands {
+			if command.Tool == tool && command.CommandShapeSHA256 != "" {
+				return
+			}
+		}
+	}
+
+	t.Fatalf(
+		"missing affected command %q %q: %#v",
+		policyID,
+		tool,
+		analysis.PolicyBlockers,
+	)
+}
+
+func assertDownstreamRemediationLoop(
+	t *testing.T,
+	analysis DownstreamAnalysis,
+	policyID string,
+) {
+	t.Helper()
+
+	for _, loop := range analysis.RemediationLoops {
+		if loop.PolicyID == policyID && loop.OccurrenceCount > 1 &&
+			loop.RepeatedCount > 0 {
+			return
+		}
+	}
+
+	t.Fatalf(
+		"missing remediation loop %q: %#v",
+		policyID,
+		analysis.RemediationLoops,
+	)
 }
 
 func assertDownstreamFindingHotspot(

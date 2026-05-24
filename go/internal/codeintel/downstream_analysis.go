@@ -18,7 +18,9 @@ import (
 const (
 	downstreamDefaultLimit    = 10
 	downstreamLargeLogBytes   = 100_000
+	downstreamCommandFanout   = 5
 	downstreamHookRunsSubpath = ".coding-ethos/hook-runs"
+	downstreamLintRunsSubpath = ".coding-ethos/lint-runs"
 	downstreamAppendOnlyHint  = "observed SQLITE_BUSY; consider append-only " +
 		"per-run traces with later ingestion"
 )
@@ -26,6 +28,7 @@ const (
 type DownstreamAnalysis struct {
 	HookFriction      []DownstreamHookFriction     `json:"hook_friction,omitempty"`
 	PolicyBlockers    []DownstreamPolicyBlocker    `json:"policy_blockers,omitempty"`
+	RemediationLoops  []DownstreamRemediationLoop  `json:"remediation_loops,omitempty"`
 	FindingHotspots   []DownstreamFindingHotspot   `json:"finding_hotspots,omitempty"`
 	FilePressure      []DownstreamFilePressure     `json:"file_pressure,omitempty"`
 	ToolchainFailures []DownstreamToolchainFailure `json:"toolchain_failures,omitempty"`
@@ -44,11 +47,35 @@ type DownstreamHookFriction struct {
 }
 
 type DownstreamPolicyBlocker struct {
+	PolicyID         string                      `json:"policy_id,omitempty"`
+	Decision         string                      `json:"decision,omitempty"`
+	Severity         string                      `json:"severity,omitempty"`
+	AffectedCommands []DownstreamAffectedCommand `json:"affected_commands,omitempty"`
+	DiagnosticCount  int                         `json:"diagnostic_count,omitempty"`
+	Count            int                         `json:"count"`
+}
+
+type DownstreamAffectedCommand struct {
+	Tool               string `json:"tool,omitempty"`
+	OperationKind      string `json:"operation_kind,omitempty"`
+	TargetKind         string `json:"target_kind,omitempty"`
+	RiskCategory       string `json:"risk_category,omitempty"`
+	Status             string `json:"status,omitempty"`
+	CommandShapeSHA256 string `json:"command_shape_sha256,omitempty"`
+	Count              int    `json:"count"`
+}
+
+type DownstreamRemediationLoop struct {
+	RemediationID   string `json:"remediation_id,omitempty"`
 	PolicyID        string `json:"policy_id,omitempty"`
-	Decision        string `json:"decision,omitempty"`
-	Severity        string `json:"severity,omitempty"`
-	DiagnosticCount int    `json:"diagnostic_count,omitempty"`
-	Count           int    `json:"count"`
+	SkillID         string `json:"skill_id,omitempty"`
+	File            string `json:"file,omitempty"`
+	Path            string `json:"path,omitempty"`
+	LastSeenUTC     string `json:"last_seen_utc,omitempty"`
+	TraceCount      int    `json:"trace_count"`
+	AttemptedCount  int    `json:"attempted_count"`
+	RepeatedCount   int    `json:"repeated_count"`
+	OccurrenceCount int    `json:"occurrence_count"`
 }
 
 type DownstreamFindingHotspot struct {
@@ -77,13 +104,16 @@ type DownstreamToolchainFailure struct {
 
 type DownstreamLogSignals struct {
 	HookRunCount           int `json:"hook_run_count"`
+	LintRunCount           int `json:"lint_run_count"`
 	EventJSONCount         int `json:"event_json_count"`
 	NonEmptyStdoutLogs     int `json:"non_empty_stdout_logs"`
 	NonEmptyStderrLogs     int `json:"non_empty_stderr_logs"`
+	NonEmptyLintRunLogs    int `json:"non_empty_lint_run_logs"`
 	LargeLogCount          int `json:"large_log_count"`
 	SQLiteBusyCount        int `json:"sqlite_busy_count"`
 	StaleRepoMapCount      int `json:"stale_repo_map_count"`
 	SandboxMissingCount    int `json:"sandbox_missing_count"`
+	ToolchainFailureCount  int `json:"toolchain_failure_count"`
 	DirectGitHookCount     int `json:"direct_git_hook_count"`
 	ProtectedBranchCount   int `json:"protected_branch_count"`
 	ProviderRequiredCount  int `json:"provider_required_count"`
@@ -166,6 +196,15 @@ func populateDownstreamAnalysisFromStore(
 	}
 
 	analysis.PolicyBlockers, err = downstreamPolicyBlockers(
+		ctx,
+		store.database,
+		limit,
+	)
+	if err != nil {
+		return DownstreamAnalysis{}, err
+	}
+
+	analysis.RemediationLoops, err = downstreamRemediationLoops(
 		ctx,
 		store.database,
 		limit,
@@ -286,40 +325,240 @@ func downstreamPolicyBlockers(
 	database *sql.DB,
 	limit int,
 ) ([]DownstreamPolicyBlocker, error) {
+	rows, err := queryDownstreamPolicyBlockerRows(ctx, database, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	accumulator := downstreamPolicyBlockerAccumulator{
+		results:    []DownstreamPolicyBlocker{},
+		indexByKey: map[downstreamPolicyBlockerKey]int{},
+		limit:      limit,
+	}
+
+	err = scanDownstreamPolicyBlockerRows(rows, &accumulator)
+	if err != nil {
+		return nil, err
+	}
+
+	return accumulator.results, nil
+}
+
+func queryDownstreamPolicyBlockerRows(
+	ctx context.Context,
+	database *sql.DB,
+	limit int,
+) (*sql.Rows, error) {
 	rows, err := database.QueryContext(
 		ctx,
-		`SELECT
-			COALESCE(policy_id, ''),
-			COALESCE(decision, ''),
-			COALESCE(severity, ''),
-			diagnostic_count,
-			COUNT(*) AS count
-		FROM hook_decisions
-		WHERE decision = 'block' OR severity = 'block'
-		GROUP BY policy_id, decision, severity, diagnostic_count
-		ORDER BY count DESC, diagnostic_count DESC
-		LIMIT ?`,
-		limit,
+		downstreamPolicyBlockersSQL,
+		limit*downstreamCommandFanout,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query downstream policy blockers: %w", err)
 	}
+
+	return rows, nil
+}
+
+const downstreamPolicyBlockersSQL = `SELECT
+	COALESCE(hd.policy_id, ''),
+	COALESCE(hd.decision, ''),
+	COALESCE(hd.severity, ''),
+	hd.diagnostic_count,
+	COALESCE(he.tool, ''),
+	COALESCE(he.operation_kind, ''),
+	COALESCE(he.target_kind, ''),
+	COALESCE(he.risk_category, ''),
+	COALESCE(he.status, ''),
+	COALESCE(he.command_shape_sha256, ''),
+	COUNT(*) AS count
+FROM hook_decisions hd
+LEFT JOIN hook_events he ON he.trace_id = hd.trace_id
+WHERE hd.decision = 'block' OR hd.severity = 'block'
+GROUP BY
+	hd.policy_id,
+	hd.decision,
+	hd.severity,
+	hd.diagnostic_count,
+	he.tool,
+	he.operation_kind,
+	he.target_kind,
+	he.risk_category,
+	he.status,
+	he.command_shape_sha256
+ORDER BY count DESC, diagnostic_count DESC
+LIMIT ?`
+
+type downstreamPolicyBlockerAccumulator struct {
+	indexByKey map[downstreamPolicyBlockerKey]int
+	results    []DownstreamPolicyBlocker
+	limit      int
+}
+
+func scanDownstreamPolicyBlockerRows(
+	rows *sql.Rows,
+	accumulator *downstreamPolicyBlockerAccumulator,
+) error {
+	for rows.Next() {
+		row, err := scanDownstreamPolicyBlockerRow(rows)
+		if err != nil {
+			return err
+		}
+
+		accumulator.add(row)
+	}
+
+	rowsErr := rows.Err()
+	if rowsErr != nil {
+		return fmt.Errorf("iterate downstream policy blockers: %w", rowsErr)
+	}
+
+	return nil
+}
+
+type downstreamPolicyBlockerRow struct {
+	key     downstreamPolicyBlockerKey
+	command DownstreamAffectedCommand
+	count   int
+}
+
+func scanDownstreamPolicyBlockerRow(
+	rows *sql.Rows,
+) (downstreamPolicyBlockerRow, error) {
+	var row downstreamPolicyBlockerRow
+
+	scanErr := rows.Scan(
+		&row.key.policyID,
+		&row.key.decision,
+		&row.key.severity,
+		&row.key.diagnosticCount,
+		&row.command.Tool,
+		&row.command.OperationKind,
+		&row.command.TargetKind,
+		&row.command.RiskCategory,
+		&row.command.Status,
+		&row.command.CommandShapeSHA256,
+		&row.count,
+	)
+	if scanErr != nil {
+		return downstreamPolicyBlockerRow{}, fmt.Errorf(
+			"scan downstream policy blocker: %w",
+			scanErr,
+		)
+	}
+
+	row.command.Count = row.count
+
+	return row, nil
+}
+
+func (accumulator *downstreamPolicyBlockerAccumulator) add(
+	row downstreamPolicyBlockerRow,
+) {
+	if index, found := accumulator.indexByKey[row.key]; found {
+		accumulator.results[index].Count += row.count
+		accumulator.results[index].AffectedCommands = append(
+			accumulator.results[index].AffectedCommands,
+			row.command,
+		)
+
+		return
+	}
+
+	if len(accumulator.results) >= accumulator.limit {
+		return
+	}
+
+	accumulator.indexByKey[row.key] = len(accumulator.results)
+	accumulator.results = append(accumulator.results, DownstreamPolicyBlocker{
+		PolicyID:         row.key.policyID,
+		Decision:         row.key.decision,
+		Severity:         row.key.severity,
+		DiagnosticCount:  row.key.diagnosticCount,
+		Count:            row.count,
+		AffectedCommands: []DownstreamAffectedCommand{row.command},
+	})
+}
+
+type downstreamPolicyBlockerKey struct {
+	policyID        string
+	decision        string
+	severity        string
+	diagnosticCount int
+}
+
+func downstreamRemediationLoops(
+	ctx context.Context,
+	database *sql.DB,
+	limit int,
+) ([]DownstreamRemediationLoop, error) {
+	rows, err := database.QueryContext(
+		ctx,
+		`WITH outcome_counts AS (
+			SELECT
+				COALESCE(remediation_id, '') AS remediation_id,
+				COALESCE(policy_id, '') AS policy_id,
+				COALESCE(skill_id, '') AS skill_id,
+				COALESCE(file, '') AS file,
+				COALESCE(path, '') AS path,
+				SUM(CASE WHEN outcome = 'attempted' THEN 1 ELSE 0 END) AS attempted,
+				SUM(CASE WHEN outcome = 'repeated' THEN 1 ELSE 0 END) AS repeated,
+				MAX(COALESCE(recorded_at_utc, '')) AS last_seen_utc
+			FROM remediation_outcomes
+			GROUP BY remediation_id, policy_id, skill_id, file, path
+		)
+		SELECT
+			COALESCE(ro.remediation_id, ''),
+			COALESCE(NULLIF(oc.policy_id, ''), ro.policy_id, ''),
+			COALESCE(NULLIF(oc.skill_id, ''), ro.skill_id, ''),
+			COALESCE(NULLIF(oc.file, ''), ro.file, ''),
+			COALESCE(NULLIF(oc.path, ''), ro.path, ''),
+			COUNT(DISTINCT ro.trace_id) AS trace_count,
+			COUNT(*) AS occurrence_count,
+			COALESCE(oc.attempted, 0) AS attempted_count,
+			COALESCE(oc.repeated, 0) AS repeated_count,
+			MAX(COALESCE(NULLIF(oc.last_seen_utc, ''), ro.recorded_at_utc, '')) AS last_seen_utc
+		FROM remediation_occurrences ro
+		LEFT JOIN outcome_counts oc ON oc.remediation_id = ro.remediation_id
+		GROUP BY
+			ro.remediation_id,
+			COALESCE(NULLIF(oc.policy_id, ''), ro.policy_id, ''),
+			COALESCE(NULLIF(oc.skill_id, ''), ro.skill_id, ''),
+			COALESCE(NULLIF(oc.file, ''), ro.file, ''),
+			COALESCE(NULLIF(oc.path, ''), ro.path, ''),
+			oc.attempted,
+			oc.repeated
+		HAVING occurrence_count > 1 OR attempted_count > 0 OR repeated_count > 0
+		ORDER BY repeated_count DESC, occurrence_count DESC, attempted_count DESC
+		LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query downstream remediation loops: %w", err)
+	}
 	defer rows.Close()
 
-	results := []DownstreamPolicyBlocker{}
+	results := []DownstreamRemediationLoop{}
 
 	for rows.Next() {
-		var result DownstreamPolicyBlocker
+		var result DownstreamRemediationLoop
 
 		scanErr := rows.Scan(
+			&result.RemediationID,
 			&result.PolicyID,
-			&result.Decision,
-			&result.Severity,
-			&result.DiagnosticCount,
-			&result.Count,
+			&result.SkillID,
+			&result.File,
+			&result.Path,
+			&result.TraceCount,
+			&result.OccurrenceCount,
+			&result.AttemptedCount,
+			&result.RepeatedCount,
+			&result.LastSeenUTC,
 		)
 		if scanErr != nil {
-			return nil, fmt.Errorf("scan downstream policy blocker: %w", scanErr)
+			return nil, fmt.Errorf("scan downstream remediation loop: %w", scanErr)
 		}
 
 		results = append(results, result)
@@ -327,7 +566,7 @@ func downstreamPolicyBlockers(
 
 	rowsErr := rows.Err()
 	if rowsErr != nil {
-		return nil, fmt.Errorf("iterate downstream policy blockers: %w", rowsErr)
+		return nil, fmt.Errorf("iterate downstream remediation loops: %w", rowsErr)
 	}
 
 	return results, nil
@@ -488,51 +727,80 @@ func downstreamToolchainFailures(
 
 func scanDownstreamHookLogs(root string) (DownstreamLogSignals, error) {
 	signals := DownstreamLogSignals{}
-	hookRuns := filepath.Join(root, downstreamHookRunsSubpath)
 
-	err := filepath.WalkDir(
-		hookRuns,
-		func(path string, entry fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-
-			return updateDownstreamLogSignals(hookRuns, path, entry, &signals)
-		},
+	err := scanDownstreamLogTree(
+		filepath.Join(root, downstreamHookRunsSubpath),
+		downstreamLogTreeHook,
+		&signals,
 	)
-	if err != nil && !os.IsNotExist(err) {
-		return DownstreamLogSignals{}, fmt.Errorf("scan hook run logs: %w", err)
+	if err != nil {
+		return DownstreamLogSignals{}, err
+	}
+
+	err = scanDownstreamLogTree(
+		filepath.Join(root, downstreamLintRunsSubpath),
+		downstreamLogTreeLint,
+		&signals,
+	)
+	if err != nil {
+		return DownstreamLogSignals{}, err
 	}
 
 	return signals, nil
 }
 
+type downstreamLogTreeKind string
+
+const (
+	downstreamLogTreeHook downstreamLogTreeKind = "hook"
+	downstreamLogTreeLint downstreamLogTreeKind = "lint"
+)
+
+func scanDownstreamLogTree(
+	runRoot string,
+	kind downstreamLogTreeKind,
+	signals *DownstreamLogSignals,
+) error {
+	err := filepath.WalkDir(
+		runRoot,
+		func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+
+			return updateDownstreamLogSignals(runRoot, kind, path, entry, signals)
+		},
+	)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("scan %s run logs: %w", kind, err)
+	}
+
+	return nil
+}
+
 func updateDownstreamLogSignals(
-	hookRuns string,
+	runRoot string,
+	kind downstreamLogTreeKind,
 	path string,
 	entry fs.DirEntry,
 	signals *DownstreamLogSignals,
 ) error {
 	if entry.IsDir() {
-		if path != hookRuns && filepath.Dir(path) == hookRuns {
-			signals.HookRunCount++
-		}
+		recordDownstreamRunDirectory(runRoot, kind, path, signals)
 
 		return nil
 	}
 
 	name := entry.Name()
-	if name == "event.json" {
-		signals.EventJSONCount++
-	}
+	recordDownstreamRunFile(kind, name, signals)
 
-	if name != "stdout.log" && name != "stderr.log" {
+	if !isDownstreamScannableLog(kind, name) {
 		return nil
 	}
 
 	info, err := entry.Info()
 	if err != nil {
-		return fmt.Errorf("stat hook log %q: %w", path, err)
+		return fmt.Errorf("stat downstream log %q: %w", path, err)
 	}
 
 	if info.Size() == 0 {
@@ -543,19 +811,65 @@ func updateDownstreamLogSignals(
 		signals.LargeLogCount++
 	}
 
-	if name == "stdout.log" {
+	recordDownstreamNonEmptyLog(kind, name, signals)
+
+	return scanDownstreamLogFile(path, signals)
+}
+
+func recordDownstreamRunDirectory(
+	runRoot string,
+	kind downstreamLogTreeKind,
+	path string,
+	signals *DownstreamLogSignals,
+) {
+	if kind == downstreamLogTreeHook && path != runRoot && filepath.Dir(path) == runRoot {
+		signals.HookRunCount++
+	}
+}
+
+func recordDownstreamRunFile(
+	kind downstreamLogTreeKind,
+	name string,
+	signals *DownstreamLogSignals,
+) {
+	if name == "event.json" {
+		signals.EventJSONCount++
+	}
+
+	if kind == downstreamLogTreeLint {
+		signals.LintRunCount++
+	}
+}
+
+func recordDownstreamNonEmptyLog(
+	kind downstreamLogTreeKind,
+	name string,
+	signals *DownstreamLogSignals,
+) {
+	switch name {
+	case "stdout.log":
 		signals.NonEmptyStdoutLogs++
-	} else {
+	case "stderr.log":
 		signals.NonEmptyStderrLogs++
 	}
 
-	return scanDownstreamLogFile(path, signals)
+	if kind == downstreamLogTreeLint {
+		signals.NonEmptyLintRunLogs++
+	}
+}
+
+func isDownstreamScannableLog(kind downstreamLogTreeKind, name string) bool {
+	if name == "stdout.log" || name == "stderr.log" {
+		return true
+	}
+
+	return kind == downstreamLogTreeLint && strings.HasSuffix(name, ".json")
 }
 
 func scanDownstreamLogFile(path string, signals *DownstreamLogSignals) error {
 	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
-		return fmt.Errorf("open hook log %q: %w", path, err)
+		return fmt.Errorf("open downstream log %q: %w", path, err)
 	}
 	defer file.Close()
 
@@ -574,7 +888,7 @@ func scanDownstreamLogFile(path string, signals *DownstreamLogSignals) error {
 			return nil
 		}
 
-		return fmt.Errorf("read hook log %q: %w", path, readErr)
+		return fmt.Errorf("read downstream log %q: %w", path, readErr)
 	}
 }
 
@@ -584,6 +898,7 @@ func recordDownstreamLogLine(line string, signals *DownstreamLogSignals) {
 	recordSQLiteBusySignal(lower, signals)
 	recordStaleRepoMapSignal(lower, signals)
 	recordSandboxMissingSignal(lower, signals)
+	recordToolchainFailureSignal(lower, signals)
 	recordDirectGitSignal(lower, signals)
 	recordProtectedBranchSignal(lower, signals)
 	recordProviderRequiredSignal(lower, signals)
@@ -611,6 +926,20 @@ func recordSandboxMissingSignal(lower string, signals *DownstreamLogSignals) {
 		(strings.Contains(lower, "no such file") ||
 			strings.Contains(lower, "sandbox_denied")) {
 		signals.SandboxMissingCount++
+	}
+}
+
+func recordToolchainFailureSignal(lower string, signals *DownstreamLogSignals) {
+	if strings.Contains(lower, "managed-toolchain") ||
+		strings.Contains(lower, "managed tool") ||
+		strings.Contains(lower, "pyupgrade") ||
+		strings.Contains(lower, "python-complexity") ||
+		strings.Contains(lower, "python-vulture") ||
+		strings.Contains(lower, "vulture") ||
+		strings.Contains(lower, "toolchain") ||
+		strings.Contains(lower, "sandbox backend unavailable") ||
+		strings.Contains(lower, "cgroup memory limit could not be applied") {
+		signals.ToolchainFailureCount++
 	}
 }
 
