@@ -23,7 +23,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-const blockedExitCode = 1
+const blockedExitCode = hooks.AgentHookBlockedExitCode
 
 var (
 	errBundleRequired = apperror.StaticError("--bundle is required")
