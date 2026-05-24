@@ -8,20 +8,23 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
 const (
-	downstreamDefaultLimit    = 10
-	downstreamLargeLogBytes   = 100_000
-	downstreamCommandFanout   = 5
-	downstreamHookRunsSubpath = ".coding-ethos/hook-runs"
-	downstreamLintRunsSubpath = ".coding-ethos/lint-runs"
-	downstreamAppendOnlyHint  = "observed SQLITE_BUSY; consider append-only " +
+	downstreamDefaultLimit   = 10
+	downstreamLargeLogBytes  = 100_000
+	downstreamLogScanLimit   = 500
+	downstreamScannerBuffer  = 64 * 1024
+	downstreamCommandFanout  = 5
+	downstreamStateDir       = ".coding-ethos"
+	downstreamHookRunsDir    = "hook-runs"
+	downstreamLintRunsDir    = "lint-runs"
+	downstreamAppendOnlyHint = "observed SQLITE_BUSY; consider append-only " +
 		"per-run traces with later ingestion"
 )
 
@@ -272,14 +275,14 @@ func downstreamHookFriction(
 	rows, err := database.QueryContext(
 		ctx,
 		`SELECT
-			COALESCE(operation_kind, ''),
-			COALESCE(target_kind, ''),
-			COALESCE(risk_category, ''),
-			COALESCE(status, ''),
+			COALESCE(operation_kind, '') AS operation,
+			COALESCE(target_kind, '') AS target,
+			COALESCE(risk_category, '') AS risk,
+			COALESCE(status, '') AS event_status,
 			blocked,
 			COUNT(*) AS count
 		FROM hook_events
-		GROUP BY operation_kind, target_kind, risk_category, status, blocked
+		GROUP BY operation, target, risk, event_status, blocked
 		ORDER BY count DESC, blocked DESC
 		LIMIT ?`,
 		limit,
@@ -363,31 +366,31 @@ func queryDownstreamPolicyBlockerRows(
 }
 
 const downstreamPolicyBlockersSQL = `SELECT
-	COALESCE(hd.policy_id, ''),
-	COALESCE(hd.decision, ''),
-	COALESCE(hd.severity, ''),
+	COALESCE(hd.policy_id, '') AS policy,
+	COALESCE(hd.decision, '') AS decision_result,
+	COALESCE(hd.severity, '') AS severity_result,
 	hd.diagnostic_count,
-	COALESCE(he.tool, ''),
-	COALESCE(he.operation_kind, ''),
-	COALESCE(he.target_kind, ''),
-	COALESCE(he.risk_category, ''),
-	COALESCE(he.status, ''),
-	COALESCE(he.command_shape_sha256, ''),
+	COALESCE(he.tool, '') AS command_tool,
+	COALESCE(he.operation_kind, '') AS operation,
+	COALESCE(he.target_kind, '') AS target,
+	COALESCE(he.risk_category, '') AS risk,
+	COALESCE(he.status, '') AS event_status,
+	COALESCE(he.command_shape_sha256, '') AS command_shape,
 	COUNT(*) AS count
 FROM hook_decisions hd
 LEFT JOIN hook_events he ON he.trace_id = hd.trace_id
 WHERE hd.decision = 'block' OR hd.severity = 'block'
 GROUP BY
-	hd.policy_id,
-	hd.decision,
-	hd.severity,
+	policy,
+	decision_result,
+	severity_result,
 	hd.diagnostic_count,
-	he.tool,
-	he.operation_kind,
-	he.target_kind,
-	he.risk_category,
-	he.status,
-	he.command_shape_sha256
+	command_tool,
+	operation,
+	target,
+	risk,
+	event_status,
+	command_shape
 ORDER BY count DESC, diagnostic_count DESC
 LIMIT ?`
 
@@ -580,14 +583,14 @@ func downstreamFindingHotspots(
 	rows, err := database.QueryContext(
 		ctx,
 		`SELECT
-			COALESCE(f.path, fo.path, ''),
-			COALESCE(f.tool, ''),
-			COALESCE(f.code, ''),
-			COALESCE(f.policy_id, fo.policy_id, ''),
+			COALESCE(f.path, fo.path, '') AS display_path,
+			COALESCE(f.tool, '') AS display_tool,
+			COALESCE(f.code, '') AS display_code,
+			COALESCE(f.policy_id, fo.policy_id, '') AS display_policy,
 			COUNT(*) AS count
 		FROM finding_occurrences fo
 		JOIN findings f ON f.finding_id = fo.finding_id
-		GROUP BY f.path, fo.path, f.tool, f.code, f.policy_id, fo.policy_id
+		GROUP BY display_path, display_tool, display_code, display_policy
 		ORDER BY count DESC
 		LIMIT ?`,
 		limit,
@@ -678,17 +681,17 @@ func downstreamToolchainFailures(
 	rows, err := database.QueryContext(
 		ctx,
 		`SELECT
-			COALESCE(tool, ''),
-			COALESCE(code, ''),
-			COALESCE(policy_id, ''),
-			COALESCE(message, ''),
+			COALESCE(tool, '') AS tool_name,
+			COALESCE(code, '') AS rule_code,
+			COALESCE(policy_id, '') AS policy,
+			COALESCE(message, '') AS finding_message,
 			COUNT(*) AS count
 		FROM findings
 		WHERE policy_id LIKE 'runtime.%'
 			OR policy_id LIKE 'tool.%'
 			OR message LIKE '%sandbox%'
 			OR message LIKE '%managed tool%'
-		GROUP BY tool, code, policy_id, message
+		GROUP BY tool_name, rule_code, policy, finding_message
 		ORDER BY count DESC
 		LIMIT ?`,
 		limit,
@@ -729,7 +732,7 @@ func scanDownstreamHookLogs(root string) (DownstreamLogSignals, error) {
 	signals := DownstreamLogSignals{}
 
 	err := scanDownstreamLogTree(
-		filepath.Join(root, downstreamHookRunsSubpath),
+		filepath.Join(root, downstreamStateDir, downstreamHookRunsDir),
 		downstreamLogTreeHook,
 		&signals,
 	)
@@ -738,7 +741,7 @@ func scanDownstreamHookLogs(root string) (DownstreamLogSignals, error) {
 	}
 
 	err = scanDownstreamLogTree(
-		filepath.Join(root, downstreamLintRunsSubpath),
+		filepath.Join(root, downstreamStateDir, downstreamLintRunsDir),
 		downstreamLogTreeLint,
 		&signals,
 	)
@@ -761,6 +764,8 @@ func scanDownstreamLogTree(
 	kind downstreamLogTreeKind,
 	signals *DownstreamLogSignals,
 ) error {
+	candidates := []downstreamLogCandidate{}
+
 	err := filepath.WalkDir(
 		runRoot,
 		func(path string, entry fs.DirEntry, walkErr error) error {
@@ -768,14 +773,34 @@ func scanDownstreamLogTree(
 				return walkErr
 			}
 
-			return updateDownstreamLogSignals(runRoot, kind, path, entry, signals)
+			candidate, shouldScan, updateErr := updateDownstreamLogSignals(
+				runRoot,
+				kind,
+				path,
+				entry,
+				signals,
+			)
+			if updateErr != nil {
+				return updateErr
+			}
+
+			if shouldScan {
+				candidates = append(candidates, candidate)
+			}
+
+			return nil
 		},
 	)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("scan %s run logs: %w", kind, err)
 	}
 
-	return nil
+	return scanDownstreamLogCandidates(candidates, signals)
+}
+
+type downstreamLogCandidate struct {
+	path    string
+	modTime int64
 }
 
 func updateDownstreamLogSignals(
@@ -784,36 +809,67 @@ func updateDownstreamLogSignals(
 	path string,
 	entry fs.DirEntry,
 	signals *DownstreamLogSignals,
-) error {
+) (downstreamLogCandidate, bool, error) {
 	if entry.IsDir() {
 		recordDownstreamRunDirectory(runRoot, kind, path, signals)
 
-		return nil
+		return downstreamLogCandidate{}, false, nil
 	}
 
 	name := entry.Name()
 	recordDownstreamRunFile(kind, name, signals)
 
 	if !isDownstreamScannableLog(kind, name) {
-		return nil
+		return downstreamLogCandidate{}, false, nil
 	}
 
 	info, err := entry.Info()
 	if err != nil {
-		return fmt.Errorf("stat downstream log %q: %w", path, err)
+		return downstreamLogCandidate{}, false, fmt.Errorf(
+			"stat downstream log %q: %w",
+			path,
+			err,
+		)
 	}
 
 	if info.Size() == 0 {
-		return nil
-	}
-
-	if info.Size() > downstreamLargeLogBytes {
-		signals.LargeLogCount++
+		return downstreamLogCandidate{}, false, nil
 	}
 
 	recordDownstreamNonEmptyLog(kind, name, signals)
 
-	return scanDownstreamLogFile(path, signals)
+	if info.Size() > downstreamLargeLogBytes {
+		signals.LargeLogCount++
+
+		return downstreamLogCandidate{}, false, nil
+	}
+
+	return downstreamLogCandidate{
+		path:    path,
+		modTime: info.ModTime().UnixNano(),
+	}, true, nil
+}
+
+func scanDownstreamLogCandidates(
+	candidates []downstreamLogCandidate,
+	signals *DownstreamLogSignals,
+) error {
+	sort.SliceStable(candidates, func(left, right int) bool {
+		return candidates[left].modTime > candidates[right].modTime
+	})
+
+	if len(candidates) > downstreamLogScanLimit {
+		candidates = candidates[:downstreamLogScanLimit]
+	}
+
+	for _, candidate := range candidates {
+		err := scanDownstreamLogFile(candidate.path, signals)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func recordDownstreamRunDirectory(
@@ -873,23 +929,19 @@ func scanDownstreamLogFile(path string, signals *DownstreamLogSignals) error {
 	}
 	defer file.Close()
 
-	reader := bufio.NewReader(file)
-	for {
-		line, readErr := reader.ReadString('\n')
-		if line != "" {
-			recordDownstreamLogLine(line, signals)
-		}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, downstreamScannerBuffer), downstreamLargeLogBytes)
 
-		if readErr == nil {
-			continue
-		}
-
-		if readErr == io.EOF {
-			return nil
-		}
-
-		return fmt.Errorf("read downstream log %q: %w", path, readErr)
+	for scanner.Scan() {
+		recordDownstreamLogLine(scanner.Text(), signals)
 	}
+
+	err = scanner.Err()
+	if err != nil {
+		return fmt.Errorf("read downstream log %q: %w", path, err)
+	}
+
+	return nil
 }
 
 func recordDownstreamLogLine(line string, signals *DownstreamLogSignals) {

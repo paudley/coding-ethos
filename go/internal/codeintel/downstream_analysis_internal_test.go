@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
@@ -94,6 +95,12 @@ func TestAnalyzeDownstreamWithoutStoreStillSummarizesLogs(t *testing.T) {
 		"Protected branch writes are forbidden.\n"+
 			"Inline command environment variables are forbidden.\n",
 	)
+	writeDownstreamHookLog(
+		t,
+		root,
+		"20260524T000002Z-1-2",
+		strings.Repeat("large unbounded log line ", 6000),
+	)
 
 	analysis, err := AnalyzeDownstream(context.Background(), root, nil, 5)
 	if err != nil {
@@ -105,8 +112,64 @@ func TestAnalyzeDownstreamWithoutStoreStillSummarizesLogs(t *testing.T) {
 	}
 
 	if analysis.LogSignals.ProtectedBranchCount != 1 ||
-		analysis.LogSignals.InlineEnvCount != 1 {
+		analysis.LogSignals.InlineEnvCount != 1 ||
+		analysis.LogSignals.LargeLogCount != 1 {
 		t.Fatalf("log signals = %#v", analysis.LogSignals)
+	}
+}
+
+func TestDownstreamQueriesGroupByDisplayedValues(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "code-intel.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	_, err = store.database.ExecContext(
+		ctx,
+		`INSERT INTO traces(trace_id, trace_kind, raw_json)
+		VALUES ('trace-null', 'hook', '{}'), ('trace-empty', 'hook', '{}');
+		INSERT INTO hook_events(trace_id, blocked)
+		VALUES ('trace-null', 1), ('trace-empty', 1);
+		UPDATE hook_events SET operation_kind = '' WHERE trace_id = 'trace-empty';
+		INSERT INTO findings(finding_id, tool, code, message, policy_id, raw_json)
+		VALUES
+			('finding-null', NULL, NULL, 'sandbox failed', NULL, '{}'),
+			('finding-empty', '', '', 'sandbox failed', '', '{}');
+		INSERT INTO finding_occurrences(trace_id, ordinal, finding_id, path)
+		VALUES
+			('trace-null', 0, 'finding-null', ''),
+			('trace-empty', 0, 'finding-empty', '');`,
+	)
+	if err != nil {
+		t.Fatalf("seed grouping data: %v", err)
+	}
+
+	friction, err := downstreamHookFriction(ctx, store.database, 5)
+	if err != nil {
+		t.Fatalf("query hook friction: %v", err)
+	}
+	if len(friction) != 1 || friction[0].Count != 2 {
+		t.Fatalf("hook friction did not coalesce displayed values: %#v", friction)
+	}
+
+	hotspots, err := downstreamFindingHotspots(ctx, store.database, 5)
+	if err != nil {
+		t.Fatalf("query finding hotspots: %v", err)
+	}
+	if len(hotspots) != 1 || hotspots[0].Count != 2 {
+		t.Fatalf("finding hotspots did not coalesce displayed values: %#v", hotspots)
+	}
+
+	failures, err := downstreamToolchainFailures(ctx, store.database, 5)
+	if err != nil {
+		t.Fatalf("query toolchain failures: %v", err)
+	}
+	if len(failures) != 1 || failures[0].Count != 2 {
+		t.Fatalf("toolchain failures did not coalesce displayed values: %#v", failures)
 	}
 }
 
@@ -231,7 +294,12 @@ func writeDownstreamHookLog(
 ) {
 	t.Helper()
 
-	runDir := filepath.Join(root, downstreamHookRunsSubpath, runID)
+	runDir := filepath.Join(
+		root,
+		downstreamStateDir,
+		downstreamHookRunsDir,
+		runID,
+	)
 	err := os.MkdirAll(runDir, 0o700)
 	if err != nil {
 		t.Fatalf("create hook run dir: %v", err)
@@ -256,7 +324,7 @@ func writeDownstreamLintRun(
 ) {
 	t.Helper()
 
-	runDir := filepath.Join(root, downstreamLintRunsSubpath)
+	runDir := filepath.Join(root, downstreamStateDir, downstreamLintRunsDir)
 	err := os.MkdirAll(runDir, 0o700)
 	if err != nil {
 		t.Fatalf("create lint run dir: %v", err)

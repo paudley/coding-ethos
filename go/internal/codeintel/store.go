@@ -98,7 +98,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 }
 
 func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
-	_, err := os.Stat(path)
+	_, err := os.Stat(sqliteStoreStatPath(path))
 	if err != nil {
 		return nil, fmt.Errorf("stat code intelligence store: %w", err)
 	}
@@ -148,6 +148,19 @@ func sqliteReadOnlyStoreDSN(path string) string {
 
 	return prefix + filepath.ToSlash(path) + separator +
 		"mode=ro&_pragma=busy_timeout(30000)"
+}
+
+func sqliteStoreStatPath(path string) string {
+	result := strings.TrimPrefix(path, "file:")
+	if before, _, found := strings.Cut(result, "?"); found {
+		result = before
+	}
+
+	if before, _, found := strings.Cut(result, "#"); found {
+		result = before
+	}
+
+	return filepath.FromSlash(result)
 }
 
 func configureConnectionPool(database *sql.DB) {
