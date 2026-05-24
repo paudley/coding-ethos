@@ -74,7 +74,7 @@ func firstPythonSilentExceptionIssue(facts []pythonASTFact) *pythonASTIssue {
 
 func firstPythonStructuredLogIssue(facts []pythonASTFact) *pythonASTIssue {
 	for _, fact := range facts {
-		if fact.IsStructuredLog {
+		if fact.IsUnstructuredLogMessage {
 			return newPythonASTIssueFromFact(
 				fact,
 				"unstructured-log-message",

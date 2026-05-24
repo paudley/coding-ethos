@@ -29,6 +29,25 @@ func TestEvaluatePythonBareExcept(t *testing.T) {
 	}
 }
 
+func TestEvaluatePythonBareExceptCatchesMalformedEditSnippet(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluatePythonBareExcept(
+		pythonWritePolicy("python.bare_except"),
+		Context{
+			Files:   []string{"src/app.py"},
+			Content: "except:\n    recover()\n",
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate bare except: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
 func TestEvaluatePythonUnexplainedTypeIgnore(t *testing.T) {
 	t.Parallel()
 
@@ -37,6 +56,27 @@ func TestEvaluatePythonUnexplainedTypeIgnore(t *testing.T) {
 		Context{
 			Files:   []string{"src/app.py"},
 			Content: "value = dynamic()  # type: ignore\n",
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate type ignore: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("expected block decision, got %#v", decisions)
+	}
+}
+
+func TestEvaluatePythonUnexplainedTypeIgnoreCatchesMalformedEditSnippet(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	decisions, err := EvaluatePythonUnexplainedTypeIgnore(
+		pythonWritePolicy("python.unexplained_type_ignore"),
+		Context{
+			Files:   []string{"src/app.py"},
+			Content: "    value = dynamic()  # type: ignore\n",
 		},
 	)
 	if err != nil {

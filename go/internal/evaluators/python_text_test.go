@@ -90,6 +90,48 @@ func TestEvaluatePythonConditionalImportsCatchesMalformedEditSnippets(t *testing
 	}
 }
 
+func TestEvaluateLiftedPythonPoliciesCatchMalformedEditSnippets(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		policyID string
+		content  string
+	}{
+		{
+			name:     "optional return",
+			policyID: "python.optional_returns",
+			content:  "    def load_service() -> Service | None:\n",
+		},
+		{
+			name:     "silent exception",
+			policyID: "python.catch_and_silence",
+			content:  "except RuntimeError:\n    pass\n",
+		},
+		{
+			name:     "unstructured logging",
+			policyID: "python.structured_logging",
+			content:  "    self.logger.info(f'user={user_id}')\n",
+		},
+		{
+			name:     "direct import",
+			policyID: "python.direct_imports",
+			content:  "    from coding_ethos.loaders import load\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			decision := evaluatePythonPolicy(t, test.policyID, test.content)
+			if decision.PolicyID != test.policyID {
+				t.Fatalf("policy mismatch: %#v", decision)
+			}
+		})
+	}
+}
+
 func TestEvaluatePythonConditionalImportsAllowsModuleImports(t *testing.T) {
 	t.Parallel()
 
@@ -269,8 +311,8 @@ func TestEvaluateCELUsesLiftedPythonASTPolicyFacts(t *testing.T) {
 			content: "try:\n    run()\nexcept RuntimeError:\n    pass\n",
 		},
 		{
-			name: "structured logging",
-			when: "python_ast.exists(fact, fact.is_structured_log && " +
+			name: "unstructured logging message",
+			when: "python_ast.exists(fact, fact.is_unstructured_log_message && " +
 				"fact.logger_name == 'logger' && fact.logger_method == 'info')",
 			content: "logger.info(f'user={user_id}')\n",
 		},
