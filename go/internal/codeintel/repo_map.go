@@ -75,6 +75,7 @@ func (store *Store) repoMapFiles(
 	query RepoMapQuery,
 ) ([]RepoMapFile, error) {
 	ignoreMatcher := newGitIgnoreMatcher(ctx, strings.TrimSpace(query.Root))
+
 	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT file.path, file.language, file.line_count,
@@ -122,6 +123,7 @@ func (store *Store) repoMapFiles(
 
 		file.Score = repoMapFileScore(file)
 		files = append(files, file)
+
 		if len(files) >= repoMapLimit(query) {
 			break
 		}
