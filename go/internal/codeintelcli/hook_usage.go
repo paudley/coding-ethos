@@ -44,14 +44,30 @@ func recordHookReview(ctx context.Context, args []string) error {
 	}
 	defer store.Close()
 
-	err = store.RecordHookReview(ctx, codeintel.HookReview{
+	review := codeintel.HookReview{
 		TraceID:       *traceID,
 		TrackingID:    *trackingID,
 		Disposition:   *disposition,
 		Reviewer:      *reviewer,
 		Notes:         *notes,
 		RecordedAtUTC: *recordedAt,
+	}
+
+	payload, err := rawEventPayload(review)
+	if err != nil {
+		return err
+	}
+
+	err = appendCLIEvent(*storeFlags.root, "hook-review", codeintel.EventRecord{
+		Kind:    "hook_review",
+		TraceID: *traceID,
+		Payload: payload,
 	})
+	if err != nil {
+		return err
+	}
+
+	err = store.RecordHookReview(ctx, review)
 	if err != nil {
 		return fmt.Errorf("record hook review: %w", err)
 	}

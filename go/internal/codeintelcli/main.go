@@ -74,6 +74,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"record-hook-review":        recordHookReview,
 		"record-proxy-event":        recordProxyEvent,
 		"record-outcome":            recordOutcome,
+		"rebuild-index":             rebuildIndex,
 		"remediation-effectiveness": printRemediationEffectiveness,
 		"remediation-outcomes":      printRemediationOutcomes,
 		"proxy-events":              printProxyEvents,
@@ -212,6 +213,15 @@ func ingestSARIF(ctx context.Context, args []string) error {
 		return fmt.Errorf("read SARIF file %q: %w", *file, err)
 	}
 
+	err = appendCLIEvent(*root, "sarif", codeintel.EventRecord{
+		Kind:    "sarif",
+		Path:    *file,
+		Payload: payload,
+	})
+	if err != nil {
+		return err
+	}
+
 	store, err := openStore(ctx, *root, *dbPath)
 	if err != nil {
 		return err
@@ -271,7 +281,7 @@ func recordOutcome(ctx context.Context, args []string) error {
 	}
 	defer store.Close()
 
-	err = store.RecordRemediationOutcome(ctx, codeintel.RemediationOutcome{
+	outcomeRecord := codeintel.RemediationOutcome{
 		RemediationID:   *remediationID,
 		FindingID:       *findingID,
 		SourceTraceID:   *sourceTraceID,
@@ -283,7 +293,14 @@ func recordOutcome(ctx context.Context, args []string) error {
 		Tool:            *tool,
 		Outcome:         *outcome,
 		AttemptOrdinal:  *attempt,
-	})
+	}
+
+	err = appendRemediationOutcomeEvent(*root, outcomeRecord)
+	if err != nil {
+		return err
+	}
+
+	err = store.RecordRemediationOutcome(ctx, outcomeRecord)
 	if err != nil {
 		return fmt.Errorf("record remediation outcome: %w", err)
 	}
@@ -294,6 +311,27 @@ func recordOutcome(ctx context.Context, args []string) error {
 	}
 
 	return encodeJSON(os.Stdout, stats)
+}
+
+func appendRemediationOutcomeEvent(
+	root string,
+	outcome codeintel.RemediationOutcome,
+) error {
+	payload, err := rawEventPayload(outcome)
+	if err != nil {
+		return err
+	}
+
+	return appendCLIEvent(root, "remediation-outcome", codeintel.EventRecord{
+		Kind:     "remediation_outcome",
+		TraceID:  outcome.SourceTraceID,
+		Provider: outcome.Provider,
+		Tool:     outcome.Tool,
+		PolicyID: outcome.PolicyID,
+		SkillID:  outcome.SkillID,
+		Path:     outcome.Path,
+		Payload:  payload,
+	})
 }
 
 func recordEmbedding(ctx context.Context, args []string) error {
@@ -323,7 +361,7 @@ func recordEmbedding(ctx context.Context, args []string) error {
 	}
 	defer store.Close()
 
-	err = store.UpsertEmbeddingRecord(ctx, codeintel.EmbeddingRecord{
+	embeddingRecord := codeintel.EmbeddingRecord{
 		Backend:      *backend,
 		Collection:   *collection,
 		ModelID:      *modelID,
@@ -334,7 +372,25 @@ func recordEmbedding(ctx context.Context, args []string) error {
 		PolicyID:     *policyID,
 		SkillID:      *skillID,
 		BackendRowID: *backendRowID,
+	}
+
+	payload, err := rawEventPayload(embeddingRecord)
+	if err != nil {
+		return err
+	}
+
+	err = appendCLIEvent(*root, "embedding-record", codeintel.EventRecord{
+		Kind:     "embedding_record",
+		PolicyID: *policyID,
+		SkillID:  *skillID,
+		Path:     *path,
+		Payload:  payload,
 	})
+	if err != nil {
+		return err
+	}
+
+	err = store.UpsertEmbeddingRecord(ctx, embeddingRecord)
 	if err != nil {
 		return fmt.Errorf("record embedding metadata: %w", err)
 	}
@@ -375,7 +431,8 @@ func printStats(ctx context.Context, args []string) error {
 func printDownstreamAnalysis(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("downstream-analysis", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	dbPath := flags.String("db", "", "Legacy SQLite code intelligence database path")
+	duckDBPath := flags.String("duckdb", "", "DuckDB code intelligence database path")
 	limit := addResultLimit(flags)
 
 	err := parseCommandFlags(flags, args, "downstream-analysis")
@@ -383,30 +440,96 @@ func printDownstreamAnalysis(ctx context.Context, args []string) error {
 		return err
 	}
 
-	store, openErr := openReadOnlyStore(ctx, *root, *dbPath)
-	if openErr != nil {
-		analysis, analyzeErr := codeintel.AnalyzeDownstream(
-			ctx,
-			*root,
-			nil,
-			*limit,
-		)
-		if analyzeErr != nil {
-			return fmt.Errorf("analyze downstream logs: %w", analyzeErr)
-		}
-
-		analysis.SQLiteStrategy.OpenError = openErr.Error()
-
-		return encodeJSON(os.Stdout, analysis)
-	}
-	defer store.Close()
-
-	analysis, err := codeintel.AnalyzeDownstream(ctx, *root, store, *limit)
+	analysis, err := downstreamAnalysisForStores(
+		ctx,
+		*root,
+		*dbPath,
+		*duckDBPath,
+		*limit,
+	)
 	if err != nil {
-		return fmt.Errorf("analyze downstream code intelligence: %w", err)
+		return err
 	}
 
 	return encodeJSON(os.Stdout, analysis)
+}
+
+func downstreamAnalysisForStores(
+	ctx context.Context,
+	root string,
+	dbPath string,
+	duckDBPath string,
+	limit int,
+) (any, error) {
+	duckStore, duckOpenErr := codeintel.OpenDuckDBReadOnly(
+		ctx,
+		resolvedDuckDBPath(root, duckDBPath),
+	)
+	if duckOpenErr == nil {
+		defer duckStore.Close()
+
+		analysis, err := codeintel.AnalyzeDownstreamDuckDB(ctx, root, duckStore, limit)
+		if err != nil {
+			return nil, fmt.Errorf("analyze downstream DuckDB code intelligence: %w", err)
+		}
+
+		return analysis, nil
+	}
+
+	return legacyDownstreamAnalysis(ctx, root, dbPath, limit, duckOpenErr)
+}
+
+func legacyDownstreamAnalysis(
+	ctx context.Context,
+	root string,
+	dbPath string,
+	limit int,
+	duckOpenErr error,
+) (any, error) {
+	store, openErr := openReadOnlyStore(ctx, root, dbPath)
+	if openErr != nil {
+		analysis, err := codeintel.AnalyzeDownstream(ctx, root, nil, limit)
+		if err != nil {
+			return nil, fmt.Errorf("analyze downstream logs: %w", err)
+		}
+
+		analysis.SQLiteStrategy.OpenError = openErr.Error()
+		analysis.StorageHealth.OpenError = duckOpenErr.Error()
+
+		return analysis, nil
+	}
+	defer store.Close()
+
+	analysis, err := codeintel.AnalyzeDownstream(ctx, root, store, limit)
+	if err != nil {
+		return nil, fmt.Errorf("analyze downstream code intelligence: %w", err)
+	}
+
+	return analysis, nil
+}
+
+func rebuildIndex(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("rebuild-index", flag.ExitOnError)
+	root := flags.String("root", ".", "Repository root containing .coding-ethos")
+	dbPath := flags.String("db", "", "Legacy SQLite code intelligence database path")
+	duckDBPath := flags.String("duckdb", "", "DuckDB code intelligence database path")
+
+	err := parseCommandFlags(flags, args, "rebuild-index")
+	if err != nil {
+		return err
+	}
+
+	summary, err := codeintel.RebuildDuckDBIndex(
+		ctx,
+		*root,
+		resolvedDuckDBPath(*root, *duckDBPath),
+		resolvedDBPath(*root, *dbPath),
+	)
+	if err != nil {
+		return fmt.Errorf("rebuild DuckDB code intelligence index: %w", err)
+	}
+
+	return encodeJSON(stdoutFile(), summary)
 }
 
 func printRepeatedFailures(ctx context.Context, args []string) error {
@@ -797,6 +920,14 @@ func resolvedDBPath(root, dbPath string) string {
 	return codeintel.DefaultDBPath(root)
 }
 
+func resolvedDuckDBPath(root, dbPath string) string {
+	if dbPath != "" {
+		return dbPath
+	}
+
+	return codeintel.DefaultDuckDBPath(root)
+}
+
 func encodeJSON(output *os.File, value any) error {
 	err := feedback.WriteJSON(output, value)
 	if err != nil {
@@ -804,6 +935,10 @@ func encodeJSON(output *os.File, value any) error {
 	}
 
 	return nil
+}
+
+func stdoutFile() *os.File {
+	return os.NewFile(uintptr(1), "stdout")
 }
 
 func parseOptionalVector(value string) ([]float32, error) {

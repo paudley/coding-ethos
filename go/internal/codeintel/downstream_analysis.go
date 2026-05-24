@@ -24,18 +24,25 @@ const (
 	downstreamStateDir       = ".coding-ethos"
 	downstreamHookRunsDir    = "hook-runs"
 	downstreamLintRunsDir    = "lint-runs"
+	downstreamRebuildIndex   = "rebuild_index"
+	downstreamHealthy        = "healthy"
 	downstreamAppendOnlyHint = "observed SQLITE_BUSY; consider append-only " +
 		"per-run traces with later ingestion"
 )
 
 type DownstreamAnalysis struct {
-	HookFriction      []DownstreamHookFriction     `json:"hook_friction,omitempty"`
-	PolicyBlockers    []DownstreamPolicyBlocker    `json:"policy_blockers,omitempty"`
+	IssueSummary      DownstreamIssueSummary       `json:"issue_summary,omitzero"`
 	RemediationLoops  []DownstreamRemediationLoop  `json:"remediation_loops,omitempty"`
+	AffectedCommands  []DownstreamAffectedCommand  `json:"affected_commands,omitempty"`
+	HookFriction      []DownstreamHookFriction     `json:"hook_friction,omitempty"`
 	FindingHotspots   []DownstreamFindingHotspot   `json:"finding_hotspots,omitempty"`
 	FilePressure      []DownstreamFilePressure     `json:"file_pressure,omitempty"`
 	ToolchainFailures []DownstreamToolchainFailure `json:"toolchain_failures,omitempty"`
+	ToolchainHealth   []DownstreamToolchainHealth  `json:"toolchain_health,omitempty"`
+	EvidenceGaps      []DownstreamEvidenceGap      `json:"evidence_gaps,omitempty"`
+	PolicyBlockers    []DownstreamPolicyBlocker    `json:"policy_blockers,omitempty"`
 	SQLiteStrategy    DownstreamSQLiteStrategy     `json:"sqlite_strategy"`
+	StorageHealth     DownstreamStorageHealth      `json:"storage_health"`
 	Stats             Stats                        `json:"stats,omitzero"`
 	LogSignals        DownstreamLogSignals         `json:"log_signals"`
 }
@@ -105,6 +112,27 @@ type DownstreamToolchainFailure struct {
 	Count    int    `json:"count"`
 }
 
+type DownstreamToolchainHealth struct {
+	RootCause string `json:"root_cause"`
+	Message   string `json:"message"`
+	Count     int    `json:"count"`
+}
+
+type DownstreamEvidenceGap struct {
+	Signal         string `json:"signal"`
+	Source         string `json:"source"`
+	QueryIndex     string `json:"query_index"`
+	Recommendation string `json:"recommendation"`
+	Count          int    `json:"count"`
+}
+
+type DownstreamIssueSummary struct {
+	Title           string   `json:"title,omitempty"`
+	StorageDecision string   `json:"storage_decision,omitempty"`
+	TopFindings     []string `json:"top_findings,omitempty"`
+	NextActions     []string `json:"next_actions,omitempty"`
+}
+
 type DownstreamLogSignals struct {
 	HookRunCount           int `json:"hook_run_count"`
 	LintRunCount           int `json:"lint_run_count"`
@@ -136,6 +164,22 @@ type DownstreamSQLiteStrategy struct {
 	SingleConnectionPool   bool   `json:"single_connection_pool"`
 }
 
+type DownstreamStorageHealth struct {
+	Backend                 string `json:"backend"`
+	SourceOfTruth           string `json:"source_of_truth"`
+	Path                    string `json:"path,omitempty"`
+	LegacySQLitePath        string `json:"legacy_sqlite_path,omitempty"`
+	OpenError               string `json:"open_error,omitempty"`
+	Recommendation          string `json:"recommendation"`
+	EventCount              int    `json:"event_count"`
+	ImportedEventCount      int    `json:"imported_event_count"`
+	StoreAvailable          bool   `json:"store_available"`
+	ReadOnlyAnalysis        bool   `json:"read_only_analysis"`
+	ImportedLegacySQLite    bool   `json:"imported_legacy_sqlite"`
+	LogOnlySQLiteBusyCount  int    `json:"log_only_sqlite_busy_count"`
+	LogOnlyToolchainSignals int    `json:"log_only_toolchain_signals"`
+}
+
 func AnalyzeDownstream(
 	ctx context.Context,
 	root string,
@@ -152,7 +196,8 @@ func AnalyzeDownstream(
 	}
 
 	analysis := DownstreamAnalysis{
-		LogSignals: logSignals,
+		LogSignals:    logSignals,
+		StorageHealth: downstreamLegacySQLiteStorageHealth(root, store, logSignals),
 		SQLiteStrategy: DownstreamSQLiteStrategy{
 			StoreAvailable:       store != nil,
 			SQLiteBusyLogCount:   logSignals.SQLiteBusyCount,
@@ -166,10 +211,87 @@ func AnalyzeDownstream(
 	}
 
 	if store == nil {
+		analysis.ToolchainHealth = downstreamToolchainHealth(logSignals)
+		analysis.EvidenceGaps = downstreamEvidenceGaps(analysis)
+		analysis.IssueSummary = downstreamIssueSummary(analysis)
+
 		return analysis, nil
 	}
 
 	return populateDownstreamAnalysisFromStore(ctx, store, limit, analysis)
+}
+
+func AnalyzeDownstreamDuckDB(
+	ctx context.Context,
+	root string,
+	store *DuckDBStore,
+	limit int,
+) (DownstreamAnalysis, error) {
+	if limit <= 0 {
+		limit = downstreamDefaultLimit
+	}
+
+	logSignals, err := scanDownstreamHookLogs(root)
+	if err != nil {
+		return DownstreamAnalysis{}, err
+	}
+
+	analysis := DownstreamAnalysis{
+		LogSignals: logSignals,
+		StorageHealth: DownstreamStorageHealth{
+			Backend:                 "duckdb",
+			SourceOfTruth:           "event_log",
+			Path:                    DefaultDuckDBPath(root),
+			LegacySQLitePath:        DefaultDBPath(root),
+			EventCount:              downstreamEventCount(root),
+			ImportedEventCount:      downstreamImportedEventCount(ctx, store),
+			StoreAvailable:          store != nil,
+			ReadOnlyAnalysis:        true,
+			ImportedLegacySQLite:    store != nil,
+			LogOnlySQLiteBusyCount:  logSignals.SQLiteBusyCount,
+			LogOnlyToolchainSignals: logSignals.ToolchainFailureCount,
+		},
+		SQLiteStrategy: DownstreamSQLiteStrategy{
+			StoreAvailable:     false,
+			SQLiteBusyLogCount: logSignals.SQLiteBusyCount,
+			ReadOnlyAnalysis:   true,
+		},
+	}
+	analysis.StorageHealth.Recommendation = downstreamDuckDBStorageRecommendation(
+		analysis.StorageHealth,
+		logSignals,
+	)
+
+	if store == nil {
+		analysis.ToolchainHealth = downstreamToolchainHealth(logSignals)
+		analysis.EvidenceGaps = downstreamEvidenceGaps(analysis)
+		analysis.IssueSummary = downstreamIssueSummary(analysis)
+
+		return analysis, nil
+	}
+
+	stats, err := store.Stats(ctx)
+	if err != nil {
+		return DownstreamAnalysis{}, fmt.Errorf("read downstream DuckDB stats: %w", err)
+	}
+
+	analysis.Stats = stats
+
+	analysis, err = populateDownstreamAnalysisFromDatabase(
+		ctx,
+		store.database,
+		limit,
+		analysis,
+	)
+	if err != nil {
+		return DownstreamAnalysis{}, err
+	}
+
+	analysis.ToolchainHealth = downstreamToolchainHealth(logSignals)
+	analysis.EvidenceGaps = downstreamEvidenceGaps(analysis)
+	analysis.IssueSummary = downstreamIssueSummary(analysis)
+
+	return analysis, nil
 }
 
 func downstreamSingleConnectionPool(store *Store) bool {
@@ -178,6 +300,271 @@ func downstreamSingleConnectionPool(store *Store) bool {
 	}
 
 	return store.database.Stats().MaxOpenConnections == 1
+}
+
+func downstreamLegacySQLiteStorageHealth(
+	root string,
+	store *Store,
+	logSignals DownstreamLogSignals,
+) DownstreamStorageHealth {
+	return DownstreamStorageHealth{
+		Backend:                 "sqlite_legacy",
+		SourceOfTruth:           "sqlite_legacy",
+		Path:                    DefaultDBPath(root),
+		LegacySQLitePath:        DefaultDBPath(root),
+		Recommendation:          downstreamStorageRecommendation(store != nil, logSignals),
+		EventCount:              downstreamEventCount(root),
+		ImportedEventCount:      0,
+		StoreAvailable:          store != nil,
+		ReadOnlyAnalysis:        true,
+		ImportedLegacySQLite:    store != nil,
+		LogOnlySQLiteBusyCount:  logSignals.SQLiteBusyCount,
+		LogOnlyToolchainSignals: logSignals.ToolchainFailureCount,
+	}
+}
+
+func downstreamStorageRecommendation(
+	storeAvailable bool,
+	logSignals DownstreamLogSignals,
+) string {
+	if !storeAvailable {
+		return downstreamRebuildIndex
+	}
+
+	if logSignals.SQLiteBusyCount > 0 ||
+		logSignals.ToolchainFailureCount > 0 ||
+		logSignals.UnparsedDiagnosticLogs > 0 {
+		return downstreamRebuildIndex
+	}
+
+	return downstreamHealthy
+}
+
+func downstreamDuckDBStorageRecommendation(
+	health DownstreamStorageHealth,
+	logSignals DownstreamLogSignals,
+) string {
+	if !health.StoreAvailable {
+		return downstreamRebuildIndex
+	}
+
+	if health.EventCount > health.ImportedEventCount {
+		return "duckdb_index_stale"
+	}
+
+	if health.EventCount == 0 && logSignals.EventJSONCount > 0 {
+		return "event_log_missing"
+	}
+
+	if logSignals.SQLiteBusyCount > 0 ||
+		logSignals.ToolchainFailureCount > 0 ||
+		logSignals.UnparsedDiagnosticLogs > 0 {
+		return "log_only_evidence_present"
+	}
+
+	return downstreamHealthy
+}
+
+func downstreamAffectedCommands(
+	blockers []DownstreamPolicyBlocker,
+	limit int,
+) []DownstreamAffectedCommand {
+	counts := map[string]DownstreamAffectedCommand{}
+
+	for _, blocker := range blockers {
+		for _, command := range blocker.AffectedCommands {
+			key := strings.Join([]string{
+				command.Tool,
+				command.OperationKind,
+				command.TargetKind,
+				command.RiskCategory,
+				command.Status,
+				command.CommandShapeSHA256,
+			}, "\x00")
+
+			current := counts[key]
+			if current.Count == 0 {
+				current = command
+			}
+
+			current.Count += command.Count
+			counts[key] = current
+		}
+	}
+
+	results := make([]DownstreamAffectedCommand, 0, len(counts))
+	for _, command := range counts {
+		results = append(results, command)
+	}
+
+	sort.SliceStable(results, func(left, right int) bool {
+		return results[left].Count > results[right].Count
+	})
+
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results
+}
+
+func downstreamToolchainHealth(
+	signals DownstreamLogSignals,
+) []DownstreamToolchainHealth {
+	results := []DownstreamToolchainHealth{}
+	if signals.SandboxMissingCount > 0 {
+		results = append(results, DownstreamToolchainHealth{
+			RootCause: "missing_sandbox_binary",
+			Message:   "Managed tool sandbox executable was missing or unavailable.",
+			Count:     signals.SandboxMissingCount,
+		})
+	}
+
+	if signals.ToolchainFailureCount > 0 {
+		results = append(results, DownstreamToolchainHealth{
+			RootCause: "managed_toolchain_failure",
+			Message:   "Managed lint/toolchain logs contain sandbox, cgroup, or tool failures.",
+			Count:     signals.ToolchainFailureCount,
+		})
+	}
+
+	if signals.UnparsedDiagnosticLogs > 0 {
+		results = append(results, DownstreamToolchainHealth{
+			RootCause: "unparsed_diagnostics",
+			Message: "Tool output contained diagnostics that were not " +
+				"normalized into the query index.",
+			Count: signals.UnparsedDiagnosticLogs,
+		})
+	}
+
+	return results
+}
+
+func downstreamEvidenceGaps(analysis DownstreamAnalysis) []DownstreamEvidenceGap {
+	gaps := []DownstreamEvidenceGap{}
+	if analysis.LogSignals.SQLiteBusyCount > 0 {
+		gaps = append(gaps, DownstreamEvidenceGap{
+			Signal:         "sqlite_busy",
+			Source:         "hook_or_lint_logs",
+			QueryIndex:     analysis.StorageHealth.Backend,
+			Count:          analysis.LogSignals.SQLiteBusyCount,
+			Recommendation: "rebuild DuckDB index from append-only events and legacy logs",
+		})
+	}
+
+	if analysis.LogSignals.ToolchainFailureCount > 0 &&
+		len(analysis.ToolchainFailures) == 0 {
+		gaps = append(gaps, DownstreamEvidenceGap{
+			Signal:         "toolchain_failure",
+			Source:         "lint_logs",
+			QueryIndex:     analysis.StorageHealth.Backend,
+			Count:          analysis.LogSignals.ToolchainFailureCount,
+			Recommendation: "ingest lint-run logs into structured event records",
+		})
+	}
+
+	if analysis.LogSignals.EventJSONCount > 0 && analysis.StorageHealth.EventCount == 0 {
+		gaps = append(gaps, DownstreamEvidenceGap{
+			Signal:         "legacy_hook_events",
+			Source:         "hook-runs/event.json",
+			QueryIndex:     analysis.StorageHealth.Backend,
+			Count:          analysis.LogSignals.EventJSONCount,
+			Recommendation: "run code-intel rebuild-index to materialize durable events",
+		})
+	}
+
+	return gaps
+}
+
+func downstreamIssueSummary(analysis DownstreamAnalysis) DownstreamIssueSummary {
+	summary := DownstreamIssueSummary{
+		Title: "Downstream coding-ethos diagnostics summary",
+		StorageDecision: fmt.Sprintf(
+			"%s backed by %s",
+			analysis.StorageHealth.Backend,
+			analysis.StorageHealth.SourceOfTruth,
+		),
+	}
+
+	if len(analysis.PolicyBlockers) > 0 {
+		summary.TopFindings = append(
+			summary.TopFindings,
+			fmt.Sprintf(
+				"top blocker %s occurred %d times",
+				analysis.PolicyBlockers[0].PolicyID,
+				analysis.PolicyBlockers[0].Count,
+			),
+		)
+	}
+
+	if len(analysis.FilePressure) > 0 {
+		summary.TopFindings = append(
+			summary.TopFindings,
+			fmt.Sprintf(
+				"largest file pressure is %s at %d lines",
+				analysis.FilePressure[0].Path,
+				analysis.FilePressure[0].LineCount,
+			),
+		)
+	}
+
+	if len(analysis.ToolchainHealth) > 0 {
+		summary.TopFindings = append(
+			summary.TopFindings,
+			fmt.Sprintf(
+				"toolchain health root cause %s appeared %d times",
+				analysis.ToolchainHealth[0].RootCause,
+				analysis.ToolchainHealth[0].Count,
+			),
+		)
+	}
+
+	if analysis.StorageHealth.Recommendation != downstreamHealthy {
+		summary.NextActions = append(summary.NextActions, "run code-intel rebuild-index")
+	}
+
+	if len(analysis.RemediationLoops) > 0 {
+		summary.NextActions = append(
+			summary.NextActions,
+			"address repeated remediation loops first",
+		)
+	}
+
+	if len(analysis.AffectedCommands) > 0 {
+		summary.NextActions = append(
+			summary.NextActions,
+			"fix affected command workflow routing",
+		)
+	}
+
+	return summary
+}
+
+func downstreamEventCount(root string) int {
+	count, err := EventLogStats(root)
+	if err != nil {
+		return 0
+	}
+
+	return count
+}
+
+func downstreamImportedEventCount(ctx context.Context, store *DuckDBStore) int {
+	if store == nil {
+		return 0
+	}
+
+	var count int
+
+	err := store.database.QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM code_intel_events",
+	).Scan(&count)
+	if err != nil {
+		return 0
+	}
+
+	return count
 }
 
 func populateDownstreamAnalysisFromStore(
@@ -201,23 +588,50 @@ func populateDownstreamAnalysisFromStore(
 	analysis.SQLiteStrategy.JournalMode = journalMode
 	analysis.SQLiteStrategy.BusyTimeoutMS = busyTimeout
 
-	analysis.HookFriction, err = downstreamHookFriction(ctx, store.database, limit)
+	analysis, err = populateDownstreamAnalysisFromDatabase(
+		ctx,
+		store.database,
+		limit,
+		analysis,
+	)
+	if err != nil {
+		return DownstreamAnalysis{}, err
+	}
+
+	analysis.ToolchainHealth = downstreamToolchainHealth(analysis.LogSignals)
+	analysis.EvidenceGaps = downstreamEvidenceGaps(analysis)
+	analysis.IssueSummary = downstreamIssueSummary(analysis)
+
+	return analysis, nil
+}
+
+func populateDownstreamAnalysisFromDatabase(
+	ctx context.Context,
+	database *sql.DB,
+	limit int,
+	analysis DownstreamAnalysis,
+) (DownstreamAnalysis, error) {
+	var err error
+
+	analysis.HookFriction, err = downstreamHookFriction(ctx, database, limit)
 	if err != nil {
 		return DownstreamAnalysis{}, err
 	}
 
 	analysis.PolicyBlockers, err = downstreamPolicyBlockers(
 		ctx,
-		store.database,
+		database,
 		limit,
 	)
 	if err != nil {
 		return DownstreamAnalysis{}, err
 	}
 
+	analysis.AffectedCommands = downstreamAffectedCommands(analysis.PolicyBlockers, limit)
+
 	analysis.RemediationLoops, err = downstreamRemediationLoops(
 		ctx,
-		store.database,
+		database,
 		limit,
 	)
 	if err != nil {
@@ -226,21 +640,21 @@ func populateDownstreamAnalysisFromStore(
 
 	analysis.FindingHotspots, err = downstreamFindingHotspots(
 		ctx,
-		store.database,
+		database,
 		limit,
 	)
 	if err != nil {
 		return DownstreamAnalysis{}, err
 	}
 
-	analysis.FilePressure, err = downstreamFilePressure(ctx, store.database, limit)
+	analysis.FilePressure, err = downstreamFilePressure(ctx, database, limit)
 	if err != nil {
 		return DownstreamAnalysis{}, err
 	}
 
 	analysis.ToolchainFailures, err = downstreamToolchainFailures(
 		ctx,
-		store.database,
+		database,
 		limit,
 	)
 	if err != nil {
