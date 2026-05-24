@@ -350,7 +350,8 @@ func externalToolEnvBlocked(item string) bool {
 	}
 
 	if strings.HasPrefix(name, "CODE_ETHOS_") ||
-		(strings.HasPrefix(name, "CODING_ETHOS_") && name != "CODING_ETHOS_REAL_GIT") {
+		(strings.HasPrefix(name, "CODING_ETHOS_") &&
+			!externalToolAllowedCodingEthosEnv(name)) {
 		return true
 	}
 
@@ -364,6 +365,18 @@ func externalToolEnvBlocked(item string) bool {
 	return slices.Contains(gitHookLocalEnvNames(), name) ||
 		strings.HasPrefix(name, "GIT_CONFIG_KEY_") ||
 		strings.HasPrefix(name, "GIT_CONFIG_VALUE_")
+}
+
+func externalToolAllowedCodingEthosEnv(name string) bool {
+	switch name {
+	case "CODING_ETHOS_AGENT_SHELL_SANDBOX",
+		"CODING_ETHOS_REAL_GIT",
+		"CODING_ETHOS_SANDBOX_ACTIVE",
+		"CODING_ETHOS_SANDBOX_ROOT":
+		return true
+	default:
+		return false
+	}
 }
 
 func gitHookLocalEnvNames() []string {

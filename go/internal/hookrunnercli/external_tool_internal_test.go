@@ -38,7 +38,9 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	t.Setenv(consumerRootEnv, repo)
 	t.Setenv(hookGroupChildEnv, hookPlanBoolTrue)
 	t.Setenv(hookGroupResultPathEnv, "/tmp/result.json")
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
+	t.Setenv("CODING_ETHOS_SANDBOX_ROOT", repo)
 
 	env, err := externalToolEnv([]string{"KEEP_EXTRA=1"})
 	if err != nil {
@@ -62,6 +64,16 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 
 	if !slices.Contains(env, "CODING_ETHOS_REAL_GIT=/tmp/hook-real-git") {
 		t.Fatalf("externalToolEnv dropped approved real git binding: %#v", env)
+	}
+
+	for _, want := range []string{
+		"CODING_ETHOS_AGENT_SHELL_SANDBOX=1",
+		"CODING_ETHOS_SANDBOX_ACTIVE=1",
+		"CODING_ETHOS_SANDBOX_ROOT=" + repo,
+	} {
+		if !slices.Contains(env, want) {
+			t.Fatalf("externalToolEnv dropped active sandbox marker %q: %#v", want, env)
+		}
 	}
 
 	if !slices.Contains(
