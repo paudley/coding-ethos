@@ -157,7 +157,7 @@ func AnalyzeDownstream(
 			StoreAvailable:       store != nil,
 			SQLiteBusyLogCount:   logSignals.SQLiteBusyCount,
 			ReadOnlyAnalysis:     true,
-			SingleConnectionPool: store != nil,
+			SingleConnectionPool: downstreamSingleConnectionPool(store),
 		},
 	}
 
@@ -170,6 +170,14 @@ func AnalyzeDownstream(
 	}
 
 	return populateDownstreamAnalysisFromStore(ctx, store, limit, analysis)
+}
+
+func downstreamSingleConnectionPool(store *Store) bool {
+	if store == nil {
+		return false
+	}
+
+	return store.database.Stats().MaxOpenConnections == 1
 }
 
 func populateDownstreamAnalysisFromStore(

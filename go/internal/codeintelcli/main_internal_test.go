@@ -41,6 +41,16 @@ func TestDownstreamAnalysisDoesNotRequireExistingStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("downstream-analysis command returned error: %v", err)
 	}
+
+	stateDir := filepath.Join(root, ".coding-ethos")
+	if _, statErr := os.Stat(stateDir); !os.IsNotExist(statErr) {
+		t.Fatalf("downstream-analysis created state dir %q: %v", stateDir, statErr)
+	}
+
+	dbPath := filepath.Join(stateDir, "code-intel.db")
+	if _, statErr := os.Stat(dbPath); !os.IsNotExist(statErr) {
+		t.Fatalf("downstream-analysis created store %q: %v", dbPath, statErr)
+	}
 }
 
 func TestVectorStatsCreatesSQLiteVectorStore(t *testing.T) {
