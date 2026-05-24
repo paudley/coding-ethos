@@ -90,7 +90,7 @@ func runWithArgsAndVerifier(
 	if gitHookRequiresWrapper(hookName) &&
 		agentGitHookExecution() &&
 		!gitHookWrapperAuthorized(verifier) {
-		printErr(errDirectGitHook)
+		printDirectGitHookBlock(config, agentGitHookProvider(), hookName)
 
 		return blockedExitCode
 	}
@@ -150,6 +150,51 @@ func agentGitHookEnvMarkers() []string {
 		"GEMINI_CLI",
 		"GEMINI_SESSION_ID",
 	}
+}
+
+func agentGitHookProvider() string {
+	switch {
+	case codexGitHookExecution():
+		return "codex"
+	case claudeGitHookExecution():
+		return "claude"
+	case geminiGitHookExecution():
+		return "gemini"
+	default:
+		return "agent"
+	}
+}
+
+func codexGitHookExecution() bool {
+	return gitHookEnvPresent(
+		"CODEX_THREAD_ID",
+		"CODEX_SESSION_ID",
+		"CODEX_CI",
+		"CODEX_MANAGED_BY_NPM",
+		"CODEX_MANAGED_PACKAGE_ROOT",
+	)
+}
+
+func claudeGitHookExecution() bool {
+	return gitHookEnvPresent(
+		"CLAUDECODE",
+		"CLAUDE_CODE_ENTRYPOINT",
+		"CLAUDE_SESSION_ID",
+	)
+}
+
+func geminiGitHookExecution() bool {
+	return gitHookEnvPresent("GEMINI_CLI", "GEMINI_SESSION_ID")
+}
+
+func gitHookEnvPresent(names ...string) bool {
+	for _, name := range names {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func gitHookWrapperAuthorized(verifier gitHookAuthorizationVerifier) bool {
@@ -561,6 +606,87 @@ func printErr(err error) {
 		feedback.Error{Message: err.Error()},
 		feedback.FormatTOON,
 	)
+}
+
+func printDirectGitHookBlock(
+	config gitHookConfig,
+	provider string,
+	hookName string,
+) {
+	if provider != "codex" {
+		printErr(errDirectGitHook)
+
+		return
+	}
+
+	feedback.Emit(
+		os.Stderr,
+		directGitHookBlockMessage(config, hookName),
+		feedback.FormatTOON,
+	)
+}
+
+func directGitHookBlockMessage(
+	config gitHookConfig,
+	hookName string,
+) feedback.Message {
+	return feedback.Message{
+		Scalars: []feedback.Scalar{
+			feedback.S("event", hookName),
+			feedback.S("provider", "codex"),
+			feedback.S("status", "blocked"),
+			feedback.S("policy_id", "git.wrapper_required"),
+			feedback.S("summary", errDirectGitHook.Error()),
+		},
+		Tables: []feedback.Table{
+			feedback.T(
+				"guidance",
+				[]string{"message"},
+				[][]string{{
+					"Codex must retry the original git command through cerun; " +
+						"do not run raw git from the Codex shell.",
+				}},
+			),
+			feedback.T(
+				"retry",
+				[]string{"command"},
+				[][]string{{directGitHookRetryCommand(config, hookName)}},
+			),
+		},
+	}
+}
+
+func directGitHookRetryCommand(config gitHookConfig, hookName string) string {
+	return cerunForGitHook(config) + " -- " + shellQuote(gitHookRetryGitCommand(hookName))
+}
+
+func cerunForGitHook(config gitHookConfig) string {
+	runner := strings.TrimSpace(config.RunnerPath)
+	if filepath.Base(runner) == gitHookRunner {
+		return filepath.Join(filepath.Dir(runner), "cerun")
+	}
+
+	cwd := strings.TrimSpace(config.Cwd)
+	if cwd != "" {
+		return filepath.Join(cwd, "bin", "cerun")
+	}
+
+	return "cerun"
+}
+
+func gitHookRetryGitCommand(hookName string) string {
+	switch hookName {
+	case hookPrePush:
+		return "git push"
+	case hookCommitMsg, hookPrepareMsg, hookPreCommit:
+		return "git commit <same arguments>"
+	default:
+		return "git <same command>"
+	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func writeGitHookText(text string) {

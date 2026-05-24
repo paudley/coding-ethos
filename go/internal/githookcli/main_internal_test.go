@@ -143,6 +143,17 @@ func TestDirectAgentGitCommitBlocksThroughInstalledHooks(t *testing.T) {
 	if !strings.Contains(output, "direct git execution reached coding-ethos hooks") {
 		t.Fatalf("direct agent git output missing hostile-path block:\n%s", output)
 	}
+
+	for _, want := range []string{
+		"provider: codex",
+		"policy_id: git.wrapper_required",
+		"Codex must retry the original git command through cerun",
+		"/bin/cerun -- 'git commit <same arguments>'",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("direct Codex git output missing %q:\n%s", want, output)
+		}
+	}
 }
 
 func clearAgentGitHookEnv(t *testing.T) {
