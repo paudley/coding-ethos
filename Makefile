@@ -569,6 +569,7 @@ _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 	@mkdir -p "$(PARENT_HOOK_BIN_DIR)" "$(PARENT_POLICY_DIR)"
 	@cp "$(GO_TOOLS_BIN_DIR)"/coding-ethos-* "$(PARENT_HOOK_BIN_DIR)/"
 	@cp "$(GO_TOOLS_BIN_DIR)/cerun" "$(PARENT_HOOK_BIN_DIR)/cerun"
+	@cp "$(GO_TOOLS_BIN_DIR)/lint" "$(PARENT_HOOK_BIN_DIR)/lint"
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" compile \
 		--primary "$(LOCAL_REPO_ROOT)/coding_ethos.yml" \
 		--repo-ethos "$(LOCAL_REPO_ROOT)/repo_ethos.yml" \
@@ -714,6 +715,12 @@ go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook 
 	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
 		"$(GO)" build $(GO_BUILD_FLAGS) -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
 	done
+	@printf '%s\n' '#!/usr/bin/env sh' \
+		'set -eu' \
+		'script_dir=$$(CDPATH= cd -- "$$(dirname -- "$$0")" && pwd -P)' \
+		'exec "$$script_dir/coding-ethos-run" lint "$$@"' \
+		> "$(GO_TOOLS_BIN_DIR)/lint"
+	@chmod 755 "$(GO_TOOLS_BIN_DIR)/lint"
 	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
 
 repair-repo-ignores: ensure-go go-tools-install ## Repair repo .gitignore entries for coding-ethos runtime output.

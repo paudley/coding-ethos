@@ -654,9 +654,9 @@ func exampleProtectedPathPolicy() Policy {
 		PrincipleIDs:    []string{"no-rationalized-shortcuts"},
 		DefaultSeverity: "block",
 		SupportedModes:  []string{"block", "record", "advise"},
-		Message:         "Protected coding-ethos hook paths must not be modified.",
+		Message:         "Managed coding-ethos paths must not be modified directly.",
 		Suggestion: "Do not delete, rebuild, replace, chmod, or write managed " +
-			"hook binaries or protected hook paths.",
+			"hook binaries, generated lint configs, or protected hook paths.",
 		DefenseLayers: CodeDefenseLayers(),
 		AppliesTo: AppliesTo{
 			Tools: []string{"Bash", "Write", "Edit", "MultiEdit"},
@@ -668,6 +668,10 @@ func exampleProtectedPathPolicy() Policy {
 				"hook_events": []string{"PreToolUse"},
 				"mode":        "block",
 				"protected_paths": []string{
+					".bandit.yml",
+					".pylintrc",
+					".sqlfluff",
+					".yamllint.yml",
 					"coding-ethos-hooks/coding-ethos-git-hook",
 					"coding-ethos-hooks/bin/coding-ethos-agent-hooks",
 					"coding-ethos-hooks/bin/coding-ethos-git",
@@ -676,6 +680,10 @@ func exampleProtectedPathPolicy() Policy {
 					"coding-ethos-hooks/bin/coding-ethos-lint",
 					"coding-ethos-hooks/bin/coding-ethos-policy",
 					"coding-ethos-hooks/lefthook",
+					"mypy.ini",
+					"pyrightconfig.json",
+					"ruff.toml",
+					"tombi.toml",
 				},
 				"scope":    "file",
 				"skill_id": "safe-git-workflow",

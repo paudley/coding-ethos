@@ -694,6 +694,10 @@ filesystem:
   protected_path:
     enabled: true
     paths:
+      - .bandit.yml
+      - .pylintrc
+      - .sqlfluff
+      - .yamllint.yml
       - coding-ethos-hooks/coding-ethos-git-hook
       - coding-ethos-hooks/bin/coding-ethos-agent-hooks
       - coding-ethos-hooks/bin/coding-ethos-git
@@ -702,6 +706,10 @@ filesystem:
       - coding-ethos-hooks/bin/coding-ethos-lint
       - coding-ethos-hooks/bin/coding-ethos-policy
       - coding-ethos-hooks/lefthook
+      - mypy.ini
+      - pyrightconfig.json
+      - ruff.toml
+      - tombi.toml
   protected_branch_write:
     enabled: true
     branches:

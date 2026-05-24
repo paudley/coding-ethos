@@ -301,7 +301,7 @@ The first tools are intentionally narrow and auditable:
 
 - `policy_check_command`: check a proposed shell command before running it.
 - `policy_check_edit`: check a proposed file edit before applying it.
-- `lint_check`: run managed lint capture for Ruff, mypy, pyright, pylint,
+- `managed_lint`: run managed lint capture for Ruff, mypy, pyright, pylint,
   ESLint, SQLFluff, and other captured tools; when no tool is supplied, run
   compiled coding-ethos policy lint checks for current work.
 - `lint_advice`: map a lint diagnostic to ETHOS policy, advice, and skill hints.
@@ -350,9 +350,17 @@ and the next MCP call an agent should make. Agents can pass the full item to
 
 Tool definitions include `coding_ethos` metadata that tells clients whether a
 tool is advisory, reads files, executes managed lint tools, and persists traces.
-Agents should call `lint_check` instead of invoking linters directly so target
+Agents should call `managed_lint` instead of invoking linters directly so target
 resolution, generated config integrity, managed tool versions, evidence maps,
 skill hints, and trace logging stay on the enforced path.
+When MCP is not available, use the repo-local wrapper:
+
+```bash
+bin/lint --staged
+bin/lint --changed
+bin/lint --full
+```
+
 Agents should call `tool_capabilities` before choosing a managed tool when
 runtime behavior matters; it is the MCP view of the same capability facts CEL
 uses for policy decisions.
@@ -1203,17 +1211,17 @@ storage, CEL evaluation, and SARIF generation.
 Analyze captured lint history:
 
 ```bash
-bin/coding-ethos-run policy-lint --analyze-log
-bin/coding-ethos-run policy-lint --analyze-log --for-files lib/python/app.py
-bin/coding-ethos-run policy-lint --replay .coding-ethos/lint-runs/<trace>.json
+bin/coding-ethos-run lint --analyze-log
+bin/coding-ethos-run lint --analyze-log --for-files lib/python/app.py
+bin/coding-ethos-run lint --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
 Emit SARIF for CI/code-scanning surfaces:
 
 ```bash
-bin/coding-ethos-run policy-lint --sarif --scope files --files lib/python/app.py
-bin/coding-ethos-run policy-lint --managed-capture-tool ruff --sarif -- check lib/python/app.py
-bin/coding-ethos-run policy-lint --sarif --replay .coding-ethos/lint-runs/<trace>.json
+bin/coding-ethos-run lint --sarif --scope files --files lib/python/app.py
+bin/coding-ethos-run lint --managed-capture-tool ruff --sarif -- check lib/python/app.py
+bin/coding-ethos-run lint --sarif --replay .coding-ethos/lint-runs/<trace>.json
 ```
 
 SARIF is the superset evidence artifact. Everything coding-ethos can observe

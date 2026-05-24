@@ -126,6 +126,53 @@ skills:
         are worse and keep the scope as small as possible.
       - Verify with the managed coding-ethos tool path and report the exact
         checks that now pass or still fail.
+  - id: managed-lint-workflow
+    title: Managed Lint Workflow
+    description: >-
+      Use when an agent needs to run lint, formatting, type checks, or
+      policy-backed diagnostics. Prefer the MCP managed_lint tool, then the
+      ./bin/lint wrapper, instead of invoking raw Ruff, mypy, uvx, host
+      linters, or package-manager shortcuts.
+    principle_ids:
+      - static-analysis-is-the-first-line-of-defense
+      - linting-as-code-quality-enforcement
+      - one-path-for-critical-operations
+      - validation-at-the-gate
+      - radical-visibility
+    trigger_terms:
+      - run lint
+      - managed_lint
+      - ./bin/lint
+      - coding-ethos-run lint
+      - uvx ruff
+      - raw linter
+      - format code
+      - type check
+      - lint workflow
+    short_hint: >-
+      Use MCP managed_lint first. It runs packaged linters, applies managed
+      formatting where configured, records traces, updates code-intel evidence,
+      and preserves repo-specific policy context.
+    focus: >-
+      Use this skill to choose the highest-signal lint path before invoking
+      any checker. The goal is to keep agents on the coding-ethos managed
+      linter path so formatting, packaged tools, trace capture, code-intel
+      updates, and policy advice all stay connected.
+    remediation_steps:
+      - Prefer MCP managed_lint for agent-run checks. Pass scope, files, tool,
+        argv, and cwd through the MCP tool instead of running shell linters.
+      - If MCP is unavailable, run ./bin/lint with the narrowest useful scope,
+        such as ./bin/lint --staged, ./bin/lint --changed, or ./bin/lint
+        --full.
+      - Do not run uvx ruff, host ruff, host mypy, package-local eslint, or
+        other raw linters unless explicitly debugging the managed toolchain
+        itself.
+      - Use managed lint output as the source of truth because it carries
+        normalized diagnostics, skill hints, trace IDs, policy mappings, and
+        code-intel ingestion evidence.
+      - After fixing findings, rerun the same managed_lint or ./bin/lint scope
+        and report the exact command or MCP arguments plus any remaining
+        diagnostics.
   - id: safe-git-workflow
     title: Safe Git Workflow
     description: >-
@@ -2935,10 +2982,10 @@ principles:
             - MultiEdit
           lint_scopes:
             - staged
-          message: Protected coding-ethos hook paths must not be modified.
+          message: Managed coding-ethos paths must not be modified directly.
           advice: >-
             Do not delete, rebuild, replace, chmod, or write managed hook
-            binaries or protected hook paths.
+            binaries, generated lint configs, or protected hook paths.
           when: >-
             !metadata.admin_approved && (
               any_contains(repo.protected_paths, command_fact.lower) ||

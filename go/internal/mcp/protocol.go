@@ -481,7 +481,7 @@ func policyPreflightToolDefinitions() []map[string]any {
 func lintToolDefinitions() []map[string]any {
 	return []map[string]any{
 		toolDefinition(
-			"lint_check",
+			"managed_lint",
 			toolText(
 				"Run managed lint capture for a named tool, or compiled",
 				"coding-ethos policy lint checks when no tool is provided.",
@@ -673,7 +673,7 @@ func skillToolDefinitions() []map[string]any {
 				ExecutesTools: false,
 				ReadsFiles:    false,
 				PreferredUse: toolText(
-					"choose MCP lint_check over direct linter execution and",
+					"choose MCP managed_lint over direct linter execution and",
 					"inspect sandbox posture",
 				),
 				TracePersisted: false,

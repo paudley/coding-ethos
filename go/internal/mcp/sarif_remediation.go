@@ -1041,7 +1041,7 @@ func (finding sarifRemediationFinding) rerun() map[string]any {
 	}
 
 	return map[string]any{
-		"tool":      "lint_check",
+		"tool":      "managed_lint",
 		"arguments": arguments,
 	}
 }

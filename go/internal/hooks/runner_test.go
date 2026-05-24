@@ -2619,6 +2619,58 @@ func TestRunBlocksProtectedPathWrite(t *testing.T) {
 	}
 }
 
+func TestRunBlocksGeneratedLintConfigWrite(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "Edit",
+			ToolInput: map[string]any{
+				"file_path":  "/repo/ruff.toml",
+				"old_string": "line-length = 100\n",
+				"new_string": "line-length = 120\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.Decisions[0].PolicyID != "filesystem.protected_path" {
+		t.Fatalf("policy mismatch: %#v", result.Decisions[0])
+	}
+}
+
+func TestRunBlocksGeneratedLintConfigShellWrite(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "printf 'line-length = 120\\n' > ruff.toml",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if !hasDecision(result.Decisions, "filesystem.protected_path") {
+		t.Fatalf("missing protected-path decision: %#v", result.Decisions)
+	}
+}
+
 func TestRunAllowsMemoryWriteWithHookReferences(t *testing.T) {
 	t.Parallel()
 

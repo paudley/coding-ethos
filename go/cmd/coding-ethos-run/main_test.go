@@ -2297,6 +2297,11 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 			want: "exec-lint:--bundle " + paths.PolicyBundle + " --scope staged",
 		},
 		{
+			name: "lint alias",
+			args: []string{"lint", "--staged"},
+			want: "exec-lint:--bundle " + paths.PolicyBundle + " --staged",
+		},
+		{
 			name: "policy command",
 			args: []string{"policy", "validate"},
 			want: "direct-exec:coding-ethos-policy validate",
@@ -2643,12 +2648,32 @@ func TestRunReportsInvalidCommandsBeforeExec(t *testing.T) {
 	assertInvalidRunCommand(t, "policy-tool-group unknown group", func() error {
 		return runPolicyToolGroup(paths, []string{"explode"})
 	}, "unknown policy-tool group")
-	assertInvalidRunCommand(t, "runner missing command", func() error {
-		return run(paths, nil)
-	}, "requires a command")
 	assertInvalidRunCommand(t, "runner unknown command", func() error {
 		return run(paths, []string{"explode"})
 	}, "unknown coding-ethos-run command")
+}
+
+func TestRunHelpListsManagedLintEntrypoints(t *testing.T) {
+	t.Parallel()
+
+	output := captureRuntimeStdout(t, func() {
+		err := run(runtimeTestPaths(t), []string{"--help"})
+		if err != nil {
+			t.Fatalf("run help: %v", err)
+		}
+	})
+
+	for _, want := range []string{
+		"coding-ethos-run",
+		"lint --staged",
+		"lint --changed",
+		"lint --full",
+		"bin/lint --staged",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("help missing %q:\n%s", want, output)
+		}
+	}
 }
 
 func assertInvalidRunCommand(

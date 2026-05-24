@@ -44,7 +44,7 @@ func TestServerListsTools(t *testing.T) {
 	for _, expected := range []string{
 		"policy_check_command",
 		"policy_check_edit",
-		"lint_check",
+		"managed_lint",
 		"lint_advice",
 		"sarif_remediation_advice",
 		"sarif_risk_summary",
@@ -250,7 +250,7 @@ func TestServerLintCheckRunsCompiledPolicies(t *testing.T) {
 		"id":4,
 		"method":"tools/call",
 		"params":{
-			"name":"lint_check",
+			"name":"managed_lint",
 			"arguments":{
 				"scope":"staged",
 				"command":"git commit --no-verify -m test"
@@ -285,7 +285,7 @@ func TestServerLintCheckRunsManagedToolCapture(t *testing.T) {
 		"id":8,
 		"method":"tools/call",
 		"params":{
-			"name":"lint_check",
+			"name":"managed_lint",
 			"arguments":{
 				"tool":"ruff",
 				"files":["src/app.py"]
@@ -714,7 +714,7 @@ func TestServerSARIFRemediationAdviceUsesSARIFPolicyMetadata(t *testing.T) {
 	for _, expected := range []string{
 		"conditional-imports",
 		"Move the import to module scope.",
-		"lint_check",
+		"managed_lint",
 		"src/app.py",
 		"cel_expression",
 		"coding-ethos/stable/v1",
@@ -862,7 +862,7 @@ func TestServerSARIFRemediationAdviceCanReplayLintTraceID(t *testing.T) {
 		"conditional-imports",
 		"Move the import to module scope.",
 		"src/app.py",
-		"lint_check",
+		"managed_lint",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("missing %s in trace remediation output:\n%s", expected, output)
