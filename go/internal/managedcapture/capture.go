@@ -223,7 +223,7 @@ func buildCapturedSandboxPlan(
 		RepoRoot:     firstCaptureNonEmpty(request.TraceRoot, request.Cwd),
 		Args:         runArgs,
 		BackendPath:  request.SandboxBackendPath,
-		Capabilities: captureSandboxCapabilities(request.Capabilities),
+		Capabilities: captureSandboxCapabilities(request),
 	})
 	if err != nil {
 		return plan, fmt.Errorf("build captured sandbox plan: %w", err)
@@ -232,10 +232,9 @@ func buildCapturedSandboxPlan(
 	return plan, nil
 }
 
-func captureSandboxCapabilities(
-	capabilities sandbox.Capabilities,
-) sandbox.Capabilities {
-	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") == "1" {
+func captureSandboxCapabilities(request captureRequest) sandbox.Capabilities {
+	capabilities := request.Capabilities
+	if activeAgentShellSandboxCoversCapture(request) {
 		capabilities.RequiresProcesses = true
 	}
 

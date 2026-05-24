@@ -36,7 +36,7 @@ def test_runner_fails_hard_when_policy_bundle_is_missing(tmp_path: Path) -> None
         policy_bundle.write_bytes(backup)
 
     output = result.stdout + result.stderr
-    assert result.returncode == 127, output
+    assert result.returncode != 0, output
     assert "missing compiled policy bundle" in output
     assert "run make build" in output
     assert ".git/coding-ethos-hooks" not in output

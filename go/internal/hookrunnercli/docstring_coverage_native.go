@@ -337,10 +337,9 @@ func nativeDocstringCoverageFailsThreshold(
 	stats docstringCoverageStats,
 	threshold int,
 ) bool {
-	total := stats.Total
-	if total == 0 {
-		total = 1
+	if stats.Total == 0 {
+		return false
 	}
 
-	return stats.Documented*docstringCoveragePercent < threshold*total
+	return stats.Documented*docstringCoveragePercent < threshold*stats.Total
 }

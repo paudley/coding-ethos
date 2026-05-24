@@ -381,6 +381,59 @@ func TestBuildPlanRejectsAgentShellRealGitBindOutsideRepo(t *testing.T) {
 	}
 }
 
+func TestBuildPlanReusesVerifiedActiveAgentShellSandbox(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	root := t.TempDir()
+	repo := filepath.Join(root, sandbox.SandboxTempWritePath, "consumer")
+	wrapper := filepath.Join(root, "bin", "coding-ethos-sandbox")
+	realGitBind := filepath.Join(
+		root,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"run-1",
+		"real-git",
+	)
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatalf("create consumer repo: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(realGitBind), 0o700); err != nil {
+		t.Fatalf("create real git bind dir: %v", err)
+	}
+	writeExecutable(t, wrapper)
+	writeExecutable(t, realGitBind)
+
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
+	t.Setenv("CODING_ETHOS_SANDBOX_ROOT", root)
+	t.Setenv("CODING_ETHOS_REAL_GIT", realGitBind)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "ruff",
+		Executable:  "/usr/bin/env",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"true"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile:    "lint-offline",
+			RequiresProcesses: true,
+			WritePaths:        []string{".coding-ethos/cache"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+	if plan.Executable != "/usr/bin/env" ||
+		plan.Evidence.Reason != "reusing active agent-shell sandbox" {
+		t.Fatalf("active agent shell sandbox was not reused: %#v", plan)
+	}
+	if !plan.Evidence.Enabled || !plan.Evidence.RepoReadOnly {
+		t.Fatalf("active agent shell reuse lost sandbox evidence: %#v", plan.Evidence)
+	}
+}
+
 func TestBuildPlanFailsClosedWithoutWrapper(t *testing.T) {
 	requireLinuxSandbox(t)
 

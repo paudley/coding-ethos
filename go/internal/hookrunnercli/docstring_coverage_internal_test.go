@@ -400,6 +400,47 @@ def documented():
 	}
 }
 
+func TestRunNativeDocstringCoveragePassesWhenNoPublicSymbolsRemain(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	pkg := filepath.Join(tempDir, "pkg")
+	if err := os.MkdirAll(pkg, 0o700); err != nil {
+		t.Fatalf("create package: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(pkg, "private.py"),
+		[]byte("def _helper():\n    return 1\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write private module: %v", err)
+	}
+
+	exitCode, stdout, stderr, err := runNativeDocstringCoverage(
+		docstringCoverageSettings{
+			ConsumerRoot:      tempDir,
+			Threshold:         100,
+			CheckPaths:        []string{"pkg"},
+			IgnorePrivate:     true,
+			IgnoreSemiprivate: true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("runNativeDocstringCoverage() error = %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf(
+			"runNativeDocstringCoverage() exit = %d, stdout %q, stderr %q",
+			exitCode,
+			stdout,
+			stderr,
+		)
+	}
+	if !strings.Contains(stdout, "Coverage: 100.0% (0/0 documented)") {
+		t.Fatalf("stdout missing zero-symbol coverage summary:\n%s", stdout)
+	}
+}
+
 func TestFormatDocstringCoverageFailureTOON(t *testing.T) {
 	t.Parallel()
 

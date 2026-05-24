@@ -63,6 +63,110 @@ func TestEvaluateCELExpressionBlocksMatchingCommand(t *testing.T) {
 	}
 }
 
+func TestEvaluateCELExpressionBlocksUnscopedHookCommand(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateCELExpression(
+		hookChangedFileScopePolicyDef(),
+		Context{
+			Files: []string{"go/internal/hookrunnercli/docstring_coverage.go"},
+			HookCommands: []celexpr.HookCommandInput{{
+				File:                           "go/internal/hookrunnercli/docstring_coverage.go",
+				SymbolName:                     "checkDocstringCoverageCommand",
+				SymbolPath:                     "checkDocstringCoverageCommand",
+				CallNames:                      []string{"runDocstringCoverage"},
+				CommandFunction:                true,
+				RunsPathSensitiveCheck:         true,
+				ChangedFileScopeBeforeRun:      false,
+				UnsafeUnscopedPathSensitiveRun: true,
+				Line:                           42,
+			}},
+			EvaluatorOptions: map[string]any{
+				"when": hookChangedFileScopeCEL(),
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+	if decisions[0].Diagnostics[0].File !=
+		"go/internal/hookrunnercli/docstring_coverage.go" {
+		t.Fatalf("diagnostic = %#v", decisions[0].Diagnostics[0])
+	}
+	if decisions[0].Diagnostics[0].Line != 42 ||
+		decisions[0].Diagnostics[0].Metadata["ast_symbol_name"] !=
+			"checkDocstringCoverageCommand" {
+		t.Fatalf("diagnostic metadata = %#v", decisions[0].Diagnostics[0])
+	}
+}
+
+func TestEvaluateCELExpressionAllowsScopedHookCommand(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateCELExpression(
+		hookChangedFileScopePolicyDef(),
+		Context{
+			HookCommands: []celexpr.HookCommandInput{{
+				File:                      "go/internal/hookrunnercli/docstring_coverage.go",
+				SymbolName:                "checkDocstringCoverageCommand",
+				CommandFunction:           true,
+				RunsPathSensitiveCheck:    true,
+				ChangedFileScopeBeforeRun: true,
+			}},
+			EvaluatorOptions: map[string]any{
+				"when": hookChangedFileScopeCEL(),
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("decisions = %#v, want allow", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionLoadsHookCommandFactsFromGoSource(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(root, "hook_command.go"),
+		[]byte(`package hookrunnercli
+
+func checkDocstringCoverageCommand() int {
+	return runDocstringCoverage()
+}
+`),
+		0o600,
+	); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	decisions, err := EvaluateCELExpression(
+		hookChangedFileScopePolicyDef(),
+		Context{
+			Cwd:   root,
+			Files: []string{"hook_command.go"},
+			EvaluatorOptions: map[string]any{
+				"when": hookChangedFileScopeCEL(),
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want loaded hook fact block", decisions)
+	}
+}
+
 func TestEvaluateCELExpressionBlocksAgentBrandedCommand(t *testing.T) {
 	t.Parallel()
 
@@ -1415,6 +1519,27 @@ func celExpressionPolicy() policy.Policy {
 	}
 }
 
+func hookChangedFileScopePolicyDef() policy.Policy {
+	return policy.Policy{
+		ID:       "hook.changed_file_scope",
+		Category: "expression",
+		Source: policy.SourceRef{
+			File: "config.yaml",
+			Path: "policy.expressions",
+		},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{blockDecision, recordDecision},
+		Message:         "Hook-stage path-sensitive checks must scope first.",
+		Suggestion:      "Use hook-provided changed-file lists.",
+		DefenseLayers:   policy.CodeDefenseLayers(),
+		Evaluators: []policy.Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+		}},
+		PrincipleIDs: []string{"validation-at-the-gate"},
+	}
+}
+
 func compiledRepoLineLimitPolicy(tb testing.TB) policy.Policy {
 	tb.Helper()
 
@@ -1483,6 +1608,16 @@ func selfPromotionPRMutationCEL() string {
 	return `
 		event.name == "PreToolUse" &&
 		advertising_filter(command)
+	`
+}
+
+func hookChangedFileScopeCEL() string {
+	return `
+		hook_commands.exists(command,
+			command.command_function &&
+			command.runs_path_sensitive_check &&
+			!command.changed_file_scope_before_run
+		)
 	`
 }
 

@@ -894,6 +894,8 @@ func TestBuildCapturedSandboxPlanAllowsHookSubprocessesInsideAgentShell(
 	writeExecutableFixture(t, realGit, "#!/usr/bin/env sh\nexit 0\n")
 
 	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
+	t.Setenv("CODING_ETHOS_SANDBOX_ROOT", repo)
 	t.Setenv("CODING_ETHOS_REAL_GIT", realGit)
 
 	plan, err := buildCapturedSandboxPlan(captureRequest{

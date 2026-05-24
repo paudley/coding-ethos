@@ -445,6 +445,8 @@ func agentShellProcessEnv(root, gitWrapper, realGitBind string) []string {
 		"PATH="+pathValue,
 		realgit.Env+"="+realGitBind,
 		"CODING_ETHOS_AGENT_SHELL_SANDBOX=1",
+		"CODING_ETHOS_SANDBOX_ACTIVE=1",
+		"CODING_ETHOS_SANDBOX_ROOT="+root,
 		"TMPDIR="+tempDir,
 	)
 	if gpgTTY != "" {
