@@ -90,10 +90,9 @@ func RunWithRegistry(
 	)
 
 	ctx := collectInspectionContext(options.Event, options.AdminApproved)
-	if ctx.SkipNestedHook || ctx.ReadOnlyInspection {
+	if ctx.ReadOnlyInspection {
 		debuglog.Debug(
 			"hook.inspection.skip",
-			zap.Bool("nested", ctx.SkipNestedHook),
 			zap.Bool("read_only", ctx.ReadOnlyInspection),
 		)
 

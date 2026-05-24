@@ -308,6 +308,27 @@ func cerunSearchRoots(root string) []string {
 	return roots
 }
 
+func cleanAbsPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	if !filepath.IsAbs(path) {
+		abs, err := filepath.Abs(path)
+		if err == nil {
+			path = abs
+		}
+	}
+
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		path = resolved
+	}
+
+	return filepath.Clean(path)
+}
+
 func findRepoCerunCommandInRoot(root string) string {
 	repoRoot := gitRootFromPath(root)
 	if repoRoot == "" {

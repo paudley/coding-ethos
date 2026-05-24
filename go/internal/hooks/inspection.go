@@ -12,7 +12,6 @@ type InspectionContext struct {
 	Event              Event
 	AdminApproved      bool
 	ReadOnlyInspection bool
-	SkipNestedHook     bool
 }
 
 type InspectionRoute struct {
@@ -48,7 +47,6 @@ func CollectInspectionContext(
 		Provider:           event.Provider(),
 		AdminApproved:      adminApproved,
 		ReadOnlyInspection: readOnlyInspectionEvent(event, adminApproved),
-		SkipNestedHook:     shouldSkipNestedCodexHook(event),
 	}
 }
 

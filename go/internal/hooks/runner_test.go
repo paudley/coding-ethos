@@ -3886,7 +3886,7 @@ func TestRunBlocksCodexPayloadGitBypass(t *testing.T) {
 	}
 }
 
-func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
+func TestRunBlocksCodexGitEvenWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 	root := t.TempDir()
 	parent := filepath.Join(root, "parent")
 
@@ -3919,23 +3919,12 @@ func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusAllowed || len(result.Decisions) != 0 {
-		t.Fatalf("nested non-owner hook should no-op, got %#v", result)
-	}
-
-	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", child)
-
-	result, err = Run(policy.ExampleBundle(), Options{Event: event})
-	if err != nil {
-		t.Fatalf("run nearest hook: %v", err)
-	}
-
 	if result.Status != statusBlocked ||
 		!hasDecision(result.Decisions, "git.wrapper_required") ||
 		(result.HookSpecificOutput != nil &&
 			len(result.HookSpecificOutput.UpdatedInput) > 0) {
 		t.Fatalf(
-			"nested owner hook should block unsupported Codex rewrite, got %#v",
+			"nested Codex git must block unsupported rewrite, got %#v",
 			result,
 		)
 	}
