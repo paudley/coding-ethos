@@ -58,6 +58,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"code-chunks":               printCodeChunks,
 		"compact-context":           printCompactContext,
 		"code-context":              printCodeContext,
+		"downstream-analysis":       printDownstreamAnalysis,
 		"embedding-candidates":      printEmbeddingCandidates,
 		"embedding-records":         printEmbeddingRecords,
 		"enrich-listing":            enrichDirectoryListing,
@@ -369,6 +370,43 @@ func printStats(ctx context.Context, args []string) error {
 	}
 
 	return encodeJSON(os.Stdout, stats)
+}
+
+func printDownstreamAnalysis(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("downstream-analysis", flag.ExitOnError)
+	root := flags.String("root", ".", "Repository root containing .coding-ethos")
+	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	limit := addResultLimit(flags)
+
+	err := parseCommandFlags(flags, args, "downstream-analysis")
+	if err != nil {
+		return err
+	}
+
+	store, openErr := openReadOnlyStore(ctx, *root, *dbPath)
+	if openErr != nil {
+		analysis, analyzeErr := codeintel.AnalyzeDownstream(
+			ctx,
+			*root,
+			nil,
+			*limit,
+		)
+		if analyzeErr != nil {
+			return fmt.Errorf("analyze downstream logs: %w", analyzeErr)
+		}
+
+		analysis.SQLiteStrategy.OpenError = openErr.Error()
+
+		return encodeJSON(os.Stdout, analysis)
+	}
+	defer store.Close()
+
+	analysis, err := codeintel.AnalyzeDownstream(ctx, *root, store, *limit)
+	if err != nil {
+		return fmt.Errorf("analyze downstream code intelligence: %w", err)
+	}
+
+	return encodeJSON(os.Stdout, analysis)
 }
 
 func printRepeatedFailures(ctx context.Context, args []string) error {
@@ -733,6 +771,19 @@ func openStore(ctx context.Context, root, dbPath string) (*codeintel.Store, erro
 	store, err := codeintel.Open(ctx, resolvedDBPath(root, dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("open code intelligence store: %w", err)
+	}
+
+	return store, nil
+}
+
+func openReadOnlyStore(
+	ctx context.Context,
+	root,
+	dbPath string,
+) (*codeintel.Store, error) {
+	store, err := codeintel.OpenReadOnly(ctx, resolvedDBPath(root, dbPath))
+	if err != nil {
+		return nil, fmt.Errorf("open read-only code intelligence store: %w", err)
 	}
 
 	return store, nil
