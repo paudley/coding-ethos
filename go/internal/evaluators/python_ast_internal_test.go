@@ -222,6 +222,75 @@ func TestCollectPythonASTFactsRecordsSnippetFallbackPolicyFacts(t *testing.T) {
 	)
 }
 
+func TestCollectPythonASTFactsSnippetFallbackFindsCompactPercentFormatting(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"    logger.info('user=%s'%user_id)\n",
+		func(fact pythonASTFact) bool { return fact.IsUnstructuredLogMessage },
+	)
+
+	if fact.LoggerName != "logger" || fact.LoggerMethod != "info" {
+		t.Fatalf("compact percent logging fact = %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsSnippetFallbackIgnoresPercentLiteral(t *testing.T) {
+	t.Parallel()
+
+	facts, err := collectPythonASTFacts(pythonSource{
+		Path: "src/app.py",
+		Text: "    logger.info('Progress: 50%')\n",
+	})
+	if err != nil {
+		t.Fatalf("collect python AST facts: %v", err)
+	}
+
+	for _, fact := range facts {
+		if fact.IsUnstructuredLogMessage {
+			t.Fatalf("percent literal should be allowed: %#v", fact)
+		}
+	}
+}
+
+func TestCollectPythonASTFactsSnippetFallbackHandlesCompactTypeIgnore(t *testing.T) {
+	t.Parallel()
+
+	fact := firstPythonASTFact(
+		t,
+		"    value = dynamic()  # type:ignore\n",
+		func(fact pythonASTFact) bool { return fact.IsUnexplainedTypeIgnore },
+	)
+
+	if fact.SuppressionLabel != pythonTypeIgnoreSuppressionLabel {
+		t.Fatalf("compact type ignore fact = %#v", fact)
+	}
+}
+
+func TestCollectPythonASTFactsSnippetFallbackDoesNotUseSiblingAsExceptAction(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	facts, err := collectPythonASTFacts(pythonSource{
+		Path: "src/app.py",
+		Text: "    except RuntimeError:\n" +
+			"    pass\n",
+	})
+	if err != nil {
+		t.Fatalf("collect python AST facts: %v", err)
+	}
+
+	for _, fact := range facts {
+		if fact.IsSilentExcept {
+			t.Fatalf("sibling line should not be exception action: %#v", fact)
+		}
+	}
+}
+
 func TestCollectPythonASTFactsRecordsUnexplainedTypeIgnore(t *testing.T) {
 	t.Parallel()
 

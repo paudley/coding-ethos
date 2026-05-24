@@ -296,6 +296,8 @@ func pythonSnippetFallbackASTFacts(source pythonSource) []pythonASTFact {
 }
 
 func pythonNextIndentedAction(lines []string, currentIndex int) string {
+	currentIndent := leadingSpaces(lines[currentIndex])
+
 	for index := currentIndex + 1; index < len(lines); index++ {
 		line := lines[index]
 		trimmed := strings.TrimSpace(line)
@@ -304,7 +306,7 @@ func pythonNextIndentedAction(lines []string, currentIndex int) string {
 			continue
 		}
 
-		if leadingSpaces(line) == 0 {
+		if leadingSpaces(line) <= currentIndent {
 			return ""
 		}
 
@@ -567,8 +569,44 @@ func pythonSnippetFirstPositionalArgument(args string) string {
 }
 
 func pythonSnippetArgumentUsesPercentFormatting(arg string) bool {
-	return strings.Contains(arg, "\" %") ||
-		strings.Contains(arg, "' %")
+	return pythonSnippetContainsPercentOperator(arg)
+}
+
+func pythonSnippetContainsPercentOperator(arg string) bool {
+	var quote rune
+
+	escaped := false
+
+	for _, char := range arg {
+		if escaped {
+			escaped = false
+
+			continue
+		}
+
+		if char == '\\' {
+			escaped = true
+
+			continue
+		}
+
+		if quote != 0 {
+			if char == quote {
+				quote = 0
+			}
+
+			continue
+		}
+
+		switch char {
+		case '\'', '"':
+			quote = char
+		case '%':
+			return true
+		}
+	}
+
+	return false
 }
 
 func firstPythonConditionalImportIssue(facts []pythonASTFact) *pythonASTIssue {
@@ -1018,9 +1056,6 @@ func pythonSuppressionComment(text string) (bool, string) {
 
 func pythonSuppressionIsUnexplainedTypeIgnore(text string) bool {
 	trimmed := strings.TrimSpace(text)
-	if !strings.Contains(strings.ToLower(trimmed), "type: ignore") {
-		return false
-	}
 
 	return pythonUnexplainedTypeIgnorePattern.MatchString(trimmed)
 }
