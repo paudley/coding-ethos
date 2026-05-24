@@ -5,6 +5,7 @@ package evaluators
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -15,6 +16,39 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
+//nolint:gochecknoglobals
+var pythonSuppressionCommentPatterns = []pythonSuppressionPattern{
+	{
+		regex: regexp.MustCompile(`(?i)#\s*ruff:\s*noqa\b`),
+		label: "ruff: noqa",
+	},
+	{
+		regex: regexp.MustCompile(`(?i)#\s*mypy:\s*ignore-errors\b`),
+		label: "mypy: ignore-errors",
+	},
+	{
+		regex: regexp.MustCompile(`(?i)#\s*pyright:\s*ignore\b`),
+		label: "pyright: ignore",
+	},
+	{
+		regex: regexp.MustCompile(`(?i)#\s*pylint:\s*disable\b`),
+		label: "pylint: disable",
+	},
+	{
+		regex: regexp.MustCompile(`(?i)#\s*type:\s*ignore\b`),
+		label: "type: ignore",
+	},
+	{
+		regex: regexp.MustCompile(`(?i)#\s*noqa\b`),
+		label: "noqa",
+	},
+}
+
+type pythonSuppressionPattern struct {
+	regex *regexp.Regexp
+	label string
+}
+
 type pythonASTFact struct {
 	File              string
 	Language          string
@@ -23,10 +57,13 @@ type pythonASTFact struct {
 	SymbolName        string
 	SymbolPath        string
 	ParentSymbolPath  string
+	EnclosingFunction string
+	EnclosingSymbol   string
 	Text              string
 	ImportModule      string
 	CallName          string
 	AnnotationRole    string
+	SuppressionLabel  string
 	Line              int
 	Column            int
 	EndLine           int
@@ -44,6 +81,7 @@ type pythonASTFact struct {
 	IsDynamicImport   bool
 	IsAssignedLambda  bool
 	IsClosureFactory  bool
+	IsSuppression     bool
 }
 
 type pythonASTIssue struct {
@@ -70,6 +108,7 @@ const (
 	pythonKindAssign             = "assignment"
 	pythonKindCall               = "call"
 	pythonKindClassDef           = "class_definition"
+	pythonKindComment            = "comment"
 	pythonKindExceptClause       = "except_clause"
 	pythonKindFunctionDef        = "function_definition"
 	pythonKindImportFrom         = "import_from_statement"
@@ -157,7 +196,7 @@ func collectPythonASTFacts(source pythonSource) ([]pythonASTFact, error) {
 
 	facts := []pythonASTFact{}
 	closureFactories := pythonClosureFactorySymbols(root, contents)
-	astfacts.Walk(root, func(node *tree_sitter.Node) {
+	pythonWalkAllNodes(root, func(node *tree_sitter.Node) {
 		if fact, found := pythonASTFactFromNode(
 			source,
 			node,
@@ -174,6 +213,43 @@ func collectPythonASTFacts(source pythonSource) ([]pythonASTFact, error) {
 	}
 
 	return facts, nil
+}
+
+func pythonWalkAllNodes(root *tree_sitter.Node, visit func(*tree_sitter.Node)) {
+	if root == nil {
+		return
+	}
+
+	stack := []*tree_sitter.Node{root}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		visit(node)
+
+		stack = appendPythonTraversalChildren(stack, node)
+	}
+}
+
+func appendPythonTraversalChildren(
+	stack []*tree_sitter.Node,
+	node *tree_sitter.Node,
+) []*tree_sitter.Node {
+	for index := node.NamedChildCount(); index > 0; index-- {
+		child := node.NamedChild(index - 1)
+		if child != nil && child.Kind() != pythonKindComment {
+			stack = append(stack, child)
+		}
+	}
+
+	for index := node.ChildCount(); index > 0; index-- {
+		child := node.Child(index - 1)
+		if child != nil && child.Kind() == pythonKindComment {
+			stack = append(stack, child)
+		}
+	}
+
+	return stack
 }
 
 func pythonSnippetFallbackASTFacts(source pythonSource) []pythonASTFact {
@@ -415,8 +491,17 @@ func pythonASTFactFromNode(
 		UnderTypeChecking: pythonUnderTypeChecking(node, contents),
 	}
 	fact.SymbolPath, fact.ParentSymbolPath = pythonSymbolPaths(node, contents)
+	fact.EnclosingFunction, fact.EnclosingSymbol = pythonEnclosingFunction(
+		node,
+		contents,
+	)
 
 	switch kind {
+	case pythonKindComment:
+		fact.IsSuppression, fact.SuppressionLabel = pythonSuppressionComment(text)
+		if !fact.IsSuppression {
+			return pythonASTFact{}, false
+		}
 	case pythonKindImport, pythonKindImportFrom:
 		fact.IsImport = true
 		fact.ImportModule = text
@@ -456,6 +541,7 @@ func pythonASTNodeIsFactCandidate(kind string) bool {
 		pythonKindAssign,
 		pythonKindCall,
 		pythonKindClassDef,
+		pythonKindComment,
 		pythonKindExceptClause,
 		pythonKindFunctionDef,
 		pythonKindImportFrom,
@@ -607,6 +693,8 @@ func pythonSymbolKind(node *tree_sitter.Node) string {
 		return "function"
 	case pythonKindClassDef:
 		return "class"
+	case pythonKindComment:
+		return "comment"
 	case "lambda":
 		return "lambda"
 	case "import_statement", "import_from_statement":
@@ -657,6 +745,28 @@ func pythonSymbolPaths(node *tree_sitter.Node, contents []byte) (string, string)
 	default:
 		return parent + "." + name, parent
 	}
+}
+
+func pythonEnclosingFunction(
+	node *tree_sitter.Node,
+	contents []byte,
+) (string, string) {
+	function := nearestPythonFunctionAncestor(node)
+	if function == nil {
+		return "", ""
+	}
+
+	return pythonFunctionName(function, contents), pythonNodeKey(function, contents)
+}
+
+func pythonSuppressionComment(text string) (bool, string) {
+	for _, pattern := range pythonSuppressionCommentPatterns {
+		if pattern.regex.MatchString(text) {
+			return true, pattern.label
+		}
+	}
+
+	return false, ""
 }
 
 func pythonFunctionName(node *tree_sitter.Node, contents []byte) string {

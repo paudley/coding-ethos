@@ -10,18 +10,11 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
+	"blackcat.ca/coding-ethos/go/internal/repoignore"
 )
 
 func requiredRuntimeIgnorePaths() []string {
-	return []string{
-		".code-ethos/cache/",
-		".coding-ethos/cache/",
-		".coding-ethos/code-intel.db",
-		".coding-ethos/hook-runs/",
-		".coding-ethos/lint-runs/",
-		".coding-ethos/prune-runs/",
-		".coding-ethos/state/",
-	}
+	return repoignore.RuntimePaths()
 }
 
 func checkRuntimeIgnoresCommand(_ Config, _ []string) int {

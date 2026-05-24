@@ -25,6 +25,8 @@ func RuntimePaths() []string {
 		".code-ethos/cache/",
 		".coding-ethos/cache/",
 		".coding-ethos/code-intel.db",
+		".coding-ethos/code-intel.db-shm",
+		".coding-ethos/code-intel.db-wal",
 		".coding-ethos/hook-runs/",
 		".coding-ethos/lint-runs/",
 		".coding-ethos/prune-runs/",

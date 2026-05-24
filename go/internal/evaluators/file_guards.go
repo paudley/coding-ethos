@@ -421,11 +421,28 @@ func evaluateLicenseFile(
 
 func normalizeGuardLicenseText(text string) string {
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
+	paragraphs := []string{}
+	current := []string{}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			if len(current) > 0 {
+				paragraphs = append(paragraphs, strings.Join(current, " "))
+				current = nil
+			}
+
+			continue
+		}
+
+		current = append(current, strings.Join(strings.Fields(trimmed), " "))
 	}
 
-	return strings.Join(lines, "\n") + "\n"
+	if len(current) > 0 {
+		paragraphs = append(paragraphs, strings.Join(current, " "))
+	}
+
+	return strings.Join(paragraphs, "\n\n") + "\n"
 }
 
 func licenseTextOption(options map[string]any, key string) string {
