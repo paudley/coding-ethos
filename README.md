@@ -402,12 +402,19 @@ bin/coding-ethos-run code-intel compact-context --path pkg/app.py
 bin/coding-ethos-run code-intel proxy-file-read --session-id sess-1 --path pkg/app.py
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel repeated-edits --path pkg/app.py
+bin/coding-ethos-run code-intel downstream-analysis
 ```
 
 The store lives at `.coding-ethos/code-intel.db`; it is repo-local and derived
 from retained traces, SARIF, AST chunks, proxy session events, remediation
 records, and vector metadata. It is not a replacement for hooks or CEL policy
 evaluation.
+
+`downstream-analysis` is the read-only support view for downstream repo
+ergonomics. It opens an existing code-intelligence database in read-only mode,
+scans retained hook logs, and reports hook friction, blocker trends, lint
+hotspots, large-file pressure, toolchain failures, stale code context, and
+SQLite lock evidence without creating or migrating the store.
 
 Inspect the repo-local disk output surface before pruning or deeper analysis:
 

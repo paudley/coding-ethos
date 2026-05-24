@@ -32,6 +32,17 @@ func TestStatsCreatesStore(t *testing.T) {
 	}
 }
 
+func TestDownstreamAnalysisDoesNotRequireExistingStore(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	err := run(context.Background(), []string{"downstream-analysis", "--root", root})
+	if err != nil {
+		t.Fatalf("downstream-analysis command returned error: %v", err)
+	}
+}
+
 func TestVectorStatsCreatesSQLiteVectorStore(t *testing.T) {
 	t.Parallel()
 

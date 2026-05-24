@@ -97,6 +97,31 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return store, nil
 }
 
+func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
+	_, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat code intelligence store: %w", err)
+	}
+
+	database, err := sql.Open("sqlite", sqliteReadOnlyStoreDSN(path))
+	if err != nil {
+		return nil, fmt.Errorf("open read-only code intelligence store: %w", err)
+	}
+
+	configureConnectionPool(database)
+
+	store := &Store{database: database}
+
+	inlineErr0 := configureReadOnlyStore(ctx, database)
+	if inlineErr0 != nil {
+		_ = database.Close()
+
+		return nil, inlineErr0
+	}
+
+	return store, nil
+}
+
 func sqliteStoreDSN(path string) string {
 	if strings.Contains(path, sqliteImmediateTxParam) {
 		return path
@@ -108,6 +133,26 @@ func sqliteStoreDSN(path string) string {
 	}
 
 	return path + separator + sqliteImmediateTxParam
+}
+
+func sqliteReadOnlyStoreDSN(path string) string {
+	prefix := "file:"
+	if strings.HasPrefix(path, prefix) {
+		prefix = ""
+	}
+
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+
+	return prefix + filepath.ToSlash(path) + separator +
+		"mode=ro&_pragma=busy_timeout(30000)"
+}
+
+func configureConnectionPool(database *sql.DB) {
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
 }
 
 func (store *Store) Database() *sql.DB {
@@ -436,6 +481,23 @@ func configureStore(ctx context.Context, database *sql.DB) error {
 		_, inlineErrA := database.ExecContext(ctx, statement)
 		if inlineErrA != nil {
 			return fmt.Errorf("configure code intelligence store: %w", inlineErrA)
+		}
+	}
+
+	return nil
+}
+
+func configureReadOnlyStore(ctx context.Context, database *sql.DB) error {
+	for _, statement := range []string{
+		"PRAGMA foreign_keys = ON",
+		"PRAGMA busy_timeout = 30000",
+	} {
+		_, inlineErrA := database.ExecContext(ctx, statement)
+		if inlineErrA != nil {
+			return fmt.Errorf(
+				"configure read-only code intelligence store: %w",
+				inlineErrA,
+			)
 		}
 	}
 

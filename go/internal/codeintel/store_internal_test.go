@@ -43,3 +43,37 @@ func TestSQLiteStoreDSNRequestsImmediateTransactions(t *testing.T) {
 		})
 	}
 }
+
+func TestSQLiteReadOnlyStoreDSNUsesReadOnlyMode(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "plain path",
+			path: "/tmp/code-intel.db",
+			want: "file:/tmp/code-intel.db?mode=ro&_pragma=busy_timeout(30000)",
+		},
+		{
+			name: "existing query",
+			path: "file:/tmp/code-intel.db?cache=shared",
+			want: "file:/tmp/code-intel.db?cache=shared&mode=ro&_pragma=busy_timeout(30000)",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := sqliteReadOnlyStoreDSN(test.path); got != test.want {
+				t.Fatalf(
+					"sqliteReadOnlyStoreDSN(%q) = %q, want %q",
+					test.path,
+					got,
+					test.want,
+				)
+			}
+		})
+	}
+}
