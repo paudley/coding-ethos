@@ -29,6 +29,7 @@ const (
 func deleteTraceRows(ctx context.Context, transaction *sql.Tx, traceID string) error {
 	for _, statement := range []string{
 		"DELETE FROM code_intel_fts WHERE trace_id = ?",
+		"DELETE FROM code_delete_intents WHERE trace_id = ?",
 		"DELETE FROM hook_targets WHERE trace_id = ?",
 		"DELETE FROM hook_decisions WHERE trace_id = ?",
 		"DELETE FROM hook_events WHERE trace_id = ?",
@@ -40,6 +41,51 @@ func deleteTraceRows(ctx context.Context, transaction *sql.Tx, traceID string) e
 		_, inlineErrA := transaction.ExecContext(ctx, statement, traceID)
 		if inlineErrA != nil {
 			return fmt.Errorf("delete existing trace rows: %w", inlineErrA)
+		}
+	}
+
+	return nil
+}
+
+func insertDeleteIntents(
+	ctx context.Context,
+	transaction *sql.Tx,
+	intents []CodeDeleteIntent,
+) error {
+	for _, intent := range intents {
+		intent = normalizeCodeDeleteIntent(intent)
+		if intent.ID == "" || intent.Path == "" || intent.IntentKind == "" {
+			continue
+		}
+
+		raw, err := json.Marshal(intent)
+		if err != nil {
+			return fmt.Errorf("marshal code delete intent %q: %w", intent.ID, err)
+		}
+
+		_, err = transaction.ExecContext(
+			ctx,
+			`INSERT OR REPLACE INTO code_delete_intents(
+				intent_id, path, intent_kind, trace_id, recorded_at_utc,
+				provider, event, tool, status, cwd, command_sha256,
+				command_preview, raw_json
+			) VALUES (?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			intent.ID,
+			intent.Path,
+			intent.IntentKind,
+			intent.TraceID,
+			intent.RecordedAtUTC,
+			intent.Provider,
+			intent.Event,
+			intent.Tool,
+			intent.Status,
+			intent.Cwd,
+			intent.CommandSHA256,
+			intent.CommandPreview,
+			string(raw),
+		)
+		if err != nil {
+			return fmt.Errorf("insert code delete intent %q: %w", intent.ID, err)
 		}
 	}
 

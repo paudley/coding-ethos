@@ -51,7 +51,7 @@ func agentHookFixtureCases() []agentHookFixtureCase {
 			wantStdoutExact: "{}",
 			wantStdoutMissing: []string{
 				`"updatedInput"`,
-				`agent-shell --rewrite --`,
+				`agent-shell --`,
 			},
 		},
 		{
@@ -60,7 +60,7 @@ func agentHookFixtureCases() []agentHookFixtureCase {
 			wantStdoutExact: "{}",
 			wantStdoutMissing: []string{
 				`"updatedInput"`,
-				`agent-shell --rewrite --`,
+				`agent-shell --`,
 			},
 		},
 		{

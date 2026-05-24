@@ -1265,20 +1265,33 @@ func TestAgentShellCommandBuildsShellCommand(t *testing.T) {
 		t.Fatalf("agent shell command: %v", err)
 	}
 
-	if request.Command != "git status 'pkg/a b.py'" || request.Rewrite {
+	if request.Command != "git status 'pkg/a b.py'" || !request.Rewrite {
 		t.Fatalf("request = %#v", request)
 	}
 }
 
-func TestAgentShellCommandParsesRewriteFlag(t *testing.T) {
+func TestAgentShellCommandDefaultsRewrite(t *testing.T) {
 	t.Parallel()
 
-	request, err := agentShellCommand([]string{"--rewrite", "--", "git status"})
+	request, err := agentShellCommand([]string{"--", "git status"})
 	if err != nil {
 		t.Fatalf("agent shell command: %v", err)
 	}
 
 	if request.Command != "git status" || !request.Rewrite {
+		t.Fatalf("request = %#v", request)
+	}
+}
+
+func TestAgentShellCommandParsesNoRewriteFlag(t *testing.T) {
+	t.Parallel()
+
+	request, err := agentShellCommand([]string{"--no-rewrite", "--", "git status"})
+	if err != nil {
+		t.Fatalf("agent shell command: %v", err)
+	}
+
+	if request.Command != "git status" || request.Rewrite {
 		t.Fatalf("request = %#v", request)
 	}
 }
@@ -1310,7 +1323,7 @@ func TestAgentShellRewriteRoutesGitToPolicyGitWithoutNestedRunner(t *testing.T) 
 	writePolicyBundleForTest(t, hookPolicyBundlePath(paths))
 	t.Setenv("CODING_ETHOS_RUN_GO_HOOK", paths.RunBinary)
 
-	request, err := agentShellCommand([]string{"--rewrite", "--", "git", "status"})
+	request, err := agentShellCommand([]string{"--", "git", "status"})
 	if err != nil {
 		t.Fatalf("agent shell command: %v", err)
 	}
@@ -2283,7 +2296,7 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 	}{
 		{
 			name: "agent shell",
-			args: []string{"agent-shell", "--", "git", "status"},
+			args: []string{"agent-shell", "--no-rewrite", "--", "git", "status"},
 			want: "direct-run:coding-ethos-toolchain install-git-shim " +
 				"--dest-dir " + paths.BinDir +
 				" --real-git " + paths.RealGit + " --runner " + paths.RunBinary + "\n" +
@@ -2295,6 +2308,11 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 			name: "policy lint",
 			args: []string{"policy-lint", "--scope", "staged"},
 			want: "exec-lint:--bundle " + paths.PolicyBundle + " --scope staged",
+		},
+		{
+			name: "lint alias",
+			args: []string{"lint", "--staged"},
+			want: "exec-lint:--bundle " + paths.PolicyBundle + " --staged",
 		},
 		{
 			name: "policy command",
@@ -2643,12 +2661,32 @@ func TestRunReportsInvalidCommandsBeforeExec(t *testing.T) {
 	assertInvalidRunCommand(t, "policy-tool-group unknown group", func() error {
 		return runPolicyToolGroup(paths, []string{"explode"})
 	}, "unknown policy-tool group")
-	assertInvalidRunCommand(t, "runner missing command", func() error {
-		return run(paths, nil)
-	}, "requires a command")
 	assertInvalidRunCommand(t, "runner unknown command", func() error {
 		return run(paths, []string{"explode"})
 	}, "unknown coding-ethos-run command")
+}
+
+func TestRunHelpListsManagedLintEntrypoints(t *testing.T) {
+	t.Parallel()
+
+	output := captureRuntimeStdout(t, func() {
+		err := run(runtimeTestPaths(t), []string{"--help"})
+		if err != nil {
+			t.Fatalf("run help: %v", err)
+		}
+	})
+
+	for _, want := range []string{
+		"coding-ethos-run",
+		"lint --staged",
+		"lint --changed",
+		"lint --full",
+		"bin/lint --staged",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("help missing %q:\n%s", want, output)
+		}
+	}
 }
 
 func assertInvalidRunCommand(

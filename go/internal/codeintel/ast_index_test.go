@@ -71,14 +71,14 @@ func TestASTIndexerIndexesExplicitTempRootUnderIgnoredWorktree(t *testing.T) {
 
 	err := os.WriteFile(
 		filepath.Join(parent, ".gitignore"),
-		[]byte("sandbox-tmp/\n"),
+		[]byte(".coding-ethos/cache/sandbox-tmp/\n"),
 		0o600,
 	)
 	if err != nil {
 		t.Fatalf("write gitignore: %v", err)
 	}
 
-	root := filepath.Join(parent, "sandbox-tmp", "case")
+	root := filepath.Join(parent, ".coding-ethos", "cache", "sandbox-tmp", "case")
 	err = os.MkdirAll(root, 0o700)
 	if err != nil {
 		t.Fatalf("mkdir temp root: %v", err)
@@ -279,6 +279,14 @@ func TestASTIndexerIndexesRepoNamedCodingEthos(t *testing.T) {
 
 	writeIndexedTestFile(t, repo, "go/main.go", "package main\nfunc main() {}\n")
 	writeIndexedTestFile(t, repo, "nested/coding-ethos/tool.go", "package tool\n")
+	writeIndexedTestFile(t, repo, ".codex/skills/generated/SKILL.md", "# Generated\n")
+	writeIndexedTestFile(
+		t,
+		repo,
+		".venv/lib/python/site-packages/pkg.py",
+		"def lib(): pass\n",
+	)
+	writeIndexedTestFile(t, repo, "ruff.toml", "line-length = 100\n")
 
 	summary, err := indexer.IndexPaths(ctx, repo, []string{repo})
 	if err != nil {
@@ -291,6 +299,9 @@ func TestASTIndexerIndexesRepoNamedCodingEthos(t *testing.T) {
 
 	assertCodeFilePresence(t, ctx, store, "go/main.go", true)
 	assertCodeFilePresence(t, ctx, store, "nested/coding-ethos/tool.go", false)
+	assertCodeFilePresence(t, ctx, store, ".codex/skills/generated/SKILL.md", false)
+	assertCodeFilePresence(t, ctx, store, ".venv/lib/python/site-packages/pkg.py", false)
+	assertCodeFilePresence(t, ctx, store, "ruff.toml", false)
 }
 
 func TestASTIndexerUsesConfiguredRepoExcludes(t *testing.T) {

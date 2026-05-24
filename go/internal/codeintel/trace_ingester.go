@@ -19,6 +19,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 	"blackcat.ca/coding-ethos/go/internal/lint"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
 type TraceIngester struct {
@@ -306,6 +307,7 @@ func DecodeHookTrace(path string, payload []byte) (Trace, error) {
 		HookEvent:         hookEventAnalytics(record),
 		HookDecisions:     hookDecisionAnalytics(record),
 		HookTargets:       hookTargetAnalytics(record),
+		DeleteIntents:     hookDeleteIntents(record),
 	}, nil
 }
 
@@ -339,6 +341,7 @@ type hookTraceRecord struct {
 type hookTraceCommand struct {
 	SHA256      string `json:"sha256"`
 	ShapeSHA256 string `json:"shape_sha256,omitempty"`
+	Preview     string `json:"preview,omitempty"`
 }
 
 type hookTraceDecision struct {
@@ -449,4 +452,138 @@ func hookTargetAnalytics(record hookTraceRecord) []HookTargetAnalytics {
 	}
 
 	return targets
+}
+
+func hookDeleteIntents(record hookTraceRecord) []CodeDeleteIntent {
+	if record.Command == nil ||
+		record.Command.Preview == "" ||
+		record.Status == "blocked" ||
+		record.OutputShape.Blocked {
+		return nil
+	}
+
+	paths := deleteIntentPathsFromShell(record.Command.Preview)
+	if len(paths) == 0 {
+		return nil
+	}
+
+	intents := make([]CodeDeleteIntent, 0, len(paths))
+	for _, path := range paths {
+		intents = append(intents, CodeDeleteIntent{
+			Path:           path,
+			IntentKind:     "hook_command_delete",
+			TraceID:        record.TraceID,
+			RecordedAtUTC:  record.RecordedAtUTC,
+			Provider:       record.Provider,
+			Event:          record.Event,
+			Tool:           record.Tool,
+			Status:         record.Status,
+			Cwd:            record.Cwd,
+			CommandSHA256:  record.Command.SHA256,
+			CommandPreview: record.Command.Preview,
+		})
+	}
+
+	return intents
+}
+
+func deleteIntentPathsFromShell(command string) []string {
+	commands, err := shellparse.Commands(command)
+	if err != nil {
+		return nil
+	}
+
+	paths := []string{}
+
+	for _, parsed := range commands {
+		if len(parsed.Argv) == 0 {
+			continue
+		}
+
+		switch parsed.Argv[0] {
+		case "rm":
+			paths = append(paths, rmIntentPaths(parsed.Argv[1:])...)
+		case "git":
+			paths = append(paths, gitRMIntentPaths(parsed.Argv[1:])...)
+		}
+	}
+
+	return cleanDeleteIntentPaths(paths)
+}
+
+func rmIntentPaths(args []string) []string {
+	paths := []string{}
+	onlyPaths := false
+
+	for _, arg := range args {
+		if onlyPaths {
+			if path, ok := cleanRepoRelativeIntentPath(arg); ok {
+				paths = append(paths, path)
+			}
+
+			continue
+		}
+
+		if arg == "--" {
+			onlyPaths = true
+
+			continue
+		}
+
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		if path, ok := cleanRepoRelativeIntentPath(arg); ok {
+			paths = append(paths, path)
+		}
+	}
+
+	return paths
+}
+
+func gitRMIntentPaths(args []string) []string {
+	if len(args) == 0 || args[0] != "rm" {
+		return nil
+	}
+
+	return rmIntentPaths(args[1:])
+}
+
+func cleanRepoRelativeIntentPath(path string) (string, bool) {
+	path = strings.TrimSpace(path)
+	if path == "" || filepath.IsAbs(path) || windowsAbsoluteIntentPath(path) {
+		return "", false
+	}
+
+	cleaned := filepath.ToSlash(filepath.Clean(path))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", false
+	}
+
+	return cleaned, true
+}
+
+func windowsAbsoluteIntentPath(path string) bool {
+	return len(path) >= 3 &&
+		((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) &&
+		path[1] == ':' &&
+		(path[2] == '\\' || path[2] == '/')
+}
+
+func cleanDeleteIntentPaths(paths []string) []string {
+	cleaned := []string{}
+	seen := map[string]bool{}
+
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" || seen[path] {
+			continue
+		}
+
+		seen[path] = true
+		cleaned = append(cleaned, path)
+	}
+
+	return cleaned
 }

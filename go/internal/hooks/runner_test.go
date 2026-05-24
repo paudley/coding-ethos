@@ -98,7 +98,7 @@ func TestRunRewritesNormalGitCommitThroughWrapper(t *testing.T) {
 	}
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
-	if !ok || !strings.Contains(rewritten, "agent-shell --rewrite --") ||
+	if !ok || !strings.Contains(rewritten, "agent-shell --") ||
 		!strings.Contains(rewritten, "commit") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
@@ -1196,7 +1196,7 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "agent-shell --") ||
 		!strings.Contains(rewritten, "git status && git log --oneline -1") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
 	}
@@ -1311,7 +1311,7 @@ func TestRunBlocksCodexMutatingGitWhenRewriteCannotBeApplied(t *testing.T) {
 	}
 
 	blockMessage := ProviderBlockMessage(result)
-	wantRemediation := filepath.ToSlash(cerunPath) + " --rewrite -- 'git add file.txt'"
+	wantRemediation := filepath.ToSlash(cerunPath) + " -- 'git add file.txt'"
 	if !strings.Contains(blockMessage, wantRemediation) {
 		t.Fatalf("missing repo-local cerun remediation:\n%s", blockMessage)
 	}
@@ -1323,8 +1323,10 @@ func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
 	for _, command := range []string{
 		"cerun -- git status",
 		"cerun --rewrite -- git status",
+		"cerun --no-rewrite -- git status",
 		"cerun --check -- git status",
 		"cerun --check --rewrite -- git status",
+		"cerun --check --no-rewrite -- git status",
 		"cerun --intent 'inspect repository' -- git status",
 		"cerun git status",
 		"cerun python -m pytest",
@@ -1332,6 +1334,7 @@ func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
 		"cerun --rewrite -- git status --short && printf '\\nbranch: ' && cerun --rewrite -- git branch --show-current",
 		"bin/coding-ethos-run agent-shell -- git status",
 		"bin/coding-ethos-run agent-shell --rewrite -- git status",
+		"bin/coding-ethos-run agent-shell --no-rewrite -- git status",
 		"bin/coding-ethos-run agent-shell --check -- git status",
 		"bin/coding-ethos-run agent-shell --check --rewrite -- git status",
 		"bin/coding-ethos-run agent-shell --intent 'inspect repository' -- git status",
@@ -1671,7 +1674,7 @@ func TestRunRewritesReportedGitAddStatusPipeline(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "agent-shell --") ||
 		!strings.Contains(rewritten, "git add ") ||
 		!strings.Contains(rewritten, "git status -s | grep tamperproofing") {
 		t.Fatalf("unexpected rewritten command: %#v", result.HookSpecificOutput)
@@ -1705,7 +1708,7 @@ func TestRunRewritesMultilineGitAddWithoutNewlinePathspecs(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "agent-shell --") ||
 		!strings.Contains(rewritten, "git add") ||
 		!strings.Contains(
 			rewritten,
@@ -1757,7 +1760,7 @@ func TestRunRewritesCommentedMultilineGitAdd(t *testing.T) {
 
 	rewritten, ok := result.HookSpecificOutput.UpdatedInput["command"].(string)
 	if !ok ||
-		!strings.Contains(rewritten, "agent-shell --rewrite --") ||
+		!strings.Contains(rewritten, "agent-shell --") ||
 		!strings.Contains(rewritten, "git add") ||
 		!strings.Contains(
 			rewritten,
@@ -2616,6 +2619,58 @@ func TestRunBlocksProtectedPathWrite(t *testing.T) {
 
 	if result.Decisions[0].PolicyID != "filesystem.protected_path" {
 		t.Fatalf("policy mismatch: %#v", result.Decisions[0])
+	}
+}
+
+func TestRunBlocksGeneratedLintConfigWrite(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "Edit",
+			ToolInput: map[string]any{
+				"file_path":  "/repo/ruff.toml",
+				"old_string": "line-length = 100\n",
+				"new_string": "line-length = 120\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if result.Decisions[0].PolicyID != "filesystem.protected_path" {
+		t.Fatalf("policy mismatch: %#v", result.Decisions[0])
+	}
+}
+
+func TestRunBlocksGeneratedLintConfigShellWrite(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "printf 'line-length = 120\\n' > ruff.toml",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q", result.Status)
+	}
+
+	if !hasDecision(result.Decisions, "filesystem.protected_path") {
+		t.Fatalf("missing protected-path decision: %#v", result.Decisions)
 	}
 }
 
@@ -3886,7 +3941,7 @@ func TestRunBlocksCodexPayloadGitBypass(t *testing.T) {
 	}
 }
 
-func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
+func TestRunBlocksCodexGitEvenWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 	root := t.TempDir()
 	parent := filepath.Join(root, "parent")
 
@@ -3919,23 +3974,12 @@ func TestRunSkipsCodexHookWhenConsumerRootIsNotNearestRepo(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusAllowed || len(result.Decisions) != 0 {
-		t.Fatalf("nested non-owner hook should no-op, got %#v", result)
-	}
-
-	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", child)
-
-	result, err = Run(policy.ExampleBundle(), Options{Event: event})
-	if err != nil {
-		t.Fatalf("run nearest hook: %v", err)
-	}
-
 	if result.Status != statusBlocked ||
 		!hasDecision(result.Decisions, "git.wrapper_required") ||
 		(result.HookSpecificOutput != nil &&
 			len(result.HookSpecificOutput.UpdatedInput) > 0) {
 		t.Fatalf(
-			"nested owner hook should block unsupported Codex rewrite, got %#v",
+			"nested Codex git must block unsupported rewrite, got %#v",
 			result,
 		)
 	}

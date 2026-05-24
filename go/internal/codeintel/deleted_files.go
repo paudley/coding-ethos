@@ -17,6 +17,11 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
+const (
+	codeFileStaleDeleted         = "deleted"
+	codeFileStaleDeletedByIntent = "deleted_by_intent"
+)
+
 func (store *Store) MarkMissingCodeFilesDeleted(
 	ctx context.Context,
 	root string,
@@ -29,6 +34,7 @@ func (store *Store) MarkMissingCodeFilesDeleted(
 
 	activePaths, _ := gitTrackedAndUnignoredPaths(ctx, root)
 	deletedPaths := gitDeletedPaths(ctx, root)
+	stagedDeletedPaths := gitStagedDeletedPaths(ctx, root)
 
 	indexedPaths, err := store.activeCodeFilePaths(ctx, "deletion")
 	if err != nil {
@@ -50,27 +56,109 @@ func (store *Store) MarkMissingCodeFilesDeleted(
 		return deleted, nil
 	}
 
+	err = store.markDeletedCodeFiles(
+		ctx,
+		root,
+		deleted,
+		stagedDeletedPaths,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return deleted, nil
+}
+
+func (store *Store) markDeletedCodeFiles(
+	ctx context.Context,
+	root string,
+	deleted []string,
+	stagedDeletedPaths map[string]bool,
+) error {
 	deletedAt := time.Now().UTC().Format(time.RFC3339)
+	headRevision := gitHeadRevision(ctx, root)
+
+	intentPaths, err := store.codeDeleteIntentPaths(ctx)
+	if err != nil {
+		return err
+	}
 
 	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("begin deleted code file refresh: %w", err)
+		return fmt.Errorf("begin deleted code file refresh: %w", err)
 	}
 	defer rollbackUnlessCommitted(transaction)
 
 	for _, path := range deleted {
-		err = markCodeFileDeleted(ctx, transaction, path, deletedAt)
+		err = markDeletedCodeFile(
+			ctx,
+			transaction,
+			deleteMarkContext{
+				root:               root,
+				deletedAt:          deletedAt,
+				headRevision:       headRevision,
+				intentPaths:        intentPaths,
+				stagedDeletedPaths: stagedDeletedPaths,
+			},
+			path,
+		)
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	err = transaction.Commit()
 	if err != nil {
-		return nil, fmt.Errorf("commit deleted code file refresh: %w", err)
+		return fmt.Errorf("commit deleted code file refresh: %w", err)
 	}
 
-	return deleted, nil
+	return nil
+}
+
+type deleteMarkContext struct {
+	intentPaths        map[string]bool
+	stagedDeletedPaths map[string]bool
+	root               string
+	deletedAt          string
+	headRevision       string
+}
+
+func markDeletedCodeFile(
+	ctx context.Context,
+	transaction *sql.Tx,
+	markContext deleteMarkContext,
+	path string,
+) error {
+	reason := codeFileStaleDeleted
+
+	if markContext.stagedDeletedPaths[path] {
+		intent := CodeDeleteIntent{
+			ID: stableID(
+				"code-delete-intent",
+				path,
+				"git_index_delete",
+				markContext.headRevision,
+			),
+			Path:          path,
+			IntentKind:    "git_index_delete",
+			RecordedAtUTC: markContext.deletedAt,
+			Status:        "allowed",
+			Cwd:           markContext.root,
+		}
+
+		err := insertDeleteIntents(ctx, transaction, []CodeDeleteIntent{intent})
+		if err != nil {
+			return err
+		}
+
+		markContext.intentPaths[path] = true
+	}
+
+	if markContext.intentPaths[path] {
+		reason = codeFileStaleDeletedByIntent
+	}
+
+	return markCodeFileInactive(ctx, transaction, path, markContext.deletedAt, reason)
 }
 
 func (store *Store) activeCodeFilePaths(
@@ -186,6 +274,148 @@ func gitDeletedPaths(ctx context.Context, root string) map[string]bool {
 	return deleted
 }
 
+func gitStagedDeletedPaths(ctx context.Context, root string) map[string]bool {
+	command := realgit.Command(
+		ctx,
+		false,
+		"-C",
+		root,
+		"diff",
+		"--name-only",
+		"--cached",
+		"--diff-filter=D",
+		"-z",
+	)
+	command.Env = realgit.CleanGitLocalEnv(os.Environ())
+
+	output, err := command.Output()
+	if err != nil {
+		return nil
+	}
+
+	deleted := map[string]bool{}
+
+	for rawPath := range bytes.SplitSeq(output, []byte{0}) {
+		if len(rawPath) == 0 {
+			continue
+		}
+
+		deleted[filepath.ToSlash(string(rawPath))] = true
+	}
+
+	return deleted
+}
+
+func gitHeadRevision(ctx context.Context, root string) string {
+	command := realgit.Command(
+		ctx,
+		false,
+		"-C",
+		root,
+		"rev-parse",
+		"HEAD",
+	)
+	command.Env = realgit.CleanGitLocalEnv(os.Environ())
+
+	output, err := command.Output()
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(output))
+}
+
+func (store *Store) codeDeleteIntentPaths(
+	ctx context.Context,
+) (map[string]bool, error) {
+	rows, err := store.database.QueryContext(
+		ctx,
+		`SELECT DISTINCT path
+		FROM code_delete_intents
+		WHERE status != 'blocked'`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query code delete intent paths: %w", err)
+	}
+	defer rows.Close()
+
+	paths := map[string]bool{}
+
+	for rows.Next() {
+		var path string
+
+		err = rows.Scan(&path)
+		if err != nil {
+			return nil, fmt.Errorf("scan code delete intent path: %w", err)
+		}
+
+		paths[path] = true
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("iterate code delete intent paths: %w", err)
+	}
+
+	return paths, nil
+}
+
+func (store *Store) CodeDeleteIntents(
+	ctx context.Context,
+	path string,
+) ([]CodeDeleteIntent, error) {
+	rows, err := store.database.QueryContext(
+		ctx,
+		`SELECT intent_id, path, intent_kind, COALESCE(trace_id, ''),
+			COALESCE(recorded_at_utc, ''), COALESCE(provider, ''),
+			COALESCE(event, ''), COALESCE(tool, ''), COALESCE(status, ''),
+			COALESCE(cwd, ''), COALESCE(command_sha256, ''),
+			COALESCE(command_preview, '')
+		FROM code_delete_intents
+		WHERE (? = '' OR path = ?)
+		ORDER BY recorded_at_utc DESC, intent_id`,
+		path,
+		path,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query code delete intents: %w", err)
+	}
+	defer rows.Close()
+
+	intents := []CodeDeleteIntent{}
+
+	for rows.Next() {
+		var intent CodeDeleteIntent
+
+		err = rows.Scan(
+			&intent.ID,
+			&intent.Path,
+			&intent.IntentKind,
+			&intent.TraceID,
+			&intent.RecordedAtUTC,
+			&intent.Provider,
+			&intent.Event,
+			&intent.Tool,
+			&intent.Status,
+			&intent.Cwd,
+			&intent.CommandSHA256,
+			&intent.CommandPreview,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan code delete intent: %w", err)
+		}
+
+		intents = append(intents, intent)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("iterate code delete intents: %w", err)
+	}
+
+	return intents, nil
+}
+
 func (store *Store) MarkIgnoredCodeFilesDeleted(
 	ctx context.Context,
 	ignoredPath func(path string) bool,
@@ -228,15 +458,6 @@ func (store *Store) MarkIgnoredCodeFilesDeleted(
 	}
 
 	return ignored, nil
-}
-
-func markCodeFileDeleted(
-	ctx context.Context,
-	transaction *sql.Tx,
-	path string,
-	deletedAt string,
-) error {
-	return markCodeFileInactive(ctx, transaction, path, deletedAt, "deleted")
 }
 
 func markCodeFileInactive(

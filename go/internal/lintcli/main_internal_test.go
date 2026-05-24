@@ -287,6 +287,21 @@ func TestRunCLIListCapturedTools(t *testing.T) {
 	}
 }
 
+func TestMissingBundleErrorPointsToManagedEntrypoints(t *testing.T) {
+	t.Parallel()
+
+	message := errBundleRequired.Error()
+	for _, want := range []string{
+		"coding-ethos-run lint",
+		"./bin/lint",
+		"active policy bundle",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("missing bundle error lacks %q: %s", want, message)
+		}
+	}
+}
+
 func TestRunCLIInstallShims(t *testing.T) {
 	t.Parallel()
 

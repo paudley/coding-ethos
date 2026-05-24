@@ -44,7 +44,9 @@ const (
 
 func run(paths runtimePaths, args []string) error {
 	if len(args) == 0 {
-		return apperror.StaticError("coding-ethos-run requires a command")
+		emitRunHelp()
+
+		return nil
 	}
 
 	command := args[0]
@@ -81,12 +83,16 @@ func runCommandHandler(command string) (runHandler, bool) {
 
 func runCommandEntries() []runCommandEntry {
 	return []runCommandEntry{
+		{Command: "--help", Handler: runHelpHandler},
+		{Command: "-h", Handler: runHelpHandler},
+		{Command: "help", Handler: runHelpHandler},
 		{Command: "agent-hook", Handler: runAgentHookHandler},
 		{Command: "agent-shell", Handler: runAgentShellHandler},
 		{Command: "git-hook", Handler: runGitHook},
 		{Command: "lfs-hook", Handler: runLFSHook},
 		{Command: "agent-hooks", Handler: runAgentHooksHandler},
 		{Command: "cutover", Handler: runCutover},
+		{Command: "lint", Handler: runPolicyLintHandler},
 		{Command: "policy-lint", Handler: runPolicyLintHandler},
 		{Command: "ci-sarif", Handler: runCISARIFHandler},
 		{Command: "policy", Handler: runPolicyHandler},
@@ -99,6 +105,52 @@ func runCommandEntries() []runCommandEntry {
 		{Command: "parent-check", Handler: runParentCheck},
 		{Command: "parent-lint", Handler: runParentLint},
 		{Command: "mcp", Handler: runMCPHandler},
+	}
+}
+
+func runHelpHandler(_ runtimePaths, _ []string) error {
+	emitRunHelp()
+
+	return nil
+}
+
+func emitRunHelp() {
+	feedback.Emit(os.Stdout, runHelpMessage(), feedback.FormatTOON)
+}
+
+func runHelpMessage() feedback.Message {
+	return feedback.Message{
+		Scalars: []feedback.Scalar{
+			feedback.S("command", "coding-ethos-run"),
+			feedback.S(
+				"summary",
+				"Managed coding-ethos runtime wrapper for parent repos and agents.",
+			),
+		},
+		Tables: []feedback.Table{
+			feedback.T(
+				"common",
+				[]string{"command", "purpose"},
+				[][]string{
+					{"lint --staged", "Run managed lint checks for staged files."},
+					{"lint --changed", "Run managed lint checks for changed files."},
+					{"lint --full", "Run all configured managed lint checks."},
+					{"bin/lint --staged", "Short wrapper for managed lint."},
+					{"agent-shell -- <command>", "Run shell through policy rewrite."},
+					{"output report", "Report managed output surfaces."},
+				},
+			),
+			feedback.T(
+				"internal",
+				[]string{"command", "purpose"},
+				[][]string{
+					{"policy-lint", "Internal compiled policy lint entrypoint."},
+					{"policy-tool <tool>", "Run one managed captured tool."},
+					{"policy-tool-group <group>", "Run a managed tool group."},
+					{"git-hook", "Git hook entrypoint; not for manual lint."},
+				},
+			),
+		},
 	}
 }
 
@@ -192,7 +244,7 @@ func agentShellCommand(args []string) (agentShellRequest, error) {
 
 	if len(args) < 2 || args[0] != "--" {
 		return agentShellRequest{}, apperror.StaticError(
-			"agent-shell requires [--rewrite] [--check] [--intent <intent>] -- <command>",
+			"agent-shell requires [--no-rewrite] [--check] [--intent <intent>] -- <command>",
 		)
 	}
 
@@ -216,12 +268,15 @@ func agentShellCommand(args []string) (agentShellRequest, error) {
 }
 
 func parseAgentShellFlags(args []string) (agentShellRequest, []string, error) {
-	request := agentShellRequest{Intent: agentShellStrategicIntent()}
+	request := agentShellRequest{Intent: agentShellStrategicIntent(), Rewrite: true}
 
 	for len(args) > 0 {
 		switch {
 		case args[0] == "--rewrite":
 			request.Rewrite = true
+			args = args[1:]
+		case args[0] == "--no-rewrite":
+			request.Rewrite = false
 			args = args[1:]
 		case args[0] == "--check":
 			request.Check = true

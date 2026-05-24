@@ -23,7 +23,10 @@ import (
 )
 
 var (
-	errBundleRequired       = apperror.StaticError("--bundle is required")
+	errBundleRequired = apperror.StaticError(
+		"--bundle is required for direct coding-ethos-lint use; run " +
+			"coding-ethos-run lint or ./bin/lint so the active policy bundle is supplied",
+	)
 	errInvalidBundle        = apperror.StaticError("invalid policy bundle")
 	errOutputFormatConflict = apperror.StaticError(
 		"--json and --sarif are mutually exclusive",

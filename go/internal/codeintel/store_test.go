@@ -514,6 +514,259 @@ func TestRefreshRepositoryMarksDeletedFilesAndFiltersActiveAnalysis(t *testing.T
 	}
 }
 
+func TestRefreshRepositoryMarksGitRMDeleteIntent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def build_message():\n    return 'old'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	runCodeIntelGit(t, root, "init", "--initial-branch", "main")
+	runCodeIntelGit(t, root, "config", "user.email", "test@example.com")
+	runCodeIntelGit(t, root, "config", "user.name", "Test User")
+	runCodeIntelGit(t, root, "add", "pkg/app.py")
+	runCodeIntelGit(t, root, "commit", "-m", "initial")
+
+	_, err = RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("initial refresh: %v", err)
+	}
+
+	runCodeIntelGit(t, root, "rm", "pkg/app.py")
+	err = os.MkdirAll(filepath.Join(root, "pkg"), 0o700)
+	if err != nil {
+		t.Fatalf("restore deleted parent dir: %v", err)
+	}
+
+	summary, err := RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("delete refresh: %v", err)
+	}
+
+	if len(summary.CodeIndex.Deleted) != 1 ||
+		summary.CodeIndex.Deleted[0] != "pkg/app.py" {
+		t.Fatalf("deleted summary = %#v", summary.CodeIndex.Deleted)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	file, found, err := store.GetCodeFile(ctx, "pkg/app.py")
+	if err != nil {
+		t.Fatalf("get deleted code file: %v", err)
+	}
+
+	if !found || file.DeletedAtUTC == "" || file.StaleReason != "deleted_by_intent" {
+		t.Fatalf("file = %#v, found = %v", file, found)
+	}
+
+	intents, err := store.CodeDeleteIntents(ctx, "pkg/app.py")
+	if err != nil {
+		t.Fatalf("query delete intents: %v", err)
+	}
+
+	if len(intents) != 1 ||
+		intents[0].IntentKind != "git_index_delete" ||
+		intents[0].Status != "allowed" {
+		t.Fatalf("delete intents = %#v", intents)
+	}
+
+	_, err = RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("second delete refresh: %v", err)
+	}
+
+	intents, err = store.CodeDeleteIntents(ctx, "pkg/app.py")
+	if err != nil {
+		t.Fatalf("query delete intents after second refresh: %v", err)
+	}
+
+	if len(intents) != 1 {
+		t.Fatalf("duplicate delete intents after second refresh: %#v", intents)
+	}
+
+	firstIntentID := intents[0].ID
+	runCodeIntelGit(t, root, "commit", "-m", "delete app")
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def build_message():\n    return 'new'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("recreate source file: %v", err)
+	}
+
+	runCodeIntelGit(t, root, "add", "pkg/app.py")
+	runCodeIntelGit(t, root, "commit", "-m", "restore app")
+
+	_, err = RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("refresh recreated file: %v", err)
+	}
+
+	runCodeIntelGit(t, root, "rm", "pkg/app.py")
+	err = os.MkdirAll(filepath.Join(root, "pkg"), 0o700)
+	if err != nil {
+		t.Fatalf("restore second deleted parent dir: %v", err)
+	}
+
+	_, err = RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("second delete cycle refresh: %v", err)
+	}
+
+	intents, err = store.CodeDeleteIntents(ctx, "pkg/app.py")
+	if err != nil {
+		t.Fatalf("query delete intents after second delete cycle: %v", err)
+	}
+
+	if len(intents) != 2 {
+		t.Fatalf("delete intents after second delete cycle = %#v", intents)
+	}
+
+	if intents[0].ID == intents[1].ID ||
+		(intents[0].ID != firstIntentID && intents[1].ID != firstIntentID) {
+		t.Fatalf("delete intent IDs do not preserve history: %#v", intents)
+	}
+}
+
+func TestHookTraceDeleteIntentMarksMissingFileDeletedByIntent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def build_message():\n    return 'old'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	runCodeIntelGit(t, root, "init", "--initial-branch", "main")
+	runCodeIntelGit(t, root, "config", "user.email", "test@example.com")
+	runCodeIntelGit(t, root, "config", "user.name", "Test User")
+	runCodeIntelGit(t, root, "add", "pkg/app.py")
+	runCodeIntelGit(t, root, "commit", "-m", "initial")
+
+	_, err = RefreshRepository(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("initial refresh: %v", err)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	payload := hookTracePayloadWithCommand(
+		t,
+		"hook-delete-a",
+		"rm pkg/app.py",
+		"allowed",
+		false,
+	)
+	err = NewTraceIngester(store).IngestHookTrace(ctx, payload)
+	if err != nil {
+		t.Fatalf("ingest hook trace: %v", err)
+	}
+
+	err = os.Remove(sourcePath)
+	if err != nil {
+		t.Fatalf("remove source: %v", err)
+	}
+
+	deleted, err := store.MarkMissingCodeFilesDeleted(ctx, root, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("mark deleted files: %v", err)
+	}
+
+	if len(deleted) != 1 || deleted[0] != "pkg/app.py" {
+		t.Fatalf("deleted = %#v", deleted)
+	}
+
+	file, found, err := store.GetCodeFile(ctx, "pkg/app.py")
+	if err != nil {
+		t.Fatalf("get deleted code file: %v", err)
+	}
+
+	if !found || file.StaleReason != "deleted_by_intent" {
+		t.Fatalf("file = %#v, found = %v", file, found)
+	}
+
+	intents, err := store.CodeDeleteIntents(ctx, "pkg/app.py")
+	if err != nil {
+		t.Fatalf("query delete intents: %v", err)
+	}
+
+	if len(intents) != 1 ||
+		intents[0].IntentKind != "hook_command_delete" ||
+		intents[0].TraceID != "hook-delete-a" {
+		t.Fatalf("delete intents = %#v", intents)
+	}
+}
+
+func TestBlockedHookTraceDoesNotRecordDeleteIntent(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	payload := hookTracePayloadWithCommand(
+		t,
+		"hook-blocked-delete-a",
+		"rm pkg/app.py",
+		"blocked",
+		true,
+	)
+	err = NewTraceIngester(store).IngestHookTrace(ctx, payload)
+	if err != nil {
+		t.Fatalf("ingest hook trace: %v", err)
+	}
+
+	intents, err := store.CodeDeleteIntents(ctx, "pkg/app.py")
+	if err != nil {
+		t.Fatalf("query delete intents: %v", err)
+	}
+
+	if len(intents) != 0 {
+		t.Fatalf("blocked delete trace produced intents: %#v", intents)
+	}
+}
+
 func TestRefreshRepositoryMarksIgnoredToolStateInactive(t *testing.T) {
 	t.Parallel()
 
@@ -2296,6 +2549,25 @@ func TestASTIndexerReturnsCompactCodeContext(t *testing.T) {
 			"    def run(self):\n"+
 			"        return helper()\n",
 	))
+	writeFile(t, filepath.Join(root, ".codex", "skills", "generated", "SKILL.md"), []byte(
+		"# Generated Skill\n\n"+
+			"Use generated agent context.\n",
+	))
+	writeFile(
+		t,
+		filepath.Join(root, ".venv", "lib", "python", "site-packages", "pkg.py"),
+		[]byte(
+			"def lib():\n"+
+				"    return \"ignored\"\n",
+		),
+	)
+	writeFile(t, filepath.Join(root, "coding-ethos", "go", "internal", "tool.go"), []byte(
+		"package internal\n\n"+
+			"func GeneratedTool() {}\n",
+	))
+	writeFile(t, filepath.Join(root, "ruff.toml"), []byte(
+		"line-length = 100\n",
+	))
 	store := openTestStoreAt(
 		t,
 		ctx,
@@ -2329,6 +2601,7 @@ func TestASTIndexerReturnsGlobalRepoMap(t *testing.T) {
 
 	ctx := context.Background()
 	root := t.TempDir()
+	runCodeIntelGit(t, root, "init")
 	writeFile(t, filepath.Join(root, "cmd", "main.go"), []byte(`package main
 
 import "fmt"
@@ -2342,6 +2615,29 @@ func main() { fmt.Println("x"); fmt.Println("y") }
 			"    def run(self):\n"+
 			"        return helper()\n",
 	))
+	writeFile(t, filepath.Join(root, ".codex", "skills", "generated", "SKILL.md"), []byte(
+		"# Generated Skill\n\n"+
+			"Use generated agent context.\n",
+	))
+	writeFile(
+		t,
+		filepath.Join(root, ".venv", "lib", "python", "site-packages", "pkg.py"),
+		[]byte(
+			"def lib():\n"+
+				"    return \"ignored\"\n",
+		),
+	)
+	writeFile(t, filepath.Join(root, "coding-ethos", "go", "internal", "tool.go"), []byte(
+		"package internal\n\n"+
+			"func GeneratedTool() {}\n",
+	))
+	writeFile(t, filepath.Join(root, "ignored", "cache.py"), []byte(
+		"def ignored_cache():\n"+
+			"    return \"ignored\"\n",
+	))
+	writeFile(t, filepath.Join(root, "ruff.toml"), []byte(
+		"line-length = 100\n",
+	))
 	store := openTestStoreAt(
 		t,
 		ctx,
@@ -2352,10 +2648,11 @@ func main() { fmt.Println("x"); fmt.Println("y") }
 	if err != nil {
 		t.Fatalf("index code: %v", err)
 	}
+	writeFile(t, filepath.Join(root, ".gitignore"), []byte("ignored/\n"))
 
 	repoMap, err := store.GlobalRepoMap(ctx, RepoMapQuery{
 		Root:           root,
-		Limit:          2,
+		Limit:          10,
 		SymbolsPerFile: 2,
 	})
 	if err != nil {
@@ -2367,6 +2664,11 @@ func main() { fmt.Println("x"); fmt.Println("y") }
 		!strings.Contains(rendered, "coding_ethos_repo_map:") ||
 		!strings.Contains(rendered, "pkg/worker.py") ||
 		!strings.Contains(rendered, "def helper():") ||
+		strings.Contains(rendered, ".codex/skills/generated/SKILL.md") ||
+		strings.Contains(rendered, ".venv/lib/python/site-packages/pkg.py") ||
+		strings.Contains(rendered, "coding-ethos/go/internal/tool.go") ||
+		strings.Contains(rendered, "ignored/cache.py") ||
+		strings.Contains(rendered, "ruff.toml") ||
 		strings.Contains(rendered, `fmt.Println("x");`) {
 		t.Fatalf("repo map = %#v\n%s", repoMap, rendered)
 	}
@@ -3827,6 +4129,44 @@ func hookTracePayloadForProvider(t *testing.T, provider string) []byte {
 	}
 
 	payload["provider"] = provider
+
+	return mustJSON(t, payload)
+}
+
+func hookTracePayloadWithCommand(
+	t *testing.T,
+	traceID string,
+	command string,
+	status string,
+	blocked bool,
+) []byte {
+	t.Helper()
+
+	payload := map[string]any{}
+
+	err := json.Unmarshal(
+		hookTracePayloadWithIDs(t, traceID, "tracking-"+traceID, "2026-01-01T00:03:00Z"),
+		&payload,
+	)
+	if err != nil {
+		t.Fatalf("decode hook payload: %v", err)
+	}
+
+	payload["command"] = map[string]any{
+		"sha256":       strings.Repeat("f", 64),
+		"shape_sha256": strings.Repeat("0", 64),
+		"preview":      command,
+	}
+	payload["status"] = status
+	payload["operation_kind"] = "shell_command"
+	payload["risk_category"] = "allowed"
+	payload["decisions"] = []map[string]any{}
+	payload["findings"] = []evidence.Finding{}
+	payload["agent_remediation"] = []agentmsg.Remediation{}
+	payload["remediation_events"] = []evidence.RemediationEvent{}
+	payload["output_shape"] = map[string]any{
+		"blocked": blocked,
+	}
 
 	return mustJSON(t, payload)
 }

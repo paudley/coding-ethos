@@ -310,6 +310,21 @@ type CodeFile struct {
 	LineCount        int    `json:"line_count"`
 }
 
+type CodeDeleteIntent struct {
+	ID             string `json:"intent_id"`
+	Path           string `json:"path"`
+	IntentKind     string `json:"intent_kind"`
+	TraceID        string `json:"trace_id,omitempty"`
+	RecordedAtUTC  string `json:"recorded_at_utc,omitempty"`
+	Provider       string `json:"provider,omitempty"`
+	Event          string `json:"event,omitempty"`
+	Tool           string `json:"tool,omitempty"`
+	Status         string `json:"status,omitempty"`
+	Cwd            string `json:"cwd,omitempty"`
+	CommandSHA256  string `json:"command_sha256,omitempty"`
+	CommandPreview string `json:"command_preview,omitempty"`
+}
+
 type CodeChunk struct {
 	ID               string   `json:"id"`
 	Path             string   `json:"path"`
@@ -775,6 +790,31 @@ func normalizeEmbeddingRecord(record EmbeddingRecord) EmbeddingRecord {
 	))
 
 	return record
+}
+
+func normalizeCodeDeleteIntent(intent CodeDeleteIntent) CodeDeleteIntent {
+	intent.Path = strings.TrimSpace(intent.Path)
+	intent.IntentKind = strings.TrimSpace(intent.IntentKind)
+	intent.TraceID = strings.TrimSpace(intent.TraceID)
+	intent.RecordedAtUTC = strings.TrimSpace(intent.RecordedAtUTC)
+	intent.Provider = strings.TrimSpace(intent.Provider)
+	intent.Event = strings.TrimSpace(intent.Event)
+	intent.Tool = strings.TrimSpace(intent.Tool)
+	intent.Status = strings.TrimSpace(intent.Status)
+	intent.Cwd = strings.TrimSpace(intent.Cwd)
+	intent.CommandSHA256 = strings.TrimSpace(intent.CommandSHA256)
+	intent.CommandPreview = strings.TrimSpace(intent.CommandPreview)
+	intent.ID = firstNonEmpty(intent.ID, stableID(
+		"code-delete-intent",
+		intent.Path,
+		intent.IntentKind,
+		intent.TraceID,
+		intent.RecordedAtUTC,
+		intent.CommandSHA256,
+		intent.CommandPreview,
+	))
+
+	return intent
 }
 
 func remediationOutcomeSearchText(outcome RemediationOutcome) string {

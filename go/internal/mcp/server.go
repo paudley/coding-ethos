@@ -188,7 +188,7 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 	return []toolHandlerEntry{
 		{Name: "policy_check_command", Handler: server.checkCommand},
 		{Name: "policy_check_edit", Handler: server.checkEdit},
-		{Name: "lint_check", Handler: server.checkLint},
+		{Name: "managed_lint", Handler: server.checkLint},
 		{Name: "lint_advice", Handler: server.lintAdvice},
 		{Name: "sarif_remediation_advice", Handler: server.sarifRemediationAdvice},
 		{Name: "sarif_risk_summary", Handler: server.sarifRiskSummary},
@@ -520,7 +520,7 @@ func sarifRemediationResponse(finding sarifRemediationFinding) map[string]any {
 		"guardrails": []string{
 			"Apply structural fixes; do not weaken coding-ethos policy " +
 				"or generated tool configuration.",
-			"Use the MCP lint_check path or managed project commands to verify the repair.",
+			"Use the MCP managed_lint path or managed project commands to verify the repair.",
 		},
 	}
 }

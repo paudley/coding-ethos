@@ -2260,7 +2260,7 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 		"COMPILER_PATH=/tmp/host-compiler-path",
 		"AS=/tmp/host-as",
 	}, sandboxCacheEnvironment{
-		TempDir:         "/repo/sandbox-tmp",
+		TempDir:         "/repo/.coding-ethos/cache/sandbox-tmp",
 		GoCache:         "/repo/.coding-ethos/cache/go-build",
 		GolangCILintDir: "/repo/.coding-ethos/cache/golangci-lint",
 		GoRoot:          "/repo/go-root",
@@ -2278,7 +2278,7 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 		t.Fatalf("captured env kept git shim dir: %#v", env)
 	}
 
-	if !slices.Contains(env, "TMPDIR=/repo/sandbox-tmp") ||
+	if !slices.Contains(env, "TMPDIR=/repo/.coding-ethos/cache/sandbox-tmp") ||
 		slices.Contains(env, "TMPDIR=/tmp/host") {
 		t.Fatalf("captured env did not replace TMPDIR: %#v", env)
 	}

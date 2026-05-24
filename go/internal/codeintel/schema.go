@@ -226,6 +226,22 @@ func codeSchemaStatements() []string {
 		indexed_at_utc TEXT NOT NULL,
 		stale_reason TEXT
 	)`,
+		`CREATE TABLE IF NOT EXISTS code_delete_intents (
+		intent_id TEXT PRIMARY KEY,
+		path TEXT NOT NULL,
+		intent_kind TEXT NOT NULL,
+		trace_id TEXT,
+		recorded_at_utc TEXT,
+		provider TEXT,
+		event TEXT,
+		tool TEXT,
+		status TEXT,
+		cwd TEXT,
+		command_sha256 TEXT,
+		command_preview TEXT,
+		raw_json TEXT NOT NULL,
+		FOREIGN KEY(trace_id) REFERENCES traces(trace_id) ON DELETE CASCADE
+	)`,
 		`CREATE TABLE IF NOT EXISTS code_chunks (
 		chunk_id TEXT PRIMARY KEY,
 		path TEXT NOT NULL,
@@ -484,6 +500,8 @@ func indexSchemaStatements() []string {
 		ON remediation_events(trace_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_code_chunks_path
 		ON code_chunks(path, language, symbol_kind, symbol_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_code_delete_intents_path
+		ON code_delete_intents(path, recorded_at_utc)`,
 		`CREATE INDEX IF NOT EXISTS idx_code_chunks_symbol_path
 		ON code_chunks(path, symbol_path, node_kind)`,
 		`CREATE INDEX IF NOT EXISTS idx_code_chunks_hash

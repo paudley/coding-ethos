@@ -1108,15 +1108,15 @@ func fakeAgentHookCommand(t *testing.T) string {
 payload=$(cat)
 case "$payload" in
   *'"provider": "claude"'*'git status --short'*)
-    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"coding-ethos-run agent-shell --rewrite -- '\''pwd && git status --short 2>&1'\''"}}}'
+    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"coding-ethos-run agent-shell -- '\''pwd && git status --short 2>&1'\''"}}}'
     exit 0
     ;;
   *'"provider": "gemini-cli"'*'git status --short'*)
-    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"coding-ethos-run agent-shell --rewrite -- '\''git status --short'\''"}}}'
+    printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"coding-ethos-run agent-shell -- '\''git status --short'\''"}}}'
     exit 0
     ;;
   *'"provider": "codex"'*)
-    printf '%s\n' '{"decision":"block","reason":"event: PreToolUse\nstatus: blocked\ndecisions[1]{policy_id,message,suggestion}:\n  git.wrapper_required,Direct git execution must use the approved route,Resubmit through cerun --rewrite","hookSpecificOutput":{"permissionDecisionReason":"event: PreToolUse\nstatus: blocked\ndecisions[1]{policy_id,message,suggestion}:\n  git.wrapper_required,Direct git execution must use the approved route,Resubmit through cerun --rewrite"}}'
+    printf '%s\n' '{"decision":"block","reason":"event: PreToolUse\nstatus: blocked\ndecisions[1]{policy_id,message,suggestion}:\n  git.wrapper_required,Direct git execution must use the approved route,Resubmit through cerun --","hookSpecificOutput":{"permissionDecisionReason":"event: PreToolUse\nstatus: blocked\ndecisions[1]{policy_id,message,suggestion}:\n  git.wrapper_required,Direct git execution must use the approved route,Resubmit through cerun --"}}'
     exit 2
     ;;
   *'"provider": "gemini-cli"'*)

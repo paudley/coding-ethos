@@ -27,6 +27,11 @@ func TestCerunRuntimeArgs(t *testing.T) {
 			want: []string{"agent-shell", "--", "make", "test"},
 		},
 		{
+			name: "diagnostic no rewrite agent shell",
+			args: []string{"--no-rewrite", "--", "make", "test"},
+			want: []string{"agent-shell", "--no-rewrite", "--", "make", "test"},
+		},
+		{
 			name: "git shortcut",
 			args: []string{"git", "status"},
 			want: []string{"agent-shell", "--rewrite", "--", "git", "status"},
@@ -62,6 +67,20 @@ func TestCerunRuntimeArgs(t *testing.T) {
 				t.Fatalf("cerunRuntimeArgs() = %#v, want %#v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestCerunHelpRequested(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][]string{{"--help"}, {"-h"}, {"help"}} {
+		if !cerunHelpRequested(args) {
+			t.Fatalf("cerunHelpRequested(%#v) = false, want true", args)
+		}
+	}
+
+	if cerunHelpRequested([]string{"--", "--help"}) {
+		t.Fatal("cerunHelpRequested() treated target command as cerun help")
 	}
 }
 

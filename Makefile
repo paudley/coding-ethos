@@ -204,6 +204,7 @@ endef
 	parent-install \
 	parent-check \
 	parent-lint \
+	parent-update-submodule \
 	build \
 	package-smoke \
 	release-dry-run \
@@ -390,6 +391,36 @@ parent-lint: ensure-go ## Sync and lint the parent repo with TOON output.
 	@$(quiet_build)
 	@"$(GO_HOOK)" parent-lint --repo "$(HOOK_CONSUMER_ROOT)"
 
+parent-update-submodule: ## Update this coding-ethos submodule in the parent repo to the latest configured remote head.
+	@$(call print_step,Updating parent coding-ethos submodule)
+	@if [ "$(abspath $(HOOK_CONSUMER_ROOT))" = "$(abspath $(LOCAL_REPO_ROOT))" ]; then \
+		printf '$(COLOR_WARN)No parent repo detected; this checkout is not running as a submodule.$(COLOR_RESET)\n' >&2; \
+		exit 2; \
+	fi
+	@local_root="$$(cd "$(LOCAL_REPO_ROOT)" && pwd -P)"; \
+	submodule_path="$$("$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" ls-files --stage --full-name | \
+		awk '$$1 == "160000" { print $$4 }' | \
+		while IFS= read -r candidate; do \
+			candidate_root="$$(cd "$(HOOK_CONSUMER_ROOT)/$$candidate" 2>/dev/null && pwd -P)" || continue; \
+			if [ "$$candidate_root" = "$$local_root" ]; then \
+				printf '%s\n' "$$candidate"; \
+				break; \
+			fi; \
+		done)"; \
+	if [ -z "$$submodule_path" ]; then \
+		printf '$(COLOR_WARN)Could not resolve coding-ethos as a tracked submodule under $(HOOK_CONSUMER_ROOT).$(COLOR_RESET)\n' >&2; \
+		exit 2; \
+	fi; \
+	$(call print_info,parent: $(HOOK_CONSUMER_ROOT)); \
+	$(call print_info,submodule: $$submodule_path); \
+	"$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" submodule update --remote --merge -- "$$submodule_path"; \
+	if "$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" add -- "$$submodule_path"; then \
+		$(call print_info,staged: $$submodule_path); \
+	else \
+		$(call print_warn,could not stage $$submodule_path; stage it manually in the parent repo); \
+	fi; \
+	"$(GIT)" -C "$(HOOK_CONSUMER_ROOT)" status --short -- "$$submodule_path"
+
 ##@ Quality
 test: ensure-uv ## Run the current automated test suite.
 	@$(call print_step,Running pytest)
@@ -569,6 +600,7 @@ _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 	@mkdir -p "$(PARENT_HOOK_BIN_DIR)" "$(PARENT_POLICY_DIR)"
 	@cp "$(GO_TOOLS_BIN_DIR)"/coding-ethos-* "$(PARENT_HOOK_BIN_DIR)/"
 	@cp "$(GO_TOOLS_BIN_DIR)/cerun" "$(PARENT_HOOK_BIN_DIR)/cerun"
+	@cp "$(GO_TOOLS_BIN_DIR)/lint" "$(PARENT_HOOK_BIN_DIR)/lint"
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" compile \
 		--primary "$(LOCAL_REPO_ROOT)/coding_ethos.yml" \
 		--repo-ethos "$(LOCAL_REPO_ROOT)/repo_ethos.yml" \
@@ -714,6 +746,12 @@ go-tools-install: ensure-go ## Install shared Go tools into the repo-local hook 
 	@cd "$(GO_TOOLS_DIR)" && for cmd in $(GO_TOOL_CMDS); do \
 		"$(GO)" build $(GO_BUILD_FLAGS) -o "$(GO_TOOLS_BIN_DIR)/$$cmd" "./cmd/$$cmd"; \
 	done
+	@printf '%s\n' '#!/usr/bin/env sh' \
+		'set -eu' \
+		'script_dir=$$(CDPATH= cd -- "$$(dirname -- "$$0")" && pwd -P)' \
+		'exec "$$script_dir/coding-ethos-run" lint "$$@"' \
+		> "$(GO_TOOLS_BIN_DIR)/lint"
+	@chmod 755 "$(GO_TOOLS_BIN_DIR)/lint"
 	@$(call print_info,installed: $(GO_TOOLS_BIN_DIR))
 
 repair-repo-ignores: ensure-go go-tools-install ## Repair repo .gitignore entries for coding-ethos runtime output.

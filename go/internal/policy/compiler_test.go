@@ -321,6 +321,10 @@ func assertCompiledProtectedHookRules(t *testing.T, bundle Bundle) {
 		)
 	}
 
+	if !slices.Contains(protectedPaths, "ruff.toml") {
+		t.Fatalf("default protected paths missing generated ruff config: %#v", protectedPaths)
+	}
+
 	if slices.Contains(protectedPaths, "coding-ethos-hooks/coding-ethos-legacy-hook") {
 		t.Fatalf(
 			"default protected paths still include removed legacy hook path: %#v",

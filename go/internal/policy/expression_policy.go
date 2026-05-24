@@ -631,6 +631,10 @@ func expressionProtectedPaths(config map[string]any) []string {
 		config,
 		[]string{"filesystem", "protected_path", "paths"},
 		[]string{
+			".bandit.yml",
+			".pylintrc",
+			".sqlfluff",
+			".yamllint.yml",
 			"coding-ethos-hooks/coding-ethos-git-hook",
 			"coding-ethos-hooks/bin/coding-ethos-agent-hooks",
 			"coding-ethos-hooks/bin/coding-ethos-git",
@@ -639,6 +643,10 @@ func expressionProtectedPaths(config map[string]any) []string {
 			"coding-ethos-hooks/bin/coding-ethos-lint",
 			"coding-ethos-hooks/bin/coding-ethos-policy",
 			"coding-ethos-hooks/lefthook",
+			"mypy.ini",
+			"pyrightconfig.json",
+			"ruff.toml",
+			"tombi.toml",
 		},
 	)
 }

@@ -41,7 +41,7 @@ const (
 	gitWrapperCircumventionRefusal = "Direct git execution must use the approved " +
 		"coding-ethos git route for this agent provider."
 	gitWrapperUseManagedSuggestion = "Resubmit the command through the suggested " +
-		"cerun --rewrite command so git operations stay inside the managed policy path."
+		"cerun command so git operations stay inside the managed policy path."
 )
 
 func gitWrapperRouteFor(event Event) InspectionRoute {
@@ -199,7 +199,7 @@ func shellCommandIsCompoundKeyword(parsed shellparse.Command) bool {
 }
 
 func cerunRemediation(root, command string) string {
-	return cerunCommand(root) + " --rewrite -- " + shellQuote(command)
+	return cerunCommand(root) + " -- " + shellQuote(command)
 }
 
 func agentShellRewriteCommand(command string) string {
@@ -207,7 +207,6 @@ func agentShellRewriteCommand(command string) string {
 		[]string{
 			shellQuote(runnerCommand()),
 			"agent-shell",
-			"--rewrite",
 			"--",
 			shellQuote(command),
 		},
@@ -306,6 +305,27 @@ func cerunSearchRoots(root string) []string {
 	}
 
 	return roots
+}
+
+func cleanAbsPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	if !filepath.IsAbs(path) {
+		abs, err := filepath.Abs(path)
+		if err == nil {
+			path = abs
+		}
+	}
+
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		path = resolved
+	}
+
+	return filepath.Clean(path)
 }
 
 func findRepoCerunCommandInRoot(root string) string {
@@ -476,7 +496,7 @@ func cerunAgentShellSegment(segment []string) bool {
 	switch args[0] {
 	case "git", "python", "lint":
 		return len(args) > 1
-	case "--", "--rewrite", "--check":
+	case "--", "--rewrite", "--no-rewrite", "--check":
 		return agentShellArgsHaveCommand(args)
 	default:
 		return strings.HasPrefix(args[0], "--intent") && agentShellArgsHaveCommand(args)
@@ -498,7 +518,7 @@ func agentShellArgsHaveCommand(args []string) bool {
 		switch {
 		case arg == "--":
 			return index+1 < len(args)
-		case arg == "--rewrite" || arg == "--check":
+		case arg == "--rewrite" || arg == "--no-rewrite" || arg == "--check":
 			continue
 		case arg == "--intent":
 			index++

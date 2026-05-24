@@ -37,6 +37,7 @@ type Trace struct {
 	HookEvent         *HookEventAnalytics
 	HookDecisions     []HookDecisionAnalytics
 	HookTargets       []HookTargetAnalytics
+	DeleteIntents     []CodeDeleteIntent
 }
 
 func (store *Store) IngestTrace(ctx context.Context, trace Trace) error {
@@ -56,43 +57,53 @@ func (store *Store) IngestTrace(ctx context.Context, trace Trace) error {
 	}
 
 	if exists {
-		inlineErr0 := deleteTraceRows(ctx, transaction, trace.ID)
-		if inlineErr0 != nil {
-			return inlineErr0
+		err = deleteTraceRows(ctx, transaction, trace.ID)
+		if err != nil {
+			return err
 		}
 	}
 
-	inlineErr1 := insertTrace(ctx, transaction, trace)
-	if inlineErr1 != nil {
-		return inlineErr1
+	err = insertTraceRows(ctx, transaction, trace)
+	if err != nil {
+		return err
 	}
 
-	inlineErr2 := insertFindings(ctx, transaction, trace)
-	if inlineErr2 != nil {
-		return inlineErr2
-	}
-
-	inlineErr3 := insertRemediations(ctx, transaction, trace)
-	if inlineErr3 != nil {
-		return inlineErr3
-	}
-
-	inlineErr4 := insertRemediationEvents(ctx, transaction, trace)
-	if inlineErr4 != nil {
-		return inlineErr4
-	}
-
-	inlineErr5 := insertHookAnalytics(ctx, transaction, trace)
-	if inlineErr5 != nil {
-		return inlineErr5
-	}
-
-	inlineErr6 := transaction.Commit()
-	if inlineErr6 != nil {
-		return fmt.Errorf("commit trace ingest: %w", inlineErr6)
+	err = transaction.Commit()
+	if err != nil {
+		return fmt.Errorf("commit trace ingest: %w", err)
 	}
 
 	return nil
+}
+
+func insertTraceRows(
+	ctx context.Context,
+	transaction *sql.Tx,
+	trace Trace,
+) error {
+	for _, insert := range []func(context.Context, *sql.Tx, Trace) error{
+		insertTrace,
+		insertFindings,
+		insertRemediations,
+		insertRemediationEvents,
+		insertHookAnalytics,
+		insertTraceDeleteIntents,
+	} {
+		err := insert(ctx, transaction, trace)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func insertTraceDeleteIntents(
+	ctx context.Context,
+	transaction *sql.Tx,
+	trace Trace,
+) error {
+	return insertDeleteIntents(ctx, transaction, trace.DeleteIntents)
 }
 
 func rollbackUnlessCommitted(transaction *sql.Tx) {
