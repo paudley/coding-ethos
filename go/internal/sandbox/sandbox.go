@@ -32,7 +32,7 @@ const (
 	nativeProbeDirMode   = 0o700
 	nativeProbeFileMode  = 0o700
 	nativeProbeWriteMode = 0o600
-	SandboxTempWritePath = "sandbox-tmp"
+	SandboxTempWritePath = ".coding-ethos/cache/sandbox-tmp"
 	SandboxGoCachePath   = ".coding-ethos/cache/go-build"
 	SandboxGolangCIPath  = ".coding-ethos/cache/golangci-lint"
 )

@@ -238,7 +238,7 @@ Acceptance criteria:
 
 ## Code Intelligence Maintenance
 
-- [ ] Track explicit `rm` and `git rm` intent in code-intel traces instead of
+- [x] Track explicit `rm` and `git rm` intent in code-intel traces instead of
   relying only on refresh-time missing-file detection.
 - [ ] Define and implement code-intel database cleanup policy: retention
   windows, compaction triggers, stale diff-pattern pruning, and whether raw

@@ -93,6 +93,33 @@ func TestDirectRealGitCommitAllowsHumanGitThroughInstalledHooks(t *testing.T) {
 	}
 }
 
+func TestDirectRealGitCommitAllowsPersistentAgentConfigEnv(t *testing.T) {
+	clearAgentGitHookEnv(t)
+	t.Setenv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
+
+	repo := newGitHookE2ERepo(t)
+	writeTestGitHookFile(t, repo.root, "README.md", "# Test\n")
+	runTestGit(t, repo.root, "add", "README.md")
+
+	output, err := runTestGitOutputWithEnv(
+		t,
+		repo.root,
+		[]string{
+			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+		},
+		"commit",
+		"-m",
+		"fix(repo): add readme",
+	)
+	if err != nil {
+		t.Fatalf("direct human git commit failed with ambient tool env:\n%s", output)
+	}
+
+	if strings.Contains(output, "direct git execution reached coding-ethos hooks") {
+		t.Fatalf("persistent agent config env triggered direct-git block:\n%s", output)
+	}
+}
+
 func TestDirectAgentGitCommitBlocksThroughInstalledHooks(t *testing.T) {
 	clearAgentGitHookEnv(t)
 	t.Setenv("CODEX_THREAD_ID", "thread")

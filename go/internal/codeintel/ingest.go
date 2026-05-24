@@ -37,6 +37,7 @@ type Trace struct {
 	HookEvent         *HookEventAnalytics
 	HookDecisions     []HookDecisionAnalytics
 	HookTargets       []HookTargetAnalytics
+	DeleteIntents     []CodeDeleteIntent
 }
 
 func (store *Store) IngestTrace(ctx context.Context, trace Trace) error {
@@ -87,9 +88,14 @@ func (store *Store) IngestTrace(ctx context.Context, trace Trace) error {
 		return inlineErr5
 	}
 
-	inlineErr6 := transaction.Commit()
+	inlineErr6 := insertDeleteIntents(ctx, transaction, trace.DeleteIntents)
 	if inlineErr6 != nil {
-		return fmt.Errorf("commit trace ingest: %w", inlineErr6)
+		return inlineErr6
+	}
+
+	inlineErr7 := transaction.Commit()
+	if inlineErr7 != nil {
+		return fmt.Errorf("commit trace ingest: %w", inlineErr7)
 	}
 
 	return nil

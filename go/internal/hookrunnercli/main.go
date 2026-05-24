@@ -508,7 +508,7 @@ func explicitConsumerRootApplies(root, ethosRoot string) bool {
 func relativePathIsRuntimeScratch(relative string) bool {
 	rel := "/" + filepath.ToSlash(filepath.Clean(relative)) + "/"
 
-	return strings.Contains(rel, "/sandbox-tmp/") ||
+	return strings.Contains(rel, "/.coding-ethos/cache/sandbox-tmp/") ||
 		strings.Contains(rel, "/.coding-ethos/") ||
 		strings.Contains(rel, "/.code-ethos/cache/")
 }

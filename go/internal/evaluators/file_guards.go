@@ -259,7 +259,7 @@ func EvaluatePIIScrubber(
 
 	for _, file := range context.Files {
 		if hasConfiguredPrefix(file, exemptPrefixes) ||
-			hasHiddenDirectoryComponent(file) {
+			repoRelativeHiddenDirectory(file) {
 			continue
 		}
 
@@ -296,6 +296,10 @@ func EvaluatePIIScrubber(
 	}
 
 	return nil, nil
+}
+
+func repoRelativeHiddenDirectory(path string) bool {
+	return !filepath.IsAbs(path) && hasHiddenDirectoryComponent(path)
 }
 
 func EvaluateLicenseHeader(

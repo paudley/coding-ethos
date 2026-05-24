@@ -54,13 +54,13 @@ func TestPythonRuntimeRootDoesNotInheritIgnoredParentWorktree(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		filepath.Join(root, ".gitignore"),
-		[]byte("sandbox-tmp/\n"),
+		[]byte(".coding-ethos/\n"),
 		0o600,
 	); err != nil {
 		t.Fatalf("write gitignore: %v", err)
 	}
 
-	ignoredRoot := filepath.Join(root, "sandbox-tmp", "case")
+	ignoredRoot := filepath.Join(root, ".coding-ethos", "cache", "sandbox-tmp", "case")
 	if err := os.MkdirAll(ignoredRoot, 0o755); err != nil {
 		t.Fatalf("mkdir ignored root: %v", err)
 	}

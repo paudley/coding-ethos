@@ -115,9 +115,9 @@ func TestConsumerRootIgnoresUnrelatedExplicitEnvironment(t *testing.T) {
 
 func TestConsumerRootIgnoresExplicitRootForIgnoredWorktreeScratch(t *testing.T) {
 	root := setupGitHookTestRepo(t)
-	mustWriteTestFile(t, filepath.Join(root, ".gitignore"), "sandbox-tmp/\n")
+	mustWriteTestFile(t, filepath.Join(root, ".gitignore"), ".coding-ethos/\n")
 
-	ignoredRoot := filepath.Join(root, "sandbox-tmp", "case")
+	ignoredRoot := filepath.Join(root, ".coding-ethos", "cache", "sandbox-tmp", "case")
 	if err := os.MkdirAll(ignoredRoot, 0o755); err != nil {
 		t.Fatalf("mkdir ignored root: %v", err)
 	}

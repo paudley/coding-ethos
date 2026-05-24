@@ -240,7 +240,7 @@ func repoCacheDefinitions() []Definition {
 	return []Definition{
 		repoDir(
 			"sandbox_tmp",
-			"sandbox-tmp",
+			".coding-ethos/cache/sandbox-tmp",
 			"Managed sandbox temporary write area.",
 			"go/internal/managedcapture",
 			"managed tool runtime",

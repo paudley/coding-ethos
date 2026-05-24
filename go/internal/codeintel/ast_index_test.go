@@ -71,14 +71,14 @@ func TestASTIndexerIndexesExplicitTempRootUnderIgnoredWorktree(t *testing.T) {
 
 	err := os.WriteFile(
 		filepath.Join(parent, ".gitignore"),
-		[]byte("sandbox-tmp/\n"),
+		[]byte(".coding-ethos/cache/sandbox-tmp/\n"),
 		0o600,
 	)
 	if err != nil {
 		t.Fatalf("write gitignore: %v", err)
 	}
 
-	root := filepath.Join(parent, "sandbox-tmp", "case")
+	root := filepath.Join(parent, ".coding-ethos", "cache", "sandbox-tmp", "case")
 	err = os.MkdirAll(root, 0o700)
 	if err != nil {
 		t.Fatalf("mkdir temp root: %v", err)
