@@ -111,8 +111,6 @@ func runCapturedTool(
 	traceRoot string,
 	args []string,
 	policyContext PolicyContext,
-	output io.Writer,
-	outputFormat string,
 ) int {
 	return runCapturedToolWithCodeIntel(
 		tool,
@@ -121,8 +119,8 @@ func runCapturedTool(
 		traceRoot,
 		args,
 		policyContext,
-		output,
-		outputFormat,
+		nil,
+		"",
 		false,
 	)
 }

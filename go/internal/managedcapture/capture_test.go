@@ -82,8 +82,6 @@ exit 1
 			"",
 			[]string{"check", "pkg/app.py"},
 			ruffTracePolicyContext(),
-			nil,
-			"",
 		)
 		if exitCode != 1 {
 			t.Fatalf("exit code = %d, want 1", exitCode)
@@ -500,8 +498,6 @@ exit 0
 			"",
 			[]string{"check", "pkg/app.py"},
 			PolicyContext{},
-			nil,
-			"",
 		)
 		if exitCode != 0 {
 			t.Fatalf("exit code = %d, want 0", exitCode)
@@ -1499,8 +1495,6 @@ func TestRunCapturedToolReportsStartFailureDetail(t *testing.T) {
 			"",
 			[]string{".github/workflows/ci.yml"},
 			PolicyContext{},
-			nil,
-			"",
 		)
 		if exitCode != 127 {
 			t.Fatalf("exit code = %d, want 127", exitCode)
@@ -1571,8 +1565,6 @@ exit 1
 		"",
 		[]string{"script.sh"},
 		PolicyContext{},
-		nil,
-		"",
 	)
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", exitCode)
@@ -1639,8 +1631,6 @@ exit 1
 					},
 				},
 			},
-			nil,
-			"",
 		)
 		if exitCode != 1 {
 			t.Fatalf("exit code = %d, want 1", exitCode)
@@ -1716,8 +1706,6 @@ exit 1
 		traceRoot,
 		[]string{"pkg/app.py"},
 		PolicyContext{},
-		nil,
-		"",
 	)
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1", exitCode)
@@ -2076,8 +2064,6 @@ func TestRunCapturedToolRendersUnparseableFailuresForEveryManagedTool(t *testing
 					"",
 					test.args,
 					PolicyContext{},
-					nil,
-					"",
 				)
 				if exitCode != 2 {
 					t.Fatalf("exit code = %d, want 2", exitCode)
@@ -2147,8 +2133,6 @@ func TestRunCapturedToolSilentOnCleanSuccess(t *testing.T) {
 			"",
 			[]string{"pkg"},
 			PolicyContext{},
-			nil,
-			"",
 		)
 		if exitCode != 0 {
 			t.Fatalf("exit code = %d, want 0", exitCode)

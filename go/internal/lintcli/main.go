@@ -463,55 +463,10 @@ func runExplainMode(config lintCLIConfig, bundle policy.Bundle) int {
 }
 
 func runLintMode(config lintCLIConfig, bundle policy.Bundle) int {
-	files, filesErr := filesFromInputs(*config.filesRaw, *config.filesFrom)
-	if filesErr != nil {
-		exitErr(filesErr)
-	}
-
-	if shouldReturnEmptyExplicitFileScope(
-		config.scope.Value(),
-		files,
-		*config.filesRaw,
-		*config.filesFrom,
-	) {
-		result := lint.Result{
-			Scope:  lint.ScopeFiles,
-			Files:  []string{},
-			Status: "resolved",
-		}
-
-		err := encodeLintResult(
-			config.stdout,
-			result,
-			selectedLintOutputFormat(config.outputFormat),
-			*config.sarifCategory,
-		)
-		if err != nil {
-			exitErr(err)
-		}
-
+	files, emptyExplicitScope := resolveLintFiles(config)
+	if emptyExplicitScope {
+		encodeEmptyExplicitFileScope(config)
 		return 0
-	}
-
-	if len(files) == 0 && config.scope.Value() == lint.ScopeStaged {
-		var err error
-
-		files, err = stagedFiles(*config.cwd)
-		if err != nil {
-			exitErr(err)
-		}
-	}
-
-	if len(files) == 0 && config.scope.Value() == lint.ScopeChanged &&
-		*config.codeIntel {
-		var err error
-
-		files, err = changedFiles(*config.cwd)
-		if err != nil {
-			writeLintCLIText(
-				"warning: changed files not resolved for code-intel: " + err.Error(),
-			)
-		}
 	}
 
 	result, err := lint.Run(bundle, lint.Options{
@@ -551,6 +506,63 @@ func runLintMode(config lintCLIConfig, bundle policy.Bundle) int {
 	}
 
 	return 0
+}
+
+func resolveLintFiles(config lintCLIConfig) ([]string, bool) {
+	files, filesErr := filesFromInputs(*config.filesRaw, *config.filesFrom)
+	if filesErr != nil {
+		exitErr(filesErr)
+	}
+
+	if shouldReturnEmptyExplicitFileScope(
+		config.scope.Value(),
+		files,
+		*config.filesRaw,
+		*config.filesFrom,
+	) {
+		return files, true
+	}
+
+	if len(files) == 0 && config.scope.Value() == lint.ScopeStaged {
+		var err error
+
+		files, err = stagedFiles(*config.cwd)
+		if err != nil {
+			exitErr(err)
+		}
+	}
+
+	if len(files) == 0 && config.scope.Value() == lint.ScopeChanged &&
+		*config.codeIntel {
+		var err error
+
+		files, err = changedFiles(*config.cwd)
+		if err != nil {
+			writeLintCLIText(
+				"warning: changed files not resolved for code-intel: " + err.Error(),
+			)
+		}
+	}
+
+	return files, false
+}
+
+func encodeEmptyExplicitFileScope(config lintCLIConfig) {
+	result := lint.Result{
+		Scope:  lint.ScopeFiles,
+		Files:  []string{},
+		Status: "resolved",
+	}
+
+	err := encodeLintResult(
+		config.stdout,
+		result,
+		selectedLintOutputFormat(config.outputFormat),
+		*config.sarifCategory,
+	)
+	if err != nil {
+		exitErr(err)
+	}
 }
 
 func logLintResult(cwd string, result lint.Result) string {
