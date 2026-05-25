@@ -1127,7 +1127,7 @@ func normalizeGolangciLintTargets(args []string) []string {
 		dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(arg)))
 		if dir == "." {
 			dir = "./..."
-		} else if !strings.HasPrefix(dir, ".") {
+		} else if !filepath.IsAbs(dir) && !strings.HasPrefix(dir, ".") {
 			dir = "./" + dir
 		}
 

@@ -397,6 +397,21 @@ func TestNormalizeGolangciLintWorktreeConvertsRunFilesToPackages(
 	}
 }
 
+func TestNormalizeGolangciLintWorktreePreservesAbsoluteRunTargets(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	absoluteTarget := filepath.Join(t.TempDir(), "pkg", "app.go")
+	args := normalizeGolangciLintTargets([]string{"run", "--fix", absoluteTarget})
+
+	absoluteDir := filepath.ToSlash(filepath.Dir(absoluteTarget))
+	wantArgs := []string{"run", "--fix", absoluteDir}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("args = %#v, want %#v", args, wantArgs)
+	}
+}
+
 func TestNormalizeGolangciLintWorktreeDefaultsToInvocationNestedModule(
 	t *testing.T,
 ) {

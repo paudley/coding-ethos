@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
@@ -50,7 +51,12 @@ func (server Server) checkCerun(args json.RawMessage) (any, error) {
 
 	response := policyCheckResponse("cerun", result)
 	response["command_sha256"] = sha256Text(input.Command)
-	response["recommended_command"] = cerunDisplayCommand("", input, true, rewrite)
+	response["recommended_command"] = cerunDisplayCommand(
+		server.resolvedCerunPathOrEmpty(),
+		input,
+		true,
+		rewrite,
+	)
 	response["agent_remediation"] = agentmsg.FromDecisions(result.Decisions, "Bash")
 	response["rewrite"] = rewrite
 
@@ -89,8 +95,14 @@ func (server Server) runCerun(args json.RawMessage) (any, error) {
 
 	command := safeexec.CommandContext(ctx, cerunPath, argv...)
 	command.Dir = server.cerunCwd(input)
-	command.Stdout = &stdout
-	command.Stderr = &stderr
+	command.Stdout = cappedBufferWriter{
+		buffer: &stdout,
+		limit:  maxCerunCapturedBytes + 1,
+	}
+	command.Stderr = cappedBufferWriter{
+		buffer: &stderr,
+		limit:  maxCerunCapturedBytes + 1,
+	}
 	command.Env = os.Environ()
 
 	runErr := command.Run()
@@ -99,6 +111,12 @@ func (server Server) runCerun(args json.RawMessage) (any, error) {
 	exitCode := processstatus.ExitCode(runErr, 0)
 	if timedOut {
 		exitCode = cerunTimeoutExitCode
+	} else if runErr != nil && exitCode == 0 {
+		exitCode = 127
+
+		if stderr.Len() == 0 {
+			stderr.WriteString(runErr.Error())
+		}
 	}
 
 	stdoutText, stdoutTruncated := truncateCerunOutput(stdout.String())
@@ -136,13 +154,28 @@ func parseCerunInput(args json.RawMessage) (cerunInput, error) {
 	return input, nil
 }
 
+type cappedBufferWriter struct {
+	buffer *bytes.Buffer
+	limit  int
+}
+
+func (writer cappedBufferWriter) Write(data []byte) (int, error) {
+	remaining := writer.limit - writer.buffer.Len()
+	if remaining > 0 {
+		_, _ = writer.buffer.Write(data[:min(len(data), remaining)])
+	}
+
+	return len(data), nil
+}
+
 func (server Server) inspectCerun(
 	input cerunInput,
 	rewrite bool,
 ) (hooks.Result, error) {
 	result, err := hooks.Run(server.bundle, hooks.Options{Event: hooks.Event{
-		ProviderHint:  "coding-ethos",
+		ProviderHint:  providerOrDefault(input.Provider),
 		HookEventName: "PreToolUse",
+		Source:        providerOrDefault(input.Provider),
 		ToolName:      "Bash",
 		Cwd:           server.cerunCwd(input),
 		ToolInput: map[string]any{
@@ -156,6 +189,15 @@ func (server Server) inspectCerun(
 	}
 
 	return result, nil
+}
+
+func (server Server) resolvedCerunPathOrEmpty() string {
+	path, err := server.resolveCerunPath()
+	if err != nil {
+		return ""
+	}
+
+	return path
 }
 
 func cerunRewrite(input cerunInput) bool {
@@ -208,11 +250,22 @@ func (server Server) cerunPathCandidates() []string {
 	}
 
 	appendCandidate(server.runtime.CerunPath)
-	appendCandidate(filepath.Join(server.runtime.EthosRoot, "bin", "cerun"))
-	appendCandidate(filepath.Join(server.runtime.ConsumerRoot, "bin", "cerun"))
-	appendCandidate(
-		filepath.Join(server.runtime.ConsumerRoot, "coding-ethos", "bin", "cerun"),
-	)
+
+	if strings.TrimSpace(server.runtime.EthosRoot) != "" {
+		appendCandidate(filepath.Join(server.runtime.EthosRoot, "bin", "cerun"))
+	}
+
+	if strings.TrimSpace(server.runtime.ConsumerRoot) != "" {
+		appendCandidate(filepath.Join(server.runtime.ConsumerRoot, "bin", "cerun"))
+		appendCandidate(
+			filepath.Join(
+				server.runtime.ConsumerRoot,
+				"coding-ethos",
+				"bin",
+				"cerun",
+			),
+		)
+	}
 
 	return candidates
 }
@@ -269,20 +322,17 @@ func truncateCerunOutput(value string) (string, bool) {
 		return value, false
 	}
 
-	return value[:maxCerunCapturedBytes], true
+	limit := maxCerunCapturedBytes
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+
+	return value[:limit], true
 }
 
 func cerunFollowup(input cerunInput, exitCode int) map[string]any {
 	if exitCode == 0 {
-		return map[string]any{
-			"tool": "cerun_check",
-			"arguments": map[string]any{
-				"command": input.Command,
-				"cwd":     input.Cwd,
-				"intent":  input.Intent,
-				"rewrite": cerunRewrite(input),
-			},
-		}
+		return nil
 	}
 
 	return map[string]any{

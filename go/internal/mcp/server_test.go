@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
@@ -115,11 +116,43 @@ func TestServerListsCerunRunAsExplicitExecutionTool(t *testing.T) {
 		if _, found := mapValue(t, properties["command"])["description"]; !found {
 			t.Fatalf("cerun_run command schema missing description: %#v", properties)
 		}
+		if _, found := mapValue(t, properties["provider"])["description"]; !found {
+			t.Fatalf("cerun_run provider schema missing description: %#v", properties)
+		}
 
 		return
 	}
 
 	t.Fatal("cerun_run tool was not listed")
+}
+
+func TestServerListsManagedLintAsMutatingTool(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	response := decodeResponse(t, output)
+	result := mapValue(t, response["result"])
+
+	for _, toolValue := range listValue(t, result["tools"]) {
+		tool := mapValue(t, toolValue)
+		if tool["name"] != "managed_lint" {
+			continue
+		}
+
+		annotations := mapValue(t, tool["annotations"])
+		if annotations["destructiveHint"] != true {
+			t.Fatalf("managed_lint annotations = %#v", annotations)
+		}
+
+		meta := mapValue(t, mapValue(t, tool["_meta"])["coding_ethos"])
+		if meta["mutating"] != true {
+			t.Fatalf("managed_lint coding_ethos metadata = %#v", meta)
+		}
+
+		return
+	}
+
+	t.Fatal("managed_lint tool was not listed")
 }
 
 func TestServerSemanticSearchSchemaAllowsVectorOnlyInput(t *testing.T) {
@@ -310,6 +343,62 @@ func TestServerCerunCheckPreflightsWithoutExecuting(t *testing.T) {
 	}
 }
 
+func TestServerCerunCheckRecommendsResolvedRuntime(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cerunPath := filepath.Join(root, "coding-ethos", "bin", "cerun")
+	err := os.MkdirAll(filepath.Dir(cerunPath), 0o700)
+	if err != nil {
+		t.Fatalf("create cerun dir: %v", err)
+	}
+
+	err = os.WriteFile(cerunPath, []byte("#!/usr/bin/env sh\nexit 0\n"), 0o700)
+	if err != nil {
+		t.Fatalf("write fake cerun: %v", err)
+	}
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":18,
+		"method":"tools/call",
+		"params":{
+			"name":"cerun_check",
+			"arguments":{
+				"command":"printf ok",
+				"provider":"codex"
+			}
+		}
+	}`), mcp.Runtime{ConsumerRoot: root})
+	response := decodeResponse(t, output)
+	content := structuredContent(t, response)
+
+	recommended, _ := content["recommended_command"].(string)
+	if !strings.Contains(recommended, filepath.ToSlash(cerunPath)) {
+		t.Fatalf("recommended command %q does not use %q", recommended, cerunPath)
+	}
+}
+
+func TestServerCerunRunRequiresConfiguredRuntimeRoot(t *testing.T) {
+	t.Parallel()
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":19,
+		"method":"tools/call",
+		"params":{
+			"name":"cerun_run",
+			"arguments":{"command":"printf ok"}
+		}
+	}`), mcp.Runtime{})
+	response := decodeResponse(t, output)
+
+	if response["error"] == nil ||
+		!strings.Contains(output, "repo-local cerun runtime is not configured") {
+		t.Fatalf("expected missing runtime error, got:\n%s", output)
+	}
+}
+
 func TestServerCerunRunExecutesResolvedRuntime(t *testing.T) {
 	t.Parallel()
 
@@ -363,6 +452,84 @@ func TestServerCerunRunExecutesResolvedRuntime(t *testing.T) {
 		!strings.Contains(stdout, "--rewrite --intent exercise mcp cerun -- printf ok") ||
 		!strings.Contains(stderr, "stderr-msg") {
 		t.Fatalf("unexpected cerun output: stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestServerCerunRunCapsOutputAndOmitsSuccessFollowup(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cerunPath := filepath.Join(root, "bin", "cerun")
+	err := os.MkdirAll(filepath.Dir(cerunPath), 0o700)
+	if err != nil {
+		t.Fatalf("create cerun dir: %v", err)
+	}
+
+	script := "#!/usr/bin/env sh\n" +
+		"head -c 65535 /dev/zero | tr '\\0' 'x'\n" +
+		"printf '\\303\\251'\n"
+	err = os.WriteFile(cerunPath, []byte(script), 0o700)
+	if err != nil {
+		t.Fatalf("write fake cerun: %v", err)
+	}
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":20,
+		"method":"tools/call",
+		"params":{
+			"name":"cerun_run",
+			"arguments":{"command":"printf ok","timeout_seconds":5}
+		}
+	}`), mcp.Runtime{ConsumerRoot: root})
+	response := decodeResponse(t, output)
+	content := structuredContent(t, response)
+
+	stdout, _ := content["stdout"].(string)
+	if content["exit_code"] != float64(0) ||
+		content["stdout_truncated"] != true ||
+		!utf8.ValidString(stdout) ||
+		content["recommended_followup"] != nil {
+		t.Fatalf("unexpected capped cerun response: %#v", content)
+	}
+}
+
+func TestServerCerunRunReportsStartFailureAsNonZero(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cerunPath := filepath.Join(root, "bin", "cerun")
+	err := os.MkdirAll(filepath.Dir(cerunPath), 0o700)
+	if err != nil {
+		t.Fatalf("create cerun dir: %v", err)
+	}
+
+	err = os.WriteFile(cerunPath, []byte("#!/usr/bin/env sh\nexit 0\n"), 0o700)
+	if err != nil {
+		t.Fatalf("write fake cerun: %v", err)
+	}
+
+	missingCwd := filepath.Join(root, "missing")
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":21,
+		"method":"tools/call",
+		"params":{
+			"name":"cerun_run",
+			"arguments":{
+				"command":"printf ok",
+				"cwd":`+strconv.Quote(missingCwd)+`,
+				"timeout_seconds":5
+			}
+		}
+	}`), mcp.Runtime{ConsumerRoot: root})
+	response := decodeResponse(t, output)
+	content := structuredContent(t, response)
+
+	stderr, _ := content["stderr"].(string)
+	if content["exit_code"] != float64(127) ||
+		!strings.Contains(stderr, missingCwd) {
+		t.Fatalf("unexpected start failure response: %#v", content)
 	}
 }
 

@@ -160,6 +160,7 @@ type cerunInput struct {
 	Command        string `json:"command"`
 	Cwd            string `json:"cwd,omitempty"`
 	Intent         string `json:"intent,omitempty"`
+	Provider       string `json:"provider,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
 }
 
@@ -569,6 +570,10 @@ func cerunInputSchema(includeTimeout bool) map[string]any {
 			"string",
 			"Short strategic intent included in agent-shell policy context.",
 		),
+		"provider": propertySchema(
+			"string",
+			"Agent provider name for provider-specific hook behavior.",
+		),
 		"rewrite": propertySchema(
 			"boolean",
 			"Whether cerun should apply managed rewrites; defaults to true.",
@@ -617,6 +622,7 @@ func lintToolDefinitions() []map[string]any {
 					"linters directly",
 				),
 				TracePersisted: true,
+				Mutating:       true,
 			},
 		),
 		toolDefinition(
