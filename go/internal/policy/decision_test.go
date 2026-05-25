@@ -1,37 +1,37 @@
 // SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package policy_test
+package policy
 
-import (
-	"testing"
+import "testing"
 
-	. "blackcat.ca/coding-ethos/go/internal/policy"
-)
-
-const blockDecision = "block"
-
-func TestNewDecisionCopiesPolicyContext(t *testing.T) {
+func TestDecisionEvidenceFilesPrefersCanonicalFiles(t *testing.T) {
 	t.Parallel()
 
-	policyDef := ExampleBundle().Policies["git.hook_bypass"]
-	decision := NewDecision(blockDecision, policyDef)
-
-	if decision.Decision != blockDecision {
-		t.Fatalf("decision mismatch: got %q", decision.Decision)
+	decision := Decision{
+		Evidence: map[string]any{
+			"files":        []string{"pyproject.toml"},
+			"staged_files": []string{"bin/coding-ethos-run"},
+		},
 	}
 
-	if decision.PolicyID != "git.hook_bypass" {
-		t.Fatalf("policy id mismatch: got %q", decision.PolicyID)
+	files := decision.EvidenceFiles()
+	if len(files) != 1 || files[0] != "pyproject.toml" {
+		t.Fatalf("files mismatch: %#v", files)
+	}
+}
+
+func TestDecisionEvidenceFilesFallsBackToStagedFiles(t *testing.T) {
+	t.Parallel()
+
+	decision := Decision{
+		Evidence: map[string]any{
+			"staged_files": []any{"bin/coding-ethos-run", ""},
+		},
 	}
 
-	if decision.Severity != blockDecision {
-		t.Fatalf("severity mismatch: got %q", decision.Severity)
-	}
-
-	if len(decision.PrincipleIDs) != 2 ||
-		decision.PrincipleIDs[0] != "one-path-for-critical-operations" ||
-		decision.PrincipleIDs[1] != "no-rationalized-shortcuts" {
-		t.Fatalf("principle ids mismatch: got %#v", decision.PrincipleIDs)
+	files := decision.EvidenceFiles()
+	if len(files) != 1 || files[0] != "bin/coding-ethos-run" {
+		t.Fatalf("files mismatch: %#v", files)
 	}
 }

@@ -26,3 +26,39 @@ func NewDecision(decision string, policy Policy) Decision {
 		Suggestion:   policy.Suggestion,
 	}
 }
+
+func (decision Decision) EvidenceFiles() []string {
+	if files := evidenceStringList(decision.Evidence, "files"); len(files) > 0 {
+		return files
+	}
+
+	return evidenceStringList(decision.Evidence, "staged_files")
+}
+
+func evidenceStringList(evidence map[string]any, key string) []string {
+	if len(evidence) == 0 {
+		return nil
+	}
+
+	value, found := evidence[key]
+	if !found {
+		return nil
+	}
+
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if ok && text != "" {
+				values = append(values, text)
+			}
+		}
+
+		return values
+	default:
+		return nil
+	}
+}

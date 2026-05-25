@@ -59,7 +59,7 @@ func blockedAdviceHuman(result Result, decisions []policy.Decision) string {
 
 	for _, decision := range decisions {
 		lines = append(lines, "[coding-ethos:"+decision.PolicyID+"] "+decision.Message)
-		if files := decisionEvidenceFiles(decision); len(files) > 0 {
+		if files := decision.EvidenceFiles(); len(files) > 0 {
 			lines = append(lines, "Files: "+strings.Join(files, ", "))
 		}
 
@@ -119,7 +119,7 @@ func blockedAdviceTOON(result Result, decisions []policy.Decision) string {
 			lines = append(lines, "    suggestion: "+toonCell(decision.Suggestion))
 		}
 
-		if files := decisionEvidenceFiles(decision); len(files) > 0 {
+		if files := decision.EvidenceFiles(); len(files) > 0 {
 			lines = append(lines, "    files["+strconv.Itoa(len(files))+"]{path}:")
 			for _, file := range files {
 				lines = append(lines, "      "+toonCell(file))
@@ -200,42 +200,6 @@ func blockedAdviceJSON(result Result, decisions []policy.Decision) string {
 	}
 
 	return string(encoded)
-}
-
-func decisionEvidenceFiles(decision policy.Decision) []string {
-	if files := stringListEvidence(decision.Evidence, "files"); len(files) > 0 {
-		return files
-	}
-
-	return stringListEvidence(decision.Evidence, "staged_files")
-}
-
-func stringListEvidence(evidence map[string]any, key string) []string {
-	if len(evidence) == 0 {
-		return nil
-	}
-
-	value, found := evidence[key]
-	if !found {
-		return nil
-	}
-
-	switch typed := value.(type) {
-	case []string:
-		return append([]string(nil), typed...)
-	case []any:
-		values := make([]string, 0, len(typed))
-		for _, item := range typed {
-			text, ok := item.(string)
-			if ok && text != "" {
-				values = append(values, text)
-			}
-		}
-
-		return values
-	default:
-		return nil
-	}
 }
 
 func firstAgentStep(item agentmsg.Remediation) string {
