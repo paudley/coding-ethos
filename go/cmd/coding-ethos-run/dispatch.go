@@ -783,8 +783,13 @@ func runPolicyLintHandler(paths runtimePaths, rest []string) error {
 func runManagedLintHandler(paths runtimePaths, rest []string) error {
 	requirePolicyBundle(paths)
 
+	scope, err := managedLintScopeFromArgs(paths, rest)
+	if err != nil {
+		return err
+	}
+
 	for _, group := range []string{"formatters", "autofixers"} {
-		exitCode := runPolicyToolGroupByName(paths, group, true)
+		exitCode := runScopedPolicyToolGroupByName(paths, group, true, scope)
 		if exitCode != 0 {
 			requestRuntimeExit(exitCode)
 

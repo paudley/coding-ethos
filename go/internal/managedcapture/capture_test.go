@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
@@ -113,6 +114,64 @@ exit 1
 		if !strings.Contains(string(content), want) {
 			t.Fatalf("trace missing %q:\n%s", want, content)
 		}
+	}
+}
+
+func TestRunCapturedToolCodeIntelIngestsTraceAndIndexesChangedFiles(t *testing.T) {
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	repo := t.TempDir()
+	target := filepath.Join(repo, "pkg", "app.py")
+	err := os.MkdirAll(filepath.Dir(target), executableFixtureMode)
+	if err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+
+	err = os.WriteFile(target, []byte("VALUE = 1\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write python file: %v", err)
+	}
+
+	tool := filepath.Join(repo, "formatter-fixture")
+	writeExecutableFixture(t, tool, `#!/usr/bin/env sh
+printf 'VALUE = 2\n' > pkg/app.py
+exit 0
+`)
+
+	exitCode := runCapturedToolWithRequest(captureRequest{
+		Tool:           "ruff-format",
+		Parser:         "ruff",
+		Category:       toolcatalog.CategoryFormat,
+		ToolPath:       tool,
+		Cwd:            repo,
+		TraceRoot:      repo,
+		Args:           []string{"format", "pkg/app.py"},
+		DiagnosticKind: toolcatalog.DiagnosticKindFormatterChangedFiles,
+		FileExtensions: []string{".py"},
+		CodeIntel:      true,
+	}, hookoutput.FormatTOON)
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", exitCode)
+	}
+
+	store, err := codeintel.OpenReadOnly(
+		context.Background(),
+		codeintel.DefaultDBPath(repo),
+	)
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	defer store.Close()
+
+	stats, err := store.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("code-intel stats: %v", err)
+	}
+
+	if stats.Traces != 1 || stats.Files != 1 {
+		t.Fatalf("code-intel stats = %#v, want one trace and one file", stats)
 	}
 }
 
