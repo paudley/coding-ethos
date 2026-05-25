@@ -998,6 +998,7 @@ func runMCP(paths runtimePaths, rest []string) {
 	requireRuntimeFile(bundlePath, "compiled policy bundle")
 	runtimeExecTool(paths, "coding-ethos-mcp", append([]string{
 		"--bundle", bundlePath,
+		"--cerun", filepath.Join(paths.BinDir, "cerun"),
 		"--ethos-root", paths.EthosRoot,
 		"--consumer-root", paths.Root,
 		"--invocation-cwd", paths.InvocationCWD,

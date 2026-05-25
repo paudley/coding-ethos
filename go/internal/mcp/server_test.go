@@ -37,13 +37,15 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 23 {
-		t.Fatalf("tool count = %d, want 23: %#v", len(tools), tools)
+	if len(tools) != 25 {
+		t.Fatalf("tool count = %d, want 25: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
 		"policy_check_command",
 		"policy_check_edit",
+		"cerun_check",
+		"cerun_run",
 		"managed_lint",
 		"lint_advice",
 		"sarif_remediation_advice",
@@ -78,9 +80,46 @@ func TestServerListsTools(t *testing.T) {
 	}
 
 	if !strings.Contains(output, "canonical lint path for agents") ||
-		!strings.Contains(output, "executes_tools") {
+		!strings.Contains(output, "executes_tools") ||
+		!strings.Contains(output, "mutating") {
 		t.Fatalf("missing coding-ethos tool metadata:\n%s", output)
 	}
+}
+
+func TestServerListsCerunRunAsExplicitExecutionTool(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	response := decodeResponse(t, output)
+	result := mapValue(t, response["result"])
+
+	for _, toolValue := range listValue(t, result["tools"]) {
+		tool := mapValue(t, toolValue)
+		if tool["name"] != "cerun_run" {
+			continue
+		}
+
+		annotations := mapValue(t, tool["annotations"])
+		if annotations["destructiveHint"] != true ||
+			annotations["openWorldHint"] != true {
+			t.Fatalf("cerun_run annotations = %#v", annotations)
+		}
+
+		meta := mapValue(t, mapValue(t, tool["_meta"])["coding_ethos"])
+		if meta["executes_tools"] != true || meta["mutating"] != true {
+			t.Fatalf("cerun_run coding_ethos metadata = %#v", meta)
+		}
+
+		inputSchema := mapValue(t, tool["inputSchema"])
+		properties := mapValue(t, inputSchema["properties"])
+		if _, found := mapValue(t, properties["command"])["description"]; !found {
+			t.Fatalf("cerun_run command schema missing description: %#v", properties)
+		}
+
+		return
+	}
+
+	t.Fatal("cerun_run tool was not listed")
 }
 
 func TestServerSemanticSearchSchemaAllowsVectorOnlyInput(t *testing.T) {
@@ -239,6 +278,91 @@ func TestServerPolicyCheckEditUsesCompiledBundle(t *testing.T) {
 
 	if !strings.Contains(output, "filesystem.protected_path") {
 		t.Fatalf("missing protected path policy in output:\n%s", output)
+	}
+}
+
+func TestServerCerunCheckPreflightsWithoutExecuting(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":13,
+		"method":"tools/call",
+		"params":{
+			"name":"cerun_check",
+			"arguments":{
+				"command":"git commit --no-verify -m test",
+				"intent":"verify git guard"
+			}
+		}
+	}`))
+	response := decodeResponse(t, output)
+
+	content := structuredContent(t, response)
+	if content["status"] != statusBlocked || content["blocked"] != true {
+		t.Fatalf("content = %#v, want blocked cerun preflight", content)
+	}
+
+	if !strings.Contains(output, "git.hook_bypass") ||
+		!strings.Contains(output, "cerun --check --rewrite --intent") ||
+		!strings.Contains(output, "agent_remediation") {
+		t.Fatalf("missing cerun_check guidance:\n%s", output)
+	}
+}
+
+func TestServerCerunRunExecutesResolvedRuntime(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	cwd := filepath.Join(root, "work")
+	err := os.MkdirAll(cwd, 0o700)
+	if err != nil {
+		t.Fatalf("create cwd: %v", err)
+	}
+
+	cerunPath := filepath.Join(root, "coding-ethos", "bin", "cerun")
+	err = os.MkdirAll(filepath.Dir(cerunPath), 0o700)
+	if err != nil {
+		t.Fatalf("create cerun dir: %v", err)
+	}
+
+	script := "#!/usr/bin/env sh\n" +
+		"printf 'cwd=%s\\n' \"$PWD\"\n" +
+		"printf 'args=%s\\n' \"$*\"\n" +
+		"printf 'stderr-msg\\n' >&2\n" +
+		"exit 7\n"
+	err = os.WriteFile(cerunPath, []byte(script), 0o700)
+	if err != nil {
+		t.Fatalf("write fake cerun: %v", err)
+	}
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":14,
+		"method":"tools/call",
+		"params":{
+			"name":"cerun_run",
+			"arguments":{
+				"command":"printf ok",
+				"cwd":`+strconv.Quote(cwd)+`,
+				"intent":"exercise mcp cerun",
+				"timeout_seconds":5
+			}
+		}
+	}`), mcp.Runtime{ConsumerRoot: root})
+	response := decodeResponse(t, output)
+
+	content := structuredContent(t, response)
+	if content["exit_code"] != float64(7) || content["timed_out"] != false {
+		t.Fatalf("content = %#v, want fake cerun exit", content)
+	}
+
+	stdout, _ := content["stdout"].(string)
+	stderr, _ := content["stderr"].(string)
+	if !strings.Contains(stdout, "cwd="+cwd) ||
+		!strings.Contains(stdout, "--rewrite --intent exercise mcp cerun -- printf ok") ||
+		!strings.Contains(stderr, "stderr-msg") {
+		t.Fatalf("unexpected cerun output: stdout=%q stderr=%q", stdout, stderr)
 	}
 }
 

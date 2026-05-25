@@ -29,6 +29,9 @@ Git is a protected critical operation. Run normal git commands without bypass fl
 
 ## Use When
 - raw git
+- cerun_check
+- cerun_run
+- cerun
 - admin-approved
 - commit attribution
 - hook bypass
@@ -38,7 +41,7 @@ Git is a protected critical operation. Run normal git commands without bypass fl
 
 ## Remediation Workflow
 1. Read the hook failure as policy feedback, not as a broken local setup.
-2. Run the ordinary git command directly and let the hook route approved git operations through the repo policy path automatically.
+2. Use MCP cerun_check before risky Git or shell work, then execute through MCP cerun_run or the repo-local cerun wrapper when the preflight allows it.
 3. Do not try alternate shells, absolute git paths, subprocesses, aliases, PATH edits, no-verify flags, or direct hook edits.
 4. If protected coding-ethos files must change, prepare the work and ask the admin to review and finalize the commit using the documented admin-approved flow.
 5. Report the files changed, checks run, hook output, and unresolved risks before asking for commit or push approval.

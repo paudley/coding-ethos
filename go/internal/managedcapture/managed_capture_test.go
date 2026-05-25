@@ -312,6 +312,91 @@ func TestNormalizeGolangciLintWorktreeDefaultsToNestedModule(t *testing.T) {
 	}
 }
 
+func TestNormalizeGolangciLintWorktreeRelativizesDefaultModuleFiles(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	goRoot := filepath.Join(consumerRoot, "go")
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(goRoot, "go.mod"),
+		"module example.test/repo\n",
+	)
+
+	cwd, args := normalizeGolangciLintWorktree(
+		consumerRoot,
+		consumerRoot,
+		[]string{
+			"fmt",
+			"--config",
+			filepath.Join(consumerRoot, ".golangci.yml"),
+			"go/internal/mcp/cerun.go",
+			"go/cmd/coding-ethos-run/dispatch.go",
+		},
+	)
+
+	if cwd != goRoot {
+		t.Fatalf("normalized cwd = %q, want %q", cwd, goRoot)
+	}
+
+	wantArgs := []string{
+		"fmt",
+		"--config",
+		filepath.Join(consumerRoot, ".golangci.yml"),
+		"internal/mcp/cerun.go",
+		"cmd/coding-ethos-run/dispatch.go",
+	}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("normalized args = %#v, want %#v", args, wantArgs)
+	}
+}
+
+func TestNormalizeGolangciLintWorktreeConvertsRunFilesToPackages(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	goRoot := filepath.Join(consumerRoot, "go")
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(goRoot, "go.mod"),
+		"module example.test/repo\n",
+	)
+
+	cwd, args := normalizeGolangciLintWorktree(
+		consumerRoot,
+		consumerRoot,
+		[]string{
+			"run",
+			"--fix",
+			"--config",
+			filepath.Join(consumerRoot, ".golangci.yml"),
+			"go/internal/mcp/cerun.go",
+			"go/internal/mcp/server.go",
+			"go/cmd/coding-ethos-run/dispatch.go",
+		},
+	)
+
+	if cwd != goRoot {
+		t.Fatalf("normalized cwd = %q, want %q", cwd, goRoot)
+	}
+
+	wantArgs := []string{
+		"run",
+		"--fix",
+		"--config",
+		filepath.Join(consumerRoot, ".golangci.yml"),
+		"./internal/mcp",
+		"./cmd/coding-ethos-run",
+	}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("normalized args = %#v, want %#v", args, wantArgs)
+	}
+}
+
 func TestNormalizeGolangciLintWorktreeDefaultsToInvocationNestedModule(
 	t *testing.T,
 ) {

@@ -47,6 +47,7 @@ type Server struct {
 
 type Runtime struct {
 	BundlePath    string
+	CerunPath     string
 	EthosRoot     string
 	ConsumerRoot  string
 	InvocationCwd string
@@ -188,6 +189,8 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 	return []toolHandlerEntry{
 		{Name: "policy_check_command", Handler: server.checkCommand},
 		{Name: "policy_check_edit", Handler: server.checkEdit},
+		{Name: "cerun_check", Handler: server.checkCerun},
+		{Name: "cerun_run", Handler: server.runCerun},
 		{Name: "managed_lint", Handler: server.checkLint},
 		{Name: "lint_advice", Handler: server.lintAdvice},
 		{Name: "sarif_remediation_advice", Handler: server.sarifRemediationAdvice},

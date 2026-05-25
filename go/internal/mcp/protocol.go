@@ -155,6 +155,14 @@ type editCheckInput struct {
 	Provider string `json:"provider,omitempty"`
 }
 
+type cerunInput struct {
+	Rewrite        *bool  `json:"rewrite,omitempty"`
+	Command        string `json:"command"`
+	Cwd            string `json:"cwd,omitempty"`
+	Intent         string `json:"intent,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+}
+
 type lintCheckInput struct {
 	Command       string   `json:"command,omitempty"`
 	Cwd           string   `json:"cwd,omitempty"`
@@ -396,13 +404,14 @@ func toolResult(result any) map[string]any {
 }
 
 const (
-	toolDefinitionCapacity          = 25
+	toolDefinitionCapacity          = 27
 	codeIntelToolDefinitionCapacity = 11
 )
 
 func toolDefinitions() []map[string]any {
 	definitions := make([]map[string]any, 0, toolDefinitionCapacity)
 	definitions = append(definitions, policyPreflightToolDefinitions()...)
+	definitions = append(definitions, cerunToolDefinitions()...)
 	definitions = append(definitions, lintToolDefinitions()...)
 	definitions = append(definitions, sarifToolDefinitions()...)
 	definitions = append(definitions, skillToolDefinitions()...)
@@ -428,9 +437,18 @@ func policyPreflightToolDefinitions() []map[string]any {
 			"policy_check_command",
 			"Check whether a proposed shell command would violate compiled coding-ethos policy.",
 			map[string]any{
-				"command":  map[string]any{"type": "string"},
-				"cwd":      map[string]any{"type": "string"},
-				"provider": map[string]any{"type": "string"},
+				"command": propertySchema(
+					"string",
+					"Shell command text to inspect without executing.",
+				),
+				"cwd": propertySchema(
+					"string",
+					"Working directory used to resolve repo-local policy context.",
+				),
+				"provider": propertySchema(
+					"string",
+					"Agent provider name for provider-specific hook behavior.",
+				),
 			},
 			[]string{"command"},
 			toolMetadata{
@@ -445,11 +463,26 @@ func policyPreflightToolDefinitions() []map[string]any {
 			"policy_check_edit",
 			"Check whether a proposed file edit would violate compiled coding-ethos policy.",
 			map[string]any{
-				"path":     map[string]any{"type": "string"},
-				"before":   map[string]any{"type": "string"},
-				"after":    map[string]any{"type": "string"},
-				"cwd":      map[string]any{"type": "string"},
-				"provider": map[string]any{"type": "string"},
+				"path": propertySchema(
+					"string",
+					"Repo-relative or absolute path that would be written.",
+				),
+				"before": propertySchema(
+					"string",
+					"Optional current content for edit-aware checks.",
+				),
+				"after": propertySchema(
+					"string",
+					"Proposed complete file content.",
+				),
+				"cwd": propertySchema(
+					"string",
+					"Working directory used to resolve repo-local policy context.",
+				),
+				"provider": propertySchema(
+					"string",
+					"Agent provider name for provider-specific hook behavior.",
+				),
 			},
 			[]string{"path", "after"},
 			toolMetadata{
@@ -476,6 +509,79 @@ func policyPreflightToolDefinitions() []map[string]any {
 			},
 		),
 	}
+}
+
+func cerunToolDefinitions() []map[string]any {
+	return []map[string]any{
+		toolDefinition(
+			"cerun_check",
+			toolText(
+				"Preflight a command through the cerun/agent-shell policy",
+				"boundary without executing it.",
+			),
+			cerunInputSchema(false),
+			[]string{"command"},
+			toolMetadata{
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    false,
+				PreferredUse: toolText(
+					"ask coding-ethos what exact cerun command to run",
+					"before shell, git, Python, or tool execution",
+				),
+				TracePersisted: false,
+			},
+		),
+		toolDefinition(
+			"cerun_run",
+			toolText(
+				"Execute a command through the repo-local cerun wrapper and",
+				"return captured output and exit status.",
+			),
+			cerunInputSchema(true),
+			[]string{"command"},
+			toolMetadata{
+				Advisory:      false,
+				ExecutesTools: true,
+				ReadsFiles:    true,
+				PreferredUse: toolText(
+					"run deliberate shell work through the managed",
+					"coding-ethos boundary instead of raw Bash",
+				),
+				TracePersisted: true,
+				Mutating:       true,
+			},
+		),
+	}
+}
+
+func cerunInputSchema(includeTimeout bool) map[string]any {
+	schema := map[string]any{
+		"command": propertySchema(
+			"string",
+			"Shell command to route through cerun after policy inspection.",
+		),
+		"cwd": propertySchema(
+			"string",
+			"Working directory for command preflight or execution.",
+		),
+		"intent": propertySchema(
+			"string",
+			"Short strategic intent included in agent-shell policy context.",
+		),
+		"rewrite": propertySchema(
+			"boolean",
+			"Whether cerun should apply managed rewrites; defaults to true.",
+		),
+	}
+	if includeTimeout {
+		schema["timeout_seconds"] = propertySchema(
+			"integer",
+			"Maximum execution time before cerun_run terminates the process.",
+		)
+	}
+
+	return schema
 }
 
 func lintToolDefinitions() []map[string]any {
@@ -860,6 +966,13 @@ func stringMapSchema() map[string]any {
 	}
 }
 
+func propertySchema(kind, description string) map[string]any {
+	return map[string]any{
+		"type":        kind,
+		"description": description,
+	}
+}
+
 func codeIntelHookToolDefinitions() []map[string]any {
 	return []map[string]any{
 		toolDefinition(
@@ -1100,6 +1213,7 @@ type toolMetadata struct {
 	PreferredUse   string
 	Advisory       bool
 	ExecutesTools  bool
+	Mutating       bool
 	ReadsFiles     bool
 	TracePersisted bool
 }
@@ -1126,7 +1240,7 @@ func toolDefinition(
 		"inputSchema": inputSchema,
 		"annotations": map[string]any{
 			"readOnlyHint":    !metadata.ExecutesTools && !metadata.TracePersisted,
-			"destructiveHint": false,
+			"destructiveHint": metadata.Mutating,
 			"idempotentHint":  metadata.Advisory,
 			"openWorldHint":   metadata.ExecutesTools,
 		},
@@ -1134,6 +1248,7 @@ func toolDefinition(
 			"coding_ethos": map[string]any{
 				"advisory":        metadata.Advisory,
 				"executes_tools":  metadata.ExecutesTools,
+				"mutating":        metadata.Mutating,
 				"reads_files":     metadata.ReadsFiles,
 				"preferred_use":   metadata.PreferredUse,
 				"trace_persisted": metadata.TracePersisted,

@@ -23,12 +23,16 @@ skill metadata used by those enforcement paths.
 
 - `policy_check_command`: check a proposed shell command before running it.
 - `policy_check_edit`: check a proposed file edit before applying it.
-- `lint_check`: run managed lint capture for named tools, or compiled policy
+- `cerun_check`: preflight a command through the `cerun`/agent-shell policy
+  boundary without executing it and return the exact recommended command.
+- `cerun_run`: deliberately execute a command through the repo-local `cerun`
+  wrapper and return exit status plus captured stdout/stderr.
+- `managed_lint`: run managed lint capture for named tools, or compiled policy
   lint when no managed tool is supplied.
 - `lint_advice`: map a linter diagnostic to ETHOS policy, advice, rerun
   guidance, and skill hints.
 - `sarif_remediation_advice`: turn a SARIF result into ETHOS-grounded
-  remediation guidance, skill context, and an MCP `lint_check` rerun request.
+  remediation guidance, skill context, and an MCP `managed_lint` rerun request.
 - `sarif_risk_summary`: summarize a SARIF run into policy, skill, tool, file,
   finding-group, severity, and next-action signals.
 - `sarif_trend_analysis`: compare two SARIF runs or retained lint traces and
@@ -78,7 +82,7 @@ surgical diffs, and verifiable success criteria.
 
 Tool definitions include `coding_ethos` metadata so clients can distinguish
 advisory tools from managed execution tools and know whether a tool reads
-files, runs managed binaries, or persists traces.
+files, runs managed binaries, may mutate state, or persists traces.
 
 ## SARIF Remediation
 
@@ -94,7 +98,7 @@ and returns:
 - CEL provenance when the SARIF rule or result records it;
 - the relevant generated skill summary when available;
 - guardrails that preserve policy and generated configuration;
-- an MCP `lint_check` request the agent should use after applying a fix.
+- an MCP `managed_lint` request the agent should use after applying a fix.
 
 This tool does not read files or rerun lint by itself. It translates the same
 SARIF evidence emitted by hooks and CI into a compact repair packet so agents
@@ -134,7 +138,7 @@ advice-only environment.
 
 The intent is:
 
-1. `lint_check` reports normalized managed-tool findings.
+1. `managed_lint` reports normalized managed-tool findings.
 2. `lint_advice` enriches findings with policy IDs, ETHOS principle IDs,
    evidence-map advice, rerun guidance, and skill hints.
 3. `skill_recommend` selects the relevant generated playbooks.
@@ -208,7 +212,7 @@ advice response:
   "skill_ids": ["conditional-imports"],
   "steps": ["Move the import to module scope."],
   "rerun": {
-    "tool": "lint_check",
+    "tool": "managed_lint",
     "arguments": {
       "tool": "ruff",
       "files": ["src/app.py"]

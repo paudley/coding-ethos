@@ -330,12 +330,16 @@ func findRepoCerunCommandInRoot(root string) string {
 		repoRoot = root
 	}
 
-	candidate := filepath.Join(repoRoot, "bin", "cerun")
-	if !executableExists(candidate) {
-		return ""
+	for _, candidate := range []string{
+		filepath.Join(repoRoot, "bin", "cerun"),
+		filepath.Join(repoRoot, "coding-ethos", "bin", "cerun"),
+	} {
+		if executableExists(candidate) {
+			return filepath.ToSlash(candidate)
+		}
 	}
 
-	return filepath.ToSlash(candidate)
+	return ""
 }
 
 func executableExists(path string) bool {

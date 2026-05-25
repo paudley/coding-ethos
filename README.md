@@ -301,6 +301,10 @@ The first tools are intentionally narrow and auditable:
 
 - `policy_check_command`: check a proposed shell command before running it.
 - `policy_check_edit`: check a proposed file edit before applying it.
+- `cerun_check`: preflight the exact command an agent should run through the
+  `cerun`/agent-shell boundary without executing it.
+- `cerun_run`: deliberately execute a command through the repo-local `cerun`
+  wrapper and return captured output, exit status, and follow-up guidance.
 - `managed_lint`: run managed lint capture for Ruff, mypy, pyright, pylint,
   ESLint, SQLFluff, and other captured tools; when no tool is supplied, run
   compiled coding-ethos policy lint checks for current work.
@@ -349,7 +353,8 @@ and the next MCP call an agent should make. Agents can pass the full item to
 `skill_lookup` call directly. See [Agent Remediation Payloads](docs/AGENT_REMEDIATION.md).
 
 Tool definitions include `coding_ethos` metadata that tells clients whether a
-tool is advisory, reads files, executes managed lint tools, and persists traces.
+tool is advisory, reads files, executes managed tools, may mutate state, and
+persists traces.
 Agents should call `managed_lint` instead of invoking linters directly so target
 resolution, generated config integrity, managed tool versions, evidence maps,
 skill hints, and trace logging stay on the enforced path.
