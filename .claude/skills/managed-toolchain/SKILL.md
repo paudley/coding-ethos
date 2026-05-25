@@ -29,6 +29,7 @@ Linters and configs must resolve through coding-ethos managed paths. Restore gen
 
 ## Use When
 - managed toolchain
+- tool_capabilities
 - config drift
 - generated config
 - real binary not found
@@ -39,10 +40,11 @@ Linters and configs must resolve through coding-ethos managed paths. Restore gen
 
 ## Remediation Workflow
 1. Treat the consumer repo as untrusted for linter binaries and config.
-2. Keep target file resolution faithful to the caller, but run the managed linter and managed config from the coding-ethos checkout.
-3. If generated configs drift, restore them with the documented coding-ethos fix-configs path instead of editing hashes or ignores.
-4. When a managed binary is missing, repair through make build rather than installing host-global tools or editing shims.
-5. Capture the normalized lint output and trace so repeated failures can become stronger ETHOS mappings.
+2. Use MCP tool_capabilities to inspect managed sandbox posture before diagnosing missing tools, network access, or write-path failures.
+3. Keep target file resolution faithful to the caller, but run the managed linter and managed config from the coding-ethos checkout.
+4. If generated configs drift, restore them with the documented coding-ethos fix-configs path instead of editing hashes or ignores.
+5. When a managed binary is missing, repair through make build rather than installing host-global tools or editing shims.
+6. Capture the normalized lint output and trace so repeated failures can become stronger ETHOS mappings.
 
 ## Principle Details
 ### Static Analysis is the First Line of Defense

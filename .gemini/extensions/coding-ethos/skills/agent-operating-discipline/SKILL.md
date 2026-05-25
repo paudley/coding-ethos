@@ -31,6 +31,8 @@ State assumptions, choose the smallest sufficient design, keep edits traceable t
 
 ## Use When
 - implement
+- skill_recommend
+- code_intel_repo_map
 - refactor
 - simplify
 - redesign
@@ -46,11 +48,12 @@ State assumptions, choose the smallest sufficient design, keep edits traceable t
 - overcomplicated
 
 ## Remediation Workflow
-1. State the task interpretation, assumptions, ambiguity, and relevant trade-offs before making broad changes.
-2. Pick the smallest implementation that satisfies the current requirement; defer abstractions, configurability, and extension points until there is a concrete second use.
-3. Keep every changed line traceable to the user request or to cleanup directly caused by the change.
-4. Match local style and ownership boundaries; mention unrelated dead code or improvement ideas instead of editing them opportunistically.
-5. Convert the task into explicit success criteria and verify with focused tests, lint, type checks, or documented evidence before claiming completion.
+1. For broad implementation, call skill_recommend and code_intel_repo_map before deciding what to read or edit.
+2. State the task interpretation, assumptions, ambiguity, and relevant trade-offs before making broad changes.
+3. Pick the smallest implementation that satisfies the current requirement; defer abstractions, configurability, and extension points until there is a concrete second use.
+4. Keep every changed line traceable to the user request or to cleanup directly caused by the change.
+5. Match local style and ownership boundaries; mention unrelated dead code or improvement ideas instead of editing them opportunistically.
+6. Convert the task into explicit success criteria and verify with focused tests, lint, type checks, or documented evidence before claiming completion.
 
 ## Principle Details
 ### Evidence-Based Engineering and Decision Quality

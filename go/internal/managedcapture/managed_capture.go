@@ -34,6 +34,7 @@ const (
 	golangciLintTool        = "golangci-lint"
 	golangciLintFmtCommand  = "fmt"
 	golangciLintRunCommand  = "run"
+	goFileExtension         = ".go"
 	goTestTool              = "go-test"
 	goVetTool               = "go-vet"
 	maxFormatterWritePaths  = 4096
@@ -1089,7 +1090,13 @@ func normalizeGolangciLintWorktree(
 			invocationCwd,
 		)
 		if defaultModuleDir != "" {
-			return defaultModuleDir, append(append([]string(nil), args...), "./...")
+			return defaultModuleDir, normalizeGolangciLintTargets(
+				defaultNestedGoModuleArgs(
+					consumerRoot,
+					defaultModuleDir,
+					args,
+				),
+			)
 		}
 
 		return consumerRoot, args
@@ -1099,7 +1106,40 @@ func normalizeGolangciLintWorktree(
 	normalized = append(normalized, "./...")
 	normalized = append(normalized, args[moduleIndex+2:]...)
 
-	return moduleDir, normalized
+	return moduleDir, normalizeGolangciLintTargets(normalized)
+}
+
+func normalizeGolangciLintTargets(args []string) []string {
+	if len(args) == 0 || args[0] != golangciLintRunCommand {
+		return args
+	}
+
+	normalized := make([]string, 0, len(args))
+	seenDirs := map[string]struct{}{}
+
+	for _, arg := range args {
+		if filepath.Ext(arg) != goFileExtension {
+			normalized = append(normalized, arg)
+
+			continue
+		}
+
+		dir := filepath.ToSlash(filepath.Dir(filepath.FromSlash(arg)))
+		if dir == "." {
+			dir = "./..."
+		} else if !filepath.IsAbs(dir) && !strings.HasPrefix(dir, ".") {
+			dir = "./" + dir
+		}
+
+		if _, seen := seenDirs[dir]; seen {
+			continue
+		}
+
+		seenDirs[dir] = struct{}{}
+		normalized = append(normalized, dir)
+	}
+
+	return normalized
 }
 
 func normalizeGoToolWorktree(
@@ -1118,7 +1158,11 @@ func normalizeGoToolWorktree(
 			invocationCwd,
 		)
 		if defaultModuleDir != "" {
-			return defaultModuleDir, append(append([]string(nil), args...), "./...")
+			return defaultModuleDir, defaultNestedGoModuleArgs(
+				consumerRoot,
+				defaultModuleDir,
+				args,
+			)
 		}
 
 		return consumerRoot, args
@@ -1129,6 +1173,61 @@ func normalizeGoToolWorktree(
 	normalized = append(normalized, args[moduleIndex+2:]...)
 
 	return moduleDir, normalized
+}
+
+func defaultNestedGoModuleArgs(
+	consumerRoot string,
+	moduleDir string,
+	args []string,
+) []string {
+	normalized := make([]string, 0, len(args)+1)
+	transformedTarget := false
+
+	for _, arg := range args {
+		moduleArg, transformed := nestedGoModuleArg(
+			consumerRoot,
+			moduleDir,
+			arg,
+		)
+		normalized = append(normalized, moduleArg)
+		transformedTarget = transformedTarget || transformed
+	}
+
+	if !transformedTarget {
+		normalized = append(normalized, "./...")
+	}
+
+	return normalized
+}
+
+func nestedGoModuleArg(
+	consumerRoot string,
+	moduleDir string,
+	arg string,
+) (string, bool) {
+	if strings.TrimSpace(arg) == "" || strings.HasPrefix(arg, "-") {
+		return arg, false
+	}
+
+	candidate := arg
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(consumerRoot, filepath.FromSlash(arg))
+	}
+
+	relative, err := filepath.Rel(moduleDir, candidate)
+	if err != nil {
+		return arg, false
+	}
+
+	if relative == "." {
+		return "./...", true
+	}
+
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return arg, false
+	}
+
+	return filepath.ToSlash(relative), true
 }
 
 func firstGoModuleArgument(consumerRoot string, args []string) (int, string) {

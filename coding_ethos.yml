@@ -126,6 +126,45 @@ skills:
         are worse and keep the scope as small as possible.
       - Verify with the managed coding-ethos tool path and report the exact
         checks that now pass or still fail.
+  - id: coding-ethos-agent-workflow
+    title: Coding-Ethos Agent Workflow
+    description: >-
+      Use when an agent needs to choose the correct coding-ethos MCP, cerun,
+      managed lint, code-intel, or remediation path before acting.
+    principle_ids:
+      - one-path-for-critical-operations
+      - evidence-based-engineering-and-decision-quality
+      - radical-visibility
+      - security-by-design
+    trigger_terms:
+      - MCP
+      - cerun
+      - agent hooks
+      - raw git
+      - run command
+      - repo orientation
+      - managed lint
+      - policy feedback
+      - code intel
+    short_hint: >-
+      Start with MCP orientation and preflight tools, then execute through
+      cerun or managed_lint only when the policy path says it is appropriate.
+    focus: >-
+      Use this skill as the default operating map for coding-ethos-enabled
+      repos. It tells agents which first-class surface to use instead of
+      falling back to raw shell, raw Git, host linters, or whole-repo reads.
+    remediation_steps:
+      - For broad work, call skill_recommend and code_intel_repo_map before
+        reading widely or editing.
+      - For shell, Git, Python, or tool commands, call cerun_check first; run
+        through cerun_run or the repo-local cerun wrapper only after preflight.
+      - For lint, formatting, or type checks, call managed_lint before using
+        any fallback wrapper.
+      - For hook or lint failures, pass agent_remediation to
+        remediation_explain or call policy_explain/skill_lookup from the
+        embedded MCP next step.
+      - Report the MCP calls, command boundary, and verification evidence so
+        downstream maintainers can reproduce the workflow.
   - id: managed-lint-workflow
     title: Managed Lint Workflow
     description: >-
@@ -142,6 +181,7 @@ skills:
     trigger_terms:
       - run lint
       - managed_lint
+      - cerun lint
       - ./bin/lint
       - coding-ethos-run lint
       - uvx ruff
@@ -161,9 +201,9 @@ skills:
     remediation_steps:
       - Prefer MCP managed_lint for agent-run checks. Pass scope, files, tool,
         argv, and cwd through the MCP tool instead of running shell linters.
-      - If MCP is unavailable, run ./bin/lint with the narrowest useful scope,
-        such as ./bin/lint --staged, ./bin/lint --changed, or ./bin/lint
-        --full.
+      - If MCP is unavailable, use cerun lint or ./bin/lint with the narrowest
+        useful scope, such as ./bin/lint --staged, ./bin/lint --changed, or
+        ./bin/lint --full.
       - Do not run uvx ruff, host ruff, host mypy, package-local eslint, or
         other raw linters unless explicitly debugging the managed toolchain
         itself.
@@ -186,6 +226,9 @@ skills:
       - evidence-based-engineering-and-decision-quality
     trigger_terms:
       - raw git
+      - cerun_check
+      - cerun_run
+      - cerun
       - admin-approved
       - commit attribution
       - hook bypass
@@ -202,8 +245,9 @@ skills:
       review.
     remediation_steps:
       - Read the hook failure as policy feedback, not as a broken local setup.
-      - Run the ordinary git command directly and let the hook route approved
-        git operations through the repo policy path automatically.
+      - Use MCP cerun_check before risky Git or shell work, then execute
+        through MCP cerun_run or the repo-local cerun wrapper when the preflight
+        allows it.
       - Do not try alternate shells, absolute git paths, subprocesses, aliases,
         PATH edits, no-verify flags, or direct hook edits.
       - If protected coding-ethos files must change, prepare the work and ask
@@ -224,6 +268,7 @@ skills:
       - security-by-design
     trigger_terms:
       - managed toolchain
+      - tool_capabilities
       - config drift
       - generated config
       - real binary not found
@@ -240,6 +285,8 @@ skills:
       settings instead of the managed coding-ethos toolchain.
     remediation_steps:
       - Treat the consumer repo as untrusted for linter binaries and config.
+      - Use MCP tool_capabilities to inspect managed sandbox posture before
+        diagnosing missing tools, network access, or write-path failures.
       - Keep target file resolution faithful to the caller, but run the managed
         linter and managed config from the coding-ethos checkout.
       - If generated configs drift, restore them with the documented
@@ -262,6 +309,8 @@ skills:
       - documentation-as-contract
     trigger_terms:
       - implement
+      - skill_recommend
+      - code_intel_repo_map
       - refactor
       - simplify
       - redesign
@@ -283,6 +332,8 @@ skills:
       assumptions, speculative abstractions, drive-by refactors, and vague
       completion claims.
     remediation_steps:
+      - For broad implementation, call skill_recommend and code_intel_repo_map
+        before deciding what to read or edit.
       - State the task interpretation, assumptions, ambiguity, and relevant
         trade-offs before making broad changes.
       - Pick the smallest implementation that satisfies the current requirement;

@@ -1,137 +1,51 @@
 ---
-name: "managed-toolchain"
-description: "Use when captured linters, generated tool configs, managed binaries, config drift, missing tools, package-relative path resolution, or host tool usage causes lint or hook failures."
+name: "coding-ethos-agent-workflow"
+description: "Use when an agent needs to choose the correct coding-ethos MCP, cerun, managed lint, code-intel, or remediation path before acting."
 metadata:
   source: coding_ethos.yml
   generated_by: coding-ethos
   ethos_principles:
-    - static-analysis-is-the-first-line-of-defense
-    - validation-at-the-gate
     - one-path-for-critical-operations
+    - evidence-based-engineering-and-decision-quality
+    - radical-visibility
     - security-by-design
 ---
 <!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca> -->
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 
-# Managed Toolchain And Config Integrity
+# Coding-Ethos Agent Workflow
 
-Use this skill when lint behavior differs between repos, a generated config drift check fails, or a tool invocation is using consumer or host settings instead of the managed coding-ethos toolchain.
+Use this skill as the default operating map for coding-ethos-enabled repos. It tells agents which first-class surface to use instead of falling back to raw shell, raw Git, host linters, or whole-repo reads.
 
 ## ETHOS Grounding
-- `static-analysis-is-the-first-line-of-defense`: Make ruff and mypy blocking quality gates rather than advisory tools.
-- `validation-at-the-gate`: Validate configuration, schema, and extensions during bootstrap rather
-than on first use.
 - `one-path-for-critical-operations`: Keep one explicit, validated path for critical operations.
+- `evidence-based-engineering-and-decision-quality`: Understand, plan, execute, and validate with evidence; measure before
+optimizing and make trade-offs explicit.
+- `radical-visibility`: Log important decisions with context and instrument the system with metrics.
 - `security-by-design`: Design for least privilege, validation, and safe defaults from the start.
 
 ## Short Hint
-Linters and configs must resolve through coding-ethos managed paths. Restore generated configs and run captured tools through the wrapper.
+Start with MCP orientation and preflight tools, then execute through cerun or managed_lint only when the policy path says it is appropriate.
 
 ## Use When
-- managed toolchain
-- tool_capabilities
-- config drift
-- generated config
-- real binary not found
-- host linter
-- package-relative path
-- tool capture
-- fix-configs
+- MCP
+- cerun
+- agent hooks
+- raw git
+- run command
+- repo orientation
+- managed lint
+- policy feedback
+- code intel
 
 ## Remediation Workflow
-1. Treat the consumer repo as untrusted for linter binaries and config.
-2. Use MCP tool_capabilities to inspect managed sandbox posture before diagnosing missing tools, network access, or write-path failures.
-3. Keep target file resolution faithful to the caller, but run the managed linter and managed config from the coding-ethos checkout.
-4. If generated configs drift, restore them with the documented coding-ethos fix-configs path instead of editing hashes or ignores.
-5. When a managed binary is missing, repair through make build rather than installing host-global tools or editing shims.
-6. Capture the normalized lint output and trace so repeated failures can become stronger ETHOS mappings.
+1. For broad work, call skill_recommend and code_intel_repo_map before reading widely or editing.
+2. For shell, Git, Python, or tool commands, call cerun_check first; run through cerun_run or the repo-local cerun wrapper only after preflight.
+3. For lint, formatting, or type checks, call managed_lint before using any fallback wrapper.
+4. For hook or lint failures, pass agent_remediation to remediation_explain or call policy_explain/skill_lookup from the embedded MCP next step.
+5. Report the MCP calls, command boundary, and verification evidence so downstream maintainers can reproduce the workflow.
 
 ## Principle Details
-### Static Analysis is the First Line of Defense
-
-We rely on linters (ruff) and type checkers (mypy) to catch errors
-before the code ever runs.
-
-Directive: Make ruff and mypy blocking quality gates rather than advisory tools.
-
-Quick ref:
-- Make ruff and mypy blocking quality gates rather than advisory tools.
-- We rely on linters (ruff) and type checkers (mypy) to catch errors
-before the code ever runs.
-- Treat repo hook and CI gates as authoritative, not optional reminders.
-
-#### Overview
-We rely on linters (ruff) and type checkers (mypy) to catch errors
-before
-the code ever runs.
-
-* We do not suppress linter errors unless absolutely necessary.
-* Type hints are mandatory, not optional.
-* If the CI pipeline fails static analysis, the code is effectively
-  broken.
-
-#### Machine-Enforced Gates
-Static analysis belongs in enforced local hooks and CI, not in
-optional
-tribal knowledge.
-
-* Repos should run their canonical lint and type suites automatically
-  before
-  code lands.
-* If a repo exposes pre-commit, pre-push, or CI static analysis gates,
-  treat
-  them as part of the engineering contract.
-* Passing the current local gate matters more than saying a previous
-  run was
-  green.
-
-#### Repo Addendum
-This repo currently documents `make check` as its canonical automated
-gate.
-
-Focused commands such as `make test` or `uv run pytest` are useful
-during development, but release and review readiness must use the
-documented Makefile gate instead of a local preference.
-
-This repo exists to bring consistent policy, settings, and linters to
-diverse consuming repos. Treat each consuming repo as an untrusted
-execution target: its binaries, `PATH`, aliases, shell state,
-`pyproject.toml`, `uv` project state, and same-named tool config files
-are minefields, not sources of authority.
-
-Captured lint commands must run coding-ethos-managed tool versions from
-the controlled hook project, with explicit coding-ethos-generated config
-flags. Resolve the caller's target paths and globs first, then execute
-the managed linter with those resolved targets. Do not execute the
-parent repo's linter binary or inherit its config discovery.
-
-Generated linter configs are part of the enforcement boundary. If a
-generated config or its hash manifest drifts, fail before invoking any
-linter and tell the caller to restore the generated files before
-continuing.
-### Validation at the Gate
-
-Configuration, schema, and extension availability are validated
-immediately upon container initialization.
-
-Directive: Validate configuration, schema, and extensions during bootstrap rather
-than on first use.
-
-Quick ref:
-- Validate configuration, schema, and extensions during bootstrap rather
-than on first use.
-- Configuration, schema, and extension availability are validated
-immediately upon container initialization.
-
-#### Overview
-Configuration, schema, and extension availability are validated
-immediately
-upon container initialization.
-
-* If a Postgres extension is missing, we raise ExtensionMissingError
-  immediately. We do not wait for a query to fail 5 hours later.
-* If a cache adapter is misconfigured, we prevent the application from
-  starting.
 ### One Path for Critical Operations
 
 When there are multiple ways to accomplish a critical operation, bugs
@@ -301,6 +215,212 @@ files.
 If output behavior changes, update the source YAML, renderer logic,
 and
 tests together rather than patching only one layer.
+### Evidence-Based Engineering and Decision Quality
+
+Good engineering decisions are grounded in evidence, explicit
+trade-offs, and calibrated risk.
+
+Directive: Understand, plan, execute, and validate with evidence; measure before
+optimizing and make trade-offs explicit.
+
+Quick ref:
+- Evidence > assumptions; runnable behavior and measurements outrank speculation.
+- Understand -> plan -> execute -> validate, using batching and context
+awareness when they reduce waste.
+- Evaluate decisions across quality, reversibility, risk, and human impact.
+
+#### Overview
+We do not treat engineering judgment as intuition dressed up as
+confidence.
+Good decisions are grounded in evidence, explicit trade-offs, and
+calibrated
+risk.
+
+**Core directive:** Evidence > assumptions. Runnable behavior, tests,
+metrics, and credible primary sources outrank speculation and
+unsupported
+prose. Documentation remains a contract, but prose cannot excuse
+behavior
+the system does not actually implement.
+
+**Communication directive:** Efficiency > verbosity. Be concise when
+possible, but not at the cost of correctness, evidence, or important
+nuance.
+
+#### Task-First Operating Model
+The default execution loop is:
+
+1. **Understand:** Gather the local facts first. Read the code, issue,
+   config, logs, or docs that define the problem.
+2. **Plan:** Identify the critical path, dependencies, and likely
+   failure
+   modes before editing.
+3. **Execute:** Make the smallest change set that actually resolves
+   the
+   problem.
+4. **Validate:** Confirm behavior with tests, static analysis,
+   metrics, or
+   direct inspection.
+
+Efficiency matters, so independent reads and checks should be batched
+where
+possible. Context also matters: preserve enough local understanding to
+avoid
+redundant work or contradictory edits across sessions and operations.
+
+#### Systems Thinking and Trade-Offs
+Every change has ripple effects. Evaluate the immediate local win
+against
+architecture-wide consequences, long-term maintenance cost, and the
+options
+you may close off by acting too narrowly.
+
+When making a decision, ask:
+
+* What other components, operators, or workflows does this change
+  constrain?
+* Is this change easy to reverse, costly to reverse, or effectively
+  irreversible?
+* Are we preserving future options under uncertainty, or spending them
+  carelessly?
+* Are we accepting risk intentionally, or just failing to model it?
+
+Prefer designs that keep future choices open unless the stronger
+constraint
+is itself a deliberate requirement.
+
+#### Data-Driven Choices
+Optimization without measurement is guesswork. Performance claims,
+reliability claims, and architecture claims should be backed by
+evidence
+that can be inspected or reproduced.
+
+The expected pattern is:
+
+* **Measure first:** Establish current behavior before claiming
+  improvement.
+* **Form hypotheses explicitly:** State what you think will change and
+  why.
+* **Validate sources:** Prefer primary documentation, tests, traces,
+  and
+  metrics over retellings.
+* **Recognize bias:** Be wary of recency bias, sunk-cost bias, and
+  confirmation bias when interpreting results.
+
+If the evidence is weak, say so directly and reduce the claim strength
+accordingly.
+
+#### Proactive Risk Management
+Risk management is not fear-driven paralysis; it is disciplined
+foresight.
+Anticipate the likely failure modes before they become production
+incidents,
+security regressions, or migration traps.
+
+For meaningful changes:
+
+* Identify the major risks up front.
+* Assess both probability and impact.
+* Decide whether the risk is acceptable, needs mitigation, or blocks
+  the
+  change.
+* Put the mitigation in the plan, not in the postmortem.
+
+Security risk, data-loss risk, migration risk, and operator-confusion
+risk
+should be considered explicitly, not absorbed into a vague notion of
+"complexity."
+
+#### Quality Lens
+Evaluate changes through four quality lenses:
+
+* **Functional quality:** correctness, reliability, completeness
+* **Structural quality:** maintainability, clarity, technical debt
+* **Performance quality:** latency, throughput, resource efficiency
+* **Security quality:** access control, validation, data protection
+
+Prefer preventive measures and automated enforcement whenever
+practical;
+they catch issues earlier and more consistently than manual heroics.
+When a
+design decision affects end users or operators, human welfare and
+autonomy
+matter: do not trade away safety, clarity, or informed control for
+superficial convenience.
+### Radical Visibility
+
+We believe that if an event wasn't logged, it didn't happen.
+
+Directive: Log important decisions with context and instrument the system with metrics.
+
+Quick ref:
+- Log important decisions with context and instrument the system with metrics.
+- We believe that if an event wasn't logged, it didn't happen.
+- Everything is Logged: Ingestion steps, query rewrites, cache
+hits/misses, and decision branches must emit logs.
+
+#### Overview
+We believe that if an event wasn't logged, it didn't happen. Logging
+is not a debugging tool to be added later; it is a primary feature of
+the system.
+
+#### Ubiquitous Logging
+* **Everything is Logged:** Ingestion steps, query rewrites, cache
+  hits/misses, and decision branches must emit logs.
+* **Structured Data:** We use structlog to treat logs as data, not
+  text.
+  Logs must be machine-parsable (JSON in production).
+* **Context is King:** Every log line must carry context. Who
+  initiated
+  this? What is the correlation_id? What dataset is being processed?
+  * *Anti-Pattern:* logger.error("File not found")
+  * *Required:* logger.error("ingestion_failed",
+    reason="file_not_found",
+    path=path, entity_id=id, correlation_id=cid)
+
+#### Traceability
+Because we rely on dependency injection and protocols, control flow
+can be complex. Detailed logging allows us to reconstruct the
+execution path of any request post-mortem.
+
+#### Metrics Instrumentation
+Logs tell us *what happened*. Metrics tell us *how often* and *how
+fast*.
+Both are mandatory.
+
+* **OTel is Standard:** We use OpenTelemetry for all metrics. No
+  custom
+  metrics frameworks.
+* **Every Operation is Measured:** Counters for occurrences,
+  histograms for
+  durations, gauges for current state.
+* **Labels Add Dimension:** Metrics without labels are nearly useless.
+  Include `status`, `operation`, `component`.
+
+**The Correct Way:**
+
+```python
+from app.observability.tracing import (
+    increment_counter,
+    record_histogram,
+    traced,
+)
+
+@traced("ingestion.process_file", {"component": "ingestion"})
+async def process_file(self, path: Path) -> ProcessResult:
+    start = time.perf_counter()
+    try:
+        result = await self._do_process(path)
+        increment_counter("app.files_processed_total", {"status": "success"})
+        return result
+    finally:
+        duration_ms = (time.perf_counter() - start) * 1000
+        record_histogram("app.process_duration_ms", duration_ms)
+```
+
+If you cannot answer "How many times did X happen last hour?" or "What
+is
+the p99 latency of Y?"—your code is incomplete.
 ### Security by Design
 
 Security is not a feature to be added later—it is a property of the design.

@@ -23,6 +23,7 @@ func run() error {
 func runWithIO(args []string, stdin io.Reader, stdout io.Writer) error {
 	flags := flag.NewFlagSet("coding-ethos-mcp", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
+	cerunPath := flags.String("cerun", "", "Path to repo-local cerun wrapper")
 	ethosRoot := flags.String("ethos-root", "", "coding-ethos checkout root")
 	consumerRoot := flags.String("consumer-root", "", "consumer repository root")
 	invocationCwd := flags.String(
@@ -56,6 +57,7 @@ func runWithIO(args []string, stdin io.Reader, stdout io.Writer) error {
 
 	err = mcp.NewServerWithRuntime(bundle, mcp.Runtime{
 		BundlePath:    *bundlePath,
+		CerunPath:     *cerunPath,
 		EthosRoot:     *ethosRoot,
 		ConsumerRoot:  *consumerRoot,
 		InvocationCwd: *invocationCwd,

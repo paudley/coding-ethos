@@ -32,6 +32,7 @@ Use MCP managed_lint first. It runs packaged linters, applies managed formatting
 ## Use When
 - run lint
 - managed_lint
+- cerun lint
 - ./bin/lint
 - coding-ethos-run lint
 - uvx ruff
@@ -42,7 +43,7 @@ Use MCP managed_lint first. It runs packaged linters, applies managed formatting
 
 ## Remediation Workflow
 1. Prefer MCP managed_lint for agent-run checks. Pass scope, files, tool, argv, and cwd through the MCP tool instead of running shell linters.
-2. If MCP is unavailable, run ./bin/lint with the narrowest useful scope, such as ./bin/lint --staged, ./bin/lint --changed, or ./bin/lint --full.
+2. If MCP is unavailable, use cerun lint or ./bin/lint with the narrowest useful scope, such as ./bin/lint --staged, ./bin/lint --changed, or ./bin/lint --full.
 3. Do not run uvx ruff, host ruff, host mypy, package-local eslint, or other raw linters unless explicitly debugging the managed toolchain itself.
 4. Use managed lint output as the source of truth because it carries normalized diagnostics, skill hints, trace IDs, policy mappings, and code-intel ingestion evidence.
 5. After fixing findings, rerun the same managed_lint or ./bin/lint scope and report the exact command or MCP arguments plus any remaining diagnostics.

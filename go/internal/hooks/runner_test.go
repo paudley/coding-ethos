@@ -1344,6 +1344,52 @@ func TestRunBlocksCodexMutatingGitWhenRewriteCannotBeApplied(t *testing.T) {
 	}
 }
 
+func TestRunBlocksCodexMutatingGitWithSubmoduleCerunRemediation(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o700); err != nil {
+		t.Fatalf("create git dir: %v", err)
+	}
+	codingEthosBin := filepath.Join(repo, "coding-ethos", "bin")
+	if err := os.MkdirAll(codingEthosBin, 0o700); err != nil {
+		t.Fatalf("create coding-ethos bin dir: %v", err)
+	}
+	cerunPath := filepath.Join(codingEthosBin, "cerun")
+	if err := os.WriteFile(cerunPath, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatalf("write cerun: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           repo,
+			HookEventName: eventPreToolUse,
+			ProviderHint:  "codex",
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "git add file.txt",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf(
+			"status mismatch: got %q decisions %#v",
+			result.Status,
+			result.Decisions,
+		)
+	}
+
+	blockMessage := ProviderBlockMessage(result)
+	wantRemediation := filepath.ToSlash(cerunPath) + " -- 'git add file.txt'"
+	if !strings.Contains(blockMessage, wantRemediation) {
+		t.Fatalf("missing submodule cerun remediation:\n%s", blockMessage)
+	}
+}
+
 func TestRunAllowsExactAgentShellRunnerGitCommand(t *testing.T) {
 	t.Parallel()
 
