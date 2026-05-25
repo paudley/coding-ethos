@@ -235,9 +235,7 @@ func runHookGroupInProcess(
 		commandStart := time.Now()
 
 		commandExit := runFilteredHookCommand(cfg, command, files)
-		if commandExit != 0 && exit == 0 {
-			exit = commandExit
-		}
+		exit = firstNonZeroExit(exit, commandExit)
 
 		commandResults = append(commandResults, hookCommandResult{
 			Name:       command.Name,
@@ -285,11 +283,7 @@ func runHookGroupInProcess(
 	for _, result := range parallelResults {
 		commandResults = append(commandResults, result)
 
-		if result.ExitCode != 0 {
-			if exit == 0 {
-				exit = result.ExitCode
-			}
-		}
+		exit = firstNonZeroExit(exit, result.ExitCode)
 	}
 
 	return hookGroupResult{
@@ -299,6 +293,14 @@ func runHookGroupInProcess(
 		DurationMS: durationMilliseconds(start),
 		Commands:   commandResults,
 	}
+}
+
+func firstNonZeroExit(current, next int) int {
+	if current != 0 || next == 0 {
+		return current
+	}
+
+	return next
 }
 
 func runFilteredHookCommand(cfg Config, command hookCommand, files []string) int {
@@ -349,10 +351,8 @@ func hookGroupChildEnvironment(resultPath, childConsumerRoot string) []string {
 }
 
 func writeHookGroupResultFile(path string, result hookGroupResult) {
-	cleanPath := filepath.Clean(strings.TrimSpace(path))
-
-	tempPrefix := os.TempDir() + string(os.PathSeparator)
-	if cleanPath == "." || !strings.HasPrefix(cleanPath, tempPrefix) {
+	cleanPath, ok := hookGroupResultFilePath(path)
+	if !ok {
 		return
 	}
 
@@ -364,6 +364,32 @@ func writeHookGroupResultFile(path string, result hookGroupResult) {
 	if os.WriteFile(cleanPath, data, hookGroupResultFileMode) != nil {
 		return
 	}
+}
+
+func hookGroupResultFilePath(path string) (string, bool) {
+	cleanPath := filepath.Clean(strings.TrimSpace(path))
+	if cleanPath == "." {
+		return "", false
+	}
+
+	tempDir, err := filepath.Abs(filepath.Clean(os.TempDir()))
+	if err != nil {
+		return "", false
+	}
+
+	absolutePath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return "", false
+	}
+
+	relativePath, err := filepath.Rel(tempDir, absolutePath)
+	if err != nil ||
+		relativePath == ".." ||
+		strings.HasPrefix(relativePath, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+
+	return absolutePath, true
 }
 
 func readHookGroupResultFile(path string) (hookGroupResult, bool) {
