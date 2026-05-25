@@ -89,7 +89,6 @@ bundle:
     - repo_config.yml
 sandbox:
   read_write_paths:
-    - .code-ethos/cache/
     - .coding-ethos/cache/
     - .pytest_cache/
     - .mypy_cache/
@@ -115,7 +114,6 @@ sandbox:
 
 	got := config.SandboxReadWritePaths()
 	for _, want := range []string{
-		".code-ethos/cache/",
 		".coding-ethos/cache/",
 		".pytest_cache/",
 		".mypy_cache/",

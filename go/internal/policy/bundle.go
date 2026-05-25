@@ -895,6 +895,7 @@ const shellForbiddenStringsCEL = `!(
 					path.file
 				)
 			) &&
+			!paths.exists(path, path.base == "Makefile") &&
 			any_contains(
 				[
 					"coding-ethos-hooks/coding-ethos-git-hook",
@@ -936,8 +937,6 @@ const shellForbiddenStringsCEL = `!(
 					"**/*.bash",
 					"bin/**",
 					"scripts/**",
-					"Makefile",
-					"**/Makefile",
 					".github/workflows/**",
 					".gitlab-ci.yml",
 					"**/.gitlab-ci.yml",

@@ -247,7 +247,7 @@ func runHookGroupInProcess(
 		})
 	}
 
-	if exit != 0 || seqEnd >= len(group.Commands) {
+	if (exit != 0 && group.Name == "ai") || seqEnd >= len(group.Commands) {
 		return hookGroupResult{
 			Name:       group.Name,
 			Status:     hookStatusForExitCode(exit),

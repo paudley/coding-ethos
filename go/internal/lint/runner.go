@@ -305,10 +305,10 @@ func findingFromDecision(
 	return Finding{
 		CheckID:      decision.PolicyID,
 		PolicyID:     decision.PolicyID,
-		PolicySource: policySourceFromEvidence(decision.Evidence),
+		PolicySource: policySourceFromDecision(decision),
 		Status:       statusFromDecision(decision),
 		Severity:     decision.Severity,
-		SkillID:      stringEvidence(decision.Evidence, "skill_id"),
+		SkillID:      decision.EvidenceSkillID(),
 		Message:      decision.Message,
 		Advice:       decision.Suggestion,
 		EthosIDs:     append([]string(nil), decision.PrincipleIDs...),
@@ -326,10 +326,10 @@ func findingFromDiagnostic(
 	return Finding{
 		CheckID:      firstNonEmpty(diagnostic.PolicyID, decision.PolicyID),
 		PolicyID:     firstNonEmpty(diagnostic.PolicyID, decision.PolicyID),
-		PolicySource: policySourceFromEvidence(decision.Evidence),
+		PolicySource: policySourceFromDecision(decision),
 		SourceTool: firstNonEmpty(
 			diagnostic.Tool,
-			toolFromEvidence(decision.Evidence),
+			decision.EvidenceTool(),
 		),
 		Status:   statusFromDecision(decision),
 		Severity: firstNonEmpty(diagnostic.Severity, decision.Severity),
@@ -339,7 +339,7 @@ func findingFromDiagnostic(
 		Column:   diagnostic.Column,
 		SkillID: firstNonEmpty(
 			diagnostic.SkillID,
-			stringEvidence(decision.Evidence, "skill_id"),
+			decision.EvidenceSkillID(),
 		),
 		Message: diagnostic.Message,
 		Advice:  firstNonEmpty(diagnostic.Advice, decision.Suggestion),
@@ -399,32 +399,11 @@ func rawOutcomeFromDecision(decision policy.Decision) map[string]any {
 	return raw
 }
 
-func policySourceFromEvidence(evidence map[string]any) string {
+func policySourceFromDecision(decision policy.Decision) string {
 	return firstNonEmpty(
-		stringEvidence(evidence, "policy_source"),
-		stringEvidence(evidence, "command"),
+		decision.EvidenceString("policy_source"),
+		decision.EvidenceCommand(),
 	)
-}
-
-func toolFromEvidence(evidence map[string]any) string {
-	return stringEvidence(evidence, "tool")
-}
-
-func stringEvidence(evidence map[string]any, key string) string {
-	value, ok := evidence[key]
-	if !ok {
-		return ""
-	}
-
-	if value, ok := value.(string); ok {
-		return value
-	}
-
-	if value, ok := value.([]string); ok {
-		return strings.Join(value, " ")
-	}
-
-	return ""
 }
 
 func firstNonEmpty(values ...string) string {

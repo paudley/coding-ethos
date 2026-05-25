@@ -118,9 +118,13 @@ type sarifArtifactLocation struct {
 }
 
 type sarifRegion struct {
+	Snippet     *sarifMessage
 	StartLine   int
 	StartColumn int
 	EndLine     int
+	EndColumn   int
+	CharOffset  int64
+	CharLength  int64
 }
 
 type sarifResultProperties struct {
@@ -366,6 +370,22 @@ func (region sarifRegion) MarshalJSON() ([]byte, error) {
 
 	if region.EndLine != 0 {
 		fields["endLine"] = region.EndLine
+	}
+
+	if region.EndColumn != 0 {
+		fields["endColumn"] = region.EndColumn
+	}
+
+	if region.CharOffset != 0 {
+		fields["charOffset"] = region.CharOffset
+	}
+
+	if region.CharLength != 0 {
+		fields["charLength"] = region.CharLength
+	}
+
+	if region.Snippet != nil && strings.TrimSpace(region.Snippet.Text) != "" {
+		fields["snippet"] = region.Snippet
 	}
 
 	return marshalSARIFFields("region", fields)
@@ -815,6 +835,35 @@ func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 		location.PhysicalLocation.Region.EndLine = endLine
 	}
 
+	if endColumn := int(firstSARIFIntMetadata(
+		item,
+		"ast_end_column",
+		"end_column",
+	)); endColumn > 0 {
+		location.PhysicalLocation.Region.EndColumn = endColumn
+	}
+
+	if startByte := firstSARIFIntMetadata(
+		item,
+		"ast_start_byte",
+		"start_byte",
+	); startByte > 0 {
+		location.PhysicalLocation.Region.CharOffset = startByte
+	}
+
+	if endByte := firstSARIFIntMetadata(
+		item,
+		"ast_end_byte",
+		"end_byte",
+	); endByte > location.PhysicalLocation.Region.CharOffset {
+		location.PhysicalLocation.Region.CharLength = endByte -
+			location.PhysicalLocation.Region.CharOffset
+	}
+
+	if snippet := sarifStringMetadata(item, "snippet"); snippet != "" {
+		location.PhysicalLocation.Region.Snippet = &sarifMessage{Text: snippet}
+	}
+
 	return []sarifLocation{location}
 }
 
@@ -1135,6 +1184,16 @@ func sarifIntMetadata(item diagnostics.Diagnostic, key string) int64 {
 	default:
 		return 0
 	}
+}
+
+func firstSARIFIntMetadata(item diagnostics.Diagnostic, keys ...string) int64 {
+	for _, key := range keys {
+		if value := sarifIntMetadata(item, key); value != 0 {
+			return value
+		}
+	}
+
+	return 0
 }
 
 func sarifLevel(severity string) string {

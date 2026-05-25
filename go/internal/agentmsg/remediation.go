@@ -158,35 +158,37 @@ func fromDiagnostic(item diagnostics.Diagnostic) Remediation {
 }
 
 func fromDecision(decision policy.Decision, failedAction string) Remediation {
+	command := decision.EvidenceCommand()
+	files := decision.EvidenceFiles()
+	path := ""
+
+	if len(files) > 0 {
+		path = files[0]
+	}
+
 	remediation := Remediation{
-		Command: evidenceString(decision.Evidence, "command"),
+		Command: command,
 		Advice:  strings.TrimSpace(decision.Suggestion),
 		FailedAction: firstNonEmpty(
 			failedAction,
-			evidenceString(decision.Evidence, "tool"),
-			evidenceString(decision.Evidence, "command"),
-			evidenceString(decision.Evidence, "file"),
-			evidenceString(decision.Evidence, "path"),
+			decision.EvidenceTool(),
+			command,
+			path,
 		),
-		File:     firstNonEmpty(evidenceString(decision.Evidence, "file")),
+		File:     path,
 		Message:  strings.TrimSpace(decision.Message),
-		Path:     firstNonEmpty(evidenceString(decision.Evidence, "path")),
+		Path:     path,
 		PolicyID: strings.TrimSpace(decision.PolicyID),
 		Severity: strings.TrimSpace(decision.Severity),
-		SkillID:  evidenceString(decision.Evidence, "skill_id"),
+		SkillID:  decision.EvidenceSkillID(),
 		NextSteps: remediationSteps(
 			nil,
 			decision.Suggestion,
 			decision.PolicyID,
-			evidenceString(decision.Evidence, "skill_id"),
+			decision.EvidenceSkillID(),
 		),
 		PrincipleIDs: compactStrings(decision.PrincipleIDs),
 	}
-	remediation.Path = firstNonEmpty(
-		remediation.Path,
-		remediation.File,
-		firstFileEvidence(decision.Evidence),
-	)
 	remediation.MCP = remediationMCP(remediation.PolicyID, remediation.SkillID)
 	remediation.SkillUse = skillUse(remediation.SkillID)
 	remediation.ID = remediationID(remediation)
@@ -280,46 +282,6 @@ func remediationID(remediation Remediation) string {
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 
 	return "rem-" + hex.EncodeToString(sum[:8])
-}
-
-func evidenceString(evidence map[string]any, key string) string {
-	if len(evidence) == 0 {
-		return ""
-	}
-
-	value, found := evidence[key]
-	if !found {
-		return ""
-	}
-
-	text, found := value.(string)
-	if !found {
-		return ""
-	}
-
-	return strings.TrimSpace(text)
-}
-
-func firstFileEvidence(evidence map[string]any) string {
-	value, found := evidence["files"]
-	if !found {
-		return ""
-	}
-
-	switch files := value.(type) {
-	case []string:
-		if len(files) > 0 {
-			return strings.TrimSpace(files[0])
-		}
-	case []any:
-		if len(files) > 0 {
-			if text, found := files[0].(string); found {
-				return strings.TrimSpace(text)
-			}
-		}
-	}
-
-	return ""
 }
 
 func compactStrings(values []string) []string {

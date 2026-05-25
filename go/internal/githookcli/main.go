@@ -515,11 +515,16 @@ func encodeLintResult(result lint.Result) {
 }
 
 func logLintResult(cwd string, result lint.Result) {
-	_, inlineErrA := lint.LogResult(cwd, result)
+	tracePath, inlineErrA := lint.LogResult(cwd, result)
 	if inlineErrA != nil {
 		writeGitHookText("warning: lint trace not written: " + inlineErrA.Error())
 
 		return
+	}
+
+	inlineErrB := writeLintSARIFSidecar(tracePath, result)
+	if inlineErrB != nil {
+		writeGitHookText("warning: lint SARIF sidecar not written: " + inlineErrB.Error())
 	}
 
 	err := outputsurface.AutoPruneSurface(
@@ -531,6 +536,20 @@ func logLintResult(cwd string, result lint.Result) {
 	if err != nil {
 		writeGitHookText("warning: lint trace auto-prune failed: " + err.Error())
 	}
+}
+
+func writeLintSARIFSidecar(tracePath string, result lint.Result) error {
+	output, err := hookoutput.FormatLintResult(result, hookoutput.FormatSARIF)
+	if err != nil {
+		return fmt.Errorf("format lint trace as SARIF: %w", err)
+	}
+
+	err = lint.WriteSARIFSidecar(tracePath, output)
+	if err != nil {
+		return fmt.Errorf("write lint SARIF sidecar: %w", err)
+	}
+
+	return nil
 }
 
 func encodeLintResultTo(writer io.Writer, result lint.Result) error {

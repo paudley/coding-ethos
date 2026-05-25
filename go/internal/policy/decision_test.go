@@ -72,3 +72,56 @@ func TestDecisionEvidenceFilesFallsBackToStagedFiles(t *testing.T) {
 		t.Fatalf("files mismatch: %#v", files)
 	}
 }
+
+func TestDecisionEvidenceFilesFallsBackToSingularPath(t *testing.T) {
+	t.Parallel()
+
+	decision := Decision{
+		Evidence: map[string]any{
+			"path": " Makefile ",
+		},
+	}
+
+	files := decision.EvidenceFiles()
+	if len(files) != 1 || files[0] != "Makefile" {
+		t.Fatalf("files mismatch: %#v", files)
+	}
+}
+
+func TestDecisionEvidenceCommandsNormalizeCommandShapes(t *testing.T) {
+	t.Parallel()
+
+	decision := Decision{
+		Evidence: map[string]any{
+			"shell_commands": []any{
+				map[string]any{"argv": []any{"git", "status", "--short"}},
+				map[string]any{"name": " python -m pytest "},
+			},
+		},
+	}
+
+	commands := decision.EvidenceCommands()
+	if len(commands) != 2 ||
+		commands[0] != "git status --short" ||
+		commands[1] != "python -m pytest" {
+		t.Fatalf("commands mismatch: %#v", commands)
+	}
+}
+
+func TestDecisionEvidenceStringsNormalizeScalarAndListValues(t *testing.T) {
+	t.Parallel()
+
+	decision := Decision{
+		Evidence: map[string]any{
+			"tool":     " ruff ",
+			"skill_id": []any{" lint-remediation ", ""},
+		},
+	}
+
+	if decision.EvidenceTool() != "ruff" {
+		t.Fatalf("tool mismatch: %q", decision.EvidenceTool())
+	}
+	if decision.EvidenceSkillID() != "lint-remediation" {
+		t.Fatalf("skill mismatch: %q", decision.EvidenceSkillID())
+	}
+}

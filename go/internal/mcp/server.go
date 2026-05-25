@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strings"
 
@@ -639,6 +640,15 @@ func (server Server) sarifFromTraceID(traceID string) (string, error) {
 		return "", fmt.Errorf("resolve lint trace id: %w", err)
 	}
 
+	sidecar, err := os.ReadFile(lint.SARIFPathForTracePath(tracePath))
+	if err == nil {
+		return string(sidecar), nil
+	}
+
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read lint trace SARIF sidecar: %w", err)
+	}
+
 	result, err := lint.ReplayTrace(tracePath)
 	if err != nil {
 		return "", fmt.Errorf("replay lint trace: %w", err)
@@ -872,7 +882,7 @@ func policyCheckResponse(scope string, result hooks.Result) map[string]any {
 			"message":       decision.Message,
 			"suggestion":    decision.Suggestion,
 			"principle_ids": decision.PrincipleIDs,
-			"skill_id":      stringEvidence(decision.Evidence, "skill_id"),
+			"skill_id":      decision.EvidenceSkillID(),
 		})
 	}
 
@@ -1031,22 +1041,4 @@ func skillSummary(skill policy.Skill, score int) map[string]any {
 		"principle_ids":     skill.PrincipleIDs,
 		"score":             score,
 	}
-}
-
-func stringEvidence(evidence map[string]any, key string) string {
-	if len(evidence) == 0 {
-		return ""
-	}
-
-	value, found := evidence[key]
-	if !found {
-		return ""
-	}
-
-	text, found := value.(string)
-	if !found {
-		return ""
-	}
-
-	return text
 }

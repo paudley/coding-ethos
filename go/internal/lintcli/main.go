@@ -574,6 +574,11 @@ func logLintResult(cwd string, result lint.Result) string {
 		return ""
 	}
 
+	sarifErr := writeLintSARIFSidecar(tracePath, result)
+	if sarifErr != nil {
+		writeLintCLIText("warning: lint SARIF sidecar not written: " + sarifErr.Error())
+	}
+
 	err := outputsurface.AutoPruneSurface(
 		context.Background(),
 		cwd,
@@ -585,6 +590,20 @@ func logLintResult(cwd string, result lint.Result) string {
 	}
 
 	return tracePath
+}
+
+func writeLintSARIFSidecar(tracePath string, result lint.Result) error {
+	output, err := hookoutput.FormatLintResult(result, hookoutput.FormatSARIF)
+	if err != nil {
+		return fmt.Errorf("format lint trace as SARIF: %w", err)
+	}
+
+	err = lint.WriteSARIFSidecar(tracePath, output)
+	if err != nil {
+		return fmt.Errorf("write lint SARIF sidecar: %w", err)
+	}
+
+	return nil
 }
 
 func refreshLintCodeIntel(root, tracePath, scope string, files []string) {

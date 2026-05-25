@@ -34,6 +34,36 @@ const (
 	streamDrainTimeout    = 2 * time.Second
 )
 
+func TestPrepareManagedWritablePathsCreatesDeclaredCacheDirs(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	err := prepareManagedWritablePaths(root, sandbox.Evidence{
+		WritePaths: []string{
+			".coding-ethos/cache",
+			".ruff_cache",
+			"pkg/app.py",
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepareManagedWritablePaths() returned error: %v", err)
+	}
+
+	for _, path := range []string{
+		filepath.Join(root, ".coding-ethos", "cache"),
+		filepath.Join(root, ".ruff_cache"),
+	} {
+		info, statErr := os.Stat(path)
+		if statErr != nil || !info.IsDir() {
+			t.Fatalf("expected writable dir %q, stat=%#v err=%v", path, info, statErr)
+		}
+	}
+
+	if _, statErr := os.Stat(filepath.Join(root, "pkg", "app.py")); statErr == nil {
+		t.Fatal("prepareManagedWritablePaths created formatter target file path")
+	}
+}
+
 const captureOutputHelperEnv = "CAPTURE_TEST_HELPER_OUTPUT"
 
 func TestCapturedOutputHelperProcess(t *testing.T) {

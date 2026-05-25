@@ -718,7 +718,7 @@ func newGitHookE2ERepo(t *testing.T) gitHookE2ERepo {
 		t,
 		repo,
 		".gitignore",
-		".code-ethos/cache/\n.coding-ethos/cache/\n.coding-ethos/code-intel.db\n"+
+		".coding-ethos/cache/\n.coding-ethos/code-intel.db\n"+
 			".coding-ethos/code-intel.db-shm\n.coding-ethos/code-intel.db-wal\n"+
 			".coding-ethos/code-intel.duckdb\n.coding-ethos/code-intel.duckdb.wal\n"+
 			".coding-ethos/events/\n"+

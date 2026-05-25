@@ -491,8 +491,7 @@ func TestHookOwnedToolsDeclareDiagnosticContract(t *testing.T) {
 
 		switch tool.DiagnosticKind {
 		case toolcatalog.DiagnosticKindFormatterChangedFiles,
-			toolcatalog.DiagnosticKindInternalStructured,
-			toolcatalog.DiagnosticKindGenericFallback:
+			toolcatalog.DiagnosticKindInternalStructured:
 			continue
 		default:
 		}
@@ -503,6 +502,16 @@ func TestHookOwnedToolsDeclareDiagnosticContract(t *testing.T) {
 			tool.Parser,
 			tool,
 		)
+	}
+}
+
+func TestHookOwnedToolsDoNotUseGenericFallbackDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	for _, tool := range toolcatalog.HookOwnedTools() {
+		if tool.DiagnosticKind == toolcatalog.DiagnosticKindGenericFallback {
+			t.Fatalf("%s uses generic fallback diagnostics: %#v", tool.Name, tool)
+		}
 	}
 }
 

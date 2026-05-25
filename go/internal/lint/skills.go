@@ -124,7 +124,7 @@ func enrichDecisionsWithSkills(
 			enriched[index].Diagnostics,
 			skills,
 		)
-		if stringEvidence(enriched[index].Evidence, "skill_id") != "" {
+		if enriched[index].EvidenceSkillID() != "" {
 			continue
 		}
 
@@ -166,7 +166,7 @@ func skillIDForDecision(
 	decision policy.Decision,
 	skills map[string]policy.Skill,
 ) string {
-	if skillID := stringEvidence(decision.Evidence, "skill_id"); skillID != "" {
+	if skillID := decision.EvidenceSkillID(); skillID != "" {
 		return skillID
 	}
 

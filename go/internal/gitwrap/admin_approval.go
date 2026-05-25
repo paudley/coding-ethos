@@ -110,7 +110,7 @@ func runtimeScratchPath(path string) bool {
 		return true
 	}
 
-	return filepath.Base(filepath.Dir(clean)) == ".code-ethos" && base == "cache"
+	return filepath.Base(filepath.Dir(clean)) == ".coding-ethos" && base == "cache"
 }
 
 func processAncestryApproved(pid int, path string) (bool, error) {

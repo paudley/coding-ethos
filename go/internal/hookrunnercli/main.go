@@ -509,8 +509,7 @@ func relativePathIsRuntimeScratch(relative string) bool {
 	rel := "/" + filepath.ToSlash(filepath.Clean(relative)) + "/"
 
 	return strings.Contains(rel, "/.coding-ethos/cache/sandbox-tmp/") ||
-		strings.Contains(rel, "/.coding-ethos/") ||
-		strings.Contains(rel, "/.code-ethos/cache/")
+		strings.Contains(rel, "/.coding-ethos/")
 }
 
 func gitPathIgnoredByRoot(root, path string) bool {
@@ -532,7 +531,7 @@ func gitPathIgnoredByRoot(root, path string) bool {
 }
 
 func consumerRuntimeCacheDir(root string) string {
-	return filepath.Join(root, ".code-ethos", "cache")
+	return filepath.Join(root, ".coding-ethos", "cache")
 }
 
 func isBundleRoot(path string) bool {

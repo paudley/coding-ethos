@@ -181,9 +181,9 @@ func traceDecisions(decisions []policy.Decision) []HookTraceDecision {
 			PolicyID:        decision.PolicyID,
 			Decision:        decision.Decision,
 			Severity:        decision.Severity,
-			SkillID:         evidenceString(decision.Evidence, "skill_id"),
+			SkillID:         decision.EvidenceSkillID(),
 			Suggestion:      truncateForTrace(decision.Suggestion, commandPreviewLimit),
-			Implementation:  evidenceString(decision.Evidence, "implementation"),
+			Implementation:  decision.EvidenceImplementation(),
 			Message:         truncateForTrace(decision.Message, commandPreviewLimit),
 			MessageHash:     optionalSHA256(decision.Message),
 			EvidenceKeys:    sortedEvidenceKeys(decision.Evidence),
@@ -194,20 +194,6 @@ func traceDecisions(decisions []policy.Decision) []HookTraceDecision {
 	}
 
 	return trace
-}
-
-func evidenceString(evidence map[string]any, key string) string {
-	value, found := evidence[key]
-	if !found {
-		return ""
-	}
-
-	text, found := value.(string)
-	if !found {
-		return ""
-	}
-
-	return text
 }
 
 func sortedEvidenceKeys(evidence map[string]any) []string {

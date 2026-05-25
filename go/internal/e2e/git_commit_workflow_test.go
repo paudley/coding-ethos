@@ -213,7 +213,6 @@ func preparedParentRuntimeRepo(t *testing.T) parentRuntimeFixture {
 		".gitignore",
 		strings.Join(
 			[]string{
-				".code-ethos/cache/",
 				".coding-ethos/cache/",
 				".coding-ethos/code-intel.db",
 				".coding-ethos/code-intel.db-shm",

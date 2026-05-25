@@ -78,14 +78,16 @@ func (SavedOutputNoticeTransform) Apply(
 
 	metadata := cloneMetadata(input.Metadata)
 	metadata["coding_ethos.saved_output_notice"] = metadataValueTrue
+	metadata[metadataFullOutputPath] = savedOutputNoticePath(input.Text)
 
 	return TransformOutput{
 		Text:     summary,
 		Metadata: metadata,
 		Record: TransformRecord{
-			PolicyID: "proxy.saved_output_notice",
-			Decision: "summarize",
-			Reason:   "provider saved-output notice collapsed",
+			PolicyID:     "proxy.saved_output_notice",
+			Decision:     "summarize",
+			EvidencePath: savedOutputNoticePath(input.Text),
+			Reason:       "provider saved-output notice collapsed",
 		},
 	}, nil
 }
@@ -120,6 +122,15 @@ func conciseSavedOutputNotice(text string) (string, bool) {
 
 	return "Error: result exceeds maximum allowed tokens; full output saved to " +
 		path + ".", true
+}
+
+func savedOutputNoticePath(text string) string {
+	pathMatch := savedOutputPathPattern.FindStringSubmatch(text)
+	if len(pathMatch) != regexpMatchWithOneSubmatch {
+		return ""
+	}
+
+	return strings.TrimSuffix(pathMatch[1], ".")
 }
 
 // ToolOutputDiagnosticSummaryTransform condenses parseable compiler, linter,

@@ -133,6 +133,29 @@ func TestLogResultSanitizesTraceScopeFilename(t *testing.T) {
 	}
 }
 
+func TestWriteSARIFSidecarUsesTraceBasename(t *testing.T) {
+	t.Parallel()
+
+	tracePath := filepath.Join(t.TempDir(), "trace.json")
+	err := WriteSARIFSidecar(tracePath, `{"version":"2.1.0"}`)
+	if err != nil {
+		t.Fatalf("WriteSARIFSidecar() returned error: %v", err)
+	}
+
+	sidecarPath := SARIFPathForTracePath(tracePath)
+	if filepath.Base(sidecarPath) != "trace.sarif" {
+		t.Fatalf("sidecar path = %q", sidecarPath)
+	}
+
+	content, err := os.ReadFile(sidecarPath)
+	if err != nil {
+		t.Fatalf("read sidecar: %v", err)
+	}
+	if string(content) != `{"version":"2.1.0"}` {
+		t.Fatalf("sidecar content = %q", content)
+	}
+}
+
 func TestTracePathForIDStaysInsideLintTraceDir(t *testing.T) {
 	t.Parallel()
 
