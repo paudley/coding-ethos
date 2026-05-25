@@ -26,21 +26,44 @@ func runPolicyToolGroup(paths runtimePaths, rest []string) error {
 
 	requirePolicyBundle(paths)
 
+	exitCode := runPolicyToolGroupEntries(paths, group, false)
+	if exitCode != 0 {
+		requestRuntimeExit(exitCode)
+	}
+
+	return nil
+}
+
+func runPolicyToolGroupByName(paths runtimePaths, name string, codeIntel bool) int {
+	group, found := policyToolGroup(name)
+	if !found {
+		return 1
+	}
+
+	return runPolicyToolGroupEntries(paths, group, codeIntel)
+}
+
+func runPolicyToolGroupEntries(
+	paths runtimePaths,
+	group []policyToolGroupEntry,
+	codeIntel bool,
+) int {
 	exitCode := 0
 
 	for _, entry := range group {
-		code := runtimeRunLint(paths, policyToolLintArgs(paths, entry.Tool, entry.Args)...)
+		args := policyToolLintArgs(paths, entry.Tool, entry.Args)
+		if codeIntel {
+			args = append([]string{"--code-intel"}, args...)
+		}
+
+		code := runtimeRunLint(paths, args...)
 
 		if code != 0 && exitCode == 0 {
 			exitCode = code
 		}
 	}
 
-	if exitCode != 0 {
-		requestRuntimeExit(exitCode)
-	}
-
-	return nil
+	return exitCode
 }
 
 func policyToolGroup(name string) ([]policyToolGroupEntry, bool) {

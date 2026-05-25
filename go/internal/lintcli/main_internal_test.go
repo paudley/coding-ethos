@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -336,6 +337,58 @@ func TestRunCLIEmptyExplicitFileScope(t *testing.T) {
 
 	if !strings.Contains(stdout.String(), `"status": "resolved"`) {
 		t.Fatalf("empty explicit file scope output = %s", stdout.String())
+	}
+}
+
+func TestRunCLICodeIntelIngestsTraceAndIndexesFiles(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+
+	target := filepath.Join(repo, samplePythonFile)
+	err := os.MkdirAll(filepath.Dir(target), lintTestExecutableMode)
+	if err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+
+	err = os.WriteFile(target, []byte("VALUE = 1\n"), lintTestWriteMode)
+	if err != nil {
+		t.Fatalf("write python file: %v", err)
+	}
+
+	bundle := writeLintTestBundle(t)
+
+	var stdout bytes.Buffer
+
+	code := runCLIWithWriter([]string{
+		"--bundle", bundle,
+		"--scope", "files",
+		"--files", samplePythonFile,
+		"--cwd", repo,
+		"--code-intel",
+		"--json",
+	}, &stdout)
+	if code != 0 {
+		t.Fatalf("runCLI code-intel exit = %d\n%s", code, stdout.String())
+	}
+
+	store, err := codeintel.OpenReadOnly(
+		context.Background(),
+		codeintel.DefaultDBPath(repo),
+	)
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	defer store.Close()
+
+	stats, err := store.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("code-intel stats: %v", err)
+	}
+
+	if stats.Traces != 1 || stats.Files != 1 {
+		t.Fatalf("code-intel stats = %#v, want one trace and one file", stats)
 	}
 }
 

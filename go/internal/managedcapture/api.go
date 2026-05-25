@@ -28,10 +28,11 @@ type CaptureOptions struct {
 	OutputFormat  string
 	Output        io.Writer
 	Args          []string
+	CodeIntel     bool
 }
 
 func Capture(options CaptureOptions) int {
-	return runCapturedTool(
+	return runCapturedToolWithCodeIntel(
 		options.Tool,
 		options.ToolPath,
 		options.Cwd,
@@ -40,6 +41,7 @@ func Capture(options CaptureOptions) int {
 		options.PolicyContext,
 		options.Output,
 		options.OutputFormat,
+		options.CodeIntel,
 	)
 }
 

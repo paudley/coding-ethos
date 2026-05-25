@@ -64,6 +64,7 @@ type Options struct {
 	OutputFormat  string
 	Output        io.Writer
 	Args          []string
+	CodeIntel     bool
 }
 
 type managedToolCommand struct {
@@ -204,6 +205,7 @@ func managedCaptureRequest(
 		),
 		Output:       options.Output,
 		Capabilities: capabilities,
+		CodeIntel:    options.CodeIntel,
 		EvidenceMaps: options.PolicyContext.EvidenceMaps,
 		Policies:     options.PolicyContext.Policies,
 		Skills:       options.PolicyContext.Skills,
@@ -581,7 +583,12 @@ func runCapturedToolWithRequest(request captureRequest, outputFormat string) int
 		result.Status = capturedStatusBlocked
 	}
 
-	logCapturedToolResult(firstCaptureNonEmpty(request.TraceRoot, request.Cwd), result)
+	traceRoot := firstCaptureNonEmpty(request.TraceRoot, request.Cwd)
+	tracePath := logCapturedToolResult(traceRoot, result)
+
+	if request.CodeIntel && tracePath != "" {
+		refreshCapturedToolCodeIntel(traceRoot, tracePath, execution.Changes)
+	}
 
 	resolvedFormat := firstCaptureNonEmpty(outputFormat, hookoutput.SelectedFormat())
 	if shouldRenderCapturedResult(result, resolvedFormat) {

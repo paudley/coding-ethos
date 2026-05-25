@@ -64,6 +64,80 @@ func TestFormatLintResultTOONUsesDiagnostics(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultTOONSuppressesRecordOnlyPolicyNoise(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  lint.ScopeFiles,
+		Status: "resolved",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "policy",
+			Severity: "record",
+			PolicyID: "python.conditional_imports",
+			Message:  "Required dependencies should fail immediately.",
+		}},
+		Findings: []lint.Finding{{
+			CheckID:  "python.conditional_imports",
+			Files:    []string{"src/app.py"},
+			Message:  "Required dependencies should fail immediately.",
+			PolicyID: "python.conditional_imports",
+			Severity: "record",
+			Status:   "pass",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	if !strings.Contains(output, "findings[0]") {
+		t.Fatalf("TOON output should report no findings:\n%s", output)
+	}
+
+	for _, forbidden := range []string{
+		"policy,,0,0,record",
+		"python.conditional_imports",
+		"src/app.py,0,0,record",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("TOON output included record-only noise %q:\n%s", forbidden, output)
+		}
+	}
+}
+
+func TestFormatLintResultTOONPreservesRuffCodeAndFullMessage(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:ruff",
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "ruff",
+			File:     "pkg/app.py",
+			Line:     4,
+			Column:   8,
+			Severity: "error",
+			Code:     "PLC0415",
+			PolicyID: "python.conditional_imports",
+			Message:  "import should be at the top-level of a file",
+			Advice:   "Move required imports to module scope.",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	want := "ruff,pkg/app.py,4,8,error,PLC0415,python.conditional_imports,," +
+		"import should be at the top-level of a file," +
+		"Move required imports to module scope.,"
+	if !strings.Contains(output, want) {
+		t.Fatalf("TOON output missing full Ruff diagnostic:\n%s", output)
+	}
+}
+
 func TestFormatLintResultTOONIncludesExistingTraceID(t *testing.T) {
 	t.Parallel()
 

@@ -28,7 +28,6 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/lint"
-	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
@@ -76,6 +75,7 @@ type captureRequest struct {
 	EvidenceMaps       []diagnostics.EvidenceMap
 	Policies           []policy.Policy
 	Capabilities       sandbox.Capabilities
+	CodeIntel          bool
 }
 
 type captureExecution struct {
@@ -114,6 +114,30 @@ func runCapturedTool(
 	output io.Writer,
 	outputFormat string,
 ) int {
+	return runCapturedToolWithCodeIntel(
+		tool,
+		toolPath,
+		cwd,
+		traceRoot,
+		args,
+		policyContext,
+		output,
+		outputFormat,
+		false,
+	)
+}
+
+func runCapturedToolWithCodeIntel(
+	tool string,
+	toolPath string,
+	cwd string,
+	traceRoot string,
+	args []string,
+	policyContext PolicyContext,
+	output io.Writer,
+	outputFormat string,
+	codeIntel bool,
+) int {
 	request := captureRequest{
 		Tool:         tool,
 		Parser:       tool,
@@ -125,6 +149,7 @@ func runCapturedTool(
 		EvidenceMaps: policyContext.EvidenceMaps,
 		Policies:     policyContext.Policies,
 		Skills:       policyContext.Skills,
+		CodeIntel:    codeIntel,
 	}
 	if strings.TrimSpace(request.ToolPath) == "" {
 		exitErr(errCaptureToolPathRequired)
@@ -930,28 +955,6 @@ func captureSandboxWrapperPath() string {
 	}
 
 	return filepath.Join(filepath.Dir(executable), helperName)
-}
-
-func logCapturedToolResult(
-	cwd string,
-	result lint.Result,
-) {
-	_, err := lint.LogResult(cwd, result)
-	if err != nil {
-		emitManagedCaptureText("warning: lint trace not written: " + err.Error())
-
-		return
-	}
-
-	err = outputsurface.AutoPruneSurface(
-		context.Background(),
-		cwd,
-		"lint_traces",
-		false,
-	)
-	if err != nil {
-		emitManagedCaptureText("warning: lint trace auto-prune failed: " + err.Error())
-	}
 }
 
 func capturedToolResult(

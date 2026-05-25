@@ -45,6 +45,10 @@ func TestRunResolvesFileScopePolicies(t *testing.T) {
 			t.Fatalf("decision should be record/record: %#v", decision)
 		}
 	}
+
+	if diagnostics := OutputDiagnostics(result); len(diagnostics) != 0 {
+		t.Fatalf("record-only diagnostics = %#v, want none", diagnostics)
+	}
 }
 
 func TestRunMapsChangedScopeToFiles(t *testing.T) {

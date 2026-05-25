@@ -2312,7 +2312,24 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 		{
 			name: "lint alias",
 			args: []string{"lint", "--staged"},
-			want: "exec-lint:--bundle " + paths.PolicyBundle + " --staged",
+			want: "run-lint:--code-intel --bundle " + paths.PolicyBundle +
+				" --managed-capture-tool ruff-format --ethos-root " + paths.EthosRoot +
+				" --consumer-root " + paths.Root + " --invocation-cwd " + paths.InvocationCWD +
+				" -- format coding_ethos tests\n" +
+				"run-lint:--code-intel --bundle " + paths.PolicyBundle +
+				" --managed-capture-tool golangci-lint-format --ethos-root " +
+				paths.EthosRoot + " --consumer-root " + paths.Root +
+				" --invocation-cwd " + paths.InvocationCWD + " --\n" +
+				"run-lint:--code-intel --bundle " + paths.PolicyBundle +
+				" --managed-capture-tool ruff-autofix --ethos-root " + paths.EthosRoot +
+				" --consumer-root " + paths.Root + " --invocation-cwd " +
+				paths.InvocationCWD +
+				" -- check --fix --quiet --ignore-noqa --output-format json coding_ethos tests\n" +
+				"run-lint:--code-intel --bundle " + paths.PolicyBundle +
+				" --managed-capture-tool golangci-lint-autofix --ethos-root " +
+				paths.EthosRoot + " --consumer-root " + paths.Root +
+				" --invocation-cwd " + paths.InvocationCWD + " --\n" +
+				"exec-lint:--bundle " + paths.PolicyBundle + " --code-intel --staged",
 		},
 		{
 			name: "policy command",
