@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	blockedAdviceHumanLinesPerDecision = 2
+	blockedAdviceHumanLinesPerDecision = 3
 )
 
 func BlockedAdvice(result Result) string {
