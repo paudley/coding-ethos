@@ -3,7 +3,11 @@
 
 package policy
 
-import "blackcat.ca/coding-ethos/go/diagnostics"
+import (
+	"strings"
+
+	"blackcat.ca/coding-ethos/go/diagnostics"
+)
 
 type Decision struct {
 	Evidence     map[string]any           `json:"evidence,omitempty"`
@@ -47,18 +51,30 @@ func evidenceStringList(evidence map[string]any, key string) []string {
 
 	switch typed := value.(type) {
 	case []string:
-		return append([]string(nil), typed...)
+		return normalizedEvidenceStrings(typed)
 	case []any:
 		values := make([]string, 0, len(typed))
 		for _, item := range typed {
 			text, ok := item.(string)
-			if ok && text != "" {
+			if ok {
 				values = append(values, text)
 			}
 		}
 
-		return values
+		return normalizedEvidenceStrings(values)
 	default:
 		return nil
 	}
+}
+
+func normalizedEvidenceStrings(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		text := strings.TrimSpace(value)
+		if text != "" {
+			normalized = append(normalized, text)
+		}
+	}
+
+	return normalized
 }
