@@ -325,11 +325,66 @@ func printBlocked(result gitwrap.Result) {
 				scalars = append(scalars, feedback.S("suggestion", decision.Suggestion))
 			}
 
+			files := decisionEvidenceFiles(decision)
+
+			tables := []feedback.Table{}
+			if len(files) > 0 {
+				tables = append(tables, feedback.T("files", []string{"path"}, fileRows(files)))
+			}
+
 			feedback.Emit(
 				os.Stderr,
-				feedback.Message{Scalars: scalars},
+				feedback.Message{
+					Scalars: scalars,
+					Tables:  tables,
+				},
 				feedback.FormatTOON,
 			)
 		}
 	}
+}
+
+func decisionEvidenceFiles(decision policy.Decision) []string {
+	if files := stringListEvidence(decision.Evidence, "files"); len(files) > 0 {
+		return files
+	}
+
+	return stringListEvidence(decision.Evidence, "staged_files")
+}
+
+func stringListEvidence(evidence map[string]any, key string) []string {
+	if len(evidence) == 0 {
+		return nil
+	}
+
+	value, found := evidence[key]
+	if !found {
+		return nil
+	}
+
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if ok && text != "" {
+				values = append(values, text)
+			}
+		}
+
+		return values
+	default:
+		return nil
+	}
+}
+
+func fileRows(files []string) [][]string {
+	rows := make([][]string, 0, len(files))
+	for _, file := range files {
+		rows = append(rows, []string{file})
+	}
+
+	return rows
 }

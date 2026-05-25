@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 )
@@ -55,18 +56,20 @@ func EvaluateGitStagedAdminFiles(
 		decision.Severity = recordDecision
 		decision.Message = "Administrative staged files approved by coding-ethos admin gate."
 		decision.Evidence = stagedAdminEvidence(blockedFiles, context.Cwd)
+		decision.Diagnostics = stagedAdminDiagnostics(policyDef, blockedFiles, decision)
 
 		return []policy.Decision{decision}, nil
 	}
 
 	decision := policy.NewDecision(blockDecision, policyDef)
-	decision.Suggestion = stagedAdminHandoff(context.Cwd, context.Argv)
+	decision.Suggestion = stagedAdminHandoff(context.Cwd, context.Argv, blockedFiles)
 	decision.Evidence = stagedAdminEvidence(blockedFiles, context.Cwd)
+	decision.Diagnostics = stagedAdminDiagnostics(policyDef, blockedFiles, decision)
 
 	return []policy.Decision{decision}, nil
 }
 
-func stagedAdminHandoff(cwd string, argv []string) string {
+func stagedAdminHandoff(cwd string, argv, blockedFiles []string) string {
 	command := "git commit"
 	if len(argv) > 0 {
 		command = shellCommand(argv)
@@ -74,18 +77,19 @@ func stagedAdminHandoff(cwd string, argv []string) string {
 
 	lines := []string{
 		"Administrative staged files require a human/admin commit.",
+		"Administrative staged files: " + strings.Join(blockedFiles, ", ") + ".",
 		"Agent action: stop trying to commit these files.",
 	}
 	if cwd != "" {
-		lines = append(lines, "Human/admin handoff: from "+cwd+", run: "+command)
+		lines = append(lines, "Human/admin handoff: from "+cwd+", run: "+command+".")
 	} else {
-		lines = append(lines, "Human/admin handoff: run: "+command)
+		lines = append(lines, "Human/admin handoff: run: "+command+".")
 	}
 
 	if !isCodingEthosCheckout(cwd) {
 		lines = append(
 			lines,
-			"--admin-approved is only valid inside the coding-ethos repo admin wrapper.",
+			"Note: --admin-approved is only valid inside the coding-ethos repo admin wrapper.",
 		)
 	}
 
@@ -121,6 +125,7 @@ func codingEthosCheckoutMarkers() []string {
 
 func stagedAdminEvidence(blockedFiles []string, cwd string) map[string]any {
 	evidence := map[string]any{
+		"files":        blockedFiles,
 		"staged_files": blockedFiles,
 	}
 
@@ -129,6 +134,28 @@ func stagedAdminEvidence(blockedFiles []string, cwd string) map[string]any {
 	}
 
 	return evidence
+}
+
+func stagedAdminDiagnostics(
+	policyDef policy.Policy,
+	blockedFiles []string,
+	decision policy.Decision,
+) []diagnostics.Diagnostic {
+	items := make([]diagnostics.Diagnostic, 0, len(blockedFiles))
+	for _, file := range blockedFiles {
+		items = append(items, diagnostics.Diagnostic{
+			Tool:     "git",
+			File:     file,
+			PolicyID: policyDef.ID,
+			Severity: decision.Severity,
+			Message:  "Administrative staged file requires explicit handling.",
+			Advice: "Commit this administrative file through the " +
+				"human/admin handoff path.",
+			PrincipleIDs: append([]string(nil), decision.PrincipleIDs...),
+		})
+	}
+
+	return items
 }
 
 func stagedFiles(cwd string) ([]string, error) {

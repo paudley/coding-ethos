@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
 func OutputDiagnostics(result Result) []diagnostics.Diagnostic {
@@ -51,16 +52,32 @@ func OutputDiagnostics(result Result) []diagnostics.Diagnostic {
 			continue
 		}
 
-		findings = append(findings, diagnostics.Diagnostic{
-			Tool:     "policy",
-			Severity: decision.Severity,
-			PolicyID: decision.PolicyID,
-			Message:  decision.Message,
-			Advice:   decision.Suggestion,
-		})
+		findings = append(findings, diagnosticFromDecision(decision))
 	}
 
 	return sortDiagnostics(diagnostics.Dedupe(findings))
+}
+
+func diagnosticFromDecision(decision policy.Decision) diagnostics.Diagnostic {
+	files := filesFromDecision(decision, nil)
+	file := ""
+	detail := ""
+
+	if len(files) == 1 {
+		file = files[0]
+	} else if len(files) > 1 {
+		detail = "files=" + strings.Join(files, ",")
+	}
+
+	return diagnostics.Diagnostic{
+		Tool:     "policy",
+		File:     file,
+		Severity: decision.Severity,
+		PolicyID: decision.PolicyID,
+		Message:  decision.Message,
+		Advice:   decision.Suggestion,
+		Detail:   detail,
+	}
 }
 
 func ResultTool(result Result) string {
