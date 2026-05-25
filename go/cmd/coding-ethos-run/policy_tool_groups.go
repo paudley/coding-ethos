@@ -48,15 +48,6 @@ func runPolicyToolGroup(paths runtimePaths, rest []string) error {
 	return nil
 }
 
-func runPolicyToolGroupByName(paths runtimePaths, name string, codeIntel bool) int {
-	group, found := policyToolGroup(name)
-	if !found {
-		return 1
-	}
-
-	return runPolicyToolGroupEntries(paths, group, codeIntel)
-}
-
 func runScopedPolicyToolGroupByName(
 	paths runtimePaths,
 	name string,
