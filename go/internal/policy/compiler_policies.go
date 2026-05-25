@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,12 +21,16 @@ const (
 	defaultLicenseScanLines      = 5
 	defaultLicenseClientTimeout  = 10 * time.Second
 	spdxLicenseTextBaseURL       = "https://raw.githubusercontent.com/" +
-		"spdx/license-list-data/main/text/"
+		"spdx/license-list-data/v3.28.0/text/"
 	piiScrubberSuggestion = "Replace local paths, usernames, " +
 		"hostnames, and worktree names with generic placeholders."
 	shebangSuggestion = "Add a valid shebang to executable scripts and " +
 		"mark shebang scripts executable."
 )
+
+var spdxLicenseIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+-]*$`)
+
+var errInvalidSPDXIdentifier = apperror.StaticError("invalid SPDX identifier")
 
 func compilePolicies(
 	config map[string]any,
@@ -623,6 +628,11 @@ func repoLicenseText(
 
 	url := stringAt(config, "repo", "license", "url")
 	if url == "" {
+		err := validateSPDXLicenseID(spdxID)
+		if err != nil {
+			return "", err
+		}
+
 		url = spdxLicenseTextURL(spdxID)
 	}
 
@@ -663,6 +673,14 @@ func repoLicenseText(
 
 func spdxLicenseTextURL(spdxID string) string {
 	return spdxLicenseTextBaseURL + spdxID + ".txt"
+}
+
+func validateSPDXLicenseID(spdxID string) error {
+	if !spdxLicenseIDPattern.MatchString(spdxID) || strings.Contains(spdxID, "..") {
+		return fmt.Errorf("%w: %s", errInvalidSPDXIdentifier, spdxID)
+	}
+
+	return nil
 }
 
 func fillLicenseTemplate(text, copyrightText string) string {
