@@ -2312,7 +2312,30 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 		{
 			name: "lint alias",
 			args: []string{"lint", "--staged"},
-			want: "exec-lint:--bundle " + paths.PolicyBundle + " --staged",
+			want: "exec-lint:--bundle " + paths.PolicyBundle + " --code-intel --staged",
+		},
+		{
+			name: "lint alias explicit files",
+			args: []string{"lint", "--files", "pkg/app.py,go/internal/app.go"},
+			want: "run-lint:--code-intel --bundle " + paths.PolicyBundle +
+				" --managed-capture-tool ruff-format --ethos-root " + paths.EthosRoot +
+				" --consumer-root " + paths.Root + " --invocation-cwd " + paths.InvocationCWD +
+				" -- format pkg/app.py\n" +
+				"run-lint:--code-intel --bundle " + paths.PolicyBundle +
+				" --managed-capture-tool golangci-lint-format --ethos-root " +
+				paths.EthosRoot + " --consumer-root " + paths.Root +
+				" --invocation-cwd " + paths.InvocationCWD + " -- go/internal/app.go\n" +
+				"run-lint:--code-intel --bundle " + paths.PolicyBundle +
+				" --managed-capture-tool ruff-autofix --ethos-root " + paths.EthosRoot +
+				" --consumer-root " + paths.Root + " --invocation-cwd " +
+				paths.InvocationCWD +
+				" -- check --fix --quiet --ignore-noqa --output-format json pkg/app.py\n" +
+				"run-lint:--code-intel --bundle " + paths.PolicyBundle +
+				" --managed-capture-tool golangci-lint-autofix --ethos-root " +
+				paths.EthosRoot + " --consumer-root " + paths.Root +
+				" --invocation-cwd " + paths.InvocationCWD + " -- go/internal/app.go\n" +
+				"exec-lint:--bundle " + paths.PolicyBundle +
+				" --code-intel --files pkg/app.py,go/internal/app.go",
 		},
 		{
 			name: "policy command",
@@ -2442,6 +2465,92 @@ func TestPolicyToolGroupRunsAllEntriesBeforeFailing(t *testing.T) {
 	if !strings.Contains(calls[0], "ruff-format") ||
 		!strings.Contains(calls[1], "golangci-lint-format") {
 		t.Fatalf("policy-tool-group calls = %#v, want formatter group order", calls)
+	}
+}
+
+func TestManagedLintScopeFromArgsReadsExplicitFiles(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	filesList := filepath.Join(paths.Root, "lint-files.txt")
+
+	err := os.WriteFile(
+		filesList,
+		[]byte("pkg/from-file.py\ninternal/from-file.go\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write file list: %v", err)
+	}
+
+	scope, err := managedLintScopeFromArgs(paths, []string{
+		"--files",
+		"pkg/app.py,go/internal/app.go",
+		"--files-from",
+		filesList,
+	})
+	if err != nil {
+		t.Fatalf("managedLintScopeFromArgs: %v", err)
+	}
+
+	want := []string{
+		"pkg/app.py",
+		"go/internal/app.go",
+		"pkg/from-file.py",
+		"internal/from-file.go",
+	}
+	if !scope.Scoped || !slices.Equal(scope.Files, want) {
+		t.Fatalf("scope = %#v, want scoped files %#v", scope, want)
+	}
+}
+
+func TestManagedLintScopeFromArgsReadsStagedGitFiles(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	writeExecutableFixture(t, paths.RealGit, `#!/usr/bin/env sh
+case " $* " in
+  *" diff --cached --name-only --diff-filter=ACMR -- "*) printf 'pkg/app.py\npkg/app.py\ngo/app.go\n' ;;
+  *) exit 3 ;;
+esac
+`)
+
+	scope, err := managedLintScopeFromArgs(paths, []string{"--staged"})
+	if err != nil {
+		t.Fatalf("managedLintScopeFromArgs staged: %v", err)
+	}
+
+	want := []string{"pkg/app.py", "go/app.go"}
+	if !scope.Scoped || !slices.Equal(scope.Files, want) {
+		t.Fatalf("scope = %#v, want staged files %#v", scope, want)
+	}
+}
+
+func TestScopedPolicyToolGroupFiltersFormatterTargets(t *testing.T) {
+	t.Parallel()
+
+	group, found := policyToolGroup("formatters")
+	if !found {
+		t.Fatal("missing formatter group")
+	}
+
+	scoped := scopedPolicyToolGroup(group, managedLintScope{
+		Files:  []string{"pkg/app.py", "go/app.go", "README.md"},
+		Scoped: true,
+	})
+	if len(scoped) != 2 {
+		t.Fatalf("scoped group = %#v, want two formatter entries", scoped)
+	}
+
+	wantRuff := []string{"format", "pkg/app.py"}
+	if scoped[0].Tool != "ruff-format" || !slices.Equal(scoped[0].Args, wantRuff) {
+		t.Fatalf("ruff scoped entry = %#v, want args %#v", scoped[0], wantRuff)
+	}
+
+	wantGo := []string{"go/app.go"}
+	if scoped[1].Tool != "golangci-lint-format" ||
+		!slices.Equal(scoped[1].Args, wantGo) {
+		t.Fatalf("go scoped entry = %#v, want args %#v", scoped[1], wantGo)
 	}
 }
 

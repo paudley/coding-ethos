@@ -5,8 +5,13 @@ package codeintel
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/evidence"
+	"blackcat.ca/coding-ethos/go/internal/lint"
 )
 
 func TestSQLiteStoreDSNRequestsImmediateTransactions(t *testing.T) {
@@ -45,6 +50,100 @@ func TestSQLiteStoreDSNRequestsImmediateTransactions(t *testing.T) {
 				t.Fatalf("sqliteStoreDSN(%q) = %q, want %q", test.path, got, test.want)
 			}
 		})
+	}
+}
+
+func TestExistingLintIndexPathsCleansDedupesAndSkipsDirectories(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(root, "pkg", "app.py")
+	err := os.MkdirAll(filepath.Dir(target), 0o700)
+	if err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+
+	err = os.WriteFile(target, []byte("VALUE = 1\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+
+	outsideTarget := filepath.Join(outside, "outside.py")
+	err = os.WriteFile(outsideTarget, []byte("VALUE = 2\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write outside target: %v", err)
+	}
+
+	selected := existingLintIndexPaths(root, []string{
+		"pkg/app.py",
+		"./pkg/app.py",
+		target,
+		"pkg",
+		"missing.py",
+		outsideTarget,
+		filepath.Join("..", filepath.Base(outside), "outside.py"),
+	})
+	want := []string{"pkg/app.py"}
+
+	if len(selected) != len(want) || selected[0] != want[0] {
+		t.Fatalf("existingLintIndexPaths() = %#v, want %#v", selected, want)
+	}
+}
+
+func TestIngestLintTraceFileResolvesRelativeTraceFromRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	traceDir := filepath.Join(root, ".coding-ethos", "lint-runs")
+	err := os.MkdirAll(traceDir, 0o700)
+	if err != nil {
+		t.Fatalf("create trace dir: %v", err)
+	}
+
+	tracePath := filepath.Join(traceDir, "relative-trace.json")
+	payload, err := json.Marshal(lint.TraceRecord{
+		SchemaVersion: evidence.SchemaVersion,
+		TraceID:       "relative-trace",
+		RecordedAtUTC: "2026-05-25T00:00:00Z",
+		RepoRoot:      root,
+		Result:        lint.Result{Scope: "tool:ruff", Status: "resolved"},
+	})
+	if err != nil {
+		t.Fatalf("marshal lint trace: %v", err)
+	}
+
+	err = os.WriteFile(
+		tracePath,
+		payload,
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write trace: %v", err)
+	}
+
+	err = IngestLintTraceFile(
+		context.Background(),
+		root,
+		filepath.Join(".coding-ethos", "lint-runs", "relative-trace.json"),
+	)
+	if err != nil {
+		t.Fatalf("ingest relative lint trace: %v", err)
+	}
+
+	store, err := OpenReadOnly(context.Background(), DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	stats, err := store.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+
+	if stats.Traces != 1 {
+		t.Fatalf("stats = %#v, want one ingested trace", stats)
 	}
 }
 

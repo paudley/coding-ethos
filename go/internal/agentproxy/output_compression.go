@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -38,7 +39,88 @@ const (
 	diagnosticSummaryLineSlack   = 3
 	metadataValueTrue            = "true"
 	minTokenBudgetLineFragment   = 80
+	regexpMatchWithOneSubmatch   = 2
 )
+
+var (
+	savedOutputPathPattern = regexp.MustCompile(
+		`(?s)Output has been saved to\s+([^\s]+)`,
+	)
+	savedOutputCountsPattern = regexp.MustCompile(
+		`(?s)result \(([^)]+)\) exceeds maximum allowed tokens`,
+	)
+)
+
+// SavedOutputNoticeTransform collapses verbose provider saved-output notices
+// into a single line before generic compression preserves their instruction
+// blocks.
+type SavedOutputNoticeTransform struct{}
+
+func (SavedOutputNoticeTransform) Name() string {
+	return "saved-output-notice"
+}
+
+func (SavedOutputNoticeTransform) Apply(
+	_ context.Context,
+	input TransformInput,
+) (TransformOutput, error) {
+	summary, ok := conciseSavedOutputNotice(input.Text)
+	if !ok {
+		return TransformOutput{
+			Text:     input.Text,
+			Metadata: cloneMetadata(input.Metadata),
+			Record: TransformRecord{
+				Decision: "allow",
+				Reason:   "tool output is not a saved-output notice",
+			},
+		}, nil
+	}
+
+	metadata := cloneMetadata(input.Metadata)
+	metadata["coding_ethos.saved_output_notice"] = metadataValueTrue
+
+	return TransformOutput{
+		Text:     summary,
+		Metadata: metadata,
+		Record: TransformRecord{
+			PolicyID: "proxy.saved_output_notice",
+			Decision: "summarize",
+			Reason:   "provider saved-output notice collapsed",
+		},
+	}, nil
+}
+
+// IsSavedOutputNotice reports whether text is a provider saved-output overflow
+// notice that can be safely collapsed.
+func IsSavedOutputNotice(text string) bool {
+	_, ok := conciseSavedOutputNotice(text)
+
+	return ok
+}
+
+func conciseSavedOutputNotice(text string) (string, bool) {
+	if !strings.Contains(text, "exceeds maximum allowed tokens") ||
+		!strings.Contains(text, "Output has been saved to") {
+		return "", false
+	}
+
+	pathMatch := savedOutputPathPattern.FindStringSubmatch(text)
+	if len(pathMatch) != regexpMatchWithOneSubmatch {
+		return "", false
+	}
+
+	path := strings.TrimSuffix(pathMatch[1], ".")
+	counts := savedOutputCountsPattern.FindStringSubmatch(text)
+
+	if len(counts) == regexpMatchWithOneSubmatch {
+		return "Error: result (" + strings.TrimSpace(counts[1]) +
+			") exceeds maximum allowed tokens; full output saved to " +
+			path + ".", true
+	}
+
+	return "Error: result exceeds maximum allowed tokens; full output saved to " +
+		path + ".", true
+}
 
 // ToolOutputDiagnosticSummaryTransform condenses parseable compiler, linter,
 // and test output into a concise diagnostic table before generic output

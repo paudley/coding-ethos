@@ -120,6 +120,8 @@ func FindingDiagnostics(findings []Finding, blocked bool) []diagnostics.Diagnost
 		if len(blocking) > 0 {
 			selected = blocking
 		}
+	} else {
+		selected = visibleFindings(findings)
 	}
 
 	items := make([]diagnostics.Diagnostic, 0, len(selected))
@@ -128,6 +130,40 @@ func FindingDiagnostics(findings []Finding, blocked bool) []diagnostics.Diagnost
 	}
 
 	return sortDiagnostics(diagnostics.Dedupe(items))
+}
+
+func visibleFindings(findings []Finding) []Finding {
+	visible := []Finding{}
+
+	for _, finding := range findings {
+		if actionableFinding(finding) {
+			visible = append(visible, finding)
+		}
+	}
+
+	return visible
+}
+
+func actionableFinding(finding Finding) bool {
+	if finding.Blocking || finding.Status == statusFail ||
+		finding.Severity == decisionBlock || finding.Severity == severityError {
+		return true
+	}
+
+	if strings.EqualFold(finding.Severity, "warn") ||
+		strings.EqualFold(finding.Severity, "warning") ||
+		strings.EqualFold(finding.Status, "warn") ||
+		strings.EqualFold(finding.Status, "warning") {
+		return true
+	}
+
+	return !findingIsRecordOnly(finding)
+}
+
+func findingIsRecordOnly(finding Finding) bool {
+	return strings.EqualFold(finding.Severity, "record") ||
+		strings.EqualFold(finding.Status, "record") ||
+		strings.EqualFold(finding.Status, "pass")
 }
 
 func blockingFindings(findings []Finding) []Finding {
@@ -144,9 +180,14 @@ func blockingFindings(findings []Finding) []Finding {
 }
 
 func diagnosticFromFinding(finding Finding) diagnostics.Diagnostic {
+	file := finding.File
+	if file == "" && len(finding.Files) == 1 {
+		file = finding.Files[0]
+	}
+
 	return diagnostics.Diagnostic{
 		Tool:     firstOutputNonEmpty(finding.SourceTool, "policy"),
-		File:     finding.File,
+		File:     file,
 		Line:     finding.Line,
 		Column:   finding.Column,
 		Severity: finding.Severity,
@@ -165,6 +206,10 @@ func diagnosticFromFinding(finding Finding) diagnostics.Diagnostic {
 
 func findingDetail(finding Finding) string {
 	parts := []string{}
+	if finding.File == "" && len(finding.Files) > 0 {
+		parts = append(parts, "files="+strings.Join(finding.Files, ","))
+	}
+
 	appendRawOutcomeString := func(key, label string) {
 		value, ok := finding.RawOutcome[key]
 		if !ok || value == nil {
@@ -184,6 +229,7 @@ func findingDetail(finding Finding) string {
 	appendRawOutcomeString("output", "output")
 	appendRawOutcomeString("stdout", "stdout")
 	appendRawOutcomeString("stderr", "stderr")
+	appendRawOutcomeString("error", "error")
 	appendRawOutcomeString("runner_failure", "runner_failure")
 	appendRawOutcomeString("timed_out", "timed_out")
 

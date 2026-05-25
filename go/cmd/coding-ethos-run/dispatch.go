@@ -92,7 +92,7 @@ func runCommandEntries() []runCommandEntry {
 		{Command: "lfs-hook", Handler: runLFSHook},
 		{Command: "agent-hooks", Handler: runAgentHooksHandler},
 		{Command: "cutover", Handler: runCutover},
-		{Command: "lint", Handler: runPolicyLintHandler},
+		{Command: "lint", Handler: runManagedLintHandler},
 		{Command: "policy-lint", Handler: runPolicyLintHandler},
 		{Command: "ci-sarif", Handler: runCISARIFHandler},
 		{Command: "policy", Handler: runPolicyHandler},
@@ -132,9 +132,15 @@ func runHelpMessage() feedback.Message {
 				"common",
 				[]string{"command", "purpose"},
 				[][]string{
-					{"lint --staged", "Run managed lint checks for staged files."},
-					{"lint --changed", "Run managed lint checks for changed files."},
-					{"lint --full", "Run all configured managed lint checks."},
+					{
+						"lint --staged",
+						"Run managed fixers, formatters, and lint checks for staged files.",
+					},
+					{
+						"lint --changed",
+						"Run managed fixers, formatters, and lint checks for changed files.",
+					},
+					{"lint --full", "Run all configured managed fixers, formatters, and lint checks."},
 					{"bin/lint --staged", "Short wrapper for managed lint."},
 					{"agent-shell -- <command>", "Run shell through policy rewrite."},
 					{"output report", "Report managed output surfaces."},
@@ -770,6 +776,31 @@ func firstNonEmptyString(values ...string) string {
 func runPolicyLintHandler(paths runtimePaths, rest []string) error {
 	requirePolicyBundle(paths)
 	runtimeExecLint(paths, append([]string{"--bundle", paths.PolicyBundle}, rest...)...)
+
+	return nil
+}
+
+func runManagedLintHandler(paths runtimePaths, rest []string) error {
+	requirePolicyBundle(paths)
+
+	scope, err := managedLintScopeFromArgs(paths, rest)
+	if err != nil {
+		return err
+	}
+
+	for _, group := range []string{"formatters", "autofixers"} {
+		exitCode := runScopedPolicyToolGroupByName(paths, group, true, scope)
+		if exitCode != 0 {
+			requestRuntimeExit(exitCode)
+
+			return nil
+		}
+	}
+
+	runtimeExecLint(
+		paths,
+		append([]string{"--bundle", paths.PolicyBundle, "--code-intel"}, rest...)...,
+	)
 
 	return nil
 }

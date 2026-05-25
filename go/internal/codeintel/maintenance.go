@@ -56,16 +56,129 @@ func RefreshRepository(
 	}, nil
 }
 
+// RefreshLintFiles refreshes code-intel AST facts for lint-scoped paths.
+func RefreshLintFiles(
+	ctx context.Context,
+	root string,
+	paths []string,
+) (CodeIndexSummary, error) {
+	paths = existingLintIndexPaths(root, paths)
+	if len(paths) == 0 {
+		return CodeIndexSummary{}, nil
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		return CodeIndexSummary{}, err
+	}
+	defer store.Close()
+
+	summary, err := NewASTIndexer(store).IndexPaths(ctx, root, paths)
+	if err != nil {
+		return CodeIndexSummary{}, fmt.Errorf("refresh code-intel lint files: %w", err)
+	}
+
+	_, err = store.RefreshDiffEditPatterns(ctx, root)
+	if err != nil {
+		return CodeIndexSummary{}, fmt.Errorf(
+			"refresh code-intel diff edit patterns: %w",
+			err,
+		)
+	}
+
+	return summary, nil
+}
+
+func existingLintIndexPaths(root string, paths []string) []string {
+	selected := []string{}
+	seen := map[string]struct{}{}
+
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return selected
+	}
+
+	rootAbs = filepath.Clean(rootAbs)
+
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+
+		statPath := path
+		if !filepath.IsAbs(statPath) {
+			statPath = filepath.Join(rootAbs, statPath)
+		}
+
+		statPath = filepath.Clean(statPath)
+
+		relative, inside := repoRelativePath(rootAbs, statPath)
+		if !inside {
+			continue
+		}
+
+		info, err := os.Stat(statPath)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+
+		if _, ok := seen[statPath]; ok {
+			continue
+		}
+
+		seen[statPath] = struct{}{}
+
+		selected = append(selected, relative)
+	}
+
+	return selected
+}
+
+func repoRelativePath(rootAbs, pathAbs string) (string, bool) {
+	relative, err := filepath.Rel(rootAbs, pathAbs)
+	if err != nil ||
+		relative == "." ||
+		relative == ".." ||
+		strings.HasPrefix(relative, ".."+string(filepath.Separator)) ||
+		filepath.IsAbs(relative) {
+		return "", false
+	}
+
+	return filepath.ToSlash(relative), true
+}
+
+func rootedTracePath(root, tracePath string) (string, error) {
+	if filepath.IsAbs(tracePath) {
+		return filepath.Clean(tracePath), nil
+	}
+
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve trace root: %w", err)
+	}
+
+	return filepath.Clean(filepath.Join(rootAbs, tracePath)), nil
+}
+
 // IngestHookTraceFile records a single hook event trace that was just written
 // by the hook runtime. The append-only event log is the durable telemetry path;
 // the legacy SQLite store is still updated as a compatibility query index.
 func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
-	payload, err := os.ReadFile(filepath.Clean(tracePath))
+	resolvedTracePath, err := rootedTracePath(root, tracePath)
+	if err != nil {
+		return err
+	}
+
+	payload, err := os.ReadFile(resolvedTracePath)
 	if err != nil {
 		return fmt.Errorf("read hook trace for code-intel ingest: %w", err)
 	}
 
-	runID := strings.TrimSuffix(filepath.Base(tracePath), filepath.Ext(tracePath))
+	runID := strings.TrimSuffix(
+		filepath.Base(resolvedTracePath),
+		filepath.Ext(resolvedTracePath),
+	)
 
 	err = NewEventLog(DefaultEventLogDir(root)).Append(runID, []EventRecord{
 		{
@@ -84,5 +197,42 @@ func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 	}
 	defer store.Close()
 
-	return NewTraceIngester(store).IngestHookTraceSource(ctx, tracePath, payload)
+	return NewTraceIngester(store).IngestHookTraceSource(ctx, resolvedTracePath, payload)
+}
+
+// IngestLintTraceFile records a single lint trace that was just written.
+func IngestLintTraceFile(ctx context.Context, root, tracePath string) error {
+	resolvedTracePath, err := rootedTracePath(root, tracePath)
+	if err != nil {
+		return err
+	}
+
+	payload, err := os.ReadFile(resolvedTracePath)
+	if err != nil {
+		return fmt.Errorf("read lint trace for code-intel ingest: %w", err)
+	}
+
+	runID := strings.TrimSuffix(
+		filepath.Base(resolvedTracePath),
+		filepath.Ext(resolvedTracePath),
+	)
+
+	err = NewEventLog(DefaultEventLogDir(root)).Append(runID, []EventRecord{
+		{
+			Kind:        "lint_trace",
+			SourceRunID: runID,
+			Payload:     payload,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("append lint trace event: %w", err)
+	}
+
+	store, err := Open(ctx, DefaultDBPath(root))
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	return NewTraceIngester(store).IngestLintTraceSource(ctx, resolvedTracePath, payload)
 }

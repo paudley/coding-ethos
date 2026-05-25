@@ -350,9 +350,12 @@ func userFacingDiagnostics(result lint.Result) []diagnostics.Diagnostic {
 	if len(result.Diagnostics) > 0 && diagnosticsAreRecords(result.Diagnostics) &&
 		len(result.Findings) > 0 {
 		findings := lint.FindingDiagnostics(result.Findings, result.Blocked())
-		if len(findings) > 0 {
-			return findings
-		}
+
+		return findings
+	}
+
+	if diagnosticsAreRecords(diagnostics) {
+		return nil
 	}
 
 	return diagnostics

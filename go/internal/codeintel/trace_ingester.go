@@ -34,7 +34,15 @@ func (ingester TraceIngester) IngestLintTrace(
 	ctx context.Context,
 	payload []byte,
 ) error {
-	trace, err := DecodeLintTrace("", payload)
+	return ingester.IngestLintTraceSource(ctx, "", payload)
+}
+
+func (ingester TraceIngester) IngestLintTraceSource(
+	ctx context.Context,
+	path string,
+	payload []byte,
+) error {
+	trace, err := DecodeLintTrace(path, payload)
 	if err != nil {
 		return err
 	}

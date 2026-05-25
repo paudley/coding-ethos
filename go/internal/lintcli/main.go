@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
@@ -45,6 +46,7 @@ type lintCLIConfig struct {
 	argvRaw            *string
 	bundlePath         *string
 	captureTool        *string
+	codeIntel          *bool
 	command            *string
 	consumerRoot       *string
 	cwd                *string
@@ -114,6 +116,11 @@ func runCLIWithWriter(args []string, stdout io.Writer) int {
 		"log",
 		true,
 		"Persist normalized lint result under .coding-ethos/lint-runs",
+	)
+	config.codeIntel = flags.Bool(
+		"code-intel",
+		false,
+		"Ingest the current lint trace and refresh changed-file code intelligence",
 	)
 	config.listCapturedTools = flags.Bool(
 		"list-captured-tools",
@@ -284,6 +291,7 @@ func runCaptureMode(config lintCLIConfig, args []string) (int, bool) {
 			Args:          args,
 			OutputFormat:  config.outputFormat,
 			PolicyContext: capturePolicyContext(*config.bundlePath),
+			CodeIntel:     *config.codeIntel,
 		}), true
 	}
 
@@ -299,6 +307,7 @@ func runCaptureMode(config lintCLIConfig, args []string) (int, bool) {
 		Args:          args,
 		OutputFormat:  config.outputFormat,
 		PolicyContext: capturePolicyContext(*config.bundlePath),
+		CodeIntel:     *config.codeIntel,
 	}), true
 }
 
@@ -454,43 +463,11 @@ func runExplainMode(config lintCLIConfig, bundle policy.Bundle) int {
 }
 
 func runLintMode(config lintCLIConfig, bundle policy.Bundle) int {
-	files, filesErr := filesFromInputs(*config.filesRaw, *config.filesFrom)
-	if filesErr != nil {
-		exitErr(filesErr)
-	}
-
-	if shouldReturnEmptyExplicitFileScope(
-		config.scope.Value(),
-		files,
-		*config.filesRaw,
-		*config.filesFrom,
-	) {
-		result := lint.Result{
-			Scope:  lint.ScopeFiles,
-			Files:  []string{},
-			Status: "resolved",
-		}
-
-		err := encodeLintResult(
-			config.stdout,
-			result,
-			selectedLintOutputFormat(config.outputFormat),
-			*config.sarifCategory,
-		)
-		if err != nil {
-			exitErr(err)
-		}
+	files, emptyExplicitScope := resolveLintFiles(config)
+	if emptyExplicitScope {
+		encodeEmptyExplicitFileScope(config)
 
 		return 0
-	}
-
-	if len(files) == 0 && config.scope.Value() == lint.ScopeStaged {
-		var err error
-
-		files, err = stagedFiles(*config.cwd)
-		if err != nil {
-			exitErr(err)
-		}
 	}
 
 	result, err := lint.Run(bundle, lint.Options{
@@ -509,7 +486,10 @@ func runLintMode(config lintCLIConfig, bundle policy.Bundle) int {
 	}
 
 	if *config.logOutput {
-		logLintResult(*config.cwd, result)
+		tracePath := logLintResult(*config.cwd, result)
+		if *config.codeIntel && tracePath != "" {
+			refreshLintCodeIntel(*config.cwd, tracePath, config.scope.Value(), files)
+		}
 	}
 
 	err = encodeLintResult(
@@ -529,12 +509,69 @@ func runLintMode(config lintCLIConfig, bundle policy.Bundle) int {
 	return 0
 }
 
-func logLintResult(cwd string, result lint.Result) {
-	_, logErr := lint.LogResult(cwd, result)
+func resolveLintFiles(config lintCLIConfig) ([]string, bool) {
+	files, filesErr := filesFromInputs(*config.filesRaw, *config.filesFrom)
+	if filesErr != nil {
+		exitErr(filesErr)
+	}
+
+	if shouldReturnEmptyExplicitFileScope(
+		config.scope.Value(),
+		files,
+		*config.filesRaw,
+		*config.filesFrom,
+	) {
+		return files, true
+	}
+
+	if len(files) == 0 && config.scope.Value() == lint.ScopeStaged {
+		var err error
+
+		files, err = stagedFiles(*config.cwd)
+		if err != nil {
+			exitErr(err)
+		}
+	}
+
+	if len(files) == 0 && config.scope.Value() == lint.ScopeChanged &&
+		*config.codeIntel {
+		var err error
+
+		files, err = changedFiles(*config.cwd)
+		if err != nil {
+			writeLintCLIText(
+				"warning: changed files not resolved for code-intel: " + err.Error(),
+			)
+		}
+	}
+
+	return files, false
+}
+
+func encodeEmptyExplicitFileScope(config lintCLIConfig) {
+	result := lint.Result{
+		Scope:  lint.ScopeFiles,
+		Files:  []string{},
+		Status: "resolved",
+	}
+
+	err := encodeLintResult(
+		config.stdout,
+		result,
+		selectedLintOutputFormat(config.outputFormat),
+		*config.sarifCategory,
+	)
+	if err != nil {
+		exitErr(err)
+	}
+}
+
+func logLintResult(cwd string, result lint.Result) string {
+	tracePath, logErr := lint.LogResult(cwd, result)
 	if logErr != nil {
 		writeLintCLIText("warning: lint trace not written: " + logErr.Error())
 
-		return
+		return ""
 	}
 
 	err := outputsurface.AutoPruneSurface(
@@ -546,6 +583,43 @@ func logLintResult(cwd string, result lint.Result) {
 	if err != nil {
 		writeLintCLIText("warning: lint trace auto-prune failed: " + err.Error())
 	}
+
+	return tracePath
+}
+
+func refreshLintCodeIntel(root, tracePath, scope string, files []string) {
+	ctx := context.Background()
+
+	err := codeintel.IngestLintTraceFile(ctx, root, tracePath)
+	if err != nil {
+		writeLintCLIText("warning: lint trace not ingested into code-intel: " + err.Error())
+
+		return
+	}
+
+	paths := lintCodeIntelPaths(scope, files)
+	if len(paths) == 0 {
+		return
+	}
+
+	_, err = codeintel.RefreshLintFiles(ctx, root, paths)
+	if err != nil {
+		writeLintCLIText("warning: lint code-intel refresh failed: " + err.Error())
+	}
+}
+
+func lintCodeIntelPaths(scope string, files []string) []string {
+	if scope == lint.ScopeFull {
+		return []string{"."}
+	}
+
+	if scope != lint.ScopeFiles &&
+		scope != lint.ScopeStaged &&
+		scope != lint.ScopeChanged {
+		return nil
+	}
+
+	return append([]string(nil), files...)
 }
 
 func encodeLintResult(
@@ -735,6 +809,15 @@ func stagedFiles(cwd string) ([]string, error) {
 	return splitNonEmpty(string(output), "\n"), nil
 }
 
+func changedFiles(cwd string) ([]string, error) {
+	output, err := changedGitOutput(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("list changed files: %w", err)
+	}
+
+	return splitNonEmpty(string(output), "\n"), nil
+}
+
 func stagedGitOutput(cwd string) ([]byte, error) {
 	output, err := evaluators.GitCommand(
 		cwd,
@@ -746,6 +829,21 @@ func stagedGitOutput(cwd string) ([]byte, error) {
 	).Output()
 	if err != nil {
 		return nil, fmt.Errorf("run git staged-file query: %w", err)
+	}
+
+	return output, nil
+}
+
+func changedGitOutput(cwd string) ([]byte, error) {
+	output, err := evaluators.GitCommand(
+		cwd,
+		"diff",
+		"--name-only",
+		"--diff-filter=ACMR",
+		"--",
+	).Output()
+	if err != nil {
+		return nil, fmt.Errorf("run git changed-file query: %w", err)
 	}
 
 	return output, nil
