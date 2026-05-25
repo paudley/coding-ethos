@@ -493,8 +493,13 @@ func compressToolOutputWithRecords(event Event, output string) proxiedToolOutput
 	options := loadHookOutputCompressionOptions(event)
 	tokenBudget := resolveHookTokenBudget(event, options)
 
-	compressed, err := agentproxy.NewPipeline(
-		nil,
+	transforms := []agentproxy.ContentTransform{}
+	if agentproxy.IsSavedOutputNotice(output) {
+		transforms = append(transforms, agentproxy.SavedOutputNoticeTransform{})
+	}
+
+	transforms = append(
+		transforms,
 		agentproxy.ToolOutputDiagnosticSummaryTransform{
 			Tool:             inferDiagnosticTool(event.Command()),
 			MaxFindings:      options.MaxDiagnostics,
@@ -515,6 +520,11 @@ func compressToolOutputWithRecords(event Event, output string) proxiedToolOutput
 			EvidenceMaxAge:   options.TempEvidenceMaxAge,
 			EvidenceMaxBytes: options.TempEvidenceMaxBytes,
 		},
+	)
+
+	compressed, err := agentproxy.NewPipeline(
+		nil,
+		transforms...,
 	).Apply(
 		context.Background(),
 		agentproxy.TransformInput{

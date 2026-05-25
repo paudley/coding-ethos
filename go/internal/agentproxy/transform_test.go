@@ -105,6 +105,55 @@ func TestPipelineClonesMetadataAndRejectsNilTransform(t *testing.T) {
 	}
 }
 
+func TestSavedOutputNoticeTransformCollapsesVerboseInstructions(t *testing.T) {
+	t.Parallel()
+
+	notice := strings.Join([]string{
+		"Error: result (90,668 characters across 1,795 lines) exceeds maximum allowed tokens. Output has been saved to",
+		"     /tmp/tool-results/mcp-gmeow-gmail_get_message-1779695312898.txt.",
+		"     Format: Plain text",
+		"     Use offset and limit parameters to read specific portions of the file.",
+		"     REQUIREMENTS FOR SUMMARIZATION/ANALYSIS/REVIEW:",
+		"     - You MUST read the content from the file in sequential chunks until 100%",
+		"       of the content has been read.",
+	}, "\n")
+
+	output, err := agentproxy.NewPipeline(
+		nil,
+		agentproxy.SavedOutputNoticeTransform{},
+	).Apply(context.Background(), agentproxy.TransformInput{Text: notice})
+	if err != nil {
+		t.Fatalf("apply saved-output notice transform: %v", err)
+	}
+
+	expected := "Error: result (90,668 characters across 1,795 lines) " +
+		"exceeds maximum allowed tokens; full output saved to " +
+		"/tmp/tool-results/mcp-gmeow-gmail_get_message-1779695312898.txt."
+	if output.Text != expected {
+		t.Fatalf("saved-output notice summary = %q", output.Text)
+	}
+
+	for _, forbidden := range []string{
+		"REQUIREMENTS FOR SUMMARIZATION",
+		"You MUST read",
+		"sequential chunks",
+		"Use offset and limit",
+	} {
+		if strings.Contains(output.Text, forbidden) {
+			t.Fatalf("summary retained verbose instruction %q: %s",
+				forbidden,
+				output.Text,
+			)
+		}
+	}
+
+	if output.Record.PolicyID != "proxy.saved_output_notice" ||
+		output.Record.Decision != "summarize" ||
+		output.Metadata["coding_ethos.saved_output_notice"] != "true" {
+		t.Fatalf("record = %#v metadata = %#v", output.Record, output.Metadata)
+	}
+}
+
 func TestToolOutputCompressionPreservesHeadTailAndRecordsSavings(t *testing.T) {
 	t.Parallel()
 

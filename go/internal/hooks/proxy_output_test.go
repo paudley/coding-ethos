@@ -57,6 +57,48 @@ func TestProxyToolOutputPolicyIDPrefersFilePaginationOverTokenBudget(t *testing.
 	}
 }
 
+func TestProxyPostToolOutputCollapsesSavedOutputNotice(t *testing.T) {
+	t.Parallel()
+
+	output := strings.Join([]string{
+		"Error: result (90,668 characters across 1,795 lines) exceeds maximum allowed tokens. Output has been saved to",
+		"     /saved-output/tool-results/mcp-gmeow-gmail_get_message-1779695312898.txt.",
+		"     Format: Plain text",
+		"     Use offset and limit parameters to read specific portions of the file.",
+		"     REQUIREMENTS FOR SUMMARIZATION/ANALYSIS/REVIEW:",
+		"     - You MUST read the content from the file in sequential chunks until 100%",
+		"       of the content has been read.",
+	}, "\n")
+
+	proxied := proxyPostToolOutput(
+		Event{
+			SessionID: "session-saved-output-notice",
+			ToolName:  toolBash,
+			Cwd:       t.TempDir(),
+			ToolInput: map[string]any{
+				"command": "gmeow gmail_get_message",
+			},
+			ToolResponse: map[string]any{
+				"stderr":      output,
+				"return_code": 1,
+			},
+		},
+		output,
+	)
+
+	expected := "Error: result (90,668 characters across 1,795 lines) " +
+		"exceeds maximum allowed tokens; full output saved to " +
+		"/saved-output/tool-results/mcp-gmeow-gmail_get_message-1779695312898.txt."
+	if proxied.Text != expected {
+		t.Fatalf("proxied saved-output notice = %q", proxied.Text)
+	}
+
+	if strings.Contains(proxied.Text, "REQUIREMENTS FOR SUMMARIZATION") ||
+		strings.Contains(proxied.Text, "You MUST read") {
+		t.Fatalf("proxied output retained verbose instructions: %s", proxied.Text)
+	}
+}
+
 func TestProxyPostToolOutputAppliesTokenBudgetAfterFilePagination(t *testing.T) {
 	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS", "256")
 	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS", "64")
