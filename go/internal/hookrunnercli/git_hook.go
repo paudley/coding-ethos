@@ -361,6 +361,7 @@ func writeHookGroupResultFile(path string, result hookGroupResult) {
 		return
 	}
 
+	// #nosec G703 -- hookGroupResultFilePath rejects paths outside os.TempDir.
 	if os.WriteFile(cleanPath, data, hookGroupResultFileMode) != nil {
 		return
 	}
