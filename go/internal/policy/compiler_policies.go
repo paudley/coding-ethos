@@ -19,7 +19,9 @@ const (
 	defaultCommitHeaderMaxLength = 150
 	defaultLicenseScanLines      = 5
 	defaultLicenseClientTimeout  = 10 * time.Second
-	piiScrubberSuggestion        = "Replace local paths, usernames, " +
+	spdxLicenseTextBaseURL       = "https://raw.githubusercontent.com/" +
+		"spdx/license-list-data/main/text/"
+	piiScrubberSuggestion = "Replace local paths, usernames, " +
 		"hostnames, and worktree names with generic placeholders."
 	shebangSuggestion = "Add a valid shebang to executable scripts and " +
 		"mark shebang scripts executable."
@@ -621,7 +623,7 @@ func repoLicenseText(
 
 	url := stringAt(config, "repo", "license", "url")
 	if url == "" {
-		url = "https://spdx.org/licenses/" + spdxID + ".txt"
+		url = spdxLicenseTextURL(spdxID)
 	}
 
 	client := http.Client{Timeout: defaultLicenseClientTimeout}
@@ -657,6 +659,10 @@ func repoLicenseText(
 	}
 
 	return normalizeLicenseText(fillLicenseTemplate(string(body), copyrightText)), nil
+}
+
+func spdxLicenseTextURL(spdxID string) string {
+	return spdxLicenseTextBaseURL + spdxID + ".txt"
 }
 
 func fillLicenseTemplate(text, copyrightText string) string {
