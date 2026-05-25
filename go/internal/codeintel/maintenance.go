@@ -116,6 +116,7 @@ func existingLintIndexPaths(root string, paths []string) []string {
 		}
 
 		seen[statPath] = struct{}{}
+
 		selected = append(selected, path)
 	}
 
