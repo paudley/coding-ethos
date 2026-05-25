@@ -727,8 +727,6 @@ func TestParentCheckoutLocationLabelsSameRepoAsCodingEthos(t *testing.T) {
 }
 
 func TestParentPathHelpersClassifyGitStates(t *testing.T) {
-	t.Parallel()
-
 	repo := t.TempDir()
 
 	git := fakeStatusGit(t, " M changed\n")

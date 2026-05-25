@@ -9,7 +9,17 @@ import (
 	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
+)
+
+var (
+	errManagedWritablePathTraversal = apperror.StaticError(
+		"coding-ethos bug: managed writable path contains parent traversal",
+	)
+	errManagedWritablePathEscapesRoot = apperror.StaticError(
+		"coding-ethos bug: managed writable path escapes repo root",
+	)
 )
 
 func prepareManagedWritablePaths(root string, evidence sandbox.Evidence) error {
@@ -33,7 +43,26 @@ func prepareManagedWritablePaths(root string, evidence sandbox.Evidence) error {
 }
 
 func prepareManagedWritablePath(root, path string) error {
-	target := filepath.Join(root, filepath.FromSlash(strings.Trim(path, "/")))
+	normalizedPath := strings.Trim(filepath.ToSlash(path), "/")
+	if containsParentPathSegment(normalizedPath) {
+		return fmt.Errorf(
+			"%w: %q",
+			errManagedWritablePathTraversal,
+			path,
+		)
+	}
+
+	root = filepath.Clean(root)
+	target := filepath.Join(root, filepath.FromSlash(normalizedPath))
+
+	if pathEscapesRoot(root, target) {
+		return fmt.Errorf(
+			"%w: path %q root %q",
+			errManagedWritablePathEscapesRoot,
+			path,
+			root,
+		)
+	}
 
 	err := os.MkdirAll(target, capturedPrivateDirMode)
 	if err != nil {
@@ -47,6 +76,15 @@ func prepareManagedWritablePath(root, path string) error {
 	return nil
 }
 
+func pathEscapesRoot(root, target string) bool {
+	relative, err := filepath.Rel(root, target)
+	if err != nil {
+		return true
+	}
+
+	return relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
 func managedWritableDir(path string) bool {
 	path = strings.TrimSpace(filepath.ToSlash(path))
 	if path == "" || filepath.IsAbs(filepath.FromSlash(path)) {
@@ -54,6 +92,10 @@ func managedWritableDir(path string) bool {
 	}
 
 	path = strings.Trim(path, "/")
+	if containsParentPathSegment(path) {
+		return false
+	}
+
 	switch path {
 	case ".coding-ethos/cache",
 		sandbox.SandboxTempWritePath,
@@ -67,4 +109,14 @@ func managedWritableDir(path string) bool {
 	default:
 		return strings.HasPrefix(path, ".coding-ethos/cache/")
 	}
+}
+
+func containsParentPathSegment(path string) bool {
+	for segment := range strings.SplitSeq(path, "/") {
+		if segment == ".." {
+			return true
+		}
+	}
+
+	return false
 }

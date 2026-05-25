@@ -171,7 +171,7 @@ func sandboxCacheEnv(
 }
 
 func resolvedManagedSubprocessGit(ctx context.Context) (string, error) {
-	envGit := strings.TrimSpace(os.Getenv("CODING_ETHOS_REAL_GIT"))
+	envGit := strings.TrimSpace(os.Getenv(evaluators.RealGitEnv))
 	if envGit != "" {
 		self, err := os.Executable()
 		if err != nil {

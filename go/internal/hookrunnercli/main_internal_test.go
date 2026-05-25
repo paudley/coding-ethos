@@ -1148,7 +1148,7 @@ func TestRunHookGroupInProcessAggregatesCommandResults(t *testing.T) {
 	}
 
 	result := runHookGroupInProcess(Config{}, group, []string{"pkg/app.py"})
-	if result.Name != "sample" || result.ExitCode != 1 || result.Status != statusFail {
+	if result.Name != "sample" || result.ExitCode != 2 || result.Status != statusFail {
 		t.Fatalf("group result = %#v", result)
 	}
 
@@ -1325,6 +1325,24 @@ func TestRunHookGroupsInProcessReturnsFailure(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("failure summary missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestRunHookGroupInProcessPreservesFirstFailureExitCode(t *testing.T) {
+	group := hookGroup{
+		Name: "policy",
+		Commands: []hookCommand{
+			{Name: "fails", Run: func(Config, []string) int { return 7 }},
+			{Name: "passes", Run: func(Config, []string) int { return 0 }},
+		},
+	}
+
+	result := runHookGroupInProcess(Config{}, group, nil)
+	if result.ExitCode != 7 || result.Status != statusFail {
+		t.Fatalf("group result = %#v, want first failure exit 7", result)
+	}
+	if len(result.Commands) != 2 {
+		t.Fatalf("group commands = %#v, want both commands", result.Commands)
 	}
 }
 

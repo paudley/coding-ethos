@@ -235,8 +235,8 @@ func runHookGroupInProcess(
 		commandStart := time.Now()
 
 		commandExit := runFilteredHookCommand(cfg, command, files)
-		if commandExit != 0 {
-			exit = 1
+		if commandExit != 0 && exit == 0 {
+			exit = commandExit
 		}
 
 		commandResults = append(commandResults, hookCommandResult{
@@ -286,7 +286,9 @@ func runHookGroupInProcess(
 		commandResults = append(commandResults, result)
 
 		if result.ExitCode != 0 {
-			exit = 1
+			if exit == 0 {
+				exit = result.ExitCode
+			}
 		}
 	}
 
