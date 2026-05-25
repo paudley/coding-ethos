@@ -154,6 +154,27 @@ func TestSavedOutputNoticeTransformCollapsesVerboseInstructions(t *testing.T) {
 	}
 }
 
+func TestSavedOutputNoticeTransformOnlyTrimsSentencePeriod(t *testing.T) {
+	t.Parallel()
+
+	notice := strings.Join([]string{
+		"Error: result exceeds maximum allowed tokens. Output has been saved to",
+		"     /tmp/tool-results/message...",
+	}, "\n")
+
+	output, err := agentproxy.NewPipeline(
+		nil,
+		agentproxy.SavedOutputNoticeTransform{},
+	).Apply(context.Background(), agentproxy.TransformInput{Text: notice})
+	if err != nil {
+		t.Fatalf("apply saved-output notice transform: %v", err)
+	}
+
+	if !strings.Contains(output.Text, "/tmp/tool-results/message...") {
+		t.Fatalf("summary over-trimmed path punctuation: %s", output.Text)
+	}
+}
+
 func TestToolOutputCompressionPreservesHeadTailAndRecordsSavings(t *testing.T) {
 	t.Parallel()
 

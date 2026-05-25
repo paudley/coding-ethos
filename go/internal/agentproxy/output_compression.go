@@ -109,7 +109,7 @@ func conciseSavedOutputNotice(text string) (string, bool) {
 		return "", false
 	}
 
-	path := strings.TrimRight(pathMatch[1], ".")
+	path := strings.TrimSuffix(pathMatch[1], ".")
 	counts := savedOutputCountsPattern.FindStringSubmatch(text)
 
 	if len(counts) == regexpMatchWithOneSubmatch {

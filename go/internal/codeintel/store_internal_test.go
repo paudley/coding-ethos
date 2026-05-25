@@ -5,6 +5,7 @@ package codeintel
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -45,6 +46,34 @@ func TestSQLiteStoreDSNRequestsImmediateTransactions(t *testing.T) {
 				t.Fatalf("sqliteStoreDSN(%q) = %q, want %q", test.path, got, test.want)
 			}
 		})
+	}
+}
+
+func TestExistingLintIndexPathsCleansDedupesAndSkipsDirectories(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	target := filepath.Join(root, "pkg", "app.py")
+	err := os.MkdirAll(filepath.Dir(target), 0o700)
+	if err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+
+	err = os.WriteFile(target, []byte("VALUE = 1\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+
+	selected := existingLintIndexPaths(root, []string{
+		"pkg/app.py",
+		"./pkg/app.py",
+		"pkg",
+		"missing.py",
+	})
+	want := []string{"pkg/app.py"}
+
+	if len(selected) != len(want) || selected[0] != want[0] {
+		t.Fatalf("existingLintIndexPaths() = %#v, want %#v", selected, want)
 	}
 }
 

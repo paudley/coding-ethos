@@ -104,16 +104,18 @@ func existingLintIndexPaths(root string, paths []string) []string {
 			statPath = filepath.Join(root, statPath)
 		}
 
-		_, err := os.Stat(statPath)
-		if err != nil {
+		statPath = filepath.Clean(statPath)
+
+		info, err := os.Stat(statPath)
+		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
 
-		if _, ok := seen[path]; ok {
+		if _, ok := seen[statPath]; ok {
 			continue
 		}
 
-		seen[path] = struct{}{}
+		seen[statPath] = struct{}{}
 		selected = append(selected, path)
 	}
 
