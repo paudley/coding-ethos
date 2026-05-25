@@ -93,6 +93,13 @@ func existingLintIndexPaths(root string, paths []string) []string {
 	selected := []string{}
 	seen := map[string]struct{}{}
 
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return selected
+	}
+
+	rootAbs = filepath.Clean(rootAbs)
+
 	for _, path := range paths {
 		path = strings.TrimSpace(path)
 		if path == "" {
@@ -101,10 +108,15 @@ func existingLintIndexPaths(root string, paths []string) []string {
 
 		statPath := path
 		if !filepath.IsAbs(statPath) {
-			statPath = filepath.Join(root, statPath)
+			statPath = filepath.Join(rootAbs, statPath)
 		}
 
 		statPath = filepath.Clean(statPath)
+
+		relative, inside := repoRelativePath(rootAbs, statPath)
+		if !inside {
+			continue
+		}
 
 		info, err := os.Stat(statPath)
 		if err != nil || !info.Mode().IsRegular() {
@@ -117,22 +129,56 @@ func existingLintIndexPaths(root string, paths []string) []string {
 
 		seen[statPath] = struct{}{}
 
-		selected = append(selected, path)
+		selected = append(selected, relative)
 	}
 
 	return selected
+}
+
+func repoRelativePath(rootAbs, pathAbs string) (string, bool) {
+	relative, err := filepath.Rel(rootAbs, pathAbs)
+	if err != nil ||
+		relative == "." ||
+		relative == ".." ||
+		strings.HasPrefix(relative, ".."+string(filepath.Separator)) ||
+		filepath.IsAbs(relative) {
+		return "", false
+	}
+
+	return filepath.ToSlash(relative), true
+}
+
+func rootedTracePath(root, tracePath string) (string, error) {
+	if filepath.IsAbs(tracePath) {
+		return filepath.Clean(tracePath), nil
+	}
+
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve trace root: %w", err)
+	}
+
+	return filepath.Clean(filepath.Join(rootAbs, tracePath)), nil
 }
 
 // IngestHookTraceFile records a single hook event trace that was just written
 // by the hook runtime. The append-only event log is the durable telemetry path;
 // the legacy SQLite store is still updated as a compatibility query index.
 func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
-	payload, err := os.ReadFile(filepath.Clean(tracePath))
+	resolvedTracePath, err := rootedTracePath(root, tracePath)
+	if err != nil {
+		return err
+	}
+
+	payload, err := os.ReadFile(resolvedTracePath)
 	if err != nil {
 		return fmt.Errorf("read hook trace for code-intel ingest: %w", err)
 	}
 
-	runID := strings.TrimSuffix(filepath.Base(tracePath), filepath.Ext(tracePath))
+	runID := strings.TrimSuffix(
+		filepath.Base(resolvedTracePath),
+		filepath.Ext(resolvedTracePath),
+	)
 
 	err = NewEventLog(DefaultEventLogDir(root)).Append(runID, []EventRecord{
 		{
@@ -151,17 +197,25 @@ func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 	}
 	defer store.Close()
 
-	return NewTraceIngester(store).IngestHookTraceSource(ctx, tracePath, payload)
+	return NewTraceIngester(store).IngestHookTraceSource(ctx, resolvedTracePath, payload)
 }
 
 // IngestLintTraceFile records a single lint trace that was just written.
 func IngestLintTraceFile(ctx context.Context, root, tracePath string) error {
-	payload, err := os.ReadFile(filepath.Clean(tracePath))
+	resolvedTracePath, err := rootedTracePath(root, tracePath)
+	if err != nil {
+		return err
+	}
+
+	payload, err := os.ReadFile(resolvedTracePath)
 	if err != nil {
 		return fmt.Errorf("read lint trace for code-intel ingest: %w", err)
 	}
 
-	runID := strings.TrimSuffix(filepath.Base(tracePath), filepath.Ext(tracePath))
+	runID := strings.TrimSuffix(
+		filepath.Base(resolvedTracePath),
+		filepath.Ext(resolvedTracePath),
+	)
 
 	err = NewEventLog(DefaultEventLogDir(root)).Append(runID, []EventRecord{
 		{
@@ -180,5 +234,5 @@ func IngestLintTraceFile(ctx context.Context, root, tracePath string) error {
 	}
 	defer store.Close()
 
-	return NewTraceIngester(store).IngestLintTraceSource(ctx, tracePath, payload)
+	return NewTraceIngester(store).IngestLintTraceSource(ctx, resolvedTracePath, payload)
 }
