@@ -466,6 +466,7 @@ func runLintMode(config lintCLIConfig, bundle policy.Bundle) int {
 	files, emptyExplicitScope := resolveLintFiles(config)
 	if emptyExplicitScope {
 		encodeEmptyExplicitFileScope(config)
+
 		return 0
 	}
 
