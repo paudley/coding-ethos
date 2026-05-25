@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // MaintenanceSummary reports repo-local code-intel refresh work.
@@ -55,12 +56,26 @@ func RefreshRepository(
 	}, nil
 }
 
-// IngestHookTraceFile opens the repo-local store and ingests a single hook
-// event trace that was just written by the hook runtime.
+// IngestHookTraceFile records a single hook event trace that was just written
+// by the hook runtime. The append-only event log is the durable telemetry path;
+// the legacy SQLite store is still updated as a compatibility query index.
 func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 	payload, err := os.ReadFile(filepath.Clean(tracePath))
 	if err != nil {
 		return fmt.Errorf("read hook trace for code-intel ingest: %w", err)
+	}
+
+	runID := strings.TrimSuffix(filepath.Base(tracePath), filepath.Ext(tracePath))
+
+	err = NewEventLog(DefaultEventLogDir(root)).Append(runID, []EventRecord{
+		{
+			Kind:        "hook_trace",
+			SourceRunID: runID,
+			Payload:     payload,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("append hook trace event: %w", err)
 	}
 
 	store, err := Open(ctx, DefaultDBPath(root))

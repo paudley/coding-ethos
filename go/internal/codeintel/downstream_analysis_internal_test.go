@@ -82,6 +82,18 @@ func TestAnalyzeDownstreamSummarizesFrictionAndLogs(t *testing.T) {
 	assertDownstreamFindingHotspot(t, analysis, "src/app.py", "python.optional_returns")
 	assertDownstreamFilePressure(t, analysis, "src/big.py")
 	assertDownstreamToolchainFailure(t, analysis, "runtime.sandbox_denial")
+	if len(analysis.AffectedCommands) == 0 {
+		t.Fatalf("missing top-level affected commands: %#v", analysis)
+	}
+	if len(analysis.ToolchainHealth) == 0 {
+		t.Fatalf("missing toolchain health: %#v", analysis)
+	}
+	if len(analysis.EvidenceGaps) == 0 {
+		t.Fatalf("missing evidence gaps: %#v", analysis)
+	}
+	if analysis.IssueSummary.StorageDecision == "" {
+		t.Fatalf("missing issue summary: %#v", analysis.IssueSummary)
+	}
 }
 
 func TestAnalyzeDownstreamWithoutStoreStillSummarizesLogs(t *testing.T) {

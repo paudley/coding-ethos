@@ -49,7 +49,6 @@ func recordProxyEvent(ctx context.Context, args []string) error {
 	}
 	defer store.Close()
 
-	totalTokens := *inputTokens + *outputTokens
 	event := agentproxy.ProviderEvent{
 		ID:            strings.TrimSpace(*eventID),
 		SessionID:     strings.TrimSpace(*sessionID),
@@ -76,9 +75,14 @@ func recordProxyEvent(ctx context.Context, args []string) error {
 		TokenUsage: agentproxy.TokenUsage{
 			InputTokens:  *inputTokens,
 			OutputTokens: *outputTokens,
-			TotalTokens:  totalTokens,
+			TotalTokens:  *inputTokens + *outputTokens,
 		},
 		Payload: agentproxy.PayloadMeasurement{Bytes: *payloadBytes},
+	}
+
+	err = appendProxyEvent(*storeFlags.root, event)
+	if err != nil {
+		return err
 	}
 
 	err = store.RecordProxyEvent(ctx, event)
@@ -87,6 +91,23 @@ func recordProxyEvent(ctx context.Context, args []string) error {
 	}
 
 	return encodeJSON(os.Stdout, event)
+}
+
+func appendProxyEvent(root string, event agentproxy.ProviderEvent) error {
+	payload, err := rawEventPayload(event)
+	if err != nil {
+		return err
+	}
+
+	return appendCLIEvent(root, "proxy-event", codeintel.EventRecord{
+		Kind:     "proxy_event",
+		TraceID:  event.TraceID,
+		Provider: event.Provider,
+		Tool:     event.Tool,
+		PolicyID: event.PolicyID,
+		Path:     event.TargetPath,
+		Payload:  payload,
+	})
 }
 
 func printProxySessions(ctx context.Context, args []string) error {

@@ -16,6 +16,10 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
 )
 
+type sqlContextQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
 func (store *Store) CodeContext(
 	ctx context.Context,
 	query CodeContextQuery,
@@ -133,6 +137,36 @@ func (store *Store) validateASTContextPathsFresh(
 	root string,
 	paths []string,
 ) error {
+	return validateASTContextPathsFresh(
+		ctx,
+		root,
+		paths,
+		store.codeFileContentMetadataByPath,
+	)
+}
+
+func (store *DuckDBStore) validateASTContextPathsFresh(
+	ctx context.Context,
+	root string,
+	paths []string,
+) error {
+	return validateASTContextPathsFresh(
+		ctx,
+		root,
+		paths,
+		store.codeFileContentMetadataByPath,
+	)
+}
+
+func validateASTContextPathsFresh(
+	ctx context.Context,
+	root string,
+	paths []string,
+	metadataByPath func(
+		context.Context,
+		[]string,
+	) (map[string]codeFileContentMetadata, error),
+) error {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return nil
@@ -140,24 +174,56 @@ func (store *Store) validateASTContextPathsFresh(
 
 	paths = uniqueASTContextPaths(paths)
 
-	metadataByPath, err := store.codeFileContentMetadataByPath(ctx, paths)
+	metadata, err := metadataByPath(ctx, paths)
 	if err != nil {
 		return err
 	}
 
 	for _, path := range paths {
-		metadata, found := metadataByPath[path]
+		fileMetadata, found := metadata[path]
 		if !found {
 			return fmt.Errorf("query code file metadata %s: %w", path, sql.ErrNoRows)
 		}
 
-		err := validateCodeFileContentFresh(root, path, metadata)
+		err := validateCodeFileContentFresh(root, path, fileMetadata)
 		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func (store *DuckDBStore) codeFileContentMetadataByPath(
+	ctx context.Context,
+	paths []string,
+) (map[string]codeFileContentMetadata, error) {
+	results := make(map[string]codeFileContentMetadata, len(paths))
+
+	for offset := 0; offset < len(paths); offset += sqliteBatchSize {
+		end := min(offset+sqliteBatchSize, len(paths))
+
+		err := store.codeFileContentMetadataBatch(ctx, paths[offset:end], results)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return results, nil
+}
+
+func (store *DuckDBStore) codeFileContentMetadataBatch(
+	ctx context.Context,
+	paths []string,
+	results map[string]codeFileContentMetadata,
+) error {
+	return codeFileContentMetadataBatch(
+		ctx,
+		store.database,
+		paths,
+		results,
+		"DuckDB",
+	)
 }
 
 func uniqueASTContextPaths(paths []string) []string {
@@ -239,6 +305,16 @@ func (store *Store) codeFileContentMetadataBatch(
 	paths []string,
 	results map[string]codeFileContentMetadata,
 ) error {
+	return codeFileContentMetadataBatch(ctx, store.database, paths, results, "SQLite")
+}
+
+func codeFileContentMetadataBatch(
+	ctx context.Context,
+	database sqlContextQuerier,
+	paths []string,
+	results map[string]codeFileContentMetadata,
+	label string,
+) error {
 	if len(paths) == 0 {
 		return nil
 	}
@@ -252,7 +328,7 @@ func (store *Store) codeFileContentMetadataBatch(
 	}
 
 	// #nosec G202 -- IN-list placeholders are generated for bound parameters.
-	rows, err := store.database.QueryContext(
+	rows, err := database.QueryContext(
 		ctx,
 		`SELECT path, content_hash, size_bytes
 		FROM code_files
@@ -261,7 +337,7 @@ func (store *Store) codeFileContentMetadataBatch(
 		args...,
 	)
 	if err != nil {
-		return fmt.Errorf("query code file metadata batch: %w", err)
+		return fmt.Errorf("query %s code file metadata batch: %w", label, err)
 	}
 	defer rows.Close()
 
@@ -273,7 +349,7 @@ func (store *Store) codeFileContentMetadataBatch(
 
 		err = rows.Scan(&path, &metadata.hash, &metadata.size)
 		if err != nil {
-			return fmt.Errorf("scan code file metadata batch: %w", err)
+			return fmt.Errorf("scan %s code file metadata batch: %w", label, err)
 		}
 
 		results[path] = metadata
@@ -281,7 +357,7 @@ func (store *Store) codeFileContentMetadataBatch(
 
 	err = rows.Err()
 	if err != nil {
-		return fmt.Errorf("iterate code file metadata batch: %w", err)
+		return fmt.Errorf("iterate %s code file metadata batch: %w", label, err)
 	}
 
 	return nil

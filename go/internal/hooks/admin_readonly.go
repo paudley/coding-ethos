@@ -72,7 +72,6 @@ func readOnlyInspectionName(name string) bool {
 		"grep",
 		"head",
 		"jq",
-		tokenGit,
 		"ls",
 		"nl",
 		"pwd",
@@ -109,10 +108,6 @@ func readOnlyInspectionRedirects(redirects []string) bool {
 }
 
 func readOnlyInspectionArgs(command shellparse.Command) bool {
-	if command.Name == tokenGit {
-		return readOnlyGitInspectionArgs(command.Argv[1:])
-	}
-
 	for _, arg := range command.Argv[1:] {
 		if mutatingInspectionArg(command.Name, arg) {
 			return false
@@ -120,36 +115,6 @@ func readOnlyInspectionArgs(command shellparse.Command) bool {
 	}
 
 	return true
-}
-
-func readOnlyGitInspectionArgs(args []string) bool {
-	if len(args) == 0 {
-		return false
-	}
-
-	index := 0
-	for index < len(args) && strings.HasPrefix(args[index], "-") {
-		switch args[index] {
-		case "-C", "-c":
-			index += 2
-		default:
-			return false
-		}
-	}
-
-	if index >= len(args) {
-		return false
-	}
-
-	return slices.Contains([]string{
-		"branch",
-		"diff",
-		"ls-files",
-		"log",
-		"rev-parse",
-		"show",
-		"status",
-	}, args[index])
 }
 
 func mutatingInspectionArg(name, arg string) bool {

@@ -5,6 +5,7 @@ package codeintel
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -31,6 +32,35 @@ const (
 func (store *Store) GlobalRepoMap(
 	ctx context.Context,
 	query RepoMapQuery,
+) (RepoMap, error) {
+	return globalRepoMap(ctx, query, store)
+}
+
+func (store *DuckDBStore) GlobalRepoMap(
+	ctx context.Context,
+	query RepoMapQuery,
+) (RepoMap, error) {
+	return globalRepoMap(ctx, query, store)
+}
+
+type globalRepoMapStore interface {
+	repoMapFiles(ctx context.Context, query RepoMapQuery) ([]RepoMapFile, error)
+	repoMapSymbols(
+		ctx context.Context,
+		query RepoMapQuery,
+		files []RepoMapFile,
+	) ([]RepoMapSymbol, error)
+	validateASTContextPathsFresh(
+		ctx context.Context,
+		root string,
+		paths []string,
+	) error
+}
+
+func globalRepoMap(
+	ctx context.Context,
+	query RepoMapQuery,
+	store globalRepoMapStore,
 ) (RepoMap, error) {
 	files, err := store.repoMapFiles(ctx, query)
 	if err != nil {
@@ -70,13 +100,78 @@ func (store *Store) GlobalRepoMap(
 	}, nil
 }
 
+func (store *DuckDBStore) repoMapFiles(
+	ctx context.Context,
+	query RepoMapQuery,
+) ([]RepoMapFile, error) {
+	return queryRepoMapFiles(ctx, store.database, query, "DuckDB global")
+}
+
+func (store *DuckDBStore) repoMapSymbols(
+	ctx context.Context,
+	query RepoMapQuery,
+	files []RepoMapFile,
+) ([]RepoMapSymbol, error) {
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	placeholders, args := repoMapSymbolQueryArgsForFiles(query, files)
+
+	// #nosec G202 -- placeholders are generated from file count; values remain bound.
+	rows, err := store.database.QueryContext(
+		ctx,
+		`SELECT path, language, kind, name, symbol_path, start_line, end_line, raw_text
+		FROM (
+			SELECT code_chunks.path,
+				code_chunks.language,
+				COALESCE(symbol_kind, '') AS kind,
+				COALESCE(symbol_name, '') AS name,
+				COALESCE(symbol_path, '') AS symbol_path,
+				start_line,
+				end_line,
+				raw_text,
+				ROW_NUMBER() OVER (
+					PARTITION BY code_chunks.path
+					ORDER BY start_line, start_byte
+				) AS symbol_rank
+			FROM code_chunks
+			JOIN code_files ON code_files.path = code_chunks.path
+			WHERE COALESCE(symbol_path, '') != ''
+				AND COALESCE(code_files.deleted_at_utc, '') = ''
+				AND COALESCE(code_files.stale_reason, '') = ''
+				AND code_chunks.path IN (`+strings.Join(placeholders, ",")+`)
+				AND (? = '' OR code_chunks.language = ?)
+		)
+		WHERE symbol_rank <= ?
+		ORDER BY path, start_line, symbol_path
+		LIMIT ?`,
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query DuckDB global repo map symbols: %w", err)
+	}
+	defer rows.Close()
+
+	return scanRepoMapSymbols(rows, "DuckDB global")
+}
+
 func (store *Store) repoMapFiles(
 	ctx context.Context,
 	query RepoMapQuery,
 ) ([]RepoMapFile, error) {
+	return queryRepoMapFiles(ctx, store.database, query, "global")
+}
+
+func queryRepoMapFiles(
+	ctx context.Context,
+	database *sql.DB,
+	query RepoMapQuery,
+	label string,
+) ([]RepoMapFile, error) {
 	ignoreMatcher := newGitIgnoreMatcher(ctx, strings.TrimSpace(query.Root))
 
-	rows, err := store.database.QueryContext(
+	rows, err := database.QueryContext(
 		ctx,
 		`SELECT file.path, file.language, file.line_count,
 			COUNT(chunk.chunk_id) AS chunks,
@@ -97,7 +192,7 @@ func (store *Store) repoMapFiles(
 		repoMapCandidateLimit(query),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("query global repo map files: %w", err)
+		return nil, fmt.Errorf("query %s repo map files: %w", label, err)
 	}
 	defer rows.Close()
 
@@ -114,7 +209,7 @@ func (store *Store) repoMapFiles(
 			&file.SymbolCount,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("scan global repo map file: %w", err)
+			return nil, fmt.Errorf("scan %s repo map file: %w", label, err)
 		}
 
 		if repoMapPathExcluded(ctx, ignoreMatcher, file.Path) {
@@ -131,7 +226,7 @@ func (store *Store) repoMapFiles(
 
 	err = rows.Err()
 	if err != nil {
-		return nil, fmt.Errorf("iterate global repo map files: %w", err)
+		return nil, fmt.Errorf("iterate %s repo map files: %w", label, err)
 	}
 
 	return files, nil
@@ -210,6 +305,10 @@ func (store *Store) repoMapSymbols(
 	}
 	defer rows.Close()
 
+	return scanRepoMapSymbols(rows, "global")
+}
+
+func scanRepoMapSymbols(rows *sql.Rows, label string) ([]RepoMapSymbol, error) {
 	symbols := []RepoMapSymbol{}
 
 	for rows.Next() {
@@ -218,7 +317,7 @@ func (store *Store) repoMapSymbols(
 			rawText string
 		)
 
-		err = rows.Scan(
+		err := rows.Scan(
 			&symbol.Path,
 			&symbol.Language,
 			&symbol.Kind,
@@ -229,16 +328,16 @@ func (store *Store) repoMapSymbols(
 			&rawText,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("scan global repo map symbol: %w", err)
+			return nil, fmt.Errorf("scan %s repo map symbol: %w", label, err)
 		}
 
 		symbol.Signature = repoMapSignature(rawText)
 		symbols = append(symbols, symbol)
 	}
 
-	err = rows.Err()
+	err := rows.Err()
 	if err != nil {
-		return nil, fmt.Errorf("iterate global repo map symbols: %w", err)
+		return nil, fmt.Errorf("iterate %s repo map symbols: %w", label, err)
 	}
 
 	return symbols, nil

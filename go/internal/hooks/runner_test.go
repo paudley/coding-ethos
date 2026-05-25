@@ -1202,7 +1202,7 @@ func TestRunRewritesGitCommandChainThroughWrapper(t *testing.T) {
 	}
 }
 
-func TestRunAllowsCodexReadOnlyGitInspectionWithoutRewrite(t *testing.T) {
+func TestRunBlocksCodexReadOnlyRawGitInspection(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -1220,7 +1220,7 @@ func TestRunAllowsCodexReadOnlyGitInspectionWithoutRewrite(t *testing.T) {
 		t.Fatalf("run hook: %v", err)
 	}
 
-	if result.Status != statusAllowed {
+	if result.Status != statusBlocked {
 		t.Fatalf(
 			"status mismatch: got %q decisions %#v",
 			result.Status,
@@ -1228,12 +1228,39 @@ func TestRunAllowsCodexReadOnlyGitInspectionWithoutRewrite(t *testing.T) {
 		)
 	}
 
-	if result.HookSpecificOutput != nil &&
-		len(result.HookSpecificOutput.UpdatedInput) > 0 {
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksNamespacedCodexExecCommandRawGit(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "functions.exec_command",
+		"input": {"cmd": "git switch main"}
+	}`))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
 		t.Fatalf(
-			"Codex read-only inspection must not receive updatedInput: %#v",
-			result.HookSpecificOutput,
+			"status mismatch: got %q decisions %#v",
+			result.Status,
+			result.Decisions,
 		)
+	}
+
+	if !hasDecision(result.Decisions, "git.wrapper_required") {
+		t.Fatalf("missing wrapper-required decision: %#v", result.Decisions)
 	}
 }
 
@@ -1806,7 +1833,7 @@ func TestRunBlocksMalformedShellCommand(t *testing.T) {
 	}
 }
 
-func TestRunAllowsReadOnlyGitStatusWithStderrRedirect(t *testing.T) {
+func TestRunRewritesReadOnlyGitStatusWithStderrRedirect(t *testing.T) {
 	t.Parallel()
 
 	result, err := Run(policy.ExampleBundle(), Options{
@@ -1827,9 +1854,9 @@ func TestRunAllowsReadOnlyGitStatusWithStderrRedirect(t *testing.T) {
 		t.Fatalf("status mismatch: got %q", result.Status)
 	}
 
-	if result.HookSpecificOutput != nil &&
-		len(result.HookSpecificOutput.UpdatedInput) > 0 {
-		t.Fatalf("read-only git status should not require rewrite: %#v", result)
+	if result.HookSpecificOutput == nil ||
+		len(result.HookSpecificOutput.UpdatedInput) == 0 {
+		t.Fatalf("read-only git status must be rewritten: %#v", result)
 	}
 }
 
@@ -4870,6 +4897,59 @@ func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 		!strings.Contains(codexOutput, `guidance[2]{message}:`) ||
 		!strings.Contains(codexOutput, `coding_ethos_repo_map:`) {
 		t.Fatalf("Codex session context missing TOON guidance:\n%s", codexOutput)
+	}
+}
+
+func TestRunFallsBackToLegacyRepoMapWhenDuckDBUpgradeIsLocked(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	sourcePath := filepath.Join(repo, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(sourcePath, []byte("def run():\n    return 'ok'\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	indexHookRepo(t, repo, []string{"pkg/app.py"})
+
+	lockPath := filepath.Join(repo, ".coding-ethos", "code-intel-rebuild.lock")
+	err = os.WriteFile(lockPath, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write active rebuild lock: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventSessionStart,
+			Cwd:           repo,
+			SessionID:     "session-legacy-repo-map",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run session start: %v", err)
+	}
+
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing session output: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"event: SessionStart",
+		"status: upgrade_failed",
+		"coding_ethos_repo_map:",
+		"pkg/app.py",
+		"def run():",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("session context missing %q:\n%s", expected, context)
+		}
 	}
 }
 

@@ -25,12 +25,8 @@ type agentHookFixtureCase struct {
 }
 
 func TestAgentHookProviderPayloadFixtures(t *testing.T) {
-	t.Parallel()
-
 	for _, testCase := range agentHookFixtureCases() {
 		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
 			repo := preparedAgentHookRepo(t)
 			payload := loadAgentHookPayload(t, repo, testCase.fixture)
 			prepareAgentHookFixtureState(t, repo, payload)
@@ -46,31 +42,34 @@ func TestAgentHookProviderPayloadFixtures(t *testing.T) {
 func agentHookFixtureCases() []agentHookFixtureCase {
 	return []agentHookFixtureCase{
 		{
-			name:            "claude pretool read-only git suppression",
-			fixture:         "claude-pretool-git-status.json",
-			wantStdoutExact: "{}",
-			wantStdoutMissing: []string{
+			name:    "claude pretool read-only git routes through runner",
+			fixture: "claude-pretool-git-status.json",
+			wantStdout: []string{
 				`"updatedInput"`,
 				`agent-shell --`,
+				`git status --short`,
+				`Routed shell command through the approved runner path.`,
 			},
 		},
 		{
-			name:            "gemini pretool read-only git suppression",
-			fixture:         "gemini-pretool-git-status.json",
-			wantStdoutExact: "{}",
-			wantStdoutMissing: []string{
+			name:    "gemini pretool read-only git routes through runner",
+			fixture: "gemini-pretool-git-status.json",
+			wantStdout: []string{
 				`"updatedInput"`,
 				`agent-shell --`,
+				`git status --short`,
+				`Routed shell command through the approved runner path.`,
 			},
 		},
 		{
-			name:            "codex pretool read-only git suppression",
-			fixture:         "codex-pretool-git-status.json",
-			wantStdoutExact: "{}",
-			wantStdoutMissing: []string{
-				`"updatedInput"`,
-				`policy-git`,
+			name:     "codex pretool read-only git denial",
+			fixture:  "codex-pretool-git-status.json",
+			wantExit: 1,
+			wantStdout: []string{
+				`"decision": "block"`,
+				`"permissionDecision": "deny"`,
 				`git.wrapper_required`,
+				`cerun -- 'git status --short'`,
 			},
 		},
 		{

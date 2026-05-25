@@ -16,8 +16,6 @@ import (
 )
 
 func TestManagedGitCommitWorkflowPreservesUserFacingFailures(t *testing.T) {
-	t.Parallel()
-
 	repo := preparedManagedGitCommitRepo(t)
 
 	beforeSuccess := repoHead(t, repo)
@@ -78,8 +76,6 @@ func TestManagedGitCommitWorkflowPreservesUserFacingFailures(t *testing.T) {
 }
 
 func TestParentRuntimeCerunGitAddAndCommitUseInstalledArtifacts(t *testing.T) {
-	t.Parallel()
-
 	fixture := preparedParentRuntimeRepo(t)
 	parentRepo := fixture.Root
 	parentBin := fixture.Bin
@@ -129,8 +125,6 @@ func TestParentRuntimeCerunGitAddAndCommitUseInstalledArtifacts(t *testing.T) {
 }
 
 func TestParentRuntimeCerunGitAddFailsFastWithoutPolicyBundle(t *testing.T) {
-	t.Parallel()
-
 	fixture := preparedParentRuntimeRepo(t)
 	policyBundle := filepath.Join(
 		filepath.Dir(fixture.Bin),
@@ -224,6 +218,9 @@ func preparedParentRuntimeRepo(t *testing.T) parentRuntimeFixture {
 				".coding-ethos/code-intel.db",
 				".coding-ethos/code-intel.db-shm",
 				".coding-ethos/code-intel.db-wal",
+				".coding-ethos/code-intel.duckdb",
+				".coding-ethos/code-intel.duckdb.wal",
+				".coding-ethos/events/",
 				".coding-ethos/hook-runs/",
 				".coding-ethos/lint-runs/",
 				".coding-ethos/prune-runs/",
