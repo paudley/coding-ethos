@@ -1158,6 +1158,9 @@ func TestFormatLintResultTOONPrefersBlockingDecisions(t *testing.T) {
 				PolicyID:   "git.staged_admin_files",
 				Message:    "Administrative staged files require explicit handling.",
 				Suggestion: "Confirm the policy change is intentional.",
+				Evidence: map[string]any{
+					"files": []string{"coding-ethos"},
+				},
 			},
 		},
 	}
@@ -1169,7 +1172,7 @@ func TestFormatLintResultTOONPrefersBlockingDecisions(t *testing.T) {
 
 	for _, want := range []string{
 		toonFindingsHeader,
-		"policy,,0,0,block,,git.staged_admin_files,," +
+		"policy,coding-ethos,0,0,block,,git.staged_admin_files,," +
 			"Administrative staged files require explicit handling.," +
 			"Confirm the policy change is intentional.,",
 	} {

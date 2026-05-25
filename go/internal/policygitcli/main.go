@@ -325,11 +325,30 @@ func printBlocked(result gitwrap.Result) {
 				scalars = append(scalars, feedback.S("suggestion", decision.Suggestion))
 			}
 
+			files := decision.EvidenceFiles()
+
+			tables := []feedback.Table{}
+			if len(files) > 0 {
+				tables = append(tables, feedback.T("files", []string{"path"}, fileRows(files)))
+			}
+
 			feedback.Emit(
 				os.Stderr,
-				feedback.Message{Scalars: scalars},
+				feedback.Message{
+					Scalars: scalars,
+					Tables:  tables,
+				},
 				feedback.FormatTOON,
 			)
 		}
 	}
+}
+
+func fileRows(files []string) [][]string {
+	rows := make([][]string, 0, len(files))
+	for _, file := range files {
+		rows = append(rows, []string{file})
+	}
+
+	return rows
 }

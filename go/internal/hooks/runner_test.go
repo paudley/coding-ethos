@@ -3185,6 +3185,9 @@ func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 				Severity:   "block",
 				Message:    "gh --admin bypasses normal review gates.",
 				Suggestion: "Use the normal review path.",
+				Evidence: map[string]any{
+					"files": []string{"bin/coding-ethos-run"},
+				},
 				PrincipleIDs: []string{
 					"evidence-based-engineering-and-decision-quality",
 				},
@@ -3196,6 +3199,8 @@ func TestBlockedAdviceUsesTOONForAgentOutput(t *testing.T) {
 		"event: PreToolUse",
 		"policy_id: shell.github_admin",
 		"suggestion: Use the normal review path.",
+		"files[1]{path}:",
+		"bin/coding-ethos-run",
 		"priority_ethos_reminders",
 		"Todo lists prevent partial work from masquerading as completion.",
 		"policy_explain",

@@ -3,7 +3,11 @@
 
 package policy
 
-import "blackcat.ca/coding-ethos/go/diagnostics"
+import (
+	"strings"
+
+	"blackcat.ca/coding-ethos/go/diagnostics"
+)
 
 type Decision struct {
 	Evidence     map[string]any           `json:"evidence,omitempty"`
@@ -25,4 +29,52 @@ func NewDecision(decision string, policy Policy) Decision {
 		Message:      policy.Message,
 		Suggestion:   policy.Suggestion,
 	}
+}
+
+func (decision Decision) EvidenceFiles() []string {
+	if files := evidenceStringList(decision.Evidence, "files"); len(files) > 0 {
+		return files
+	}
+
+	return evidenceStringList(decision.Evidence, "staged_files")
+}
+
+func evidenceStringList(evidence map[string]any, key string) []string {
+	if len(evidence) == 0 {
+		return nil
+	}
+
+	value, found := evidence[key]
+	if !found {
+		return nil
+	}
+
+	switch typed := value.(type) {
+	case []string:
+		return normalizedEvidenceStrings(typed)
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if ok {
+				values = append(values, text)
+			}
+		}
+
+		return normalizedEvidenceStrings(values)
+	default:
+		return nil
+	}
+}
+
+func normalizedEvidenceStrings(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		text := strings.TrimSpace(value)
+		if text != "" {
+			normalized = append(normalized, text)
+		}
+	}
+
+	return normalized
 }

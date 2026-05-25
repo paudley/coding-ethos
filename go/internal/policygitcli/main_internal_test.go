@@ -274,6 +274,9 @@ func TestPrintBlockedReportsBlockingDecision(t *testing.T) {
 			Decision:   "block",
 			Message:    "blocked",
 			Suggestion: "fix it",
+			Evidence: map[string]any{
+				"files": []string{"bin/coding-ethos-run"},
+			},
 		}},
 	}
 
@@ -285,6 +288,8 @@ func TestPrintBlockedReportsBlockingDecision(t *testing.T) {
 		"policy_id: git.hook_bypass",
 		"message: blocked",
 		"suggestion: fix it",
+		"files[1]{path}:",
+		"bin/coding-ethos-run",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stderr missing %q:\n%s", want, output)

@@ -77,13 +77,38 @@ func TestEvaluateGitStagedAdminFilesBlocksWithoutAdminApproval(t *testing.T) {
 
 	for _, want := range []string{
 		"Human/admin handoff",
+		"Administrative staged files: bin/coding-ethos-run.",
 		"Agent action: stop trying to commit these files.",
-		"git commit -m 'admin change'",
-		"--admin-approved is only valid inside the coding-ethos repo admin wrapper.",
+		"git commit -m 'admin change'.",
+		"Note: --admin-approved is only valid inside the coding-ethos repo admin wrapper.",
 	} {
 		if !strings.Contains(decisions[0].Suggestion, want) {
 			t.Fatalf("suggestion missing %q: %q", want, decisions[0].Suggestion)
 		}
+	}
+
+	assertStringSliceEvidence(
+		t,
+		decisions[0].Evidence,
+		"files",
+		[]string{"bin/coding-ethos-run"},
+	)
+	assertStringSliceEvidence(
+		t,
+		decisions[0].Evidence,
+		"staged_files",
+		[]string{"bin/coding-ethos-run"},
+	)
+
+	if len(decisions[0].Diagnostics) != 1 {
+		t.Fatalf("diagnostic count mismatch: %#v", decisions[0].Diagnostics)
+	}
+
+	diagnostic := decisions[0].Diagnostics[0]
+	if diagnostic.File != "bin/coding-ethos-run" ||
+		diagnostic.PolicyID != "git.staged_admin_files" ||
+		diagnostic.Severity != blockDecision {
+		t.Fatalf("diagnostic mismatch: %#v", diagnostic)
 	}
 }
 
@@ -130,6 +155,41 @@ func TestEvaluateGitStagedAdminFilesRecordsWithAdminApproval(t *testing.T) {
 		decisions[0].Decision != recordDecision ||
 		decisions[0].Severity != recordDecision {
 		t.Fatalf("decision mismatch: %#v", decisions)
+	}
+
+	assertStringSliceEvidence(
+		t,
+		decisions[0].Evidence,
+		"files",
+		[]string{"bin/coding-ethos-run"},
+	)
+	if len(decisions[0].Diagnostics) != 1 ||
+		decisions[0].Diagnostics[0].Severity != recordDecision {
+		t.Fatalf("diagnostic mismatch: %#v", decisions[0].Diagnostics)
+	}
+}
+
+func assertStringSliceEvidence(
+	t *testing.T,
+	evidence map[string]any,
+	key string,
+	want []string,
+) {
+	t.Helper()
+
+	got, ok := evidence[key].([]string)
+	if !ok {
+		t.Fatalf("evidence %s has type %T: %#v", key, evidence[key], evidence[key])
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("evidence %s length mismatch: got %#v want %#v", key, got, want)
+	}
+
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("evidence %s mismatch: got %#v want %#v", key, got, want)
+		}
 	}
 }
 

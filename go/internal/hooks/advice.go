@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	blockedAdviceHumanLinesPerDecision = 2
+	blockedAdviceHumanLinesPerDecision = 3
 )
 
 func BlockedAdvice(result Result) string {
@@ -59,6 +59,10 @@ func blockedAdviceHuman(result Result, decisions []policy.Decision) string {
 
 	for _, decision := range decisions {
 		lines = append(lines, "[coding-ethos:"+decision.PolicyID+"] "+decision.Message)
+		if files := decision.EvidenceFiles(); len(files) > 0 {
+			lines = append(lines, "Files: "+strings.Join(files, ", "))
+		}
+
 		if decision.Suggestion != "" {
 			lines = append(lines, "Suggestion: "+decision.Suggestion)
 		}
@@ -113,6 +117,13 @@ func blockedAdviceTOON(result Result, decisions []policy.Decision) string {
 		)
 		if decision.Suggestion != "" {
 			lines = append(lines, "    suggestion: "+toonCell(decision.Suggestion))
+		}
+
+		if files := decision.EvidenceFiles(); len(files) > 0 {
+			lines = append(lines, "    files["+strconv.Itoa(len(files))+"]{path}:")
+			for _, file := range files {
+				lines = append(lines, "      "+toonCell(file))
+			}
 		}
 	}
 

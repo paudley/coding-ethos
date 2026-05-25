@@ -370,8 +370,8 @@ func decisionBlocks(decision policy.Decision) bool {
 }
 
 func filesFromDecision(decision policy.Decision, fallback []string) []string {
-	if files, ok := decision.Evidence["files"].([]string); ok {
-		return append([]string(nil), files...)
+	if files := decision.EvidenceFiles(); len(files) > 0 {
+		return files
 	}
 
 	return append([]string(nil), fallback...)
