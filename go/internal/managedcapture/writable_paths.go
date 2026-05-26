@@ -15,10 +15,10 @@ import (
 
 var (
 	errManagedWritablePathTraversal = apperror.StaticError(
-		"coding-ethos bug: managed writable path contains parent traversal",
+		"invalid sandbox write path contains parent traversal",
 	)
 	errManagedWritablePathEscapesRoot = apperror.StaticError(
-		"coding-ethos bug: managed writable path escapes repo root",
+		"invalid sandbox write path escapes repo root",
 	)
 )
 
@@ -67,7 +67,7 @@ func prepareManagedWritablePath(root, path string) error {
 	err := os.MkdirAll(target, capturedPrivateDirMode)
 	if err != nil {
 		return fmt.Errorf(
-			"coding-ethos bug: managed writable path %q could not be prepared: %w",
+			"prepare sandbox write path %q: %w",
 			path,
 			err,
 		)

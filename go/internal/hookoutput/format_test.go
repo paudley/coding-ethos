@@ -225,7 +225,7 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 				"ast_language":         "python",
 				"ast_end_byte":         int64(128),
 				"ast_end_column":       int64(19),
-				"ast_end_line":         int64(6),
+				"ast_end_line":         int64(4),
 				"ast_node_kind":        "function_definition",
 				"ast_start_byte":       int64(72),
 				"ast_symbol_kind":      "function",
@@ -364,7 +364,7 @@ func assertSARIFResultLocation(t *testing.T, payload map[string]any) {
 		t,
 		payload,
 		"runs.0.results.0.locations.0.physicalLocation.region.endLine",
-		float64(6),
+		float64(4),
 	)
 	assertJSONPath(
 		t,
@@ -375,13 +375,13 @@ func assertSARIFResultLocation(t *testing.T, payload map[string]any) {
 	assertJSONPath(
 		t,
 		payload,
-		"runs.0.results.0.locations.0.physicalLocation.region.charOffset",
+		"runs.0.results.0.locations.0.physicalLocation.region.byteOffset",
 		float64(72),
 	)
 	assertJSONPath(
 		t,
 		payload,
-		"runs.0.results.0.locations.0.physicalLocation.region.charLength",
+		"runs.0.results.0.locations.0.physicalLocation.region.byteLength",
 		float64(56),
 	)
 	assertJSONPath(

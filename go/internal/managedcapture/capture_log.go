@@ -43,12 +43,7 @@ func logCapturedToolResult(
 }
 
 func writeCapturedToolSARIFSidecar(tracePath string, result lint.Result) error {
-	output, err := hookoutput.FormatLintResult(result, hookoutput.FormatSARIF)
-	if err != nil {
-		return fmt.Errorf("format lint trace as SARIF: %w", err)
-	}
-
-	err = lint.WriteSARIFSidecar(tracePath, output)
+	err := hookoutput.WriteLintSARIFSidecar(tracePath, result)
 	if err != nil {
 		return fmt.Errorf("write captured tool SARIF sidecar: %w", err)
 	}

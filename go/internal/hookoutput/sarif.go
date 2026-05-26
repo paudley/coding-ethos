@@ -125,6 +125,8 @@ type sarifRegion struct {
 	EndColumn   int
 	CharOffset  int64
 	CharLength  int64
+	ByteOffset  int64
+	ByteLength  int64
 }
 
 type sarifResultProperties struct {
@@ -351,7 +353,12 @@ func (location sarifPhysicalLocation) MarshalJSON() ([]byte, error) {
 	}
 	if location.Region.StartLine != 0 ||
 		location.Region.StartColumn != 0 ||
-		location.Region.EndLine != 0 {
+		location.Region.EndLine != 0 ||
+		location.Region.EndColumn != 0 ||
+		location.Region.CharOffset != 0 ||
+		location.Region.CharLength != 0 ||
+		location.Region.ByteOffset != 0 ||
+		location.Region.ByteLength != 0 {
 		fields["region"] = location.Region
 	}
 
@@ -382,6 +389,14 @@ func (region sarifRegion) MarshalJSON() ([]byte, error) {
 
 	if region.CharLength != 0 {
 		fields["charLength"] = region.CharLength
+	}
+
+	if region.ByteOffset != 0 {
+		fields["byteOffset"] = region.ByteOffset
+	}
+
+	if region.ByteLength != 0 {
+		fields["byteLength"] = region.ByteLength
 	}
 
 	if region.Snippet != nil && strings.TrimSpace(region.Snippet.Text) != "" {
@@ -831,7 +846,8 @@ func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 		location.PhysicalLocation.Region.StartColumn = item.Column
 	}
 
-	if endLine := int(sarifIntMetadata(item, "ast_end_line")); endLine > item.Line {
+	if endLine := int(sarifIntMetadata(item, "ast_end_line")); endLine > 0 &&
+		endLine >= item.Line {
 		location.PhysicalLocation.Region.EndLine = endLine
 	}
 
@@ -848,16 +864,16 @@ func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 		"ast_start_byte",
 		"start_byte",
 	); startByte > 0 {
-		location.PhysicalLocation.Region.CharOffset = startByte
+		location.PhysicalLocation.Region.ByteOffset = startByte
 	}
 
 	if endByte := firstSARIFIntMetadata(
 		item,
 		"ast_end_byte",
 		"end_byte",
-	); endByte > location.PhysicalLocation.Region.CharOffset {
-		location.PhysicalLocation.Region.CharLength = endByte -
-			location.PhysicalLocation.Region.CharOffset
+	); endByte > location.PhysicalLocation.Region.ByteOffset {
+		location.PhysicalLocation.Region.ByteLength = endByte -
+			location.PhysicalLocation.Region.ByteOffset
 	}
 
 	if snippet := sarifStringMetadata(item, "snippet"); snippet != "" {

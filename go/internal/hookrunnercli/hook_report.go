@@ -134,12 +134,7 @@ func emitHookReport(writer io.Writer, producer hookDiagnosticProducer, format st
 }
 
 func writeHookReportSARIFSidecar(tracePath string, result lint.Result) error {
-	output, err := hookoutput.FormatLintResult(result, hookoutput.FormatSARIF)
-	if err != nil {
-		return fmt.Errorf("format hook report as SARIF: %w", err)
-	}
-
-	err = lint.WriteSARIFSidecar(tracePath, output)
+	err := hookoutput.WriteLintSARIFSidecar(tracePath, result)
 	if err != nil {
 		return fmt.Errorf("write hook report SARIF sidecar: %w", err)
 	}
