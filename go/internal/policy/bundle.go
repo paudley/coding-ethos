@@ -885,8 +885,9 @@ const shellForbiddenStringsCEL = `!(
 		) ||
 		(
 			list_contains(["Write", "Edit", "MultiEdit"], event.tool) &&
-			!paths.exists(path,
-				any_glob_match(
+			paths.exists(path,
+				path.base != "Makefile" &&
+				!any_glob_match(
 					[
 						"**/.claude/**",
 						"**/.codex/**",
@@ -895,7 +896,6 @@ const shellForbiddenStringsCEL = `!(
 					path.file
 				)
 			) &&
-			!paths.exists(path, path.base == "Makefile") &&
 			any_contains(
 				[
 					"coding-ethos-hooks/coding-ethos-git-hook",

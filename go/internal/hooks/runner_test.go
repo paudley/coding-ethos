@@ -2635,6 +2635,32 @@ func TestRunAllowsParentMakefileHookInternalMarker(t *testing.T) {
 	}
 }
 
+func TestRunBlocksForbiddenStringWhenMakefileIsOneOfMultipleTargets(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "Write",
+			ToolInput: map[string]any{
+				"paths": []any{"Makefile", "notes.md"},
+				"content": strings.Join([]string{
+					"status:",
+					"\tcoding-ethos-hooks/coding-ethos-git-hook",
+				}, "\n"),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked ||
+		!hasDecision(result.Decisions, "shell.forbidden_strings") {
+		t.Fatalf("expected forbidden string block, got %#v", result.Decisions)
+	}
+}
+
 func TestRunAllowsAgentWorkspaceMemoryWithGitLearning(t *testing.T) {
 	t.Parallel()
 

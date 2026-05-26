@@ -213,6 +213,14 @@ func TestHookGroupResultFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestReadHookGroupResultFileRejectsNonTempPath(t *testing.T) {
+	t.Parallel()
+
+	if result, ok := readHookGroupResultFile("go.mod"); ok {
+		t.Fatalf("readHookGroupResultFile() = %#v, true for non-temp path", result)
+	}
+}
+
 func TestRunGitHookCommandRejectsUnsupportedEntrypoints(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		if got := runGitHookCommand(Config{}, nil); got != 1 {

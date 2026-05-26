@@ -394,7 +394,12 @@ func hookGroupResultFilePath(path string) (string, bool) {
 }
 
 func readHookGroupResultFile(path string) (hookGroupResult, bool) {
-	data, err := os.ReadFile(path)
+	cleanPath, ok := hookGroupResultFilePath(path)
+	if !ok {
+		return hookGroupResult{}, false
+	}
+
+	data, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return hookGroupResult{}, false
 	}
