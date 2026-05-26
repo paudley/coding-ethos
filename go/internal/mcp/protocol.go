@@ -1105,30 +1105,7 @@ func codeIntelCodeToolDefinitions() []map[string]any {
 		codeIntelRepoMapToolDefinition(),
 		codeIntelContextCardToolDefinition(),
 		codeIntelChangeRiskToolDefinition(),
-		toolDefinition(
-			"code_intel_index_code",
-			toolText(
-				"Parse repository code with Tree-sitter and persist",
-				"symbol-level code chunks for search and embedding.",
-			),
-			map[string]any{
-				"paths": map[string]any{
-					"type":  "array",
-					"items": map[string]any{"type": "string"},
-				},
-			},
-			nil,
-			toolMetadata{
-				Advisory:      true,
-				ExecutesTools: false,
-				ReadsFiles:    true,
-				PreferredUse: toolText(
-					"refresh symbol-level code context before asking for",
-					"related code or remediation history",
-				),
-				TracePersisted: true,
-			},
-		),
+		codeIntelIndexCodeToolDefinition(),
 		toolDefinition(
 			"code_intel_code_chunks",
 			toolText(
@@ -1181,6 +1158,33 @@ func codeIntelCodeToolDefinitions() []map[string]any {
 			},
 		),
 	}
+}
+
+func codeIntelIndexCodeToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_index_code",
+		toolText(
+			"Parse repository code with Tree-sitter and persist",
+			"symbol-level code chunks for search and embedding.",
+		),
+		map[string]any{
+			"paths": map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "string"},
+			},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"refresh symbol-level code context before asking for",
+				"related code or remediation history",
+			),
+			TracePersisted: true,
+		},
+	)
 }
 
 func codeIntelContextCardToolDefinition() map[string]any {
