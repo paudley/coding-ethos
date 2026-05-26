@@ -26,7 +26,12 @@ const (
 	rootRepo             = "repo"
 	rootTemp             = "temp"
 	codeIntelDBSurfaceID = "code_intel_db"
+	codeIntelDuckDBID    = "code_intel_duckdb"
+	codeIntelDuckDBWALID = "code_intel_duckdb_wal"
+	codeIntelEventsID    = "code_intel_events"
 	codeIntelLockID      = "code_intel_rebuild_lock"
+	codeIntelSQLiteWALID = "code_intel_sqlite_wal"
+	codeIntelSQLiteSHMID = "code_intel_sqlite_shm"
 
 	// DefaultTempEvidenceMaxAge is the retention age for proxy temp evidence.
 	DefaultTempEvidenceMaxAge = 24 * time.Hour
@@ -226,8 +231,8 @@ func codeIntelSurfaceDefinitions() []Definition {
 	definitions := make([]Definition, 0, codeIntelSurfaceDefinitionCount)
 	definitions = append(definitions, codeIntelStoreSurfaceDefinitions()...)
 	definitions = append(definitions, codeIntelSidecarSurfaceDefinitions()...)
-	definitions = append(definitions, repoDir(
-		"code_intel_events",
+	eventLogs := repoDir(
+		codeIntelEventsID,
 		".coding-ethos/events",
 		"Append-only code intelligence event logs.",
 		"go/internal/codeintel",
@@ -235,8 +240,10 @@ func codeIntelSurfaceDefinitions() []Definition {
 		"medium",
 		"high",
 		"audit_evidence",
-		true,
-	))
+		false,
+	)
+	eventLogs.AutomaticPrune = true
+	definitions = append(definitions, eventLogs)
 
 	return definitions
 }
@@ -256,14 +263,14 @@ func codeIntelStoreSurfaceDefinitions() []Definition {
 			true,
 		),
 		repoFile(
-			"code_intel_duckdb",
+			codeIntelDuckDBID,
 			".coding-ethos/code-intel.duckdb",
 			"Repo-local code intelligence DuckDB query index.",
 			"go/internal/codeintel",
 			"code-intel CLI and downstream-analysis",
 			"high",
 			"derived_index",
-			true,
+			false,
 			true,
 			false,
 		),
@@ -273,7 +280,7 @@ func codeIntelStoreSurfaceDefinitions() []Definition {
 func codeIntelSidecarSurfaceDefinitions() []Definition {
 	return []Definition{
 		repoFile(
-			"code_intel_duckdb_wal",
+			codeIntelDuckDBWALID,
 			".coding-ethos/code-intel.duckdb.wal",
 			"Repo-local code intelligence DuckDB write-ahead log.",
 			"go/internal/codeintel",
@@ -285,7 +292,7 @@ func codeIntelSidecarSurfaceDefinitions() []Definition {
 			false,
 		),
 		repoFile(
-			"code_intel_sqlite_wal",
+			codeIntelSQLiteWALID,
 			".coding-ethos/code-intel.db-wal",
 			"Legacy SQLite code-intelligence write-ahead log.",
 			"go/internal/codeintel",
@@ -293,11 +300,11 @@ func codeIntelSidecarSurfaceDefinitions() []Definition {
 			"medium",
 			"derived_index",
 			true,
-			false,
+			true,
 			false,
 		),
 		repoFile(
-			"code_intel_sqlite_shm",
+			codeIntelSQLiteSHMID,
 			".coding-ethos/code-intel.db-shm",
 			"Legacy SQLite code-intelligence shared-memory sidecar.",
 			"go/internal/codeintel",
@@ -305,7 +312,7 @@ func codeIntelSidecarSurfaceDefinitions() []Definition {
 			"medium",
 			"derived_index",
 			true,
-			false,
+			true,
 			false,
 		),
 		repoFile(
@@ -932,16 +939,21 @@ func FormatPruneTOON(report PruneReport) string {
 
 	if len(report.DBMaintenance) > 0 {
 		lines = append(lines, fmt.Sprintf(
-			"db_maintenance[%d]{surface,deleted_traces,deleted_proxy_events,vacuumed,cutoff}:",
+			"db_maintenance[%d]{surface,deleted_traces,deleted_proxy_events,"+
+				"vacuumed,checkpointed,compacted,size_before,size_after,cutoff}:",
 			len(report.DBMaintenance),
 		))
 		for _, maintenance := range report.DBMaintenance {
 			lines = append(lines, fmt.Sprintf(
-				"  %s,%d,%d,%t,%s",
+				"  %s,%d,%d,%t,%t,%t,%d,%d,%s",
 				toonCell(maintenance.SurfaceID),
 				maintenance.DeletedTraces,
 				maintenance.DeletedProxyEvents,
 				maintenance.Vacuumed,
+				maintenance.Checkpointed,
+				maintenance.Compacted,
+				maintenance.SizeBeforeBytes,
+				maintenance.SizeAfterBytes,
 				toonCell(maintenance.CutoffUTC),
 			))
 		}
@@ -1008,11 +1020,17 @@ func FormatPruneHuman(report PruneReport) string {
 
 	for _, maintenance := range report.DBMaintenance {
 		lines = append(lines, fmt.Sprintf(
-			"- %s rows: deleted_traces=%d deleted_proxy_events=%d vacuumed=%t cutoff=%s",
+			"- %s db: deleted_traces=%d deleted_proxy_events=%d "+
+				"vacuumed=%t checkpointed=%t compacted=%t "+
+				"size_before=%d size_after=%d cutoff=%s",
 			maintenance.SurfaceID,
 			maintenance.DeletedTraces,
 			maintenance.DeletedProxyEvents,
 			maintenance.Vacuumed,
+			maintenance.Checkpointed,
+			maintenance.Compacted,
+			maintenance.SizeBeforeBytes,
+			maintenance.SizeAfterBytes,
 			maintenance.CutoffUTC,
 		))
 	}

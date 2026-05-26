@@ -426,6 +426,82 @@ func TestPruneLockMaintenanceUsesDefaultPolicyWhenSettingMissing(t *testing.T) {
 	}
 }
 
+func TestAutoPruneCodeIntelDBMaintainsSidecarsAndEvents(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	oldTime := time.Now().UTC().Add(-120 * 24 * time.Hour)
+	for _, path := range []string{
+		filepath.Join(root, ".coding-ethos", "code-intel.db-wal"),
+		filepath.Join(root, ".coding-ethos", "code-intel.db-shm"),
+		filepath.Join(root, ".coding-ethos", "events", "old.jsonl"),
+	} {
+		writePruneFixture(t, path, "old\n")
+		if err := os.Chtimes(path, oldTime, oldTime); err != nil {
+			t.Fatalf("set fixture mtime: %v", err)
+		}
+	}
+
+	if err := AutoPruneCodeIntelDB(context.Background(), root); err != nil {
+		t.Fatalf("AutoPruneCodeIntelDB returned error: %v", err)
+	}
+
+	for _, path := range []string{
+		filepath.Join(root, ".coding-ethos", "code-intel.db-wal"),
+		filepath.Join(root, ".coding-ethos", "code-intel.db-shm"),
+		filepath.Join(root, ".coding-ethos", "events", "old.jsonl"),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("auto-maintained file still exists %s: %v", path, err)
+		}
+	}
+}
+
+func TestPruneDuckDBMaintenanceCheckpointsAndCompacts(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store, err := codeintel.OpenDuckDB(ctx, codeintel.DefaultDuckDBPath(root))
+	if err != nil {
+		t.Fatalf("open DuckDB: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close DuckDB: %v", err)
+	}
+
+	settings := DefaultSettings()
+	policy := settings.Prune.Surfaces[codeIntelDuckDBID]
+	policy.Enabled = true
+	policy.Auto = true
+	policy.VacuumAfterPrune = true
+	settings.Prune.Surfaces[codeIntelDuckDBID] = policy
+
+	report, err := Prune(ctx, PruneOptions{
+		Root:      root,
+		Settings:  settings,
+		Scopes:    []string{codeIntelDuckDBID},
+		Apply:     true,
+		Automatic: true,
+	})
+	if err != nil {
+		t.Fatalf("Prune returned error: %v", err)
+	}
+
+	var maintenance DBMaintenance
+	for _, candidate := range report.DBMaintenance {
+		if candidate.SurfaceID == codeIntelDuckDBID {
+			maintenance = candidate
+		}
+	}
+	if !maintenance.Checkpointed || !maintenance.Compacted {
+		t.Fatalf("DuckDB maintenance = %#v", report.DBMaintenance)
+	}
+	if maintenance.SizeBeforeBytes == 0 || maintenance.SizeAfterBytes == 0 {
+		t.Fatalf("DuckDB maintenance missing sizes: %#v", maintenance)
+	}
+}
+
 func TestPruneIncludesTempSurfacesWhenRequested(t *testing.T) {
 	root := t.TempDir()
 	tempRoot := t.TempDir()

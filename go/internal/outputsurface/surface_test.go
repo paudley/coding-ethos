@@ -182,7 +182,7 @@ func TestPruneFormatsIncludeCandidatesAndDBMaintenance(t *testing.T) {
 		!strings.Contains(human, "- lint_traces deleted") ||
 		!strings.Contains(
 			human,
-			"- code_intel_db rows: deleted_traces=2 deleted_proxy_events=3 vacuumed=true",
+			"- code_intel_db db: deleted_traces=2 deleted_proxy_events=3 vacuumed=true",
 		) ||
 		!strings.Contains(human, "trace_path: /repo/.coding-ethos/prune-runs/run.json") ||
 		!strings.Contains(human, "sample error") {

@@ -65,6 +65,10 @@ type DBMaintenance struct {
 	CutoffUTC          string `json:"cutoff_utc,omitempty"`
 	DeletedTraces      int    `json:"deleted_traces,omitempty"`
 	DeletedProxyEvents int    `json:"deleted_proxy_events,omitempty"`
+	SizeBeforeBytes    int64  `json:"size_before_bytes,omitempty"`
+	SizeAfterBytes     int64  `json:"size_after_bytes,omitempty"`
+	Checkpointed       bool   `json:"checkpointed,omitempty"`
+	Compacted          bool   `json:"compacted,omitempty"`
 	Vacuumed           bool   `json:"vacuumed,omitempty"`
 }
 
@@ -110,6 +114,7 @@ func Prune(ctx context.Context, options PruneOptions) (PruneReport, error) {
 	}
 
 	collectPruneWork(ctx, &report, settings, options, scopes, now, &codeIntelDB)
+	appendDuckDBMaintenance(ctx, &report, settings, options, scopes)
 	appendLockMaintenance(&report, settings, options, scopes, now)
 
 	if options.Apply && options.Vacuum && shouldVacuum(scopes) {
@@ -266,6 +271,126 @@ func shouldRunDBMaintenance(
 	return !options.Automatic || policy.Auto
 }
 
+func appendDuckDBMaintenance(
+	ctx context.Context,
+	report *PruneReport,
+	settings Settings,
+	options PruneOptions,
+	scopes map[string]bool,
+) {
+	if !shouldRunDuckDBMaintenance(settings, options, scopes) {
+		return
+	}
+
+	maintenance, hasMaintenance, err := runDuckDBMaintenance(
+		ctx,
+		report.Root,
+		settings,
+		options,
+	)
+	if err != nil {
+		report.Errors = append(report.Errors, err.Error())
+
+		return
+	}
+
+	if hasMaintenance {
+		report.DBMaintenance = append(report.DBMaintenance, maintenance)
+	}
+}
+
+func shouldRunDuckDBMaintenance(
+	settings Settings,
+	options PruneOptions,
+	scopes map[string]bool,
+) bool {
+	if len(scopes) > 0 && !scopes[codeIntelDuckDBID] && !scopes[codeIntelDuckDBWALID] {
+		return false
+	}
+
+	if len(scopes) == 0 && !options.All {
+		return false
+	}
+
+	duckDBDefinition, found := definitionByID(codeIntelDuckDBID)
+	if !found {
+		return false
+	}
+
+	policy := retentionPolicy(settings, duckDBDefinition)
+	if !policy.Enabled && !options.All && !options.Vacuum {
+		return false
+	}
+
+	return options.Apply && (!options.Automatic || policy.Auto)
+}
+
+func runDuckDBMaintenance(
+	ctx context.Context,
+	root string,
+	settings Settings,
+	options PruneOptions,
+) (DBMaintenance, bool, error) {
+	duckDBPath := codeintel.DefaultDuckDBPath(root)
+
+	info, err := os.Stat(duckDBPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return DBMaintenance{}, false, nil
+		}
+
+		return DBMaintenance{}, false, fmt.Errorf("stat DuckDB before maintenance: %w", err)
+	}
+
+	store, err := codeintel.OpenDuckDB(ctx, duckDBPath)
+	if err != nil {
+		return DBMaintenance{}, false, fmt.Errorf("open DuckDB for maintenance: %w", err)
+	}
+	defer store.Close()
+
+	err = store.Checkpoint(ctx)
+	if err != nil {
+		return DBMaintenance{}, false, fmt.Errorf("checkpoint DuckDB maintenance: %w", err)
+	}
+
+	compacted := false
+
+	if shouldCompactDuckDB(settings, options) {
+		err = store.Compact(ctx)
+		if err != nil {
+			return DBMaintenance{}, false, fmt.Errorf("compact DuckDB maintenance: %w", err)
+		}
+
+		compacted = true
+	}
+
+	after, err := os.Stat(duckDBPath)
+	if err != nil {
+		return DBMaintenance{}, false, fmt.Errorf("stat DuckDB after maintenance: %w", err)
+	}
+
+	return DBMaintenance{
+		SurfaceID:       codeIntelDuckDBID,
+		SizeBeforeBytes: info.Size(),
+		SizeAfterBytes:  after.Size(),
+		Checkpointed:    true,
+		Compacted:       compacted,
+	}, true, nil
+}
+
+func shouldCompactDuckDB(settings Settings, options PruneOptions) bool {
+	if options.Vacuum {
+		return true
+	}
+
+	duckDBDefinition, found := definitionByID(codeIntelDuckDBID)
+	if !found {
+		return false
+	}
+
+	return retentionPolicy(settings, duckDBDefinition).VacuumAfterPrune
+}
+
 func appendLockMaintenance(
 	report *PruneReport,
 	settings Settings,
@@ -368,7 +493,8 @@ func reportHasTraceableWork(report PruneReport) bool {
 
 	for _, maintenance := range report.DBMaintenance {
 		hasDeletedRows := maintenance.DeletedTraces > 0 || maintenance.DeletedProxyEvents > 0
-		if hasDeletedRows || maintenance.Vacuumed {
+		if hasDeletedRows || maintenance.Vacuumed ||
+			maintenance.Checkpointed || maintenance.Compacted {
 			return true
 		}
 	}
@@ -424,7 +550,7 @@ func AutoPruneCodeIntelDB(ctx context.Context, root string) error {
 	_, err = Prune(ctx, PruneOptions{
 		Root:      root,
 		Settings:  settings,
-		Scopes:    []string{codeIntelDBSurfaceID, codeIntelLockID},
+		Scopes:    codeIntelAutomaticScopes(settings),
 		Apply:     true,
 		Automatic: true,
 	})
@@ -433,6 +559,19 @@ func AutoPruneCodeIntelDB(ctx context.Context, root string) error {
 	}
 
 	return nil
+}
+
+func codeIntelAutomaticScopes(settings Settings) []string {
+	scopes := make([]string, 0, codeIntelSurfaceDefinitionCount)
+
+	for _, definition := range codeIntelSurfaceDefinitions() {
+		policy := retentionPolicy(settings, definition)
+		if policy.Enabled && policy.Auto {
+			scopes = append(scopes, definition.ID)
+		}
+	}
+
+	return scopes
 }
 
 func shouldPruneSurface(
@@ -452,7 +591,7 @@ func shouldPruneSurface(
 		return true
 	}
 
-	return definition.DBMaintenance && (len(scopes) > 0 || options.All || options.Vacuum)
+	return len(scopes) > 0 || options.All || options.Vacuum
 }
 
 func pruneCandidates(

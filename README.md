@@ -446,6 +446,7 @@ bin/coding-ethos-run output prune --dry-run --all
 bin/coding-ethos-run output prune --scope proxy_temp_evidence --older-than 24h --include-temp
 bin/coding-ethos-run output prune --scope lint_traces --older-than 30d --apply
 bin/coding-ethos-run output prune --scope code_intel_db --older-than 90d --apply --vacuum
+bin/coding-ethos-run output prune --scope code_intel_duckdb --apply --vacuum
 ```
 
 The report is non-destructive. It inventories retained hook runs and component
@@ -459,10 +460,17 @@ optional `--vacuum`. Apply runs write `.coding-ethos/prune-runs/*.json` traces
 when they delete files, prune rows, vacuum, or hit errors. Output lifecycle
 defaults live in `config.toml`; consuming repos can override `outputs.*` in
 `repo_config.toml` without changing the existing YAML enforcement config path.
-Code-intel maintenance also tracks DuckDB and SQLite sidecar files and validates
-`.coding-ethos/code-intel-rebuild.lock` by PID before clearing stale locks. If
-the host cannot answer PID liveness, cleanup falls back to the configured stale
-lock age, so a dead rebuild process does not block later maintenance.
+Code-intel maintenance treats database files as derived indexes and evidence
+logs as durable audit material. Automatic maintenance prunes old SQLite rows,
+checkpoints and compacts the DuckDB index, removes stale DuckDB/SQLite sidecar
+files, applies the explicit `.coding-ethos/events` age/count/size budget, and
+validates `.coding-ethos/code-intel-rebuild.lock` by PID before clearing stale
+locks. If the host cannot answer PID liveness, cleanup falls back to the
+configured stale lock age, so a dead rebuild process does not block later
+maintenance. Live SQLite and DuckDB database files are report-only prune
+candidates: oversized stores are surfaced for operators, while the automated
+path uses row retention, checkpointing, compaction, and sidecar cleanup instead
+of deleting active indexes.
 
 The directory anatomy map is inspired by Aider's repo map: agents get a compact
 symbol preview before deciding which files to open, while coding-ethos keeps the
@@ -982,15 +990,18 @@ Per-surface retention keys are `enabled`, `auto`, `max_age`, `keep_last`,
 `max_bytes`, `require_code_intel_ingest`, `row_retention_days`, and
 `vacuum_after_prune`. Automatic pruning covers repo-local runtime outputs:
 proxy temp evidence is pruned before new evidence files are written,
-`code_intel_db` rows are pruned after code-intel writes, lint traces are pruned
-after managed lint trace writes, hook run directories prune after hook
-maintenance, stale `code_intel_rebuild_lock` files are removed after owner
-process validation, and cache surfaces prune according to their per-surface
-retention. Code-intel DB file-size budgets are reported during manual prune
-runs, while automatic `code_intel_db` maintenance prunes rows without deleting
-the live database file. Automatic `code_intel_db` pruning does not vacuum by
-default; use manual `output prune --scope code_intel_db --apply --vacuum` for
-explicit database compaction.
+`code_intel_db` rows are pruned after code-intel writes, `code_intel_duckdb` is
+checkpointed and compacted, DuckDB and legacy SQLite sidecars are pruned by
+age/size policy, `.coding-ethos/events` is bounded by age/count/size policy,
+lint traces are pruned after managed lint trace writes, hook run directories
+prune after hook maintenance, stale `code_intel_rebuild_lock` files are removed
+after owner process validation, and cache surfaces prune according to their
+per-surface retention. Code-intel DB file-size budgets are reported during
+manual prune runs, while automatic code-intel maintenance preserves live
+database files and acts through row retention, checkpoint/compaction, sidecar
+cleanup, and event-log retention. Use manual `output prune --scope code_intel_db
+--apply --vacuum` or `output prune --scope code_intel_duckdb --apply --vacuum`
+for explicit operator-requested database compaction.
 
 See [repo_config.example.toml](repo_config.example.toml).
 

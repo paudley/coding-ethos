@@ -150,6 +150,24 @@ func (store *DuckDBStore) Stats(ctx context.Context) (Stats, error) {
 	return stats, nil
 }
 
+func (store *DuckDBStore) Checkpoint(ctx context.Context) error {
+	_, err := store.database.ExecContext(ctx, "CHECKPOINT")
+	if err != nil {
+		return fmt.Errorf("checkpoint DuckDB code-intel store: %w", err)
+	}
+
+	return nil
+}
+
+func (store *DuckDBStore) Compact(ctx context.Context) error {
+	_, err := store.database.ExecContext(ctx, "VACUUM")
+	if err != nil {
+		return fmt.Errorf("compact DuckDB code-intel store: %w", err)
+	}
+
+	return nil
+}
+
 func (store *DuckDBStore) RebuildFromLegacySQLite(
 	ctx context.Context,
 	legacy *Store,

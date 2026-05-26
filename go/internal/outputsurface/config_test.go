@@ -54,6 +54,36 @@ func TestDefaultSettingsAvoidAutomaticCodeIntelVacuum(t *testing.T) {
 	}
 }
 
+func TestDefaultSettingsContinuouslyMaintainCodeIntelSurfaces(t *testing.T) {
+	t.Parallel()
+
+	settings := DefaultSettings()
+	for _, surfaceID := range []string{
+		codeIntelDuckDBID,
+		codeIntelDuckDBWALID,
+		codeIntelSQLiteWALID,
+		codeIntelSQLiteSHMID,
+		codeIntelEventsID,
+		codeIntelLockID,
+	} {
+		policy := settings.Prune.Surfaces[surfaceID]
+		if !policy.Enabled || !policy.Auto {
+			t.Fatalf("surface %s is not automatic by default: %#v", surfaceID, policy)
+		}
+	}
+
+	if !settings.Prune.Surfaces[codeIntelDuckDBID].VacuumAfterPrune {
+		t.Fatalf("DuckDB default should compact automatically: %#v",
+			settings.Prune.Surfaces[codeIntelDuckDBID])
+	}
+	if settings.Prune.Surfaces[codeIntelEventsID].KeepLast != 20000 ||
+		settings.Prune.Surfaces[codeIntelEventsID].MaxAge == 0 ||
+		settings.Prune.Surfaces[codeIntelEventsID].MaxBytes == 0 {
+		t.Fatalf("events default lacks explicit budget: %#v",
+			settings.Prune.Surfaces[codeIntelEventsID])
+	}
+}
+
 func TestLoadSettingsRejectsUnknownSurface(t *testing.T) {
 	t.Parallel()
 
