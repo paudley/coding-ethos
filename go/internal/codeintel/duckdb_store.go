@@ -47,6 +47,18 @@ type RebuildIndexSummary struct {
 	Stats                  Stats  `json:"stats"`
 }
 
+// RebuildLockMaintenance reports inspection and optional cleanup of the
+// repo-local code-intel rebuild lock.
+type RebuildLockMaintenance struct {
+	Path       string `json:"path"`
+	Reason     string `json:"reason,omitempty"`
+	PID        int    `json:"pid,omitempty"`
+	AgeSeconds int64  `json:"age_seconds,omitempty"`
+	Exists     bool   `json:"exists"`
+	Stale      bool   `json:"stale"`
+	Removed    bool   `json:"removed"`
+}
+
 type legacySQLiteImportResult struct {
 	skipReason string
 	imported   bool
@@ -229,7 +241,7 @@ func RebuildDuckDBIndex(
 }
 
 func acquireDuckDBRebuildLock(root string) (func(), error) {
-	lockPath := filepath.Join(root, downstreamStateDir, "code-intel-rebuild.lock")
+	lockPath := DuckDBRebuildLockPath(root)
 
 	err := os.MkdirAll(filepath.Dir(lockPath), duckDBStoreMode)
 	if err != nil {
@@ -306,26 +318,120 @@ func openDuckDBRebuildLock(lockPath string) (*os.File, error) {
 }
 
 func duckDBRebuildLockStale(lockPath string) (bool, error) {
-	content, err := os.ReadFile(filepath.Clean(lockPath))
+	maintenance, err := inspectDuckDBRebuildLock(lockPath, time.Now().UTC())
 	if err != nil {
-		return false, fmt.Errorf("read code-intel rebuild lock: %w", err)
+		return false, err
 	}
 
-	pid, stalePID := parseDuckDBRebuildLockPID(strings.TrimSpace(string(content)))
-	if stalePID {
-		return true, nil
+	return maintenance.Stale, nil
+}
+
+// DuckDBRebuildLockPath returns the repo-local code-intel rebuild lock path.
+func DuckDBRebuildLockPath(root string) string {
+	return filepath.Join(root, downstreamStateDir, "code-intel-rebuild.lock")
+}
+
+// InspectDuckDBRebuildLock reports whether the repo-local rebuild lock exists
+// and whether its owner process is stale.
+func InspectDuckDBRebuildLock(
+	root string,
+	now time.Time,
+) (RebuildLockMaintenance, error) {
+	return inspectDuckDBRebuildLock(DuckDBRebuildLockPath(root), now)
+}
+
+// CleanupStaleDuckDBRebuildLock removes a stale repo-local rebuild lock after
+// validating that its owner process is gone or the lock is beyond the fallback
+// stale age on hosts without /proc.
+func CleanupStaleDuckDBRebuildLock(
+	root string,
+	now time.Time,
+) (RebuildLockMaintenance, error) {
+	maintenance, err := InspectDuckDBRebuildLock(root, now)
+	if err != nil {
+		return RebuildLockMaintenance{}, err
 	}
 
-	if hostSupportsProcStatus() {
-		return duckDBRebuildLockPIDStale(pid)
+	if !maintenance.Stale {
+		return maintenance, nil
+	}
+
+	err = os.Remove(filepath.Clean(maintenance.Path))
+	if err != nil && !os.IsNotExist(err) {
+		return RebuildLockMaintenance{}, fmt.Errorf(
+			"remove stale code-intel rebuild lock: %w",
+			err,
+		)
+	}
+
+	maintenance.Removed = true
+
+	return maintenance, nil
+}
+
+func inspectDuckDBRebuildLock(
+	lockPath string,
+	now time.Time,
+) (RebuildLockMaintenance, error) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+
+	maintenance := RebuildLockMaintenance{
+		Path: filepath.Clean(lockPath),
 	}
 
 	info, err := os.Stat(filepath.Clean(lockPath))
 	if err != nil {
-		return false, fmt.Errorf("stat code-intel rebuild lock: %w", err)
+		if os.IsNotExist(err) {
+			return maintenance, nil
+		}
+
+		return RebuildLockMaintenance{}, fmt.Errorf(
+			"stat code-intel rebuild lock: %w",
+			err,
+		)
 	}
 
-	return time.Since(info.ModTime()) > duckDBStaleLockAge, nil
+	maintenance.Exists = true
+	maintenance.AgeSeconds = max(int64(now.Sub(info.ModTime()).Seconds()), 0)
+
+	content, err := os.ReadFile(filepath.Clean(lockPath))
+	if err != nil {
+		return RebuildLockMaintenance{},
+			fmt.Errorf("read code-intel rebuild lock: %w", err)
+	}
+
+	pid, stalePID := parseDuckDBRebuildLockPID(strings.TrimSpace(string(content)))
+	maintenance.PID = pid
+
+	if stalePID {
+		maintenance.Stale = true
+		maintenance.Reason = "invalid pid"
+
+		return maintenance, nil
+	}
+
+	if hostSupportsProcStatus() {
+		stale, err := duckDBRebuildLockPIDStale(pid)
+		if err != nil {
+			return RebuildLockMaintenance{}, err
+		}
+
+		maintenance.Stale = stale
+		if stale {
+			maintenance.Reason = "owner process missing"
+		}
+
+		return maintenance, nil
+	}
+
+	maintenance.Stale = now.Sub(info.ModTime()) > duckDBStaleLockAge
+	if maintenance.Stale {
+		maintenance.Reason = "lock age exceeded stale threshold"
+	}
+
+	return maintenance, nil
 }
 
 func hostSupportsProcStatus() bool {

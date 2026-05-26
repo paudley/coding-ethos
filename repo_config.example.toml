@@ -35,6 +35,18 @@ auto = true
 row_retention_days = 90
 vacuum_after_prune = false
 
+[outputs.prune.surfaces.code_intel_duckdb]
+auto = true
+max_bytes = "4GiB"
+
+[outputs.prune.surfaces.code_intel_duckdb_wal]
+auto = true
+max_age = "7d"
+max_bytes = "1GiB"
+
+[outputs.prune.surfaces.code_intel_rebuild_lock]
+auto = true
+
 [outputs.prune.surfaces.sandbox_go_cache]
 auto = true
 max_age = "7d"

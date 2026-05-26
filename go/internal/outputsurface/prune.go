@@ -40,21 +40,23 @@ type PruneOptions struct {
 	Apply       bool
 	Vacuum      bool
 	All         bool
+	Automatic   bool
 }
 
 // PruneReport summarizes a prune run.
 type PruneReport struct {
-	GeneratedAtUTC string           `json:"generated_at_utc"`
-	Root           string           `json:"root"`
-	TracePath      string           `json:"trace_path,omitempty"`
-	Candidates     []PruneCandidate `json:"candidates"`
-	DBMaintenance  []DBMaintenance  `json:"db_maintenance,omitempty"`
-	Errors         []string         `json:"errors,omitempty"`
-	DeletedFiles   int              `json:"deleted_files"`
-	DeletedDirs    int              `json:"deleted_dirs"`
-	DeletedBytes   int64            `json:"deleted_bytes"`
-	Skipped        int              `json:"skipped"`
-	Apply          bool             `json:"apply"`
+	GeneratedAtUTC  string                             `json:"generated_at_utc"`
+	Root            string                             `json:"root"`
+	TracePath       string                             `json:"trace_path,omitempty"`
+	Candidates      []PruneCandidate                   `json:"candidates"`
+	DBMaintenance   []DBMaintenance                    `json:"db_maintenance,omitempty"`
+	LockMaintenance []codeintel.RebuildLockMaintenance `json:"lock_maintenance,omitempty"`
+	Errors          []string                           `json:"errors,omitempty"`
+	DeletedFiles    int                                `json:"deleted_files"`
+	DeletedDirs     int                                `json:"deleted_dirs"`
+	DeletedBytes    int64                              `json:"deleted_bytes"`
+	Skipped         int                                `json:"skipped"`
+	Apply           bool                               `json:"apply"`
 }
 
 // DBMaintenance describes code-intel database row and storage maintenance.
@@ -108,6 +110,7 @@ func Prune(ctx context.Context, options PruneOptions) (PruneReport, error) {
 	}
 
 	collectPruneWork(ctx, &report, settings, options, scopes, now, &codeIntelDB)
+	appendLockMaintenance(&report, settings, options, scopes, now)
 
 	if options.Apply && options.Vacuum && shouldVacuum(scopes) {
 		err = vacuumCodeIntel(ctx, &codeIntelDB, &report)
@@ -230,6 +233,10 @@ func appendDBMaintenance(
 		return
 	}
 
+	if !shouldRunDBMaintenance(policy, options) {
+		return
+	}
+
 	maintenance, hasMaintenance, err := pruneCodeIntelRows(
 		ctx,
 		codeIntelDB,
@@ -246,6 +253,85 @@ func appendDBMaintenance(
 	if hasMaintenance {
 		report.DBMaintenance = append(report.DBMaintenance, maintenance)
 	}
+}
+
+func shouldRunDBMaintenance(
+	policy SurfaceRetentionPolicy,
+	options PruneOptions,
+) bool {
+	if !policy.Enabled && options.OlderThan == 0 && !options.All && !options.Vacuum {
+		return false
+	}
+
+	return !options.Automatic || policy.Auto
+}
+
+func appendLockMaintenance(
+	report *PruneReport,
+	settings Settings,
+	options PruneOptions,
+	scopes map[string]bool,
+	now time.Time,
+) {
+	if !shouldRunLockMaintenance(settings, options, scopes) {
+		return
+	}
+
+	maintenance, err := runLockMaintenance(report.Root, options, now)
+	if err != nil {
+		report.Errors = append(report.Errors, err.Error())
+
+		return
+	}
+
+	if maintenance.Exists || maintenance.Removed {
+		report.LockMaintenance = append(report.LockMaintenance, maintenance)
+	}
+}
+
+func shouldRunLockMaintenance(
+	settings Settings,
+	options PruneOptions,
+	scopes map[string]bool,
+) bool {
+	if len(scopes) > 0 && !scopes[codeIntelLockID] {
+		return false
+	}
+
+	if len(scopes) == 0 && !options.All {
+		return false
+	}
+
+	policy := settings.Prune.Surfaces[codeIntelLockID]
+	if !policy.Enabled && options.OlderThan == 0 && !options.All {
+		return false
+	}
+
+	return !options.Automatic || policy.Auto
+}
+
+func runLockMaintenance(
+	root string,
+	options PruneOptions,
+	now time.Time,
+) (codeintel.RebuildLockMaintenance, error) {
+	if options.Apply {
+		maintenance, err := codeintel.CleanupStaleDuckDBRebuildLock(root, now)
+		if err != nil {
+			return codeintel.RebuildLockMaintenance{},
+				fmt.Errorf("cleanup stale code-intel rebuild lock: %w", err)
+		}
+
+		return maintenance, nil
+	}
+
+	maintenance, err := codeintel.InspectDuckDBRebuildLock(root, now)
+	if err != nil {
+		return codeintel.RebuildLockMaintenance{},
+			fmt.Errorf("inspect code-intel rebuild lock: %w", err)
+	}
+
+	return maintenance, nil
 }
 
 func skippedCandidateCount(candidates []PruneCandidate) int {
@@ -272,6 +358,12 @@ func reportHasTraceableWork(report PruneReport) bool {
 		}
 	}
 
+	for _, maintenance := range report.LockMaintenance {
+		if maintenance.Exists || maintenance.Removed {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -293,6 +385,7 @@ func AutoPruneSurface(ctx context.Context, root, scope string, includeTemp bool)
 		Scopes:      []string{scope},
 		IncludeTemp: includeTemp,
 		Apply:       true,
+		Automatic:   true,
 	})
 	if err != nil {
 		return fmt.Errorf("auto-prune output surface %s: %w", scope, err)
@@ -304,7 +397,27 @@ func AutoPruneSurface(ctx context.Context, root, scope string, includeTemp bool)
 // AutoPruneCodeIntelDB applies the configured automatic row-retention policy
 // for the repo-local code-intelligence database.
 func AutoPruneCodeIntelDB(ctx context.Context, root string) error {
-	return AutoPruneSurface(ctx, root, codeIntelDBSurfaceID, false)
+	settings, err := LoadSettings(root)
+	if err != nil {
+		return fmt.Errorf("load code-intel maintenance settings: %w", err)
+	}
+
+	if !settings.Prune.Enabled || !settings.Prune.AutoEnabled {
+		return nil
+	}
+
+	_, err = Prune(ctx, PruneOptions{
+		Root:      root,
+		Settings:  settings,
+		Scopes:    []string{codeIntelDBSurfaceID, codeIntelLockID},
+		Apply:     true,
+		Automatic: true,
+	})
+	if err != nil {
+		return fmt.Errorf("auto-maintain code-intel state: %w", err)
+	}
+
+	return nil
 }
 
 func shouldPruneSurface(
@@ -377,7 +490,11 @@ func shouldSkipPruneCandidates(
 	policy SurfaceRetentionPolicy,
 	options PruneOptions,
 ) bool {
-	if definition.DBMaintenance && !definition.CommandPrune {
+	if definition.ID == codeIntelLockID {
+		return true
+	}
+
+	if definition.DBMaintenance && !definition.CommandPrune && options.Automatic {
 		return true
 	}
 

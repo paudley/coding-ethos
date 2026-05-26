@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
@@ -298,6 +299,66 @@ func TestDuckDBRebuildLockRemovesStaleLock(t *testing.T) {
 		t.Fatalf("acquire stale lock: %v", err)
 	}
 	defer release()
+}
+
+func TestCleanupStaleDuckDBRebuildLockRemovesInvalidPID(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	lockPath := DuckDBRebuildLockPath(root)
+
+	err := os.MkdirAll(filepath.Dir(lockPath), duckDBStoreMode)
+	if err != nil {
+		t.Fatalf("create lock dir: %v", err)
+	}
+
+	err = os.WriteFile(lockPath, []byte("-1\n"), duckDBLockFileMode)
+	if err != nil {
+		t.Fatalf("write stale lock: %v", err)
+	}
+
+	maintenance, err := CleanupStaleDuckDBRebuildLock(root, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("cleanup stale lock: %v", err)
+	}
+	if !maintenance.Exists || !maintenance.Stale || !maintenance.Removed {
+		t.Fatalf("maintenance = %#v, want stale removed lock", maintenance)
+	}
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("lock still exists after cleanup: %v", err)
+	}
+}
+
+func TestCleanupStaleDuckDBRebuildLockRetainsCurrentPID(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	lockPath := DuckDBRebuildLockPath(root)
+
+	err := os.MkdirAll(filepath.Dir(lockPath), duckDBStoreMode)
+	if err != nil {
+		t.Fatalf("create lock dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		lockPath,
+		[]byte(strconv.Itoa(os.Getpid())+"\n"),
+		duckDBLockFileMode,
+	)
+	if err != nil {
+		t.Fatalf("write active lock: %v", err)
+	}
+
+	maintenance, err := CleanupStaleDuckDBRebuildLock(root, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("cleanup active lock: %v", err)
+	}
+	if !maintenance.Exists || maintenance.Stale || maintenance.Removed {
+		t.Fatalf("maintenance = %#v, want retained active lock", maintenance)
+	}
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Fatalf("active lock missing after cleanup: %v", err)
+	}
 }
 
 func TestRebuildDuckDBIndexSkipsOversizedLegacySQLite(t *testing.T) {

@@ -26,6 +26,7 @@ const (
 	rootRepo             = "repo"
 	rootTemp             = "temp"
 	codeIntelDBSurfaceID = "code_intel_db"
+	codeIntelLockID      = "code_intel_rebuild_lock"
 
 	// DefaultTempEvidenceMaxAge is the retention age for proxy temp evidence.
 	DefaultTempEvidenceMaxAge = 24 * time.Hour
@@ -220,9 +221,57 @@ func otherRepoAuditDefinitions() []Definition {
 			"code-intel CLI and downstream-analysis",
 			"high",
 			"derived_index",
+			true,
+			true,
 			false,
+		),
+		repoFile(
+			"code_intel_duckdb_wal",
+			".coding-ethos/code-intel.duckdb.wal",
+			"Repo-local code intelligence DuckDB write-ahead log.",
+			"go/internal/codeintel",
+			"code-intel CLI and downstream-analysis",
+			"medium",
+			"derived_index",
 			true,
 			true,
+			false,
+		),
+		repoFile(
+			"code_intel_sqlite_wal",
+			".coding-ethos/code-intel.db-wal",
+			"Legacy SQLite code-intelligence write-ahead log.",
+			"go/internal/codeintel",
+			"legacy code-intel readers during migration",
+			"medium",
+			"derived_index",
+			true,
+			false,
+			false,
+		),
+		repoFile(
+			"code_intel_sqlite_shm",
+			".coding-ethos/code-intel.db-shm",
+			"Legacy SQLite code-intelligence shared-memory sidecar.",
+			"go/internal/codeintel",
+			"legacy code-intel readers during migration",
+			"medium",
+			"derived_index",
+			true,
+			false,
+			false,
+		),
+		repoFile(
+			codeIntelLockID,
+			".coding-ethos/code-intel-rebuild.lock",
+			"Repo-local code-intel rebuild process lock.",
+			"go/internal/codeintel",
+			"code-intel rebuild coordination",
+			"low",
+			"ephemeral",
+			true,
+			true,
+			false,
 		),
 		repoDir(
 			"code_intel_events",
@@ -874,6 +923,24 @@ func FormatPruneTOON(report PruneReport) string {
 		}
 	}
 
+	if len(report.LockMaintenance) > 0 {
+		lines = append(lines, fmt.Sprintf(
+			"lock_maintenance[%d]{path,pid,age_seconds,stale,removed,reason}:",
+			len(report.LockMaintenance),
+		))
+		for _, maintenance := range report.LockMaintenance {
+			lines = append(lines, fmt.Sprintf(
+				"  %s,%d,%d,%t,%t,%s",
+				toonCell(maintenance.Path),
+				maintenance.PID,
+				maintenance.AgeSeconds,
+				maintenance.Stale,
+				maintenance.Removed,
+				toonCell(maintenance.Reason),
+			))
+		}
+	}
+
 	return strings.Join(lines, "\n") + "\n"
 }
 
@@ -923,6 +990,23 @@ func FormatPruneHuman(report PruneReport) string {
 			maintenance.DeletedProxyEvents,
 			maintenance.Vacuumed,
 			maintenance.CutoffUTC,
+		))
+	}
+
+	for _, maintenance := range report.LockMaintenance {
+		action := "retained"
+		if maintenance.Removed {
+			action = "removed"
+		}
+
+		lines = append(lines, fmt.Sprintf(
+			"- code-intel rebuild lock %s path=%s pid=%d age_seconds=%d stale=%t reason=%s",
+			action,
+			maintenance.Path,
+			maintenance.PID,
+			maintenance.AgeSeconds,
+			maintenance.Stale,
+			maintenance.Reason,
 		))
 	}
 

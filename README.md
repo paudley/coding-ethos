@@ -459,6 +459,9 @@ optional `--vacuum`. Apply runs write `.coding-ethos/prune-runs/*.json` traces
 when they delete files, prune rows, vacuum, or hit errors. Output lifecycle
 defaults live in `config.toml`; consuming repos can override `outputs.*` in
 `repo_config.toml` without changing the existing YAML enforcement config path.
+Code-intel maintenance also tracks DuckDB and SQLite sidecar files and validates
+`.coding-ethos/code-intel-rebuild.lock` by PID before clearing stale locks, so a
+dead rebuild process does not block later maintenance.
 
 The directory anatomy map is inspired by Aider's repo map: agents get a compact
 symbol preview before deciding which files to open, while coding-ethos keeps the
@@ -980,10 +983,13 @@ Per-surface retention keys are `enabled`, `auto`, `max_age`, `keep_last`,
 proxy temp evidence is pruned before new evidence files are written,
 `code_intel_db` rows are pruned after code-intel writes, lint traces are pruned
 after managed lint trace writes, hook run directories prune after hook
-maintenance, and cache surfaces prune according to their per-surface retention.
-Automatic `code_intel_db` pruning does not vacuum by default; use
-manual `output prune --scope code_intel_db --apply --vacuum` for explicit
-database compaction.
+maintenance, stale `code_intel_rebuild_lock` files are removed after owner
+process validation, and cache surfaces prune according to their per-surface
+retention. Code-intel DB file-size budgets are reported during manual prune
+runs, while automatic `code_intel_db` maintenance prunes rows without deleting
+the live database file. Automatic `code_intel_db` pruning does not vacuum by
+default; use manual `output prune --scope code_intel_db --apply --vacuum` for
+explicit database compaction.
 
 See [repo_config.example.toml](repo_config.example.toml).
 

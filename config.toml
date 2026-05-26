@@ -43,6 +43,33 @@ vacuum_after_prune = false
 max_bytes = "2GiB"
 row_retention_days = 90
 
+[outputs.prune.surfaces.code_intel_duckdb]
+enabled = true
+auto = true
+max_bytes = "4GiB"
+
+[outputs.prune.surfaces.code_intel_duckdb_wal]
+enabled = true
+auto = true
+max_age = "7d"
+max_bytes = "1GiB"
+
+[outputs.prune.surfaces.code_intel_sqlite_wal]
+enabled = true
+auto = false
+max_age = "7d"
+max_bytes = "1GiB"
+
+[outputs.prune.surfaces.code_intel_sqlite_shm]
+enabled = true
+auto = false
+max_age = "7d"
+max_bytes = "256MiB"
+
+[outputs.prune.surfaces.code_intel_rebuild_lock]
+enabled = true
+auto = true
+
 [outputs.prune.surfaces.sandbox_tmp]
 enabled = true
 auto = true

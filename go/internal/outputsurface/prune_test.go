@@ -238,6 +238,150 @@ func TestAutoPruneCodeIntelDBUsesDefaultRowRetention(t *testing.T) {
 	}
 }
 
+func TestAutoPruneCodeIntelDBCleansStaleRebuildLock(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	lockPath := codeintel.DuckDBRebuildLockPath(root)
+	writePruneFixture(t, lockPath, "-1\n")
+
+	if err := AutoPruneCodeIntelDB(ctx, root); err != nil {
+		t.Fatalf("AutoPruneCodeIntelDB returned error: %v", err)
+	}
+
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("stale rebuild lock still exists: %v", err)
+	}
+}
+
+func TestAutoPruneCodeIntelDBRespectsSurfaceAutoPolicy(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+
+	oldAt := time.Now().UTC().Add(
+		-time.Duration(DefaultCodeIntelRowRetentionDays+1) * 24 * time.Hour,
+	)
+	if err := store.IngestTrace(ctx, codeintel.Trace{
+		ID:            "old-trace",
+		Kind:          "lint",
+		RecordedAtUTC: oldAt.Format(time.RFC3339),
+		RepoRoot:      root,
+		Raw:           []byte("{}"),
+	}); err != nil {
+		t.Fatalf("ingest trace: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close code-intel store: %v", err)
+	}
+
+	writeConfigFixture(t, root, "repo_config.toml", `
+[outputs.prune.surfaces.code_intel_db]
+auto = false
+`)
+
+	if err := AutoPruneCodeIntelDB(ctx, root); err != nil {
+		t.Fatalf("AutoPruneCodeIntelDB returned error: %v", err)
+	}
+
+	store, err = codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("reopen code-intel store: %v", err)
+	}
+	defer store.Close()
+
+	stats, err := store.Stats(ctx)
+	if err != nil {
+		t.Fatalf("read code-intel stats: %v", err)
+	}
+	if stats.Traces != 1 {
+		t.Fatalf("auto=false pruned traces: %#v", stats)
+	}
+}
+
+func TestPruneReportsOversizedCodeIntelDBWithoutAutomaticFileDelete(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dbPath := codeintel.DefaultDBPath(root)
+	store, err := codeintel.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close code-intel store: %v", err)
+	}
+
+	settings := DefaultSettings()
+	policy := settings.Prune.Surfaces[codeIntelDBSurfaceID]
+	policy.MaxBytes = 1
+	policy.MaxBytesText = "1B"
+	settings.Prune.Surfaces[codeIntelDBSurfaceID] = policy
+
+	report, err := Prune(context.Background(), PruneOptions{
+		Root:      root,
+		Settings:  settings,
+		Scopes:    []string{codeIntelDBSurfaceID},
+		Apply:     true,
+		Automatic: true,
+	})
+	if err != nil {
+		t.Fatalf("automatic Prune returned error: %v", err)
+	}
+	if len(report.Candidates) != 0 {
+		t.Fatalf("automatic DB maintenance should not delete DB file: %#v", report)
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("automatic maintenance removed DB file: %v", err)
+	}
+
+	report, err = Prune(context.Background(), PruneOptions{
+		Root:     root,
+		Settings: settings,
+		Scopes:   []string{codeIntelDBSurfaceID},
+	})
+	if err != nil {
+		t.Fatalf("manual Prune returned error: %v", err)
+	}
+	if len(report.Candidates) != 1 ||
+		report.Candidates[0].SurfaceID != codeIntelDBSurfaceID {
+		t.Fatalf("manual prune did not report oversized DB candidate: %#v", report)
+	}
+}
+
+func TestPruneReportsOversizedDuckDBCandidate(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	duckDBPath := codeintel.DefaultDuckDBPath(root)
+	writePruneFixture(t, duckDBPath, "oversized")
+
+	settings := DefaultSettings()
+	policy := settings.Prune.Surfaces["code_intel_duckdb"]
+	policy.MaxBytes = 1
+	policy.MaxBytesText = "1B"
+	settings.Prune.Surfaces["code_intel_duckdb"] = policy
+
+	report, err := Prune(context.Background(), PruneOptions{
+		Root:     root,
+		Settings: settings,
+		Scopes:   []string{"code_intel_duckdb"},
+	})
+	if err != nil {
+		t.Fatalf("Prune returned error: %v", err)
+	}
+	if len(report.Candidates) != 1 ||
+		report.Candidates[0].SurfaceID != "code_intel_duckdb" {
+		t.Fatalf("DuckDB prune candidate missing: %#v", report)
+	}
+}
+
 func TestPruneIncludesTempSurfacesWhenRequested(t *testing.T) {
 	root := t.TempDir()
 	tempRoot := t.TempDir()
