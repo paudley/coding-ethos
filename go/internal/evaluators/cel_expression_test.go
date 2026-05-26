@@ -1028,6 +1028,21 @@ func TestEvaluateRepoLineLimitDoesNotApplyShellLimitToScriptsMarkdown(t *testing
 	}
 }
 
+func TestEvaluateRepoLineLimitAllowsProtobufGeneratedGoFileGrowth(t *testing.T) {
+	t.Parallel()
+
+	decisions := evaluateRepoLineLimitFileAfterRewrite(
+		t,
+		"go/internal/proto/events.pb.go",
+		strings.Repeat("line\n", 2001),
+		func(initial string) string { return initial + "line\n" },
+	)
+
+	if len(decisions) != 0 {
+		t.Fatalf("protobuf-generated Go file growth should be allowed: %#v", decisions)
+	}
+}
+
 func TestEvaluateRepoLineLimitBlocksOverThresholdPythonFileGrowth(t *testing.T) {
 	t.Parallel()
 
@@ -1408,6 +1423,52 @@ func TestEvaluateCELExpressionBlocksGrowingLargeApplyPatchAtHookTime(t *testing.
 		decisions[0].PolicyID != lineLimitPolicy ||
 		decisions[0].Diagnostics[0].File != "go/cmd/coding-ethos-hook-runner/main.go" {
 		t.Fatalf("decisions = %#v", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionAllowsGrowingLargeProtobufApplyPatchAtHookTime(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	sourceFile := filepath.Join(repo, "go", "internal", "proto", "events.pb.go")
+
+	inlineErr17 := os.MkdirAll(filepath.Dir(sourceFile), 0o700)
+	if inlineErr17 != nil {
+		t.Fatalf("create source dir: %v", inlineErr17)
+	}
+
+	initial := strings.Repeat("line\n", 2001)
+
+	inlineErr18 := os.WriteFile(sourceFile, []byte(initial), 0o600)
+	if inlineErr18 != nil {
+		t.Fatalf("write source: %v", inlineErr18)
+	}
+
+	policyDef := compiledRepoLineLimitPolicy(t)
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:   repo,
+			Tool:  "Edit",
+			Scope: "PreToolUse",
+			Command: `*** Begin Patch
+*** Update File: go/internal/proto/events.pb.go
+@@
++newLine
+*** End Patch
+`,
+			EvaluatorOptions: policyDef.Evaluators[0].Options,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("protobuf-generated apply_patch growth should be allowed: %#v", decisions)
 	}
 }
 

@@ -404,7 +404,7 @@ principles:
             shell_hard: 500
           when: >-
             proposed_file_changes.exists(file, !file.is_binary &&
-              !file.is_test && file.line_count_grows &&
+              !file.is_generated && !file.is_test && file.line_count_grows &&
               file.nonblank_line_count_grows &&
               ((file.ext == ".py" &&
               file.proposed_line_count > repo.line_limits.python_hard) ||
@@ -414,7 +414,8 @@ principles:
               (file.ext == "" && has_prefix(file.file, "scripts/"))) &&
               file.proposed_line_count > repo.line_limits.shell_hard))) ||
             (proposed_file_changes.size() == 0 &&
-              file_changes.exists(file, !file.is_binary && !file.is_test &&
+              file_changes.exists(file, !file.is_binary &&
+              !file.is_generated && !file.is_test &&
               ((file.ext == ".py" &&
               file.line_count > repo.line_limits.python_hard) ||
               (file.ext == ".go" &&

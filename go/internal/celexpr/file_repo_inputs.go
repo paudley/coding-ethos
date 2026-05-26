@@ -644,11 +644,14 @@ func inAgentWorkspacePath(file string) bool {
 }
 
 func isGeneratedPath(file string) bool {
+	base := path.Base(file)
+
 	return strings.HasPrefix(file, "generated/") ||
 		strings.Contains(file, "/generated/") ||
 		strings.HasPrefix(file, ".generated/") ||
 		strings.Contains(file, "/.generated/") ||
-		strings.Contains(path.Base(file), ".generated.")
+		strings.Contains(base, ".generated.") ||
+		strings.HasSuffix(base, ".pb.go")
 }
 
 func isTestPath(file string) bool {

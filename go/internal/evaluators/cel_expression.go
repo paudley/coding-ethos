@@ -431,6 +431,7 @@ func proposedFileMatchesLineLimit(
 	thresholds lineLimitThresholds,
 ) bool {
 	return !file.IsBinary &&
+		!file.IsGenerated &&
 		!file.IsTest &&
 		file.LineCountGrows &&
 		file.NonBlankLineCountGrows &&
@@ -477,6 +478,7 @@ func changedFileMatchesLineLimit(
 	thresholds lineLimitThresholds,
 ) bool {
 	return !file.IsBinary &&
+		!file.IsGenerated &&
 		!file.IsTest &&
 		changedFileExceedsLineLimit(file, thresholds) &&
 		(file.OriginalLineCount < 0 || file.LineCount > file.OriginalLineCount) &&
