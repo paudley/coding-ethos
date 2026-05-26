@@ -90,6 +90,13 @@ type codeIntelEnrichmentEvidence struct {
 	Count      int
 }
 
+type codeIntelIncomingRelatedState struct {
+	Enrichment *codeIntelEnrichment
+	Seen       map[string]bool
+	Path       string
+	MaxEdges   int
+}
+
 func codeIntelEnrichmentOutput(event Event, toolOutput string) *HookSpecificOutput {
 	context := codeIntelEnrichmentContext(event, toolOutput)
 	if context == "" {
@@ -321,9 +328,15 @@ func addCodeIntelRelatedHints(
 	options codeIntelEnrichmentOptions,
 	enrichment *codeIntelEnrichment,
 ) {
+	addCodeIntelIncomingRelatedHints(ctx, store, path, options, enrichment)
+
+	if len(enrichment.Related) >= options.MaxEdges {
+		return
+	}
+
 	edges, err := store.CodeEdges(ctx, codeintel.CodeEdgeQuery{
 		Path:  path,
-		Limit: options.MaxEdges,
+		Limit: options.MaxEdges - len(enrichment.Related),
 	})
 	if err == nil {
 		for _, edge := range edges {
@@ -338,6 +351,254 @@ func addCodeIntelRelatedHints(
 				EvidenceID: edge.ID,
 			})
 		}
+	}
+}
+
+func addCodeIntelIncomingRelatedHints(
+	ctx context.Context,
+	store *codeintel.Store,
+	path string,
+	options codeIntelEnrichmentOptions,
+	enrichment *codeIntelEnrichment,
+) {
+	state := codeIntelIncomingRelatedState{
+		Enrichment: enrichment,
+		Seen:       map[string]bool{},
+		Path:       path,
+		MaxEdges:   options.MaxEdges,
+	}
+	targetCandidates := codeIntelTargetCandidates(path)
+
+	for _, candidate := range targetCandidates {
+		if state.Full() {
+			return
+		}
+
+		addQueriedCodeIntelIncomingEdges(ctx, store, &state, codeintel.CodeEdgeQuery{
+			TargetPath: candidate,
+		})
+	}
+
+	addCodeIntelImportersByRawText(
+		ctx,
+		store,
+		path,
+		targetCandidates,
+		&state,
+	)
+
+	for _, candidate := range codeIntelTargetSymbolCandidates(ctx, store, path) {
+		if state.Full() {
+			return
+		}
+
+		addQueriedCodeIntelIncomingEdges(ctx, store, &state, codeintel.CodeEdgeQuery{
+			TargetName: candidate,
+		})
+	}
+}
+
+func addQueriedCodeIntelIncomingEdges(
+	ctx context.Context,
+	store *codeintel.Store,
+	state *codeIntelIncomingRelatedState,
+	query codeintel.CodeEdgeQuery,
+) {
+	query.Limit = state.Remaining()
+
+	edges, err := store.CodeEdges(ctx, query)
+	if err != nil {
+		return
+	}
+
+	for _, edge := range edges {
+		if state.Full() {
+			return
+		}
+
+		appendCodeIntelIncomingRelated(edge, state)
+	}
+}
+
+func addCodeIntelImportersByRawText(
+	ctx context.Context,
+	store *codeintel.Store,
+	path string,
+	candidates []string,
+	state *codeIntelIncomingRelatedState,
+) {
+	if state.Full() {
+		return
+	}
+
+	edges, err := store.CodeEdges(ctx, codeintel.CodeEdgeQuery{
+		Kind:  "imports",
+		Limit: defaultCodeIntelEnrichmentMaxOutputPaths,
+	})
+	if err != nil {
+		return
+	}
+
+	for _, edge := range edges {
+		if state.Full() {
+			return
+		}
+
+		if edge.Path == path || !codeIntelImportEdgeMatches(edge, candidates) {
+			continue
+		}
+
+		appendCodeIntelIncomingRelated(edge, state)
+	}
+}
+
+func appendCodeIntelIncomingRelated(
+	edge codeintel.CodeEdge,
+	state *codeIntelIncomingRelatedState,
+) {
+	if edge.Path == state.Path {
+		return
+	}
+
+	key := codeIntelEdgeKey(edge)
+	if state.Seen[key] {
+		return
+	}
+
+	state.Seen[key] = true
+	state.Enrichment.Related = append(
+		state.Enrichment.Related,
+		codeIntelEnrichmentRelated{
+			Path:       edge.Path,
+			Kind:       incomingCodeIntelEdgeKind(edge.Kind),
+			Target:     firstNonEmpty(edge.TargetSymbolPath, edge.TargetName),
+			EvidenceID: edge.ID,
+		},
+	)
+}
+
+func codeIntelEdgeKey(edge codeintel.CodeEdge) string {
+	if edge.ID != "" {
+		return edge.ID
+	}
+
+	return edge.Path + "\x00" + edge.Kind + "\x00" + edge.TargetName
+}
+
+func (state codeIntelIncomingRelatedState) Full() bool {
+	return len(state.Enrichment.Related) >= state.MaxEdges
+}
+
+func (state codeIntelIncomingRelatedState) Remaining() int {
+	return state.MaxEdges - len(state.Enrichment.Related)
+}
+
+func codeIntelImportEdgeMatches(edge codeintel.CodeEdge, candidates []string) bool {
+	target := strings.TrimSpace(
+		edge.TargetPath + " " + edge.TargetName + " " + edge.RawText,
+	)
+	for _, candidate := range candidates {
+		if candidate != "" && strings.Contains(target, candidate) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func codeIntelTargetCandidates(path string) []string {
+	normalized := strings.Trim(filepath.ToSlash(path), "/")
+	if normalized == "" {
+		return nil
+	}
+
+	withoutExt := strings.TrimSuffix(normalized, filepath.Ext(normalized))
+
+	candidates := []string{normalized}
+	if withoutExt != "" && withoutExt != normalized {
+		candidates = append(candidates, withoutExt)
+	}
+
+	modulePath := strings.ReplaceAll(withoutExt, "/", ".")
+	if modulePath != "" && modulePath != withoutExt {
+		candidates = append(candidates, modulePath)
+	}
+
+	if parentModule := parentModuleCandidate(withoutExt); parentModule != "" {
+		candidates = append(candidates, parentModule)
+	}
+
+	if base := pathBaseWithoutExt(normalized); base != "" {
+		candidates = append(candidates, base)
+	}
+
+	return slices.Compact(candidates)
+}
+
+func parentModuleCandidate(path string) string {
+	parent := filepath.Dir(path)
+	if parent == "." || parent == "" {
+		return ""
+	}
+
+	return strings.ReplaceAll(parent, "/", ".")
+}
+
+func pathBaseWithoutExt(path string) string {
+	base := filepath.Base(path)
+
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+func codeIntelTargetSymbolCandidates(
+	ctx context.Context,
+	store *codeintel.Store,
+	path string,
+) []string {
+	chunks, err := store.CodeChunks(ctx, codeintel.CodeChunkQuery{
+		Path:  path,
+		Limit: defaultCodeIntelEnrichmentMaxSymbols,
+	})
+	if err != nil {
+		return nil
+	}
+
+	candidates := []string{}
+	for _, chunk := range chunks {
+		candidates = appendNonEmptyCandidate(candidates, chunk.SymbolName)
+		candidates = appendNonEmptyCandidate(candidates, chunk.SymbolPath)
+
+		if _, suffix, ok := strings.Cut(chunk.SymbolPath, "."); ok {
+			candidates = appendNonEmptyCandidate(candidates, suffix)
+		}
+	}
+
+	slices.Sort(candidates)
+
+	return slices.Compact(candidates)
+}
+
+func appendNonEmptyCandidate(candidates []string, candidate string) []string {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return candidates
+	}
+
+	return append(candidates, candidate)
+}
+
+func incomingCodeIntelEdgeKind(kind string) string {
+	switch kind {
+	case "imports":
+		return "imported_by"
+	case "calls":
+		return "called_by"
+	default:
+		if kind == "" {
+			return "referenced_by"
+		}
+
+		return kind + "_by"
 	}
 }
 
@@ -416,10 +677,7 @@ func appendRepoRelativePath(paths []string, root, cwd, path string) []string {
 		return paths
 	}
 
-	fullPath := filepath.Join(root, filepath.FromSlash(relativePath))
-
-	info, err := os.Stat(fullPath)
-	if err == nil && info.IsDir() {
+	if !isRepoFile(root, relativePath) {
 		return paths
 	}
 

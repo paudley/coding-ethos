@@ -612,6 +612,7 @@ func (store *Store) CodeEdges(
 		FROM code_edges
 		WHERE (? = '' OR path = ?)
 			AND (? = '' OR edge_kind = ?)
+			AND (? = '' OR target_path = ?)
 			AND (? = '' OR target_name = ?)
 		ORDER BY path, edge_kind, target_name
 		LIMIT ?`,
@@ -619,6 +620,8 @@ func (store *Store) CodeEdges(
 		query.Path,
 		query.Kind,
 		query.Kind,
+		query.TargetPath,
+		query.TargetPath,
 		query.TargetName,
 		query.TargetName,
 		limit,

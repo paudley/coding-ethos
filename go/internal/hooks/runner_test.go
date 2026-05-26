@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	. "blackcat.ca/coding-ethos/go/internal/hooks"
@@ -5073,7 +5072,17 @@ func TestRunAddsCodeIntelEnrichmentForReadTool(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
-	indexHookRepo(t, repo, []string{"pkg/app.py"})
+	consumerPath := filepath.Join(repo, "pkg", "consumer.py")
+	err = os.WriteFile(
+		consumerPath,
+		[]byte("from pkg.app import run\n\n\ndef call():\n    return run()\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write consumer: %v", err)
+	}
+
+	indexHookRepo(t, repo, []string{"pkg"})
 
 	result, err := Run(policy.ExampleBundle(), Options{
 		Event: Event{
@@ -5105,11 +5114,77 @@ func TestRunAddsCodeIntelEnrichmentForReadTool(t *testing.T) {
 		"pkg/app.py",
 		"symbols[1]{path,symbol,line,signature}:",
 		"run",
+		"related[",
+		"pkg/consumer.py",
+		"imported_by",
 		`code_intel_context_card {"path":"pkg/app.py"}`,
 	} {
 		if !strings.Contains(context, expected) {
 			t.Fatalf("read enrichment missing %q:\n%s", expected, context)
 		}
+	}
+}
+
+func TestRunAddsGoldenCodeIntelEnrichmentForGlobTool(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	sourcePath := filepath.Join(repo, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def run():\n    return 'ok'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	indexHookRepo(t, repo, []string{"pkg/app.py"})
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      "Glob",
+			Cwd:           repo,
+			SessionID:     "session-code-intel-glob",
+			ToolResponse: map[string]any{
+				"content": "pkg/app.py\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run glob hook: %v", err)
+	}
+
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing code-intel enrichment output: %#v", result)
+	}
+
+	expected := strings.Join([]string{
+		"code_intel_enrichment:",
+		"status: ready",
+		"refresh: coding-ethos-code-intel rebuild-index",
+		"paths[1]{path,language,lines,symbols,risk}:",
+		"  pkg/app.py,python,3,1,normal",
+		"symbols[1]{path,symbol,line,signature}:",
+		"  pkg/app.py,run,1,def run():",
+		"next_mcp_calls[2]{call}:",
+		`  code_intel_repo_map {"limit":3\,"symbols_per_file":3}`,
+		`  code_intel_context_card {"path":"pkg/app.py"}`,
+	}, "\n")
+
+	if result.HookSpecificOutput.AdditionalContext != expected {
+		t.Fatalf(
+			"glob enrichment mismatch\nwant:\n%s\n\ngot:\n%s",
+			expected,
+			result.HookSpecificOutput.AdditionalContext,
+		)
 	}
 }
 
@@ -5225,7 +5300,9 @@ func TestRunCapsCodeIntelEnrichmentPathsFromSearchOutput(t *testing.T) {
 			Cwd:           repo,
 			SessionID:     "session-code-intel-cap",
 			ToolResponse: map[string]any{
-				"content": "pkg/app.py:def run():\npkg/worker.py:def run():\n",
+				"content": "pkg/missing.py:def missing():\n" +
+					"pkg/app.py:def run():\n" +
+					"pkg/worker.py:def run():\n",
 			},
 		},
 	})
@@ -5236,6 +5313,7 @@ func TestRunCapsCodeIntelEnrichmentPathsFromSearchOutput(t *testing.T) {
 	context := result.HookSpecificOutput.AdditionalContext
 	if !strings.Contains(context, "paths[1]{path,language,lines,symbols,risk}:") ||
 		!strings.Contains(context, "pkg/app.py") ||
+		strings.Contains(context, "pkg/missing.py") ||
 		strings.Contains(context, "pkg/worker.py") {
 		t.Fatalf("enrichment did not honor max_paths: %s", context)
 	}
@@ -5258,7 +5336,6 @@ func TestRunDedupesCodeIntelFreshnessNoticeAfterCommit(t *testing.T) {
 	}
 
 	indexHookRepo(t, repo, []string{"pkg/app.py"})
-	time.Sleep(1100 * time.Millisecond)
 
 	err = os.WriteFile(
 		sourcePath,
@@ -5270,7 +5347,17 @@ func TestRunDedupesCodeIntelFreshnessNoticeAfterCommit(t *testing.T) {
 	}
 
 	runHookGit(t, repo, "add", "pkg/app.py")
-	runHookGit(t, repo, "commit", "-m", "change app")
+	runHookGitWithEnv(
+		t,
+		repo,
+		map[string]string{
+			"GIT_AUTHOR_DATE":    "2099-01-02T03:04:05+00:00",
+			"GIT_COMMITTER_DATE": "2099-01-02T03:04:05+00:00",
+		},
+		"commit",
+		"-m",
+		"change app",
+	)
 
 	event := Event{
 		HookEventName: eventPostToolUse,
@@ -5767,6 +5854,17 @@ func indexHookRepo(t *testing.T, repo string, paths []string) {
 func runHookGit(t *testing.T, repo string, args ...string) {
 	t.Helper()
 
+	runHookGitWithEnv(t, repo, nil, args...)
+}
+
+func runHookGitWithEnv(
+	t *testing.T,
+	repo string,
+	extraEnv map[string]string,
+	args ...string,
+) {
+	t.Helper()
+
 	gitPath, err := realgit.Resolve(context.Background(), "git")
 	if err != nil {
 		t.Fatalf("resolve git: %v", err)
@@ -5775,6 +5873,9 @@ func runHookGit(t *testing.T, repo string, args ...string) {
 	cmd := exec.CommandContext(context.Background(), gitPath, args...)
 	cmd.Dir = repo
 	cmd.Env = cleanGitTestEnv()
+	for name, value := range extraEnv {
+		cmd.Env = append(cmd.Env, name+"="+value)
+	}
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

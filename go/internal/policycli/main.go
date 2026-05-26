@@ -697,6 +697,13 @@ func addRepoConfigOnlyShape(reference map[string]any) {
 	}
 
 	reference["proxy"] = map[string]any{
+		"code_intel_enrichment": map[string]any{
+			"enabled":      true,
+			"max_edges":    0,
+			"max_failures": 0,
+			"max_paths":    0,
+			"max_symbols":  0,
+		},
 		"output_compression": map[string]any{
 			"head_lines":      0,
 			"head_tokens":     0,

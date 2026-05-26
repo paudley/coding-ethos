@@ -362,6 +362,7 @@ type CodeEdge struct {
 type CodeEdgeQuery struct {
 	Path       string
 	Kind       string
+	TargetPath string
 	TargetName string
 	Limit      int
 }
