@@ -231,7 +231,14 @@ func TestGoToolchainCommandsRunConfiguredWorktree(t *testing.T) {
 	managedLintConfig := filepath.Join(tempDir, ".golangci.yml")
 	mustWriteExecutable(
 		t,
-		filepath.Join(tempDir, "coding-ethos", "build", "toolchain", "go-bin", "golangci-lint"),
+		filepath.Join(
+			tempDir,
+			"coding-ethos",
+			"build",
+			"toolchain",
+			"go-bin",
+			"golangci-lint",
+		),
 		`#!/usr/bin/env sh
 case " $* " in
   *" run --allow-parallel-runners --output.json.path=stdout --output.text.path=stderr --config `+managedLintConfig+` ./... "*)

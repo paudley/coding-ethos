@@ -1019,7 +1019,14 @@ func TestFormatGroupRunsManagedFormattersForMatchingFiles(t *testing.T) {
 	mustWriteExecutable(t, filepath.Join(fakeBin, "uv"), "#!/usr/bin/env sh\nexit 0\n")
 	mustWriteExecutable(
 		t,
-		filepath.Join(tempDir, "coding-ethos", "build", "toolchain", "go-bin", "golangci-lint"),
+		filepath.Join(
+			tempDir,
+			"coding-ethos",
+			"build",
+			"toolchain",
+			"go-bin",
+			"golangci-lint",
+		),
 		"#!/usr/bin/env sh\nexit 0\n",
 	)
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -1056,7 +1063,14 @@ func TestFormatGroupRestageSkipsUnchangedFiles(t *testing.T) {
 	fakeBin := filepath.Join(tempDir, "bin")
 	mustWriteExecutable(
 		t,
-		filepath.Join(tempDir, "coding-ethos", "build", "toolchain", "go-bin", "golangci-lint"),
+		filepath.Join(
+			tempDir,
+			"coding-ethos",
+			"build",
+			"toolchain",
+			"go-bin",
+			"golangci-lint",
+		),
 		"#!/usr/bin/env sh\nexit 0\n",
 	)
 	mustWriteExecutable(

@@ -230,7 +230,13 @@ python:
 `)+"\n")
 	mustWriteTestFile(
 		t,
-		filepath.Join(tempDir, "coding-ethos", "pre-commit", "hooks", "managed-toolchain.tsv"),
+		filepath.Join(
+			tempDir,
+			"coding-ethos",
+			"pre-commit",
+			"hooks",
+			"managed-toolchain.tsv",
+		),
 		"#!/bin/sh\n",
 	)
 	mustWriteTestFile(
