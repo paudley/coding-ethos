@@ -156,6 +156,40 @@ func TestDirectAgentGitCommitBlocksThroughInstalledHooks(t *testing.T) {
 	}
 }
 
+func TestDirectRealGitCommitAmendBlocksThroughInstalledHooks(t *testing.T) {
+	clearAgentGitHookEnv(t)
+
+	repo := newGitHookE2ERepo(t)
+	writeTestGitHookFile(t, repo.root, "README.md", "# Test\n")
+	runTestGit(t, repo.root, "add", "README.md")
+	runTestGit(t, repo.root, "commit", "-m", "fix(repo): add readme")
+
+	writeTestGitHookFile(t, repo.root, "README.md", "# Test\n\nUpdate.\n")
+	runTestGit(t, repo.root, "add", "README.md")
+
+	output, err := runTestGitOutput(
+		t,
+		repo.root,
+		"commit",
+		"--amend",
+		"--no-edit",
+	)
+	if err == nil {
+		t.Fatalf("direct git commit --amend unexpectedly succeeded:\n%s", output)
+	}
+
+	for _, want := range []string{
+		"git.history_rewrite_prevention",
+		"History rewrite commit flow reached prepare-commit-msg.",
+		"hook=\"pre-commit\"",
+		"source=\"commit-amend\"",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("amend output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func clearAgentGitHookEnv(t *testing.T) {
 	t.Helper()
 
@@ -270,6 +304,9 @@ func TestRunWithArgsRejectsSpoofedWrapperAuthorization(t *testing.T) {
 	t.Setenv(gitwrap.WrapperPIDEnv, "12345")
 	verifier := gitHookAuthorizationVerifier{
 		CurrentPID: func() int { return 67890 },
+		ParentPID: func(pid int) (int, error) {
+			return 0, nil
+		},
 		ProcessAncestryContains: func(pid, ancestorPID int) (bool, error) {
 			return pid == 67890 && ancestorPID == 12345, nil
 		},
@@ -514,6 +551,9 @@ func authorizeGitHookForTest(t *testing.T) gitHookAuthorizationVerifier {
 	t.Setenv(gitwrap.WrapperPIDEnv, "12345")
 	return gitHookAuthorizationVerifier{
 		CurrentPID: func() int { return 67890 },
+		ParentPID: func(pid int) (int, error) {
+			return 0, nil
+		},
 		ProcessAncestryContains: func(pid, ancestorPID int) (bool, error) {
 			return pid == 67890 && ancestorPID == 12345, nil
 		},

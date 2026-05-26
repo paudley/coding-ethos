@@ -1,0 +1,16 @@
+{
+  "configs": {
+    ".bandit.yml": "sha256:8531e5a3c13bd7c27a3fc4844505404a9ba3ff5ccd959eb77820b24f53c390ea",
+    ".github/workflows/coding-ethos-sarif.yml": "sha256:34fbe1e2ca1631e7d7df93a7c0422321dfea2f3560c82281c3d33de796a17b07",
+    ".gitlab-ci.yml": "sha256:74f06aebb6b71763e2b94152e19f437fcb4894c26b3d1ca2301c52a486716f19",
+    ".golangci.yml": "sha256:9d471256fe6f9d7a5c5e909c01dfccf209f56d50d93dfc3b26558d2dcceffdae",
+    ".pylintrc": "sha256:b2a2bc44e0ca4f8a1ef4184c3bbf42be69e9c90b1f3e579f1e17f64b6ca12873",
+    ".sqlfluff": "sha256:bfbd6b655850453946fa670e7d18fb9e7fff6d5f4c1e9ebc0e620e9d03816bd6",
+    ".yamllint.yml": "sha256:c1cce7fc2d4aba97fb2e82ec93ab6a59f8780ed1fb8955727831f93d99373f15",
+    "mypy.ini": "sha256:7cb5bdc7c207d62fb5ac6a43371ab221ead9e152abcdd4eed79c7c38f1e44ace",
+    "pyrightconfig.json": "sha256:6453d3ad216d2c3b4f78870bfb6ab3d4c3a7a1f56f5621731837082a289f6d4b",
+    "ruff.toml": "sha256:4a392fe1efd9f0184d985e5c407e7df8c1e4278a4f8f41d6659189a37b81fae0",
+    "tombi.toml": "sha256:f60dfe4d0f7c4d73d7b4116a78f9f9317ada27ecb61715d5e2835d2b81dc0e23"
+  },
+  "version": 1
+}
