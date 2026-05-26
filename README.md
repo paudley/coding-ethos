@@ -324,8 +324,13 @@ The first tools are intentionally narrow and auditable:
 - `skill_lookup`: return an ETHOS-derived skill playbook by skill ID.
 - `remediation_explain`: expand an emitted `agent_remediation` item into
   policy, principle, skill, and retry guidance.
+- `code_intel_overview`: return a task-shaped repository orientation with
+  ranked files, freshness metadata, evidence counts, and exact follow-up MCP
+  calls.
 - `code_intel_search`: retrieve stored SARIF/remediation/code-chunk evidence
   with FTS and sqlite-vec vector search.
+- `code_intel_answer`: retrieve cited code-intel evidence for a repository
+  question with `retrieval_quality` separate from answer `confidence`.
 - `semantic_search`: retrieve exact indexed repository code chunks by semantic
   query before broad grep or whole-file reads.
 - `code_intel_index_status`: report SQLite/sqlite-vec index freshness and
@@ -334,6 +339,10 @@ The first tools are intentionally narrow and auditable:
   symbols using normalized hashes and MinHash LSH.
 - `code_intel_repo_map`: return a compact repository-wide AST map with ranked
   files, symbols, and signatures for startup orientation.
+- `code_intel_context_card`: compose a compact file/symbol triage card with
+  chunks, graph context, linked findings, freshness, and follow-up MCP calls.
+- `code_intel_change_risk`: summarize modification risk for target files from
+  indexed chunks, repeated failures, and recommended checks.
 - `code_intel_index_code`: refresh Tree-sitter chunks for Go, Python,
   JavaScript/TypeScript, shell, YAML, JSON, and TOML paths.
 - `code_intel_code_chunks`: fetch focused symbol/config chunks before broad

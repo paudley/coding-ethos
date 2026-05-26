@@ -4,9 +4,13 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"slices"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -15,10 +19,129 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 	"blackcat.ca/coding-ethos/go/internal/outputsurface"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/similarityconfig"
 )
 
-const semanticSearchContextLimit = 5
+const (
+	codeIntelDefaultTaskLimit  = 5
+	codeIntelMaxTaskLimit      = 25
+	codeIntelMediumRiskReason  = 1
+	codeIntelQualityHigh       = "high"
+	codeIntelQualityMedium     = "medium"
+	codeIntelQualityLow        = "low"
+	contextCardTOONHeaderLines = 3
+	semanticSearchContextLimit = 5
+)
+
+type codeIntelTaskMeta struct {
+	RepoHeadCommit string   `json:"repo_head_commit,omitempty"`
+	IndexAge       string   `json:"index_age,omitempty"`
+	IndexedAtUTC   string   `json:"indexed_at_utc,omitempty"`
+	StaleWarning   string   `json:"stale_warning,omitempty"`
+	Compression    string   `json:"compression"`
+	DataSources    []string `json:"data_sources"`
+	ReadyRecords   int      `json:"ready_records"`
+	MissingVectors int      `json:"missing_vectors"`
+	IndexedFiles   int      `json:"indexed_files"`
+	IndexedChunks  int      `json:"indexed_chunks"`
+	SchemaVersion  int      `json:"schema_version"`
+	Fresh          bool     `json:"fresh"`
+	Truncated      bool     `json:"truncated"`
+}
+
+type codeIntelCitation struct {
+	Kind       string `json:"kind"`
+	RecordID   string `json:"record_id"`
+	Path       string `json:"path,omitempty"`
+	PolicyID   string `json:"policy_id,omitempty"`
+	SkillID    string `json:"skill_id,omitempty"`
+	SearchText string `json:"search_text,omitempty"`
+	StartLine  int    `json:"start_line,omitempty"`
+	EndLine    int    `json:"end_line,omitempty"`
+}
+
+type codeIntelContextTarget struct {
+	Context    *codeintel.CodeContext `json:"context,omitempty"`
+	Path       string                 `json:"path"`
+	Chunks     []codeintel.CodeChunk  `json:"chunks,omitempty"`
+	File       codeintel.CodeFile     `json:"file,omitzero"`
+	Found      bool                   `json:"found"`
+	IndexFresh bool                   `json:"index_fresh"`
+}
+
+type codeIntelRiskTarget struct {
+	Path              string                      `json:"path"`
+	RiskLevel         string                      `json:"risk_level"`
+	Chunks            []codeintel.CodeChunk       `json:"chunks,omitempty"`
+	RepeatedFailures  []codeintel.RepeatedFailure `json:"repeated_failures,omitempty"`
+	Reasons           []string                    `json:"reasons,omitempty"`
+	RecommendedChecks []map[string]string         `json:"recommended_checks,omitempty"`
+	File              codeintel.CodeFile          `json:"file,omitzero"`
+}
+
+func (server Server) codeIntelOverview(args json.RawMessage) (any, error) {
+	var input codeIntelRepoMapInput
+
+	inlineErr0 := json.Unmarshal(args, &input)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("parse code intelligence overview arguments: %w", inlineErr0)
+	}
+
+	store, index, closeAll, err := server.openCodeIntel()
+	if err != nil {
+		return nil, fmt.Errorf("open code intelligence index: %w", err)
+	}
+	defer closeAll()
+
+	root := server.codeIntelRoot()
+
+	repoMap, rendered, err := server.readRepoMap(store, root, input)
+	if err != nil {
+		return nil, err
+	}
+
+	meta, err := server.codeIntelTaskMeta(argsContext(), store, index, []string{
+		"repo_map",
+		"code_files",
+		"code_chunks",
+		"embeddings",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	nextCalls := []map[string]any{
+		{
+			"tool":      "code_intel_context_card",
+			"arguments": map[string]any{"path": "<path>"},
+		},
+		{
+			"tool":      "code_intel_answer",
+			"arguments": map[string]any{"question": "<repo question>"},
+		},
+		{
+			"tool": "code_intel_change_risk",
+			"arguments": map[string]any{
+				"paths": []string{"<path>"},
+			},
+		},
+	}
+
+	result := map[string]any{
+		"kind":           "code_intel_overview",
+		"_meta":          meta,
+		"repo_map":       repoMap,
+		"toon":           rendered,
+		"next_mcp_calls": nextCalls,
+		"orientation":    "Use ranked files and symbols as the bounded starting point.",
+	}
+	if strings.EqualFold(strings.TrimSpace(input.Format), "toon") {
+		result["content"] = rendered
+	}
+
+	return result, nil
+}
 
 func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 	var input codeIntelSearchInput
@@ -67,6 +190,126 @@ func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 		"backend": "sqlite-vec",
 		"results": results,
 	}, nil
+}
+
+func (server Server) codeIntelAnswer(args json.RawMessage) (any, error) {
+	var input codeIntelAnswerInput
+
+	inlineErr0 := json.Unmarshal(args, &input)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("parse code intelligence answer arguments: %w", inlineErr0)
+	}
+
+	question := strings.TrimSpace(firstNonEmpty(input.Question, input.Query))
+	if question == "" {
+		return nil, apperror.StaticError("question/query is required")
+	}
+
+	store, index, closeAll, err := server.openCodeIntel()
+	if err != nil {
+		return nil, fmt.Errorf("open code intelligence index: %w", err)
+	}
+	defer closeAll()
+
+	ctx := argsContext()
+	limit := boundedCodeIntelLimit(input.Limit, codeIntelDefaultTaskLimit)
+	paths := codeIntelInputPaths(input.Path, input.Paths)
+
+	results, err := codeIntelAnswerResults(ctx, store, index, question, paths, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	meta, err := server.codeIntelTaskMeta(ctx, store, index, []string{
+		"hybrid_search",
+		"code_chunks",
+		"remediation_evidence",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	citations := citationsFromHybridResults(results, limit)
+	quality := retrievalQuality(len(citations), meta)
+
+	return map[string]any{
+		"kind":              "code_intel_answer",
+		"_meta":             meta,
+		"question":          question,
+		"answer":            answerSummaryForRetrieval(quality),
+		"retrieval_quality": quality,
+		"confidence":        answerConfidence(quality),
+		"citations":         citations,
+		"results":           results,
+		"next_actions": []string{
+			"Inspect cited records before editing.",
+			"Call code_intel_context_card for the highest-ranked cited path.",
+		},
+	}, nil
+}
+
+func codeIntelAnswerResults(
+	ctx context.Context,
+	store *codeintel.Store,
+	index evidence.VectorIndex,
+	question string,
+	paths []string,
+	limit int,
+) ([]codeintel.HybridSearchResult, error) {
+	if len(paths) == 0 {
+		results, err := store.HybridSearch(ctx, index, codeintel.HybridSearchQuery{
+			Text:       codeIntelFTSQuery(question),
+			Collection: "code_chunks",
+			Limit:      limit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("answer code intelligence question: %w", err)
+		}
+
+		return results, nil
+	}
+
+	results := []codeintel.HybridSearchResult{}
+
+	for _, path := range paths {
+		pathResults, err := store.HybridSearch(
+			ctx,
+			index,
+			codeintel.HybridSearchQuery{
+				Text:       codeIntelFTSQuery(question),
+				Collection: "code_chunks",
+				Path:       path,
+				Limit:      limit,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"answer code intelligence question for %s: %w",
+				path,
+				err,
+			)
+		}
+
+		results = append(results, pathResults...)
+	}
+
+	slices.SortFunc(results, func(left, right codeintel.HybridSearchResult) int {
+		if left.Score > right.Score {
+			return -1
+		}
+
+		if left.Score < right.Score {
+			return 1
+		}
+
+		return strings.Compare(left.RecordID, right.RecordID)
+	})
+
+	if len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results, nil
 }
 
 type semanticSearchResult struct {
@@ -369,6 +612,79 @@ func (server Server) codeIntelCodeContext(args json.RawMessage) (any, error) {
 	}, nil
 }
 
+func (server Server) codeIntelContextCard(args json.RawMessage) (any, error) {
+	var input codeIntelContextCardInput
+
+	inlineErr0 := json.Unmarshal(args, &input)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf(
+			"parse code intelligence context-card arguments: %w",
+			inlineErr0,
+		)
+	}
+
+	paths := codeIntelInputPaths(input.Path, input.Paths)
+	if len(paths) == 0 && strings.TrimSpace(input.SymbolName) == "" &&
+		strings.TrimSpace(input.SymbolPath) == "" {
+		return nil, apperror.StaticError(
+			"path, paths, symbol_name, or symbol_path is required",
+		)
+	}
+
+	store, index, closeAll, err := server.openCodeIntel()
+	if err != nil {
+		return nil, fmt.Errorf("open code intelligence index: %w", err)
+	}
+	defer closeAll()
+
+	ctx := argsContext()
+	limit := boundedCodeIntelLimit(input.Limit, codeIntelDefaultTaskLimit)
+
+	targets, truncated, err := server.contextCardTargets(ctx, store, input, paths, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	meta, err := server.codeIntelTaskMeta(ctx, store, index, []string{
+		"code_files",
+		"code_chunks",
+		"code_context",
+		"ast_finding_links",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	meta.Truncated = meta.Truncated || truncated
+
+	result := map[string]any{
+		"kind":    "code_intel_context_card",
+		"_meta":   meta,
+		"targets": targets,
+		"next_mcp_calls": []map[string]any{
+			{
+				"tool": "code_intel_code_context",
+				"arguments": map[string]any{
+					"path":        "<path>",
+					"symbol_path": "<symbol_path>",
+				},
+			},
+			{
+				"tool": "code_intel_change_risk",
+				"arguments": map[string]any{
+					"paths": targetPaths(targets),
+				},
+			},
+		},
+	}
+
+	if strings.EqualFold(strings.TrimSpace(input.Format), "toon") {
+		result["content"] = renderContextCardTOON(targets, meta)
+	}
+
+	return result, nil
+}
+
 func (server Server) codeIntelRepoMap(args json.RawMessage) (any, error) {
 	var input codeIntelRepoMapInput
 
@@ -396,6 +712,63 @@ func (server Server) codeIntelRepoMap(args json.RawMessage) (any, error) {
 	}
 
 	return result, nil
+}
+
+func (server Server) codeIntelChangeRisk(args json.RawMessage) (any, error) {
+	var input codeIntelChangeRiskInput
+
+	inlineErr0 := json.Unmarshal(args, &input)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf(
+			"parse code intelligence change-risk arguments: %w",
+			inlineErr0,
+		)
+	}
+
+	paths := codeIntelInputPaths(input.Path, input.Paths)
+	if len(paths) == 0 {
+		return nil, apperror.StaticError("path or paths is required")
+	}
+
+	store, index, closeAll, err := server.openCodeIntel()
+	if err != nil {
+		return nil, fmt.Errorf("open code intelligence index: %w", err)
+	}
+	defer closeAll()
+
+	ctx := argsContext()
+	limit := boundedCodeIntelLimit(input.Limit, codeIntelDefaultTaskLimit)
+
+	targets := make([]codeIntelRiskTarget, 0, len(paths))
+	for _, path := range paths {
+		target, targetErr := changeRiskTarget(ctx, store, path, limit)
+		if targetErr != nil {
+			return nil, targetErr
+		}
+
+		targets = append(targets, target)
+	}
+
+	meta, err := server.codeIntelTaskMeta(ctx, store, index, []string{
+		"code_files",
+		"code_chunks",
+		"code_edges",
+		"finding_occurrences",
+		"remediation_outcomes",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"kind":    "code_intel_change_risk",
+		"_meta":   meta,
+		"targets": targets,
+		"next_actions": []string{
+			"Run focused tests for each target path before broad checks.",
+			"Inspect code_intel_context_card for high-risk targets.",
+		},
+	}, nil
 }
 
 func (server Server) repoMapResource() (any, error) {
@@ -488,6 +861,475 @@ func repoMapIndexPaths(input codeIntelRepoMapInput) []string {
 	}
 
 	return []string{path}
+}
+
+func (server Server) codeIntelTaskMeta(
+	ctx context.Context,
+	store *codeintel.Store,
+	index evidence.VectorIndex,
+	dataSources []string,
+) (codeIntelTaskMeta, error) {
+	vectorStats, err := index.Stats(ctx)
+	if err != nil {
+		return codeIntelTaskMeta{}, fmt.Errorf("read vector index stats: %w", err)
+	}
+
+	status, err := store.IndexStatus(ctx, vectorStats, codeintel.EmbeddingRecordQuery{
+		Backend:    "sqlite-vec",
+		Collection: "code_chunks",
+	})
+	if err != nil {
+		return codeIntelTaskMeta{}, fmt.Errorf("read code intelligence index status: %w", err)
+	}
+
+	fileStats, err := store.CodeFileIndexStats(ctx)
+	if err != nil {
+		return codeIntelTaskMeta{}, fmt.Errorf(
+			"read code intelligence file stats: %w",
+			err,
+		)
+	}
+
+	indexedAt := fileStats.LatestIndexedAtUTC
+
+	meta := codeIntelTaskMeta{
+		RepoHeadCommit: currentGitCommit(ctx, server.codeIntelRoot()),
+		IndexedAtUTC:   indexedAt,
+		IndexAge:       indexAgeDescription(indexedAt),
+		Fresh:          status.Fresh,
+		DataSources:    dataSources,
+		Compression:    "bounded_json",
+		ReadyRecords:   status.ReadyRecords,
+		MissingVectors: status.MissingVectors,
+		IndexedFiles:   fileStats.ActiveFiles,
+		IndexedChunks:  status.Stats.CodeChunks,
+		SchemaVersion:  status.Stats.SchemaVersion,
+	}
+	if !meta.Fresh {
+		meta.StaleWarning = "code-intel vectors are missing for some ready records"
+	}
+
+	return meta, nil
+}
+
+func indexAgeDescription(indexedAt string) string {
+	if strings.TrimSpace(indexedAt) == "" {
+		return "unknown"
+	}
+
+	indexedTime, err := time.Parse(time.RFC3339Nano, indexedAt)
+	if err != nil {
+		return "unknown"
+	}
+
+	age := max(time.Since(indexedTime), 0)
+
+	return age.Round(time.Second).String()
+}
+
+func currentGitCommit(ctx context.Context, root string) string {
+	if strings.TrimSpace(root) == "" {
+		return ""
+	}
+
+	command := realgit.Command(ctx, false, "-C", root, "rev-parse", "--verify", "HEAD")
+	command.Env = realgit.CleanGitLocalEnv(os.Environ())
+
+	output, err := command.Output()
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(output))
+}
+
+func boundedCodeIntelLimit(value, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+
+	if value > codeIntelMaxTaskLimit {
+		return codeIntelMaxTaskLimit
+	}
+
+	return value
+}
+
+func codeIntelInputPaths(path string, paths []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+
+	for _, candidate := range append([]string{path}, paths...) {
+		clean := strings.TrimSpace(candidate)
+		if clean == "" || seen[clean] {
+			continue
+		}
+
+		seen[clean] = true
+		out = append(out, clean)
+	}
+
+	return out
+}
+
+func citationsFromHybridResults(
+	results []codeintel.HybridSearchResult,
+	limit int,
+) []codeIntelCitation {
+	citations := make([]codeIntelCitation, 0, min(len(results), limit))
+	for _, result := range results {
+		if len(citations) >= limit {
+			break
+		}
+
+		citations = append(citations, codeIntelCitation{
+			Kind:       result.Kind,
+			RecordID:   result.RecordID,
+			Path:       result.Path,
+			PolicyID:   result.PolicyID,
+			SkillID:    result.SkillID,
+			SearchText: result.Message,
+		})
+	}
+
+	return citations
+}
+
+func retrievalQuality(citationCount int, meta codeIntelTaskMeta) string {
+	switch {
+	case citationCount == 0:
+		return "none"
+	case meta.Fresh && citationCount >= 3:
+		return codeIntelQualityHigh
+	case meta.Fresh:
+		return codeIntelQualityMedium
+	default:
+		return "partial"
+	}
+}
+
+func answerConfidence(quality string) string {
+	switch quality {
+	case codeIntelQualityHigh:
+		return codeIntelQualityMedium
+	case codeIntelQualityMedium:
+		return codeIntelQualityLow
+	default:
+		return codeIntelQualityLow
+	}
+}
+
+func answerSummaryForRetrieval(quality string) string {
+	if quality == "none" {
+		return strings.Join([]string{
+			"No indexed evidence matched the question;",
+			"inspect next actions instead of relying on an answer.",
+		}, " ")
+	}
+
+	return strings.Join([]string{
+		"Relevant indexed evidence is available below;",
+		"confidence remains separate from retrieval quality.",
+	}, " ")
+}
+
+func codeIntelFTSQuery(value string) string {
+	terms := []string{}
+
+	for field := range strings.FieldsSeq(value) {
+		term := strings.Trim(field, " \t\r\n.,:;!?()[]{}'\"`")
+		if term != "" {
+			terms = append(terms, term)
+		}
+	}
+
+	if len(terms) == 0 {
+		return value
+	}
+
+	return strings.Join(terms, " ")
+}
+
+func (server Server) contextCardTargets(
+	ctx context.Context,
+	store *codeintel.Store,
+	input codeIntelContextCardInput,
+	paths []string,
+	limit int,
+) ([]codeIntelContextTarget, bool, error) {
+	chunks, truncated, err := contextCardChunks(ctx, store, input, paths, limit)
+	if err != nil {
+		return nil, false, err
+	}
+
+	targetsByPath, targetOrder, targetSeen := contextCardPathTargets(
+		ctx,
+		store,
+		paths,
+		chunks,
+	)
+
+	for _, chunk := range chunks {
+		targetOrder = appendContextCardChunk(
+			ctx,
+			store,
+			input,
+			targetsByPath,
+			targetSeen,
+			targetOrder,
+			chunk,
+		)
+	}
+
+	if len(chunks) != 0 {
+		context, contextErr := store.CodeContext(ctx, codeintel.CodeContextQuery{
+			Path:       firstNonEmpty(input.Path, chunks[0].Path),
+			Root:       server.codeIntelRoot(),
+			SymbolPath: firstNonEmpty(input.SymbolPath, chunks[0].SymbolPath),
+			Line:       input.Line,
+			Limit:      limit,
+		})
+		if contextErr == nil {
+			target := targetsByPath[context.Chunk.Path]
+			target.Context = &context
+			targetsByPath[context.Chunk.Path] = target
+		}
+	}
+
+	targets := make([]codeIntelContextTarget, 0, len(targetsByPath))
+
+	for _, path := range targetOrder {
+		if target, ok := targetsByPath[path]; ok {
+			targets = append(targets, target)
+		}
+	}
+
+	return targets, truncated, nil
+}
+
+func contextCardPathTargets(
+	ctx context.Context,
+	store *codeintel.Store,
+	paths []string,
+	chunks []codeintel.CodeChunk,
+) (map[string]codeIntelContextTarget, []string, map[string]bool) {
+	targetsByPath := map[string]codeIntelContextTarget{}
+	targetOrder := make([]string, 0, len(paths)+len(chunks))
+	targetSeen := map[string]bool{}
+
+	for _, path := range paths {
+		targetsByPath[path] = contextTargetForPath(ctx, store, path)
+		targetOrder = append(targetOrder, path)
+		targetSeen[path] = true
+	}
+
+	return targetsByPath, targetOrder, targetSeen
+}
+
+func appendContextCardChunk(
+	ctx context.Context,
+	store *codeintel.Store,
+	input codeIntelContextCardInput,
+	targetsByPath map[string]codeIntelContextTarget,
+	targetSeen map[string]bool,
+	targetOrder []string,
+	chunk codeintel.CodeChunk,
+) []string {
+	if !targetSeen[chunk.Path] {
+		targetOrder = append(targetOrder, chunk.Path)
+		targetSeen[chunk.Path] = true
+	}
+
+	target := targetsByPath[chunk.Path]
+	if target.Path == "" {
+		target = contextTargetForPath(ctx, store, chunk.Path)
+	}
+
+	if !input.IncludeRaw {
+		chunk.RawText = ""
+	}
+
+	target.Chunks = append(target.Chunks, chunk)
+	targetsByPath[chunk.Path] = target
+
+	return targetOrder
+}
+
+func contextCardChunks(
+	ctx context.Context,
+	store *codeintel.Store,
+	input codeIntelContextCardInput,
+	paths []string,
+	limit int,
+) ([]codeintel.CodeChunk, bool, error) {
+	if len(paths) == 0 {
+		chunks, err := store.CodeChunks(ctx, codeintel.CodeChunkQuery{
+			SymbolName: input.SymbolName,
+			SymbolPath: input.SymbolPath,
+			Limit:      limit,
+		})
+		if err != nil {
+			return nil, false, fmt.Errorf("query context-card chunks: %w", err)
+		}
+
+		return chunks, len(chunks) == limit, nil
+	}
+
+	chunks := []codeintel.CodeChunk{}
+	truncated := false
+
+	for _, path := range paths {
+		pathChunks, err := store.CodeChunks(ctx, codeintel.CodeChunkQuery{
+			Path:       path,
+			SymbolName: input.SymbolName,
+			SymbolPath: input.SymbolPath,
+			Limit:      limit,
+		})
+		if err != nil {
+			return nil, false, fmt.Errorf("query context-card chunks for %s: %w", path, err)
+		}
+
+		truncated = truncated || len(pathChunks) == limit
+		chunks = append(chunks, pathChunks...)
+	}
+
+	return chunks, truncated, nil
+}
+
+func contextTargetForPath(
+	ctx context.Context,
+	store *codeintel.Store,
+	path string,
+) codeIntelContextTarget {
+	file, found, err := store.GetCodeFile(ctx, path)
+	if err != nil {
+		return codeIntelContextTarget{Path: path}
+	}
+
+	return codeIntelContextTarget{
+		Path:       path,
+		File:       file,
+		Found:      found,
+		IndexFresh: found && file.DeletedAtUTC == "" && file.StaleReason == "",
+	}
+}
+
+func targetPaths(targets []codeIntelContextTarget) []string {
+	paths := make([]string, 0, len(targets))
+	for _, target := range targets {
+		paths = append(paths, target.Path)
+	}
+
+	return paths
+}
+
+func renderContextCardTOON(
+	targets []codeIntelContextTarget,
+	meta codeIntelTaskMeta,
+) string {
+	lines := make([]string, 0, contextCardTOONHeaderLines+len(targets))
+	lines = append(lines,
+		"tool: code_intel_context_card",
+		fmt.Sprintf("fresh: %t", meta.Fresh),
+		fmt.Sprintf("targets[%d]{path,found,chunks,index_fresh}:", len(targets)),
+	)
+
+	for _, target := range targets {
+		lines = append(lines, fmt.Sprintf(
+			"  %s,%t,%d,%t",
+			target.Path,
+			target.Found,
+			len(target.Chunks),
+			target.IndexFresh,
+		))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func changeRiskTarget(
+	ctx context.Context,
+	store *codeintel.Store,
+	path string,
+	limit int,
+) (codeIntelRiskTarget, error) {
+	file, found, err := store.GetCodeFile(ctx, path)
+	if err != nil {
+		return codeIntelRiskTarget{}, fmt.Errorf(
+			"read code file metadata for %s: %w",
+			path,
+			err,
+		)
+	}
+
+	chunks, err := store.CodeChunks(ctx, codeintel.CodeChunkQuery{
+		Path:  path,
+		Limit: limit,
+	})
+	if err != nil {
+		return codeIntelRiskTarget{}, fmt.Errorf("query code chunks for %s: %w", path, err)
+	}
+
+	failures, err := store.RepeatedFailures(ctx, codeintel.RepeatedFailureQuery{
+		Path:  path,
+		Limit: limit,
+	})
+	if err != nil {
+		return codeIntelRiskTarget{}, fmt.Errorf(
+			"query repeated failures for %s: %w",
+			path,
+			err,
+		)
+	}
+
+	reasons := []string{}
+
+	if !found {
+		reasons = append(reasons, "target is not indexed")
+	}
+
+	if len(chunks) >= limit {
+		reasons = append(reasons, "target has many indexed chunks")
+	}
+
+	if len(failures) != 0 {
+		reasons = append(reasons, "target has repeated failure evidence")
+	}
+
+	if found && (file.StaleReason != "" || file.DeletedAtUTC != "") {
+		reasons = append(reasons, "target index metadata is stale")
+	}
+
+	return codeIntelRiskTarget{
+		Path:              path,
+		File:              file,
+		Chunks:            chunks,
+		RepeatedFailures:  failures,
+		RiskLevel:         riskLevelForReasons(reasons),
+		Reasons:           reasons,
+		RecommendedChecks: recommendedChecksForPath(path),
+	}, nil
+}
+
+func riskLevelForReasons(reasons []string) string {
+	switch {
+	case len(reasons) > codeIntelMediumRiskReason:
+		return codeIntelQualityHigh
+	case len(reasons) == 1:
+		return codeIntelQualityMedium
+	default:
+		return codeIntelQualityLow
+	}
+}
+
+func recommendedChecksForPath(path string) []map[string]string {
+	return []map[string]string{
+		{"command": "make check", "reason": "canonical repository gate"},
+		{
+			"mcp":    "code_intel_context_card",
+			"reason": "inspect local symbol and evidence context for " + path,
+		},
+	}
 }
 
 func (server Server) codeSimilarityCheck(args json.RawMessage) (any, error) {

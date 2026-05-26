@@ -46,8 +46,13 @@ skill metadata used by those enforcement paths.
 - `skill_lookup`: return the generated skill playbook for a skill ID.
 - `remediation_explain`: expand an emitted `agent_remediation` payload into
   policy, principle, skill, action-context, and retry guidance.
+- `code_intel_overview`: return a task-shaped repository orientation with
+  ranked files, freshness metadata, evidence counts, and exact follow-up MCP
+  calls.
 - `code_intel_search`: query stored SARIF, remediation, and embedding evidence
   with FTS plus sqlite-vec when a query vector is supplied.
+- `code_intel_answer`: retrieve cited code-intel evidence for a repository
+  question while reporting retrieval quality separately from confidence.
 - `semantic_search`: query indexed repository code and return exact code chunks
   with path and line metadata before agents fall back to broad grep.
 - `code_intel_index_status`: report code-intelligence store freshness,
@@ -57,6 +62,10 @@ skill metadata used by those enforcement paths.
   duplicate implementation.
 - `code_intel_repo_map`: return the compact repository-wide AST map used for
   startup orientation.
+- `code_intel_context_card`: compose a compact file/symbol triage card with
+  chunks, graph context, linked findings, freshness, and follow-up MCP calls.
+- `code_intel_change_risk`: summarize modification risk for target files from
+  indexed chunks, repeated failures, and recommended checks.
 - `code_intel_index_code`: parse selected repository paths with Tree-sitter
   and persist symbol/config chunks in the repo-local code-intelligence store.
 - `code_intel_code_chunks`: return focused Tree-sitter chunks by path,

@@ -38,8 +38,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 25 {
-		t.Fatalf("tool count = %d, want 25: %#v", len(tools), tools)
+	if len(tools) != 29 {
+		t.Fatalf("tool count = %d, want 29: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -57,12 +57,16 @@ func TestServerListsTools(t *testing.T) {
 		"policy_explain",
 		"skill_lookup",
 		"remediation_explain",
+		"code_intel_overview",
 		"code_intel_search",
+		"code_intel_answer",
 		"semantic_search",
 		"code_intel_index_status",
 		"code_intel_hook_usage",
 		"code_similarity_check",
 		"code_intel_repo_map",
+		"code_intel_context_card",
+		"code_intel_change_risk",
 		"code_intel_index_code",
 		"code_intel_embedding_candidates",
 		"code_intel_code_chunks",
@@ -452,6 +456,46 @@ func TestServerCerunRunExecutesResolvedRuntime(t *testing.T) {
 		!strings.Contains(stdout, "--rewrite --intent exercise mcp cerun -- printf ok") ||
 		!strings.Contains(stderr, "stderr-msg") {
 		t.Fatalf("unexpected cerun output: stdout=%q stderr=%q", stdout, stderr)
+	}
+}
+
+func TestServerCerunRunDoesNotForwardInheritedExecStack(t *testing.T) {
+	t.Setenv("CODING_ETHOS_EXEC_STACK", "cerun\ncoding-ethos-mcp")
+
+	root := t.TempDir()
+	cerunPath := filepath.Join(root, "bin", "cerun")
+	err := os.MkdirAll(filepath.Dir(cerunPath), 0o700)
+	if err != nil {
+		t.Fatalf("create cerun dir: %v", err)
+	}
+
+	script := "#!/usr/bin/env sh\n" +
+		"if [ -n \"$CODING_ETHOS_EXEC_STACK\" ]; then\n" +
+		"  printf 'unexpected stack: %s\\n' \"$CODING_ETHOS_EXEC_STACK\" >&2\n" +
+		"  exit 96\n" +
+		"fi\n" +
+		"printf 'stack-cleared\\n'\n"
+	err = os.WriteFile(cerunPath, []byte(script), 0o700)
+	if err != nil {
+		t.Fatalf("write fake cerun: %v", err)
+	}
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":43,
+		"method":"tools/call",
+		"params":{
+			"name":"cerun_run",
+			"arguments":{"command":"git status","timeout_seconds":5}
+		}
+	}`), mcp.Runtime{ConsumerRoot: root})
+	response := decodeResponse(t, output)
+	content := structuredContent(t, response)
+
+	stdout, _ := content["stdout"].(string)
+	if content["exit_code"] != float64(0) ||
+		!strings.Contains(stdout, "stack-cleared") {
+		t.Fatalf("cerun_run forwarded recursive exec stack: %#v", content)
 	}
 }
 
@@ -1804,6 +1848,15 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
+	helperPath := filepath.Join(root, "pkg", "helper.py")
+
+	err = os.WriteFile(helperPath, []byte(`def helper_message(name):
+    return name.upper()
+`), 0o600)
+	if err != nil {
+		t.Fatalf("write helper source: %v", err)
+	}
+
 	runtime := mcp.Runtime{ConsumerRoot: root}
 
 	indexOutput := runServerWithRuntime(t, compactJSON(t, `{
@@ -1815,7 +1868,7 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 			"arguments":{"paths":["pkg"]}
 		}
 	}`), runtime)
-	if !strings.Contains(indexOutput, `"files_indexed":1`) ||
+	if !strings.Contains(indexOutput, `"files_indexed":2`) ||
 		!strings.Contains(indexOutput, `"code_intel_index_code"`) {
 		t.Fatalf("index output missing summary:\n%s", indexOutput)
 	}
@@ -1863,6 +1916,112 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 			"line code context output missing indexed symbol:\n%s",
 			lineContextOutput,
 		)
+	}
+
+	overviewOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":39,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_overview",
+			"arguments":{"path":"pkg","limit":5}
+		}
+	}`), runtime)
+	if !strings.Contains(overviewOutput, `"code_intel_overview"`) ||
+		!strings.Contains(overviewOutput, `"next_mcp_calls"`) ||
+		!strings.Contains(overviewOutput, `"_meta"`) {
+		t.Fatalf("overview output missing task-shaped fields:\n%s", overviewOutput)
+	}
+
+	contextCardOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":40,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_context_card",
+			"arguments":{"path":"pkg/app.py","symbol_path":"build_message"}
+		}
+	}`), runtime)
+	if !strings.Contains(contextCardOutput, `"code_intel_context_card"`) ||
+		!strings.Contains(contextCardOutput, `"build_message"`) ||
+		!strings.Contains(contextCardOutput, `"index_fresh":true`) {
+		t.Fatalf("context card output missing indexed symbol:\n%s", contextCardOutput)
+	}
+
+	orderedContextOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":43,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_context_card",
+			"arguments":{"paths":["pkg/helper.py","pkg/app.py"],"limit":5}
+		}
+	}`), runtime)
+	orderedContext := structuredContent(t, decodeResponse(t, orderedContextOutput))
+	orderedTargets := listValue(t, orderedContext["targets"])
+	if len(orderedTargets) != 2 {
+		t.Fatalf("ordered context card target count = %d, want 2", len(orderedTargets))
+	}
+	if got := mapValue(t, orderedTargets[0])["path"]; got != "pkg/helper.py" {
+		t.Fatalf("first context card target path = %#v, want pkg/helper.py", got)
+	}
+	if got := len(listValue(t, mapValue(t, orderedTargets[0])["chunks"])); got == 0 {
+		t.Fatalf("first context card target chunks = %d, want at least 1", got)
+	}
+	if got := mapValue(t, orderedTargets[1])["path"]; got != "pkg/app.py" {
+		t.Fatalf("second context card target path = %#v, want pkg/app.py", got)
+	}
+	if got := len(listValue(t, mapValue(t, orderedTargets[1])["chunks"])); got == 0 {
+		t.Fatalf("second context card target chunks = %d, want at least 1", got)
+	}
+
+	answerOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":41,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_answer",
+			"arguments":{"question":"Where is build_message implemented?","limit":5}
+		}
+	}`), runtime)
+	if !strings.Contains(answerOutput, `"code_intel_answer"`) ||
+		!strings.Contains(answerOutput, `"retrieval_quality"`) ||
+		!strings.Contains(answerOutput, `"citations"`) {
+		t.Fatalf("answer output missing retrieval contract:\n%s", answerOutput)
+	}
+
+	limitedAnswerOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":44,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_answer",
+			"arguments":{
+				"question":"Where are message functions implemented?",
+				"paths":["pkg/helper.py","pkg/app.py"],
+				"limit":1
+			}
+		}
+	}`), runtime)
+	limitedAnswer := structuredContent(t, decodeResponse(t, limitedAnswerOutput))
+	limitedCitations := listValue(t, limitedAnswer["citations"])
+	if len(limitedCitations) > 1 {
+		t.Fatalf("limited answer citations = %d, want at most 1", len(limitedCitations))
+	}
+
+	riskOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":42,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_change_risk",
+			"arguments":{"path":"pkg/app.py","limit":5}
+		}
+	}`), runtime)
+	if !strings.Contains(riskOutput, `"code_intel_change_risk"`) ||
+		!strings.Contains(riskOutput, `"risk_level"`) ||
+		!strings.Contains(riskOutput, `"recommended_checks"`) {
+		t.Fatalf("change risk output missing task-shaped fields:\n%s", riskOutput)
 	}
 }
 

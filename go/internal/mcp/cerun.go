@@ -20,6 +20,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/execguard"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
@@ -103,7 +104,7 @@ func (server Server) runCerun(args json.RawMessage) (any, error) {
 		buffer: &stderr,
 		limit:  maxCerunCapturedBytes + 1,
 	}
-	command.Env = os.Environ()
+	command.Env = cerunRunEnv(os.Environ())
 
 	runErr := command.Run()
 	timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
@@ -281,6 +282,19 @@ func executableExists(path string) bool {
 
 func containsString(values []string, candidate string) bool {
 	return slices.Contains(values, candidate)
+}
+
+func cerunRunEnv(environ []string) []string {
+	clean := make([]string, 0, len(environ))
+	prefix := execguard.EnvStack + "="
+
+	for _, item := range environ {
+		if !strings.HasPrefix(item, prefix) {
+			clean = append(clean, item)
+		}
+	}
+
+	return clean
 }
 
 func cerunArgs(input cerunInput, check, rewrite bool) []string {

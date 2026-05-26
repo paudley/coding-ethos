@@ -309,6 +309,31 @@ type codeIntelRepoMapInput struct {
 	SymbolsPerFile int    `json:"symbols_per_file,omitempty"`
 }
 
+type codeIntelContextCardInput struct {
+	Path       string   `json:"path,omitempty"`
+	SymbolPath string   `json:"symbol_path,omitempty"`
+	SymbolName string   `json:"symbol_name,omitempty"`
+	Format     string   `json:"format,omitempty"`
+	Paths      []string `json:"paths,omitempty"`
+	Line       int      `json:"line,omitempty"`
+	Limit      int      `json:"limit,omitempty"`
+	IncludeRaw bool     `json:"include_raw,omitempty"`
+}
+
+type codeIntelAnswerInput struct {
+	Question string   `json:"question,omitempty"`
+	Query    string   `json:"query,omitempty"`
+	Path     string   `json:"path,omitempty"`
+	Paths    []string `json:"paths,omitempty"`
+	Limit    int      `json:"limit,omitempty"`
+}
+
+type codeIntelChangeRiskInput struct {
+	Path  string   `json:"path,omitempty"`
+	Paths []string `json:"paths,omitempty"`
+	Limit int      `json:"limit,omitempty"`
+}
+
 type codeSimilarityCheckInput struct {
 	Code      string  `json:"code"`
 	Path      string  `json:"path,omitempty"`
@@ -405,8 +430,8 @@ func toolResult(result any) map[string]any {
 }
 
 const (
-	toolDefinitionCapacity          = 27
-	codeIntelToolDefinitionCapacity = 11
+	toolDefinitionCapacity          = 31
+	codeIntelToolDefinitionCapacity = 15
 )
 
 func toolDefinitions() []map[string]any {
@@ -858,7 +883,9 @@ func codeIntelToolDefinitions() []map[string]any {
 
 func codeIntelSearchToolDefinitions() []map[string]any {
 	return []map[string]any{
+		codeIntelOverviewToolDefinition(),
 		codeIntelSearchToolDefinition(),
+		codeIntelAnswerToolDefinition(),
 		semanticSearchToolDefinition(),
 		toolDefinition(
 			"code_intel_index_status",
@@ -883,6 +910,35 @@ func codeIntelSearchToolDefinitions() []map[string]any {
 			},
 		),
 	}
+}
+
+func codeIntelOverviewToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_overview",
+		toolText(
+			"Return a task-shaped repository orientation with ranked files,",
+			"index freshness metadata, evidence counts, and suggested",
+			"follow-up MCP calls.",
+		),
+		map[string]any{
+			"path":             map[string]any{"type": "string"},
+			"language":         map[string]any{"type": "string"},
+			"limit":            map[string]any{"type": "integer"},
+			"symbols_per_file": map[string]any{"type": "integer"},
+			"format":           map[string]any{"type": "string"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"start unfamiliar repo work with a bounded orientation",
+				"before broad file reads",
+			),
+			TracePersisted: false,
+		},
+	)
 }
 
 func codeIntelSearchToolDefinition() map[string]any {
@@ -914,6 +970,37 @@ func codeIntelSearchToolDefinition() map[string]any {
 			PreferredUse: toolText(
 				"retrieve prior fixes, related SARIF findings, and",
 				"policy evidence before broad file reads",
+			),
+			TracePersisted: false,
+		},
+	)
+}
+
+func codeIntelAnswerToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_answer",
+		toolText(
+			"Answer a repository question with cited code-intel retrieval",
+			"evidence, explicit retrieval quality, and separate confidence.",
+		),
+		map[string]any{
+			"question": map[string]any{"type": "string"},
+			"query":    aliasSchema("question"),
+			"path":     map[string]any{"type": "string"},
+			"paths": map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "string"},
+			},
+			"limit": map[string]any{"type": "integer"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"ask a bounded repo question and inspect exact cited",
+				"evidence before editing",
 			),
 			TracePersisted: false,
 		},
@@ -1016,30 +1103,9 @@ func codeIntelCodeToolDefinitions() []map[string]any {
 	return []map[string]any{
 		codeSimilarityToolDefinition(),
 		codeIntelRepoMapToolDefinition(),
-		toolDefinition(
-			"code_intel_index_code",
-			toolText(
-				"Parse repository code with Tree-sitter and persist",
-				"symbol-level code chunks for search and embedding.",
-			),
-			map[string]any{
-				"paths": map[string]any{
-					"type":  "array",
-					"items": map[string]any{"type": "string"},
-				},
-			},
-			nil,
-			toolMetadata{
-				Advisory:      true,
-				ExecutesTools: false,
-				ReadsFiles:    true,
-				PreferredUse: toolText(
-					"refresh symbol-level code context before asking for",
-					"related code or remediation history",
-				),
-				TracePersisted: true,
-			},
-		),
+		codeIntelContextCardToolDefinition(),
+		codeIntelChangeRiskToolDefinition(),
+		codeIntelIndexCodeToolDefinition(),
 		toolDefinition(
 			"code_intel_code_chunks",
 			toolText(
@@ -1092,6 +1158,98 @@ func codeIntelCodeToolDefinitions() []map[string]any {
 			},
 		),
 	}
+}
+
+func codeIntelIndexCodeToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_index_code",
+		toolText(
+			"Parse repository code with Tree-sitter and persist",
+			"symbol-level code chunks for search and embedding.",
+		),
+		map[string]any{
+			"paths": map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "string"},
+			},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"refresh symbol-level code context before asking for",
+				"related code or remediation history",
+			),
+			TracePersisted: true,
+		},
+	)
+}
+
+func codeIntelContextCardToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_context_card",
+		toolText(
+			"Compose a compact triage card for files, symbols, or lines",
+			"with chunks, local graph context, evidence links, freshness,",
+			"and exact follow-up MCP calls.",
+		),
+		map[string]any{
+			"path": map[string]any{"type": "string"},
+			"paths": map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "string"},
+			},
+			"symbol_path": map[string]any{"type": "string"},
+			"symbol_name": map[string]any{"type": "string"},
+			"line":        map[string]any{"type": "integer"},
+			"limit":       map[string]any{"type": "integer"},
+			"format":      map[string]any{"type": "string"},
+			"include_raw": map[string]any{"type": "boolean"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"inspect bounded file or symbol context before modifying",
+				"implementation code",
+			),
+			TracePersisted: false,
+		},
+	)
+}
+
+func codeIntelChangeRiskToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_change_risk",
+		toolText(
+			"Summarize modification risk for target files from indexed",
+			"chunks, dependency edges, linked findings, and repeated",
+			"failure evidence.",
+		),
+		map[string]any{
+			"path": map[string]any{"type": "string"},
+			"paths": map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "string"},
+			},
+			"limit": map[string]any{"type": "integer"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"preflight the likely blast radius and checks before",
+				"editing target files",
+			),
+			TracePersisted: false,
+		},
+	)
 }
 
 func codeIntelRepoMapToolDefinition() map[string]any {
