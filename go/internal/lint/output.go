@@ -47,7 +47,7 @@ func OutputDiagnostics(result Result) []diagnostics.Diagnostic {
 	findings := make([]diagnostics.Diagnostic, 0, len(decisions))
 	for _, decision := range decisions {
 		if len(decision.Diagnostics) > 0 {
-			findings = append(findings, decision.Diagnostics...)
+			findings = append(findings, decision.EvidenceDiagnostics()...)
 
 			continue
 		}

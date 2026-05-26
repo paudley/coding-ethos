@@ -171,7 +171,7 @@ func FromDecisions(decisions []policy.Decision) []Finding {
 	findings := make([]Finding, 0, len(decisions))
 	for _, decision := range decisions {
 		if len(decision.Diagnostics) > 0 {
-			findings = append(findings, FromDiagnostics(decision.Diagnostics)...)
+			findings = append(findings, FromDiagnostics(decision.EvidenceDiagnostics())...)
 
 			continue
 		}

@@ -526,7 +526,7 @@ func sarifDiagnostics(result lint.Result) []diagnostics.Diagnostic {
 	}
 
 	for _, decision := range result.Decisions {
-		items = append(items, decision.Diagnostics...)
+		items = append(items, decision.EvidenceDiagnostics()...)
 	}
 
 	return diagnostics.Dedupe(sarifFileDiagnostics(items))

@@ -6,6 +6,7 @@ package policy_test
 import (
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/diagnostics"
 	. "blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -123,5 +124,66 @@ func TestDecisionEvidenceStringsNormalizeScalarAndListValues(t *testing.T) {
 	}
 	if decision.EvidenceSkillID() != "lint-remediation" {
 		t.Fatalf("skill mismatch: %q", decision.EvidenceSkillID())
+	}
+}
+
+func TestDecisionEvidenceDiagnosticsFillCanonicalContext(t *testing.T) {
+	t.Parallel()
+
+	decision := Decision{
+		PolicyID:     "git.staged_admin_files",
+		Severity:     blockDecision,
+		Message:      "Administrative staged files require explicit handling.",
+		Suggestion:   "Confirm the policy change is intentional.",
+		PrincipleIDs: []string{"feedback-as-a-first-class-citizen"},
+		Evidence: map[string]any{
+			"files":    []any{" coding_ethos.yml ", ""},
+			"skill_id": "safe-git-workflow",
+			"tool":     "policy-lint",
+		},
+		Diagnostics: []diagnostics.Diagnostic{{
+			Message: "specific diagnostic",
+		}},
+	}
+
+	diagnostics := decision.EvidenceDiagnostics()
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+
+	item := diagnostics[0]
+	if item.File != "coding_ethos.yml" ||
+		item.Tool != "policy-lint" ||
+		item.PolicyID != "git.staged_admin_files" ||
+		item.Severity != blockDecision ||
+		item.SkillID != "safe-git-workflow" ||
+		item.Advice != "Confirm the policy change is intentional." ||
+		len(item.PrincipleIDs) != 1 {
+		t.Fatalf("diagnostic = %#v", item)
+	}
+}
+
+func TestDecisionEvidenceDiagnosticsRepresentMultipleFilesInDetail(t *testing.T) {
+	t.Parallel()
+
+	decision := Decision{
+		PolicyID: "repo.multi_file",
+		Severity: blockDecision,
+		Evidence: map[string]any{
+			"staged_files": []string{"a.go", "b.go"},
+		},
+		Diagnostics: []diagnostics.Diagnostic{{
+			Detail: "matched staged policy",
+		}},
+	}
+
+	diagnostics := decision.EvidenceDiagnostics()
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+
+	if diagnostics[0].File != "" ||
+		diagnostics[0].Detail != "matched staged policy; files=a.go,b.go" {
+		t.Fatalf("diagnostic = %#v", diagnostics[0])
 	}
 }
