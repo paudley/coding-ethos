@@ -113,22 +113,6 @@ proxy:
     max_diagnostics: 12
 
 git:
-  # Parent repos that cannot use signed git operations yet can disable the
-  # wrapper's signing invariant explicitly. coding-ethos itself keeps this
-  # enabled: commits are forced through `git commit -S`, and pushes containing
-  # unsigned outgoing commits are blocked.
-  signed_operations:
-    enabled: true
-  hook_bypass:
-    enabled: true
-  history_rewrite_prevention:
-    enabled: true
-  stash_blocked:
-    enabled: true
-  protected_submodule_update:
-    enabled: true
-    paths:
-      - coding-ethos
   staged_admin_files:
     enabled: true
     basenames:

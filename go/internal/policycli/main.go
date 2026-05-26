@@ -691,12 +691,6 @@ func addRepoConfigOnlyShape(reference map[string]any) {
 		"exclude_paths": []any{},
 	}
 
-	reference["git"] = map[string]any{
-		"signed_operations": map[string]any{
-			"enabled": true,
-		},
-	}
-
 	reference[configSectionProxy] = map[string]any{
 		"code_intel_enrichment": map[string]any{
 			"enabled":      true,

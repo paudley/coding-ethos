@@ -409,30 +409,3 @@ func initSignedGitwrapRepo(t *testing.T) string {
 
 	return repo
 }
-
-func TestCheckHonorsRepoConfigSigningOptOut(t *testing.T) {
-	t.Parallel()
-
-	repo := initGitwrapRepo(t)
-	err := os.WriteFile(filepath.Join(repo, "repo_config.yaml"), []byte(`
-git:
-  signed_operations:
-    enabled: false
-`), 0o600)
-	if err != nil {
-		t.Fatalf("write repo config: %v", err)
-	}
-	runGitwrapGit(t, repo, "config", "commit.gpgsign", "false")
-
-	result, err := Check(policy.ExampleBundle(), Options{
-		Argv: []string{"status", "--short"},
-		Cwd:  repo,
-	})
-	if err != nil {
-		t.Fatalf("check git wrapper: %v", err)
-	}
-
-	if result.Status != checkStatusAllowed {
-		t.Fatalf("status mismatch: got %q decisions %#v", result.Status, result.Decisions)
-	}
-}
