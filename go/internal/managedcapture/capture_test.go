@@ -34,6 +34,65 @@ const (
 	streamDrainTimeout    = 2 * time.Second
 )
 
+func TestPrepareManagedWritablePathsCreatesDeclaredCacheDirs(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	err := prepareManagedWritablePaths(root, sandbox.Evidence{
+		WritePaths: []string{
+			".coding-ethos/cache",
+			".ruff_cache",
+			"pkg/app.py",
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepareManagedWritablePaths() returned error: %v", err)
+	}
+
+	for _, path := range []string{
+		filepath.Join(root, ".coding-ethos", "cache"),
+		filepath.Join(root, ".ruff_cache"),
+	} {
+		info, statErr := os.Stat(path)
+		if statErr != nil || !info.IsDir() {
+			t.Fatalf("expected writable dir %q, stat=%#v err=%v", path, info, statErr)
+		}
+	}
+
+	if _, statErr := os.Stat(filepath.Join(root, "pkg", "app.py")); statErr == nil {
+		t.Fatal("prepareManagedWritablePaths created formatter target file path")
+	}
+}
+
+func TestManagedWritableDirRejectsTraversal(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		".coding-ethos/cache/../../outside",
+		".coding-ethos/cache/..",
+		".ruff_cache/../outside",
+	} {
+		if managedWritableDir(path) {
+			t.Fatalf("managedWritableDir(%q) = true, want false", path)
+		}
+	}
+}
+
+func TestPrepareManagedWritablePathRejectsTraversal(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	err := prepareManagedWritablePath(root, ".coding-ethos/cache/../../outside")
+	if err == nil {
+		t.Fatal("prepareManagedWritablePath() returned nil for traversal path")
+	}
+
+	outside := filepath.Join(root, "..", "outside")
+	if _, statErr := os.Stat(outside); statErr == nil {
+		t.Fatalf("prepareManagedWritablePath created outside path %q", outside)
+	}
+}
+
 const captureOutputHelperEnv = "CAPTURE_TEST_HELPER_OUTPUT"
 
 func TestCapturedOutputHelperProcess(t *testing.T) {

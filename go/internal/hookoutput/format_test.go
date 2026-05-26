@@ -223,7 +223,11 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 				"implementation":       "cel",
 				"ast_change_source":    "staged",
 				"ast_language":         "python",
+				"ast_end_byte":         int64(128),
+				"ast_end_column":       int64(19),
+				"ast_end_line":         int64(4),
 				"ast_node_kind":        "function_definition",
+				"ast_start_byte":       int64(72),
 				"ast_symbol_kind":      "function",
 				"ast_symbol_name":      "load_config",
 				"ast_symbol_path":      "load_config",
@@ -240,6 +244,7 @@ func TestFormatLintResultSARIFIncludesRuleMetadata(t *testing.T) {
 				"proxy_trace_id":       "trace-1",
 				"proxy_tracking_id":    "track-1",
 				"proxy_transform":      "dlp-inspection",
+				"snippet":              "def load_config():",
 				"when":                 "diagnostic.code == 'F401'",
 			},
 			PrincipleIDs: []string{"static-analysis-is-the-first-line-of-defense"},
@@ -354,6 +359,36 @@ func assertSARIFResultLocation(t *testing.T, payload map[string]any) {
 		payload,
 		"runs.0.results.0.locations.0.physicalLocation.region.startColumn",
 		float64(8),
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.locations.0.physicalLocation.region.endLine",
+		float64(4),
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.locations.0.physicalLocation.region.endColumn",
+		float64(19),
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.locations.0.physicalLocation.region.byteOffset",
+		float64(72),
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.locations.0.physicalLocation.region.byteLength",
+		float64(56),
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.locations.0.physicalLocation.region.snippet.text",
+		"def load_config():",
 	)
 	assertJSONPathPrefix(
 		t,

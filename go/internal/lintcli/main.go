@@ -574,6 +574,11 @@ func logLintResult(cwd string, result lint.Result) string {
 		return ""
 	}
 
+	sarifErr := hookoutput.WriteLintSARIFSidecar(tracePath, result)
+	if sarifErr != nil {
+		writeLintCLIText("warning: lint SARIF sidecar not written: " + sarifErr.Error())
+	}
+
 	err := outputsurface.AutoPruneSurface(
 		context.Background(),
 		cwd,

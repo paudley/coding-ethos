@@ -946,6 +946,50 @@ func TestServerCodeIntelRepoMapResourceDoesNotRefreshIndex(t *testing.T) {
 	}
 }
 
+func TestServerCodeIntelRepoMapReturnsDirectoryPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	goSourcePath := filepath.Join(root, "internal", "query", "postgres", "index.go")
+	inlineErr0 := os.MkdirAll(filepath.Dir(goSourcePath), 0o700)
+	if inlineErr0 != nil {
+		t.Fatalf("create go source dir: %v", inlineErr0)
+	}
+
+	inlineErr1 := os.WriteFile(
+		goSourcePath,
+		[]byte(
+			"package postgres\n\ntype Index struct{}\n\nfunc OpenIndex() *Index { return &Index{} }\n",
+		),
+		0o600,
+	)
+	if inlineErr1 != nil {
+		t.Fatalf("write go source: %v", inlineErr1)
+	}
+
+	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":58,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_repo_map",
+			"arguments":{
+				"path":"internal/query/postgres",
+				"language":"go",
+				"limit":8,
+				"symbols_per_file":8,
+				"format":"compact"
+			}
+		}
+	}`), runtime)
+
+	if !strings.Contains(output, "internal/query/postgres/index.go") ||
+		!strings.Contains(output, "OpenIndex") {
+		t.Fatalf("repo-map tool did not return directory map:\n%s", output)
+	}
+}
+
 func TestServerSARIFRemediationAdviceUsesSARIFPolicyMetadata(t *testing.T) {
 	t.Parallel()
 
@@ -1662,6 +1706,29 @@ func TestServerSkillRecommendUsesBroadAgentWorkSignals(t *testing.T) {
 	if !strings.Contains(output, "agent-operating-discipline") ||
 		!strings.Contains(output, "State assumptions") {
 		t.Fatalf("missing agent operating discipline recommendation:\n%s", output)
+	}
+}
+
+func TestServerSkillRecommendFallsBackForFixIntent(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":8,
+		"method":"tools/call",
+		"params":{
+			"name":"skill_recommend",
+			"arguments":{
+				"intent":"Fix PostgreSQL AGE connection-pool correctness, pgvector mixed-dimension filtering, and stale AGE node cleanup in internal/query/postgres/index.go",
+				"path":"internal/query/postgres/index.go",
+				"limit":5
+			}
+		}
+	}`))
+
+	if !strings.Contains(output, "agent-operating-discipline") ||
+		!strings.Contains(output, "recommendations") {
+		t.Fatalf("missing fallback skill recommendation:\n%s", output)
 	}
 }
 

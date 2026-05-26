@@ -5,8 +5,10 @@ package managedcapture
 
 import (
 	"context"
+	"fmt"
 
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 )
@@ -22,6 +24,11 @@ func logCapturedToolResult(
 		return ""
 	}
 
+	err = writeCapturedToolSARIFSidecar(tracePath, result)
+	if err != nil {
+		emitManagedCaptureText("warning: lint SARIF sidecar not written: " + err.Error())
+	}
+
 	err = outputsurface.AutoPruneSurface(
 		context.Background(),
 		cwd,
@@ -33,6 +40,15 @@ func logCapturedToolResult(
 	}
 
 	return tracePath
+}
+
+func writeCapturedToolSARIFSidecar(tracePath string, result lint.Result) error {
+	err := hookoutput.WriteLintSARIFSidecar(tracePath, result)
+	if err != nil {
+		return fmt.Errorf("write captured tool SARIF sidecar: %w", err)
+	}
+
+	return nil
 }
 
 func refreshCapturedToolCodeIntel(root, tracePath string, changedFiles []string) {

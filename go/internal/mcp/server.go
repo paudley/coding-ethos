@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strings"
 
@@ -28,6 +29,7 @@ const (
 	protocolVersion         = "2025-06-18"
 	maxSARIFHistoryPayloads = 1000
 	skillSummaryLimit       = 100
+	fallbackSkillMatchScore = 5
 	repoMapResourceURI      = "coding-ethos://code-intel/repo-map"
 )
 
@@ -639,6 +641,15 @@ func (server Server) sarifFromTraceID(traceID string) (string, error) {
 		return "", fmt.Errorf("resolve lint trace id: %w", err)
 	}
 
+	sidecar, err := os.ReadFile(lint.SARIFPathForTracePath(tracePath))
+	if err == nil {
+		return string(sidecar), nil
+	}
+
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read lint trace SARIF sidecar: %w", err)
+	}
+
 	result, err := lint.ReplayTrace(tracePath)
 	if err != nil {
 		return "", fmt.Errorf("replay lint trace: %w", err)
@@ -872,7 +883,7 @@ func policyCheckResponse(scope string, result hooks.Result) map[string]any {
 			"message":       decision.Message,
 			"suggestion":    decision.Suggestion,
 			"principle_ids": decision.PrincipleIDs,
-			"skill_id":      stringEvidence(decision.Evidence, "skill_id"),
+			"skill_id":      decision.EvidenceSkillID(),
 		})
 	}
 
@@ -972,12 +983,39 @@ func (server Server) skillRecommendations(
 	return recommendations
 }
 
+func fallbackSkillScore(skill policy.Skill, text string) int {
+	if skill.ID != "agent-operating-discipline" || !broadEngineeringWorkSignal(text) {
+		return 0
+	}
+
+	return fallbackSkillMatchScore
+}
+
+func broadEngineeringWorkSignal(text string) bool {
+	for _, signal := range []string{
+		"address",
+		"debug",
+		"diagnose",
+		"fix",
+		"implement",
+		"repair",
+		"resolve",
+		"refactor",
+	} {
+		if strings.Contains(text, signal) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func scoreSkillByText(skill policy.Skill, text string) int {
 	if strings.TrimSpace(text) == "" {
 		return 0
 	}
 
-	score := 0
+	score := fallbackSkillScore(skill, text)
 
 	for _, term := range skill.TriggerTerms {
 		normalized := strings.ToLower(strings.TrimSpace(term))
@@ -1031,22 +1069,4 @@ func skillSummary(skill policy.Skill, score int) map[string]any {
 		"principle_ids":     skill.PrincipleIDs,
 		"score":             score,
 	}
-}
-
-func stringEvidence(evidence map[string]any, key string) string {
-	if len(evidence) == 0 {
-		return ""
-	}
-
-	value, found := evidence[key]
-	if !found {
-		return ""
-	}
-
-	text, found := value.(string)
-	if !found {
-		return ""
-	}
-
-	return text
 }

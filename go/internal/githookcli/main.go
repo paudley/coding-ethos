@@ -515,11 +515,16 @@ func encodeLintResult(result lint.Result) {
 }
 
 func logLintResult(cwd string, result lint.Result) {
-	_, inlineErrA := lint.LogResult(cwd, result)
+	tracePath, inlineErrA := lint.LogResult(cwd, result)
 	if inlineErrA != nil {
 		writeGitHookText("warning: lint trace not written: " + inlineErrA.Error())
 
 		return
+	}
+
+	inlineErrB := hookoutput.WriteLintSARIFSidecar(tracePath, result)
+	if inlineErrB != nil {
+		writeGitHookText("warning: lint SARIF sidecar not written: " + inlineErrB.Error())
 	}
 
 	err := outputsurface.AutoPruneSurface(

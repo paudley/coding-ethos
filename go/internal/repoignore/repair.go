@@ -22,7 +22,6 @@ const (
 // ignored while keeping .coding-ethos/memories trackable.
 func RuntimePaths() []string {
 	return []string{
-		".code-ethos/cache/",
 		".coding-ethos/cache/",
 		".coding-ethos/code-intel.db",
 		".coding-ethos/code-intel.db-shm",

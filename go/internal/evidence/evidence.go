@@ -131,15 +131,22 @@ func FromDiagnostics(items []diagnostics.Diagnostic) []Finding {
 }
 
 func FromDecision(decision policy.Decision) Finding {
+	sourceSpan := sourceSpanFromEvidence(decision.Evidence)
+	if sourceSpan.Path == "" {
+		if files := decision.EvidenceFiles(); len(files) > 0 {
+			sourceSpan.Path = files[0]
+		}
+	}
+
 	finding := Finding{
-		SourceSpan:    sourceSpanFromEvidence(decision.Evidence),
+		SourceSpan:    sourceSpan,
 		RuleID:        strings.TrimSpace(decision.PolicyID),
-		Tool:          stringEvidence(decision.Evidence, "tool"),
+		Tool:          decision.EvidenceTool(),
 		Message:       strings.TrimSpace(decision.Message),
 		Severity:      strings.TrimSpace(decision.Severity),
 		PolicyID:      strings.TrimSpace(decision.PolicyID),
-		SkillID:       stringEvidence(decision.Evidence, "skill_id"),
-		EvaluatorKind: stringEvidence(decision.Evidence, "implementation"),
+		SkillID:       decision.EvidenceSkillID(),
+		EvaluatorKind: decision.EvidenceImplementation(),
 		PolicyContext: strings.TrimSpace(decision.Suggestion),
 		EvidenceKeys:  evidenceKeys(decision.Evidence),
 		PrincipleIDs:  compactStrings(decision.PrincipleIDs),
@@ -153,7 +160,7 @@ func FromDecision(decision policy.Decision) Finding {
 		finding.SourceSpan.Path,
 		finding.SourceSpan.SymbolName,
 		finding.PolicyContext,
-		stringEvidence(decision.Evidence, "command"),
+		decision.EvidenceCommand(),
 	)
 	finding.ID = findingID(finding)
 

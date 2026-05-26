@@ -235,9 +235,7 @@ func runHookGroupInProcess(
 		commandStart := time.Now()
 
 		commandExit := runFilteredHookCommand(cfg, command, files)
-		if commandExit != 0 {
-			exit = 1
-		}
+		exit = firstNonZeroExit(exit, commandExit)
 
 		commandResults = append(commandResults, hookCommandResult{
 			Name:       command.Name,
@@ -247,7 +245,7 @@ func runHookGroupInProcess(
 		})
 	}
 
-	if exit != 0 || seqEnd >= len(group.Commands) {
+	if (exit != 0 && group.Name == "ai") || seqEnd >= len(group.Commands) {
 		return hookGroupResult{
 			Name:       group.Name,
 			Status:     hookStatusForExitCode(exit),
@@ -285,9 +283,7 @@ func runHookGroupInProcess(
 	for _, result := range parallelResults {
 		commandResults = append(commandResults, result)
 
-		if result.ExitCode != 0 {
-			exit = 1
-		}
+		exit = firstNonZeroExit(exit, result.ExitCode)
 	}
 
 	return hookGroupResult{
@@ -297,6 +293,14 @@ func runHookGroupInProcess(
 		DurationMS: durationMilliseconds(start),
 		Commands:   commandResults,
 	}
+}
+
+func firstNonZeroExit(current, next int) int {
+	if current != 0 || next == 0 {
+		return current
+	}
+
+	return next
 }
 
 func runFilteredHookCommand(cfg Config, command hookCommand, files []string) int {
@@ -347,10 +351,8 @@ func hookGroupChildEnvironment(resultPath, childConsumerRoot string) []string {
 }
 
 func writeHookGroupResultFile(path string, result hookGroupResult) {
-	cleanPath := filepath.Clean(strings.TrimSpace(path))
-
-	tempPrefix := os.TempDir() + string(os.PathSeparator)
-	if cleanPath == "." || !strings.HasPrefix(cleanPath, tempPrefix) {
+	cleanPath, ok := hookGroupResultFilePath(path)
+	if !ok {
 		return
 	}
 
@@ -359,13 +361,82 @@ func writeHookGroupResultFile(path string, result hookGroupResult) {
 		return
 	}
 
+	// #nosec G703 -- hookGroupResultFilePath rejects paths outside os.TempDir.
 	if os.WriteFile(cleanPath, data, hookGroupResultFileMode) != nil {
 		return
 	}
 }
 
+func hookGroupResultFilePath(path string) (string, bool) {
+	cleanPath := filepath.Clean(strings.TrimSpace(path))
+	if cleanPath == "." {
+		return "", false
+	}
+
+	tempDir, err := resolvedPath(os.TempDir())
+	if err != nil {
+		return "", false
+	}
+
+	absolutePath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return "", false
+	}
+
+	resolvedTarget, err := resolvedHookGroupResultTarget(absolutePath)
+	if err != nil {
+		return "", false
+	}
+
+	relativePath, err := filepath.Rel(tempDir, resolvedTarget)
+	if err != nil ||
+		relativePath == ".." ||
+		strings.HasPrefix(relativePath, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+
+	return absolutePath, true
+}
+
+func resolvedPath(path string) (string, error) {
+	absolutePath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", fmt.Errorf("resolve absolute path for hook group result: %w", err)
+	}
+
+	resolved, err := filepath.EvalSymlinks(absolutePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve hook group result symlinks: %w", err)
+	}
+
+	return resolved, nil
+}
+
+func resolvedHookGroupResultTarget(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved, nil
+	}
+
+	if !os.IsNotExist(err) {
+		return "", fmt.Errorf("resolve hook group result target: %w", err)
+	}
+
+	parent, err := resolvedPath(filepath.Dir(path))
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(parent, filepath.Base(path)), nil
+}
+
 func readHookGroupResultFile(path string) (hookGroupResult, bool) {
-	data, err := os.ReadFile(path)
+	cleanPath, ok := hookGroupResultFilePath(path)
+	if !ok {
+		return hookGroupResult{}, false
+	}
+
+	data, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return hookGroupResult{}, false
 	}

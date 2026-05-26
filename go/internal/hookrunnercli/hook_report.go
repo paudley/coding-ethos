@@ -104,10 +104,18 @@ func emitHookReport(writer io.Writer, producer hookDiagnosticProducer, format st
 	report := prepareHookReport(producer.HookReport(), format)
 	result := hookReportLintResult(report)
 
-	_, err := lint.LogResult(repoRoot(), result)
+	tracePath, err := lint.LogResult(repoRoot(), result)
 	if err != nil {
 		writeText(os.Stderr, "warning: hook report trace not written: "+err.Error())
 	} else {
+		err = writeHookReportSARIFSidecar(tracePath, result)
+		if err != nil {
+			writeText(
+				os.Stderr,
+				"warning: hook report SARIF sidecar not written: "+err.Error(),
+			)
+		}
+
 		err = outputsurface.AutoPruneSurface(
 			context.Background(),
 			repoRoot(),
@@ -123,6 +131,15 @@ func emitHookReport(writer io.Writer, producer hookDiagnosticProducer, format st
 	if err != nil {
 		writeText(os.Stderr, "warning: hook report not rendered: "+err.Error())
 	}
+}
+
+func writeHookReportSARIFSidecar(tracePath string, result lint.Result) error {
+	err := hookoutput.WriteLintSARIFSidecar(tracePath, result)
+	if err != nil {
+		return fmt.Errorf("write hook report SARIF sidecar: %w", err)
+	}
+
+	return nil
 }
 
 func prepareHookReport(report hookReport, format string) hookReport {

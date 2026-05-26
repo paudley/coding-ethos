@@ -885,8 +885,9 @@ const shellForbiddenStringsCEL = `!(
 		) ||
 		(
 			list_contains(["Write", "Edit", "MultiEdit"], event.tool) &&
-			!paths.exists(path,
-				any_glob_match(
+			paths.exists(path,
+				path.base != "Makefile" &&
+				!any_glob_match(
 					[
 						"**/.claude/**",
 						"**/.codex/**",
@@ -936,8 +937,6 @@ const shellForbiddenStringsCEL = `!(
 					"**/*.bash",
 					"bin/**",
 					"scripts/**",
-					"Makefile",
-					"**/Makefile",
 					".github/workflows/**",
 					".gitlab-ci.yml",
 					"**/.gitlab-ci.yml",

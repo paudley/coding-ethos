@@ -213,6 +213,44 @@ func TestHookGroupResultFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestReadHookGroupResultFileRejectsNonTempPath(t *testing.T) {
+	t.Parallel()
+
+	if result, ok := readHookGroupResultFile("go.mod"); ok {
+		t.Fatalf("readHookGroupResultFile() = %#v, true for non-temp path", result)
+	}
+}
+
+func TestHookGroupResultFilePathRejectsTempSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	outsideDir, err := os.MkdirTemp(".", "hook-result-outside-")
+	if err != nil {
+		t.Fatalf("create outside temp dir: %v", err)
+	}
+	t.Cleanup(func() {
+		if removeErr := os.RemoveAll(outsideDir); removeErr != nil {
+			t.Fatalf("remove outside temp dir: %v", removeErr)
+		}
+	})
+
+	outsidePath, err := filepath.Abs(outsideDir)
+	if err != nil {
+		t.Fatalf("resolve outside temp dir: %v", err)
+	}
+
+	linkPath := filepath.Join(t.TempDir(), "outside")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if cleanPath, ok := hookGroupResultFilePath(
+		filepath.Join(linkPath, "result.json"),
+	); ok {
+		t.Fatalf("hookGroupResultFilePath() = %q, true for temp symlink escape", cleanPath)
+	}
+}
+
 func TestRunGitHookCommandRejectsUnsupportedEntrypoints(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		if got := runGitHookCommand(Config{}, nil); got != 1 {

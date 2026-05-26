@@ -108,6 +108,20 @@ func FormatLintResult(result lint.Result, format string) (string, error) {
 	}
 }
 
+func WriteLintSARIFSidecar(tracePath string, result lint.Result) error {
+	output, err := FormatLintResult(result, FormatSARIF)
+	if err != nil {
+		return fmt.Errorf("format lint trace as SARIF: %w", err)
+	}
+
+	err = lint.WriteSARIFSidecar(tracePath, output)
+	if err != nil {
+		return fmt.Errorf("write lint SARIF sidecar: %w", err)
+	}
+
+	return nil
+}
+
 func EncodeLintResult(writer io.Writer, result lint.Result, format string) error {
 	output, err := FormatLintResult(result, format)
 	if err != nil {

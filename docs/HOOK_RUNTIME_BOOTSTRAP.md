@@ -201,7 +201,7 @@ Bootstrap needs a few guardrails:
   multiple builds over the same output directory.
 - Print the exact failed command and preserve build output when repair fails.
 - Keep build outputs under ignored `bin/` and `build/` directories.
-- Keep transient repo-local runtime caches under ignored `.code-ethos/cache/`
+- Keep transient repo-local runtime caches under ignored `.coding-ethos/cache/`
   paths, not under `.git`.
 - Keep installed hook entrypoints as stable generated scripts and move
   versioned behavior into the `coding-ethos` checkout.

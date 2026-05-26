@@ -3509,8 +3509,9 @@ principles:
               ) ||
               (
                 list_contains(["Write", "Edit", "MultiEdit"], event.tool) &&
-                !paths.exists(path,
-                  any_glob_match(
+                paths.exists(path,
+                  path.base != "Makefile" &&
+                  !any_glob_match(
                     [
                       "**/.claude/**",
                       "**/.codex/**",
@@ -3559,8 +3560,6 @@ principles:
                     "**/*.bash",
                     "bin/**",
                     "scripts/**",
-                    "Makefile",
-                    "**/Makefile",
                     ".github/workflows/**",
                     ".gitlab-ci.yml",
                     "**/.gitlab-ci.yml",

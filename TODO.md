@@ -616,7 +616,7 @@ Acceptance criteria:
     declaration or when a hook-owned tool lacks a diagnostic contract.
   - [x] Finish removing direct hookrunner quality-gate emitters so no new tool
     needs a hookrunner-specific reporting branch.
-- [ ] Every non-empty tool output is either parsed, intentionally represented as
+- [x] Every non-empty tool output is either parsed, intentionally represented as
   changed-file evidence, or reported as an unparseable tool failure with bounded
   evidence.
   - [x] Managed capture tests cover parsed output, stdout/stderr preservation,
@@ -1073,7 +1073,7 @@ limits at runtime.
     `runtime.sandbox_denial` findings.
 - [x] Require Bubblewrap for sandboxed execution and fail closed with clear
   denial evidence when Linux namespace/seccomp support is unavailable.
-- [ ] Remove sandbox `auto` mode so sandbox-declared tools have only explicit
+- [x] Remove sandbox `auto` mode so sandbox-declared tools have only explicit
   `off` or fail-closed `required` execution paths.
 - [ ] Evaluate future high-isolation backends such as gVisor, eBPF-based
   telemetry/enforcement, and Wasm/WASI execution for untrusted extension code,

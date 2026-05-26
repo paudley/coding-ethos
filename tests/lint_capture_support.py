@@ -60,7 +60,6 @@ def _prepare_consumer_repo(tmp_path: Path) -> Path:
     consumer.mkdir()
     _run(["git", "init"], cwd=consumer)
     gitignore_lines = [
-        ".code-ethos/cache/",
         ".coding-ethos/cache/",
         ".coding-ethos/code-intel.db",
         ".coding-ethos/code-intel.db-shm",

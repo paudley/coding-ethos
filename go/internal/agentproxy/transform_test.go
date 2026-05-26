@@ -149,8 +149,13 @@ func TestSavedOutputNoticeTransformCollapsesVerboseInstructions(t *testing.T) {
 
 	if output.Record.PolicyID != "proxy.saved_output_notice" ||
 		output.Record.Decision != "summarize" ||
+		output.Record.EvidencePath != "/tmp/tool-results/mcp-gmeow-gmail_get_message-1779695312898.txt" ||
 		output.Metadata["coding_ethos.saved_output_notice"] != "true" {
 		t.Fatalf("record = %#v metadata = %#v", output.Record, output.Metadata)
+	}
+
+	if output.Metadata["coding_ethos.full_output_path"] != output.Record.EvidencePath {
+		t.Fatalf("saved-output metadata = %#v record = %#v", output.Metadata, output.Record)
 	}
 }
 

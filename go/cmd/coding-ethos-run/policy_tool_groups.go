@@ -4,12 +4,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/configdata"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 )
 
@@ -29,7 +31,7 @@ func runPolicyToolGroup(paths runtimePaths, rest []string) error {
 		return apperror.StaticError("policy-tool-group requires a group name")
 	}
 
-	group, found := policyToolGroup(rest[0])
+	group, found := policyToolGroup(paths, rest[0])
 	if !found {
 		return apperror.Wrapf(
 			apperror.StaticError("unknown policy-tool group"),
@@ -54,7 +56,7 @@ func runScopedPolicyToolGroupByName(
 	codeIntel bool,
 	scope managedLintScope,
 ) int {
-	group, found := policyToolGroup(name)
+	group, found := policyToolGroup(paths, name)
 	if !found {
 		return 1
 	}
@@ -380,36 +382,138 @@ func filesWithExtension(files []string, extension string) []string {
 	return filtered
 }
 
-func policyToolGroup(name string) ([]policyToolGroupEntry, bool) {
+func policyToolGroup(paths runtimePaths, name string) ([]policyToolGroupEntry, bool) {
+	pythonTargets := pythonPolicyToolTargets(paths)
+
 	switch name {
 	case "linters":
-		return []policyToolGroupEntry{
-			{Tool: "ruff", Args: []string{"check", "coding_ethos", "tests"}},
-			{Tool: "golangci-lint"},
-		}, true
+		return appendPythonPolicyToolGroup(
+			[]policyToolGroupEntry{},
+			"ruff",
+			append([]string{"check"}, pythonTargets...),
+			pythonTargets,
+			policyToolGroupEntry{Tool: "golangci-lint"},
+		), true
 	case "formatters":
-		return []policyToolGroupEntry{
-			{Tool: "ruff-format", Args: []string{"format", "coding_ethos", "tests"}},
-			{Tool: "golangci-lint-format"},
-		}, true
+		return appendPythonPolicyToolGroup(
+			[]policyToolGroupEntry{},
+			"ruff-format",
+			append([]string{"format"}, pythonTargets...),
+			pythonTargets,
+			policyToolGroupEntry{Tool: "golangci-lint-format"},
+		), true
 	case "autofixers":
-		return []policyToolGroupEntry{
-			{
-				Tool: "ruff-autofix",
-				Args: []string{
-					"check",
-					"--fix",
-					"--quiet",
-					"--ignore-noqa",
-					"--output-format",
-					"json",
-					"coding_ethos",
-					"tests",
-				},
-			},
-			{Tool: "golangci-lint-autofix"},
-		}, true
+		args := append(
+			[]string{"check", "--fix", "--quiet", "--ignore-noqa", "--output-format", "json"},
+			pythonTargets...,
+		)
+
+		return appendPythonPolicyToolGroup(
+			[]policyToolGroupEntry{},
+			"ruff-autofix",
+			args,
+			pythonTargets,
+			policyToolGroupEntry{Tool: "golangci-lint-autofix"},
+		), true
 	default:
 		return nil, false
 	}
+}
+
+func appendPythonPolicyToolGroup(
+	group []policyToolGroupEntry,
+	tool string,
+	args []string,
+	pythonTargets []string,
+	rest ...policyToolGroupEntry,
+) []policyToolGroupEntry {
+	if len(pythonTargets) > 0 {
+		group = append(group, policyToolGroupEntry{Tool: tool, Args: args})
+	}
+
+	return append(group, rest...)
+}
+
+func pythonPolicyToolTargets(paths runtimePaths) []string {
+	config, err := mergedRuntimePolicyConfig(paths)
+	if err != nil {
+		return nil
+	}
+
+	targets := append(
+		configdata.StringList(configdata.GetPath(config, "python.source_paths", nil)),
+		configdata.StringList(configdata.GetPath(config, "python.test_paths", nil))...,
+	)
+
+	return existingPolicyToolTargets(paths.Root, targets)
+}
+
+func mergedRuntimePolicyConfig(paths runtimePaths) (configdata.Map, error) {
+	base, err := configdata.LoadYAMLMap(filepath.Join(paths.EthosRoot, "config.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("load runtime base config: %w", err)
+	}
+
+	override, found, err := runtimeRepoConfig(paths)
+	if err != nil {
+		return nil, err
+	}
+
+	if !found {
+		return base, nil
+	}
+
+	return configdata.DeepMerge(base, override), nil
+}
+
+func runtimeRepoConfig(paths runtimePaths) (configdata.Map, bool, error) {
+	if overridePath := strings.TrimSpace(
+		os.Getenv("CODE_ETHOS_PRECOMMIT_CONFIG"),
+	); overridePath != "" {
+		override, err := configdata.LoadYAMLMap(overridePath)
+		if err != nil {
+			return nil, false, fmt.Errorf("load explicit runtime repo config: %w", err)
+		}
+
+		return override, true, nil
+	}
+
+	for _, name := range configdata.RepoConfigCandidates() {
+		override, err := configdata.LoadYAMLMap(filepath.Join(paths.Root, name))
+		if err == nil {
+			return override, true, nil
+		}
+
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, false, fmt.Errorf("load runtime repo config %s: %w", name, err)
+		}
+	}
+
+	return nil, false, nil
+}
+
+func existingPolicyToolTargets(root string, targets []string) []string {
+	existing := make([]string, 0, len(targets))
+	seen := map[string]struct{}{}
+
+	for _, target := range targets {
+		normalized := filepath.ToSlash(filepath.Clean(strings.TrimSpace(target)))
+		if normalized == "" || normalized == "." || filepath.IsAbs(normalized) {
+			continue
+		}
+
+		if _, found := seen[normalized]; found {
+			continue
+		}
+
+		_, err := os.Stat(filepath.Join(root, filepath.FromSlash(normalized)))
+		if err != nil {
+			continue
+		}
+
+		seen[normalized] = struct{}{}
+		existing = append(existing, normalized)
+	}
+
+	return existing
 }

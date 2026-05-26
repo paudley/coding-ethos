@@ -101,6 +101,26 @@ func LogResult(cwd string, result Result) (string, error) {
 	return path, nil
 }
 
+func SARIFPathForTracePath(tracePath string) string {
+	extension := filepath.Ext(tracePath)
+	if extension == "" {
+		return tracePath + ".sarif"
+	}
+
+	return strings.TrimSuffix(tracePath, extension) + ".sarif"
+}
+
+func WriteSARIFSidecar(tracePath, payload string) error {
+	path := SARIFPathForTracePath(tracePath)
+
+	err := os.WriteFile(filepath.Clean(path), []byte(payload), traceFileMode)
+	if err != nil {
+		return fmt.Errorf("write SARIF sidecar: %w", err)
+	}
+
+	return nil
+}
+
 func EnsureTraceID(result *Result) {
 	if result == nil || strings.TrimSpace(result.TraceID) != "" {
 		return

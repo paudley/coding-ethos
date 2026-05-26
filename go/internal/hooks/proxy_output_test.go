@@ -97,6 +97,15 @@ func TestProxyPostToolOutputCollapsesSavedOutputNotice(t *testing.T) {
 		strings.Contains(proxied.Text, "You MUST read") {
 		t.Fatalf("proxied output retained verbose instructions: %s", proxied.Text)
 	}
+
+	if len(proxied.Records) == 0 ||
+		proxied.Records[0].EvidencePath != "/saved-output/tool-results/mcp-gmeow-gmail_get_message-1779695312898.txt" ||
+		proxied.Metadata["coding_ethos.full_output_path"] != proxied.Records[0].EvidencePath {
+		t.Fatalf("saved-output evidence missing: records=%#v metadata=%#v",
+			proxied.Records,
+			proxied.Metadata,
+		)
+	}
 }
 
 func TestProxyPostToolOutputAppliesTokenBudgetAfterFilePagination(t *testing.T) {

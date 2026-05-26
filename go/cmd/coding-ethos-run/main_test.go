@@ -727,8 +727,6 @@ func TestParentCheckoutLocationLabelsSameRepoAsCodingEthos(t *testing.T) {
 }
 
 func TestParentPathHelpersClassifyGitStates(t *testing.T) {
-	t.Parallel()
-
 	repo := t.TempDir()
 
 	git := fakeStatusGit(t, " M changed\n")
@@ -2284,6 +2282,12 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 	t.Cleanup(restoreEnv)
 
 	paths := runtimeTestPaths(t)
+	writeRuntimePythonTargetConfig(
+		t,
+		paths,
+		[]string{"pkg"},
+		[]string{"tests"},
+	)
 
 	var calls []string
 
@@ -2367,7 +2371,7 @@ func TestRunDispatchesCriticalCommandsThroughRuntimeOps(t *testing.T) {
 			want: "run-lint:--bundle " + paths.PolicyBundle +
 				" --managed-capture-tool ruff-format --ethos-root " + paths.EthosRoot +
 				" --consumer-root " + paths.Root + " --invocation-cwd " + paths.InvocationCWD +
-				" -- format coding_ethos tests\n" +
+				" -- format pkg tests\n" +
 				"run-lint:--bundle " + paths.PolicyBundle +
 				" --managed-capture-tool golangci-lint-format --ethos-root " +
 				paths.EthosRoot + " --consumer-root " + paths.Root +
@@ -2404,6 +2408,12 @@ func TestPolicyLinterGroupLetsGolangciChooseNestedGoModule(t *testing.T) {
 	t.Parallel()
 
 	paths := runtimeTestPaths(t)
+	writeRuntimePythonTargetConfig(
+		t,
+		paths,
+		[]string{"pkg"},
+		[]string{"tests"},
+	)
 
 	var calls []string
 
@@ -2417,7 +2427,7 @@ func TestPolicyLinterGroupLetsGolangciChooseNestedGoModule(t *testing.T) {
 	want := "run-lint:--bundle " + paths.PolicyBundle +
 		" --managed-capture-tool ruff --ethos-root " + paths.EthosRoot +
 		" --consumer-root " + paths.Root + " --invocation-cwd " + paths.InvocationCWD +
-		" -- check coding_ethos tests\n" +
+		" -- check pkg tests\n" +
 		"run-lint:--bundle " + paths.PolicyBundle +
 		" --managed-capture-tool golangci-lint --ethos-root " +
 		paths.EthosRoot + " --consumer-root " + paths.Root +
@@ -2426,6 +2436,43 @@ func TestPolicyLinterGroupLetsGolangciChooseNestedGoModule(t *testing.T) {
 	got := strings.Join(calls, "\n")
 	if got != want {
 		t.Fatalf("policy-tool-group linters calls = %q, want %q", got, want)
+	}
+}
+
+func TestManagedLintUsesParentPythonTargetsForUnscopedFormatters(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	writeRuntimePythonTargetConfig(
+		t,
+		paths,
+		[]string{"src/gmeow", "scripts", "missing"},
+		[]string{"tests"},
+	)
+
+	var calls []string
+
+	paths.Executor = stubRuntimeOps{calls: &calls}
+
+	err := run(paths, []string{"lint"})
+	if err != nil {
+		t.Fatalf("run lint: %v", err)
+	}
+
+	got := strings.Join(calls, "\n")
+	for _, want := range []string{
+		" -- format src/gmeow scripts tests",
+		" -- check --fix --quiet --ignore-noqa --output-format json src/gmeow scripts tests",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("managed lint calls missing %q:\n%s", want, got)
+		}
+	}
+
+	for _, unwanted := range []string{"coding_ethos", "missing"} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("managed lint calls contain %q:\n%s", unwanted, got)
+		}
 	}
 }
 
@@ -2448,6 +2495,12 @@ func TestPolicyToolGroupRunsAllEntriesBeforeFailing(t *testing.T) {
 	t.Parallel()
 
 	paths := runtimeTestPaths(t)
+	writeRuntimePythonTargetConfig(
+		t,
+		paths,
+		[]string{"pkg"},
+		[]string{"tests"},
+	)
 
 	var calls []string
 
@@ -2529,9 +2582,9 @@ esac
 func TestScopedPolicyToolGroupFiltersFormatterTargets(t *testing.T) {
 	t.Parallel()
 
-	group, found := policyToolGroup("formatters")
-	if !found {
-		t.Fatal("missing formatter group")
+	group := []policyToolGroupEntry{
+		{Tool: "ruff-format", Args: []string{"format", "pkg", "tests"}},
+		{Tool: "golangci-lint-format"},
 	}
 
 	scoped := scopedPolicyToolGroup(group, managedLintScope{
@@ -2865,6 +2918,90 @@ func runtimeTestPaths(t *testing.T) runtimePaths {
 	}
 
 	return paths
+}
+
+func writeRuntimePythonTargetConfig(
+	t *testing.T,
+	paths runtimePaths,
+	sourcePaths []string,
+	testPaths []string,
+) {
+	t.Helper()
+
+	for _, target := range append(append([]string{}, sourcePaths...), testPaths...) {
+		if target == "missing" {
+			continue
+		}
+
+		path := filepath.Join(paths.Root, filepath.FromSlash(target))
+		if filepath.Ext(target) == ".py" {
+			err := os.MkdirAll(filepath.Dir(path), 0o755)
+			if err != nil {
+				t.Fatalf("create target parent %s: %v", path, err)
+			}
+
+			err = os.WriteFile(path, []byte("print('ok')\n"), 0o600)
+			if err != nil {
+				t.Fatalf("write target %s: %v", path, err)
+			}
+
+			continue
+		}
+
+		err := os.MkdirAll(path, 0o755)
+		if err != nil {
+			t.Fatalf("create target dir %s: %v", path, err)
+		}
+	}
+
+	writeRuntimeConfigFile(
+		t,
+		filepath.Join(paths.EthosRoot, "config.yaml"),
+		sourcePaths,
+		testPaths,
+	)
+	writeRuntimeConfigFile(
+		t,
+		filepath.Join(paths.Root, "repo_config.yaml"),
+		sourcePaths,
+		testPaths,
+	)
+}
+
+func writeRuntimeConfigFile(
+	t *testing.T,
+	path string,
+	sourcePaths []string,
+	testPaths []string,
+) {
+	t.Helper()
+
+	err := os.MkdirAll(filepath.Dir(path), 0o755)
+	if err != nil {
+		t.Fatalf("create config parent %s: %v", path, err)
+	}
+
+	content := "python:\n  source_paths:\n" +
+		yamlStringList(sourcePaths) +
+		"  test_paths:\n" +
+		yamlStringList(testPaths)
+
+	err = os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write config %s: %v", path, err)
+	}
+}
+
+func yamlStringList(values []string) string {
+	var builder strings.Builder
+
+	for _, value := range values {
+		builder.WriteString("    - ")
+		builder.WriteString(value)
+		builder.WriteByte('\n')
+	}
+
+	return builder.String()
 }
 
 func parentGoToolsSourceFixture(t *testing.T, ethosRoot string) string {

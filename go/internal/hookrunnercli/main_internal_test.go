@@ -780,7 +780,7 @@ func TestModuleDocsRequiredRuntimeDirsStayExcluded(t *testing.T) {
 	for _, path := range []string{
 		".git/hooks/__init__.py",
 		".coding-ethos/cache/pr28-merge/pkg/__init__.py",
-		".code-ethos/cache/pkg/conftest.py",
+		".coding-ethos/cache/pkg/conftest.py",
 	} {
 		if shouldCheckModuleDocsFile(path, settings) {
 			t.Fatalf("shouldCheckModuleDocsFile(%q) = true, want false", path)
@@ -896,11 +896,10 @@ func TestFixTextNormalizesWhitespaceAndSkipsBinaryFiles(t *testing.T) {
 func TestRuntimeIgnoreFindingsReportMissingIgnores(t *testing.T) {
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
-	mustWriteTestFile(t, ".gitignore", ".code-ethos/cache/\n")
+	mustWriteTestFile(t, ".gitignore", "")
 
 	findings := runtimeIgnoreFindings([]string{
 		"",
-		".code-ethos/cache/",
 		".coding-ethos/cache/",
 	})
 	if len(findings) != 1 ||
@@ -931,7 +930,7 @@ func TestCheckRuntimeIgnoresCommandUsesGitIgnoreContract(t *testing.T) {
 		filepath.Join(fakeBin, "git"),
 		`#!/usr/bin/env sh
 case "$*" in
-  "check-ignore --quiet .code-ethos/cache/"|"check-ignore --quiet .coding-ethos/cache/"|"check-ignore --quiet .coding-ethos/code-intel.db"|"check-ignore --quiet .coding-ethos/code-intel.db-shm"|"check-ignore --quiet .coding-ethos/code-intel.db-wal"|"check-ignore --quiet .coding-ethos/code-intel.duckdb"|"check-ignore --quiet .coding-ethos/code-intel.duckdb.wal"|"check-ignore --quiet .coding-ethos/events/"|"check-ignore --quiet .coding-ethos/hook-runs/"|"check-ignore --quiet .coding-ethos/lint-runs/"|"check-ignore --quiet .coding-ethos/prune-runs/"|"check-ignore --quiet .coding-ethos/state/")
+  "check-ignore --quiet .coding-ethos/cache/"|"check-ignore --quiet .coding-ethos/code-intel.db"|"check-ignore --quiet .coding-ethos/code-intel.db-shm"|"check-ignore --quiet .coding-ethos/code-intel.db-wal"|"check-ignore --quiet .coding-ethos/code-intel.duckdb"|"check-ignore --quiet .coding-ethos/code-intel.duckdb.wal"|"check-ignore --quiet .coding-ethos/events/"|"check-ignore --quiet .coding-ethos/hook-runs/"|"check-ignore --quiet .coding-ethos/lint-runs/"|"check-ignore --quiet .coding-ethos/prune-runs/"|"check-ignore --quiet .coding-ethos/state/")
     exit 0
     ;;
   "check-ignore --quiet .coding-ethos/memories/MEMORY.md")
@@ -949,7 +948,7 @@ exit 2
 		t.Fatalf("checkRuntimeIgnoresCommand() = %d, want 0", got)
 	}
 
-	if got := requiredRuntimeIgnorePaths(); len(got) != 12 {
+	if got := requiredRuntimeIgnorePaths(); len(got) != 11 {
 		t.Fatalf("requiredRuntimeIgnorePaths() = %#v", got)
 	}
 }
@@ -1149,7 +1148,7 @@ func TestRunHookGroupInProcessAggregatesCommandResults(t *testing.T) {
 	}
 
 	result := runHookGroupInProcess(Config{}, group, []string{"pkg/app.py"})
-	if result.Name != "sample" || result.ExitCode != 1 || result.Status != statusFail {
+	if result.Name != "sample" || result.ExitCode != 2 || result.Status != statusFail {
 		t.Fatalf("group result = %#v", result)
 	}
 
@@ -1223,7 +1222,7 @@ func TestRunNamedHookGroupsSkipsGroupsWithNoMatchingFiles(t *testing.T) {
 	}
 }
 
-func TestGoGroupStopsBeforeExpensiveTailWhenLintFails(t *testing.T) {
+func TestGoGroupRunsExpensiveTailWhenLintFails(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 	mustWriteTestFile(t, "go/main.go", "package main\n")
@@ -1252,16 +1251,45 @@ func TestGoGroupStopsBeforeExpensiveTailWhenLintFails(t *testing.T) {
 		t.Fatalf("go group result = %#v", result)
 	}
 
-	if ranGoTest || ranCoverage {
+	if !ranGoTest || !ranCoverage {
 		t.Fatalf(
-			"go group ran expensive tail after lint failure: test=%t coverage=%t",
+			"go group skipped expensive tail after lint failure: test=%t coverage=%t",
 			ranGoTest,
 			ranCoverage,
 		)
 	}
 
-	if len(result.Commands) != goGroupSequentialPrefix {
-		t.Fatalf("commands = %#v, want sequential prefix only", result.Commands)
+	if len(result.Commands) != len(group.Commands) {
+		t.Fatalf("commands = %#v, want all group commands", result.Commands)
+	}
+}
+
+func TestAIGroupStopsAfterFirstFailure(t *testing.T) {
+	t.Parallel()
+
+	ranSecond := false
+	group := hookGroup{
+		Name:          "ai",
+		ParallelAfter: 1,
+		Commands: []hookCommand{
+			{Name: "gemini-check", Run: func(Config, []string) int { return 1 }},
+			{Name: "ai-tail", Run: func(Config, []string) int {
+				ranSecond = true
+
+				return 0
+			}},
+		},
+	}
+
+	result := runHookGroupInProcess(Config{}, group, []string{"pkg/app.py"})
+	if result.ExitCode != 1 || result.Status != statusFail {
+		t.Fatalf("ai group result = %#v", result)
+	}
+	if ranSecond {
+		t.Fatalf("ai group continued after failure: %#v", result.Commands)
+	}
+	if len(result.Commands) != 1 {
+		t.Fatalf("ai group commands = %#v, want first command only", result.Commands)
 	}
 }
 
@@ -1297,6 +1325,24 @@ func TestRunHookGroupsInProcessReturnsFailure(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("failure summary missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestRunHookGroupInProcessPreservesFirstFailureExitCode(t *testing.T) {
+	group := hookGroup{
+		Name: "policy",
+		Commands: []hookCommand{
+			{Name: "fails", Run: func(Config, []string) int { return 7 }},
+			{Name: "passes", Run: func(Config, []string) int { return 0 }},
+		},
+	}
+
+	result := runHookGroupInProcess(Config{}, group, nil)
+	if result.ExitCode != 7 || result.Status != statusFail {
+		t.Fatalf("group result = %#v, want first failure exit 7", result)
+	}
+	if len(result.Commands) != 2 {
+		t.Fatalf("group commands = %#v, want both commands", result.Commands)
 	}
 }
 
@@ -2180,7 +2226,7 @@ gemini:
 
 	want := filepath.Join(
 		consumerRoot,
-		".code-ethos",
+		".coding-ethos",
 		"cache",
 		"gemini-response-cache",
 	)

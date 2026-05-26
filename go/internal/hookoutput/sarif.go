@@ -118,9 +118,15 @@ type sarifArtifactLocation struct {
 }
 
 type sarifRegion struct {
+	Snippet     *sarifMessage
 	StartLine   int
 	StartColumn int
 	EndLine     int
+	EndColumn   int
+	CharOffset  int64
+	CharLength  int64
+	ByteOffset  int64
+	ByteLength  int64
 }
 
 type sarifResultProperties struct {
@@ -347,7 +353,12 @@ func (location sarifPhysicalLocation) MarshalJSON() ([]byte, error) {
 	}
 	if location.Region.StartLine != 0 ||
 		location.Region.StartColumn != 0 ||
-		location.Region.EndLine != 0 {
+		location.Region.EndLine != 0 ||
+		location.Region.EndColumn != 0 ||
+		location.Region.CharOffset != 0 ||
+		location.Region.CharLength != 0 ||
+		location.Region.ByteOffset != 0 ||
+		location.Region.ByteLength != 0 {
 		fields["region"] = location.Region
 	}
 
@@ -366,6 +377,30 @@ func (region sarifRegion) MarshalJSON() ([]byte, error) {
 
 	if region.EndLine != 0 {
 		fields["endLine"] = region.EndLine
+	}
+
+	if region.EndColumn != 0 {
+		fields["endColumn"] = region.EndColumn
+	}
+
+	if region.CharOffset != 0 {
+		fields["charOffset"] = region.CharOffset
+	}
+
+	if region.CharLength != 0 {
+		fields["charLength"] = region.CharLength
+	}
+
+	if region.ByteOffset != 0 {
+		fields["byteOffset"] = region.ByteOffset
+	}
+
+	if region.ByteLength != 0 {
+		fields["byteLength"] = region.ByteLength
+	}
+
+	if region.Snippet != nil && strings.TrimSpace(region.Snippet.Text) != "" {
+		fields["snippet"] = region.Snippet
 	}
 
 	return marshalSARIFFields("region", fields)
@@ -811,8 +846,38 @@ func sarifLocations(item diagnostics.Diagnostic) []sarifLocation {
 		location.PhysicalLocation.Region.StartColumn = item.Column
 	}
 
-	if endLine := int(sarifIntMetadata(item, "ast_end_line")); endLine > item.Line {
+	if endLine := int(sarifIntMetadata(item, "ast_end_line")); endLine > 0 &&
+		endLine >= item.Line {
 		location.PhysicalLocation.Region.EndLine = endLine
+	}
+
+	if endColumn := int(firstSARIFIntMetadata(
+		item,
+		"ast_end_column",
+		"end_column",
+	)); endColumn > 0 {
+		location.PhysicalLocation.Region.EndColumn = endColumn
+	}
+
+	if startByte := firstSARIFIntMetadata(
+		item,
+		"ast_start_byte",
+		"start_byte",
+	); startByte > 0 {
+		location.PhysicalLocation.Region.ByteOffset = startByte
+	}
+
+	if endByte := firstSARIFIntMetadata(
+		item,
+		"ast_end_byte",
+		"end_byte",
+	); endByte > location.PhysicalLocation.Region.ByteOffset {
+		location.PhysicalLocation.Region.ByteLength = endByte -
+			location.PhysicalLocation.Region.ByteOffset
+	}
+
+	if snippet := sarifStringMetadata(item, "snippet"); snippet != "" {
+		location.PhysicalLocation.Region.Snippet = &sarifMessage{Text: snippet}
 	}
 
 	return []sarifLocation{location}
@@ -1135,6 +1200,16 @@ func sarifIntMetadata(item diagnostics.Diagnostic, key string) int64 {
 	default:
 		return 0
 	}
+}
+
+func firstSARIFIntMetadata(item diagnostics.Diagnostic, keys ...string) int64 {
+	for _, key := range keys {
+		if value := sarifIntMetadata(item, key); value != 0 {
+			return value
+		}
+	}
+
+	return 0
 }
 
 func sarifLevel(severity string) string {
