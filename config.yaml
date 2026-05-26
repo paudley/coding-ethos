@@ -8,7 +8,7 @@ project:
   review_context: Shared ETHOS generation and enforcement tooling.
   ethos_candidates:
     - ETHOS.md
-    - code-ethos/ETHOS.md
+    - coding-ethos/ETHOS.md
 
 gemini:
   enabled: false
@@ -40,16 +40,12 @@ bundle:
   local_bin_dirname: coding-ethos-hooks
   bundle_dir_candidates:
     - pre-commit
-    - code-ethos/pre-commit
+    - coding-ethos/pre-commit
   consumer_override_candidates:
     - repo_config.yaml
     - repo_config.yml
-    - code-ethos.repo.yaml
-    - code-ethos.repo.yml
     - coding-ethos.repo.yaml
     - coding-ethos.repo.yml
-    - code-ethos.pre-commit.yaml
-    - code-ethos.pre-commit.yml
     - coding-ethos.pre-commit.yaml
     - coding-ethos.pre-commit.yml
 
@@ -970,7 +966,7 @@ python:
     enabled: false
     candidate_paths:
       - manifest.yaml
-      - code-ethos/manifest.yaml
+      - coding-ethos/manifest.yaml
     required_string_fields:
       - version
     required_list_sections:

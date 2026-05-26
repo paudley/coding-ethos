@@ -60,6 +60,7 @@ type gitHookConfig struct {
 
 type gitHookAuthorizationVerifier struct {
 	CurrentPID              func() int
+	ParentPID               func(int) (int, error)
 	ProcessAncestryContains func(int, int) (bool, error)
 	ProcessCommandLine      func(int) ([]string, error)
 }
@@ -87,6 +88,10 @@ func runWithArgsAndVerifier(
 	}
 
 	hookName := config.HookArgs[0]
+	if gitHookCommitAmendInAncestry(verifier) {
+		return printHistoryRewriteBlock(bundle, config.Cwd, hookName, "commit-amend", "")
+	}
+
 	if gitHookRequiresWrapper(hookName) &&
 		agentGitHookExecution() &&
 		!gitHookWrapperAuthorized(verifier) {
@@ -113,9 +118,50 @@ func runWithArgsAndVerifier(
 func defaultGitHookAuthorizationVerifier() gitHookAuthorizationVerifier {
 	return gitHookAuthorizationVerifier{
 		CurrentPID:              os.Getpid,
+		ParentPID:               gitwrap.ProcessParentPID,
 		ProcessAncestryContains: gitwrap.ProcessAncestryContains,
 		ProcessCommandLine:      gitwrap.ProcessCommandLine,
 	}
+}
+
+func gitHookCommitAmendInAncestry(verifier gitHookAuthorizationVerifier) bool {
+	if verifier.CurrentPID == nil ||
+		verifier.ParentPID == nil ||
+		verifier.ProcessCommandLine == nil {
+		return false
+	}
+
+	visited := map[int]bool{}
+	for current := verifier.CurrentPID(); current > 0; {
+		if visited[current] {
+			return false
+		}
+
+		visited[current] = true
+
+		parent, err := verifier.ParentPID(current)
+		if err != nil || parent == current {
+			return false
+		}
+
+		current = parent
+		if current <= 0 {
+			return false
+		}
+
+		commandLine, err := verifier.ProcessCommandLine(current)
+		if err == nil && commandLineIsCommitAmend(commandLine) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func commandLineIsCommitAmend(commandLine []string) bool {
+	parsed := gitwrap.ParseArgv(commandLine)
+
+	return parsed.Operation == "commit" && slices.Contains(parsed.Argv, "--amend")
 }
 
 func gitHookRequiresWrapper(hookName string) bool {
@@ -334,10 +380,31 @@ func runPrepareCommitMsgHook(bundle policy.Bundle, cwd string, hookArgs []string
 	}
 
 	decision := historyRewriteDecision(bundle, hookPrepareMsg, source, commit)
+
+	return printHistoryRewriteDecision(cwd, hookArgs[hookMessageFileIndex], decision)
+}
+
+func printHistoryRewriteBlock(
+	bundle policy.Bundle,
+	cwd string,
+	hookName string,
+	source string,
+	commit string,
+) int {
+	decision := historyRewriteDecision(bundle, hookName, source, commit)
+
+	return printHistoryRewriteDecision(cwd, hookName, decision)
+}
+
+func printHistoryRewriteDecision(
+	cwd string,
+	file string,
+	decision policy.Decision,
+) int {
 	result := lint.Result{
 		Scope:     lint.ScopeCommit,
 		Status:    "blocked",
-		Files:     []string{hookArgs[hookMessageFileIndex]},
+		Files:     []string{file},
 		Decisions: []policy.Decision{decision},
 	}
 

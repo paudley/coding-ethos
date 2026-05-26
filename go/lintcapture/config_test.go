@@ -145,7 +145,7 @@ func TestCheckGeneratedToolConfigIntegrityReportsDrift(t *testing.T) {
 
 	want := []string{
 		".bandit.yml",
-		".code-ethos/tool-config-hashes.json",
+		".coding-ethos/tool-config-hashes.json",
 		".golangci.yml",
 		".pylintrc",
 		".sqlfluff",

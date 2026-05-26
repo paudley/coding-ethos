@@ -176,7 +176,6 @@ filesystem:
   required_ignores:
     enabled: true
     paths:
-      - .code-ethos/cache/
       - .coding-ethos/cache/
       - .coding-ethos/code-intel.db
       - .coding-ethos/code-intel.db-shm

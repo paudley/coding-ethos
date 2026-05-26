@@ -441,7 +441,6 @@ func repoMapExcludedPrefixes() []string {
 		".agent-context/",
 		".agents/",
 		".claude/",
-		".code-ethos/",
 		".coding-ethos/",
 		".codex/",
 		".gemini/",

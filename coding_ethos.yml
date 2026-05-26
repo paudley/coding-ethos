@@ -3542,7 +3542,6 @@ principles:
                   [
                     "*.md",
                     "**/*.md",
-                    ".code-ethos/**",
                     "coding_ethos.yml",
                     "go/internal/policy/**",
                     "go/internal/redteam/**",

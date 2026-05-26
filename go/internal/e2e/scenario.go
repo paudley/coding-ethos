@@ -657,9 +657,9 @@ func (repo Repo) SingleTrace(t *testing.T) string {
 func (repo Repo) ResetTraces(t *testing.T) {
 	t.Helper()
 
-	err := os.RemoveAll(filepath.Join(repo.Root, ".coding-ethos"))
+	err := os.RemoveAll(filepath.Join(repo.Root, ".coding-ethos", "lint-runs"))
 	if err != nil {
-		t.Fatalf("remove trace directory: %v", err)
+		t.Fatalf("remove lint trace directory: %v", err)
 	}
 }
 

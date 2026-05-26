@@ -121,7 +121,7 @@ generated_config:
 ```
 
 `make sync-tool-configs` writes the enabled CI files and records them in
-`.code-ethos/tool-config-hashes.json`; `make check-tool-configs` detects drift.
+`.coding-ethos/tool-config-hashes.json`; `make check-tool-configs` detects drift.
 Set either `enabled` value to `false` only for a deliberate repo exception. CI
 files intentionally do not have a separate sync command.
 

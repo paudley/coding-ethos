@@ -238,7 +238,7 @@ Install the Go hook entrypoints from the repository root that exposes the bundle
 
 ```bash
 cd /path/to/repo
-make -C code-ethos install-hooks
+make -C coding-ethos install-hooks
 ```
 
 ## Dependencies

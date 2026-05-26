@@ -63,7 +63,6 @@ func defaultCodeIntelExcludePatterns() []string {
 		".agent-context/**",
 		".agents/**",
 		".claude/**",
-		".code-ethos/**",
 		".coding-ethos/**",
 		".codex/**",
 		".gemini/**",
@@ -1464,7 +1463,6 @@ func shouldSkipDir(name string) bool {
 	switch name {
 	case ".git",
 		".coding-ethos",
-		".code-ethos",
 		".hg",
 		".svn",
 		".tox",

@@ -167,6 +167,11 @@ func ProcessAncestryContains(pid, ancestorPID int) (bool, error) {
 	return false, nil
 }
 
+// ProcessParentPID returns the parent process ID for pid from /proc.
+func ProcessParentPID(pid int) (int, error) {
+	return parentPID(pid)
+}
+
 // ProcessCommandLine returns a process argv from /proc. Empty command lines are
 // treated as unavailable evidence by callers that require provenance.
 func ProcessCommandLine(pid int) ([]string, error) {

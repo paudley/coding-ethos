@@ -156,6 +156,131 @@ func TestDirectAgentGitCommitBlocksThroughInstalledHooks(t *testing.T) {
 	}
 }
 
+func TestGitHookCommitAmendInAncestryHandlesIncompleteVerifier(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]gitHookAuthorizationVerifier{
+		"missing current pid": {
+			ParentPID: func(pid int) (int, error) {
+				return 0, nil
+			},
+			ProcessCommandLine: func(pid int) ([]string, error) {
+				return nil, nil
+			},
+		},
+		"missing parent pid": {
+			CurrentPID: func() int { return 123 },
+			ProcessCommandLine: func(pid int) ([]string, error) {
+				return nil, nil
+			},
+		},
+		"missing command line": {
+			CurrentPID: func() int { return 123 },
+			ParentPID: func(pid int) (int, error) {
+				return 0, nil
+			},
+		},
+	}
+
+	for name, verifier := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if gitHookCommitAmendInAncestry(verifier) {
+				t.Fatal("incomplete verifier detected commit amend")
+			}
+		})
+	}
+}
+
+func TestGitHookCommitAmendInAncestryStopsAtCycle(t *testing.T) {
+	t.Parallel()
+
+	verifier := gitHookAuthorizationVerifier{
+		CurrentPID: func() int { return 100 },
+		ParentPID: func(pid int) (int, error) {
+			switch pid {
+			case 100:
+				return 200, nil
+			case 200:
+				return 100, nil
+			default:
+				return 0, nil
+			}
+		},
+		ProcessCommandLine: func(pid int) ([]string, error) {
+			return []string{"/usr/bin/git", "status"}, nil
+		},
+	}
+
+	if gitHookCommitAmendInAncestry(verifier) {
+		t.Fatal("cyclic ancestry detected commit amend")
+	}
+}
+
+func TestGitHookCommitAmendInAncestryDetectsParentAmend(t *testing.T) {
+	t.Parallel()
+
+	verifier := gitHookAuthorizationVerifier{
+		CurrentPID: func() int { return 100 },
+		ParentPID: func(pid int) (int, error) {
+			switch pid {
+			case 100:
+				return 200, nil
+			case 200:
+				return 0, nil
+			default:
+				return 0, nil
+			}
+		},
+		ProcessCommandLine: func(pid int) ([]string, error) {
+			if pid == 200 {
+				return []string{"/usr/bin/git", "commit", "--amend", "--no-edit"}, nil
+			}
+
+			return []string{"/bin/sh", ".git/hooks/pre-commit"}, nil
+		},
+	}
+
+	if !gitHookCommitAmendInAncestry(verifier) {
+		t.Fatal("parent commit amend was not detected")
+	}
+}
+
+func TestDirectRealGitCommitAmendBlocksThroughInstalledHooks(t *testing.T) {
+	clearAgentGitHookEnv(t)
+
+	repo := newGitHookE2ERepo(t)
+	writeTestGitHookFile(t, repo.root, "README.md", "# Test\n")
+	runTestGit(t, repo.root, "add", "README.md")
+	runTestGit(t, repo.root, "commit", "-m", "fix(repo): add readme")
+
+	writeTestGitHookFile(t, repo.root, "README.md", "# Test\n\nUpdate.\n")
+	runTestGit(t, repo.root, "add", "README.md")
+
+	output, err := runTestGitOutput(
+		t,
+		repo.root,
+		"commit",
+		"--amend",
+		"--no-edit",
+	)
+	if err == nil {
+		t.Fatalf("direct git commit --amend unexpectedly succeeded:\n%s", output)
+	}
+
+	for _, want := range []string{
+		"git.history_rewrite_prevention",
+		"History rewrite commit flow reached prepare-commit-msg.",
+		"hook=\"pre-commit\"",
+		"source=\"commit-amend\"",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("amend output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func clearAgentGitHookEnv(t *testing.T) {
 	t.Helper()
 
@@ -270,6 +395,9 @@ func TestRunWithArgsRejectsSpoofedWrapperAuthorization(t *testing.T) {
 	t.Setenv(gitwrap.WrapperPIDEnv, "12345")
 	verifier := gitHookAuthorizationVerifier{
 		CurrentPID: func() int { return 67890 },
+		ParentPID: func(pid int) (int, error) {
+			return 0, nil
+		},
 		ProcessAncestryContains: func(pid, ancestorPID int) (bool, error) {
 			return pid == 67890 && ancestorPID == 12345, nil
 		},
@@ -514,6 +642,9 @@ func authorizeGitHookForTest(t *testing.T) gitHookAuthorizationVerifier {
 	t.Setenv(gitwrap.WrapperPIDEnv, "12345")
 	return gitHookAuthorizationVerifier{
 		CurrentPID: func() int { return 67890 },
+		ParentPID: func(pid int) (int, error) {
+			return 0, nil
+		},
 		ProcessAncestryContains: func(pid, ancestorPID int) (bool, error) {
 			return pid == 67890 && ancestorPID == 12345, nil
 		},

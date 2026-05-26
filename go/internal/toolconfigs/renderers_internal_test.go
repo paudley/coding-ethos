@@ -31,7 +31,7 @@ func TestSyncWritesGeneratedConfigsAndCheckDetectsDrift(t *testing.T) {
 
 	wantWritten := []string{
 		filepath.Join(repo, ".bandit.yml"),
-		filepath.Join(repo, ".code-ethos", "tool-config-hashes.json"),
+		filepath.Join(repo, ".coding-ethos", "tool-config-hashes.json"),
 		filepath.Join(repo, ".golangci.yml"),
 		filepath.Join(repo, ".pylintrc"),
 		filepath.Join(repo, ".sqlfluff"),

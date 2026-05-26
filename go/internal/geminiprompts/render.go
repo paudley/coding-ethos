@@ -14,7 +14,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
-const PromptPackPath = ".code-ethos/gemini/prompt-pack.json"
+const PromptPackPath = ".coding-ethos/gemini/prompt-pack.json"
 
 const (
 	promptPackDirMode  = 0o700

@@ -694,7 +694,7 @@ func TestParentDriftErrorIncludesRepairCommandAndLocation(t *testing.T) {
 		runtimePaths{RealGit: "/missing/git", EthosRoot: "/repo/coding-ethos"},
 		parentWorkflowOptions{Repo: "/repo"},
 		"gemini_prompts",
-		[]string{"/repo/.code-ethos/gemini/prompt-pack.json"},
+		[]string{"/repo/.coding-ethos/gemini/prompt-pack.json"},
 	)
 	if err == nil {
 		t.Fatal("expected drift error")
@@ -704,7 +704,7 @@ func TestParentDriftErrorIncludesRepairCommandAndLocation(t *testing.T) {
 	for _, want := range []string{
 		"gemini_prompts out of sync in parent checkout",
 		"coding-ethos/bin/coding-ethos-run parent-install --repo /repo",
-		".code-ethos/gemini/prompt-pack.json(working_tree)",
+		".coding-ethos/gemini/prompt-pack.json(working_tree)",
 	} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("drift error missing %q: %s", want, message)
@@ -1580,7 +1580,6 @@ func TestAgentShellWorktreeWritePathsExcludeProtectedRuntimeDirs(t *testing.T) {
 		"docs",
 		".git",
 		".coding-ethos",
-		".code-ethos",
 	} {
 		if err := os.Mkdir(filepath.Join(root, dir), 0o700); err != nil {
 			t.Fatalf("create worktree dir %s: %v", dir, err)
@@ -1611,7 +1610,6 @@ func TestAgentShellWorktreeWritePathsExcludeProtectedRuntimeDirs(t *testing.T) {
 	for _, unwanted := range []string{
 		filepath.Join(root, ".git"),
 		filepath.Join(root, ".coding-ethos"),
-		filepath.Join(root, ".code-ethos"),
 	} {
 		if slices.Contains(got, unwanted) {
 			t.Fatalf("worktree write paths included protected %s: %#v", unwanted, got)

@@ -66,8 +66,8 @@ The parent repo should make an explicit policy choice for generated artifacts:
 | `.codex/` | commit when Codex settings are part of the repo contract |
 | `.gemini/` | commit when Gemini settings are part of the repo contract |
 | `.mcp.json` | commit when MCP wiring is part of the repo contract |
-| `.code-ethos/gemini/prompt-pack.json` | commit |
-| `.code-ethos/tool-config-hashes.json` | commit |
+| `.coding-ethos/gemini/prompt-pack.json` | commit |
+| `.coding-ethos/tool-config-hashes.json` | commit |
 | generated tool configs | commit unless the parent repo documents them as local-only |
 
 If a parent repo chooses local-only generated workspace files, it should record

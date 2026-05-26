@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	HashManifestPath  = ".code-ethos/tool-config-hashes.json"
+	HashManifestPath  = ".coding-ethos/tool-config-hashes.json"
 	defaultLineLength = 88
 	defaultMaxArgs    = 6
 	spdxCopyright     = "SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. " +

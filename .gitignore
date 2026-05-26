@@ -123,6 +123,7 @@ ehthumbs.db
 *.sublime-workspace
 *.swp
 *.swo
+*.lock
 
 # Generated repo-root markdown and tool config files are intentionally versioned.
 # Do not ignore:

@@ -31,7 +31,7 @@ feedback should be fast and local.
 ## Required Behavior
 
 - Never read or edit `coding_ethos.yml`, generated tool configs, hook runtime
-  files, or `.code-ethos/tool-config-hashes.json` to manufacture editor
+  files, or `.coding-ethos/tool-config-hashes.json` to manufacture editor
   diagnostics.
 - Never map pathless policy context to a fake editor location.
 - Preserve repository-relative paths from SARIF artifact URIs.

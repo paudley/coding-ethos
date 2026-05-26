@@ -44,7 +44,7 @@ Generated Gemini surfaces include:
 - `GEMINI.md`
 - `.gemini/extensions/coding-ethos/gemini-extension.json`
 - `.gemini/extensions/coding-ethos/skills/*/SKILL.md`
-- `.code-ethos/gemini/prompt-pack.json`
+- `.coding-ethos/gemini/prompt-pack.json`
 
 Gemini review and hook prompts are generated from source templates and grounded
 in `coding_ethos.yml`, `repo_ethos.yml`, and merged enforcement config.

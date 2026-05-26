@@ -413,7 +413,7 @@ func TestGeneratedGeminiPromptDriftProducesTraceAndSARIF(t *testing.T) {
 	repo.ResetTraces(t)
 	repo.Touch(
 		t,
-		".code-ethos/gemini/prompt-pack.json",
+		".coding-ethos/gemini/prompt-pack.json",
 		"{\"intentionally\":\"stale\"}\n",
 	)
 	result := repo.CodingEthosRun(
@@ -431,7 +431,7 @@ func TestGeneratedGeminiPromptDriftProducesTraceAndSARIF(t *testing.T) {
 
 	for _, want := range []string{
 		`"ruleId": "generated_gemini_prompts.freshness"`,
-		`"uri": ".code-ethos/gemini/prompt-pack.json"`,
+		`"uri": ".coding-ethos/gemini/prompt-pack.json"`,
 		`"code": "generated-gemini-prompt-pack-drift"`,
 		`"source_tool": "generated-gemini-prompts"`,
 	} {
@@ -443,7 +443,7 @@ func TestGeneratedGeminiPromptDriftProducesTraceAndSARIF(t *testing.T) {
 		`"scope": "smoke"`,
 		`"policy_id": "generated_gemini_prompts.freshness"`,
 		`"tool": "generated-gemini-prompts"`,
-		`"file": ".code-ethos/gemini/prompt-pack.json"`,
+		`"file": ".coding-ethos/gemini/prompt-pack.json"`,
 		`"code": "generated-gemini-prompt-pack-drift"`,
 	} {
 		if !strings.Contains(trace, want) {
