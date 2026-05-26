@@ -528,20 +528,24 @@ func downstreamIssueSummary(analysis DownstreamAnalysis) DownstreamIssueSummary 
 	}
 
 	if analysis.StorageHealth.Recommendation != downstreamHealthy {
-		summary.NextActions = append(summary.NextActions, "run code-intel rebuild-index")
+		summary.NextActions = append(
+			summary.NextActions,
+			"coding-ethos-run code-intel rebuild-index --root <repo>",
+		)
 	}
 
 	if len(analysis.RemediationLoops) > 0 {
 		summary.NextActions = append(
 			summary.NextActions,
-			"address repeated remediation loops first",
+			"review remediation_loops and fix the highest trace_count policy first",
 		)
 	}
 
 	if len(analysis.AffectedCommands) > 0 {
 		summary.NextActions = append(
 			summary.NextActions,
-			"fix affected command workflow routing",
+			"review affected_commands and route repeated blocked command "+
+				"shapes through managed workflows",
 		)
 	}
 
@@ -713,7 +717,7 @@ func downstreamHookFriction(
 			COUNT(*) AS count
 		FROM hook_events
 		GROUP BY operation, target, risk, event_status, blocked
-		ORDER BY count DESC, blocked DESC
+		ORDER BY blocked DESC, count DESC
 		LIMIT ?`,
 		limit,
 	)

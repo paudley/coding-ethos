@@ -35,6 +35,9 @@ var (
 	errUnknownCodeIntelCommand = apperror.StaticError(
 		"unknown code intelligence command",
 	)
+	errUnknownDownstreamAnalysisFormat = apperror.StaticError(
+		"unknown downstream analysis format",
+	)
 )
 
 func run(ctx context.Context, args []string) error {
@@ -433,6 +436,7 @@ func printDownstreamAnalysis(ctx context.Context, args []string) error {
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
 	dbPath := flags.String("db", "", "Legacy SQLite code intelligence database path")
 	duckDBPath := flags.String("duckdb", "", "DuckDB code intelligence database path")
+	format := flags.String("format", "json", "Output format: json, toon, or human")
 	limit := addResultLimit(flags)
 
 	err := parseCommandFlags(flags, args, "downstream-analysis")
@@ -451,7 +455,7 @@ func printDownstreamAnalysis(ctx context.Context, args []string) error {
 		return err
 	}
 
-	return encodeJSON(os.Stdout, analysis)
+	return printDownstreamAnalysisFormat(os.Stdout, analysis, *format)
 }
 
 func downstreamAnalysisForStores(
@@ -460,7 +464,7 @@ func downstreamAnalysisForStores(
 	dbPath string,
 	duckDBPath string,
 	limit int,
-) (any, error) {
+) (codeintel.DownstreamAnalysis, error) {
 	duckStore, duckOpenErr := codeintel.OpenDuckDBReadOnly(
 		ctx,
 		resolvedDuckDBPath(root, duckDBPath),
@@ -470,7 +474,10 @@ func downstreamAnalysisForStores(
 
 		analysis, err := codeintel.AnalyzeDownstreamDuckDB(ctx, root, duckStore, limit)
 		if err != nil {
-			return nil, fmt.Errorf("analyze downstream DuckDB code intelligence: %w", err)
+			return codeintel.DownstreamAnalysis{}, fmt.Errorf(
+				"analyze downstream DuckDB code intelligence: %w",
+				err,
+			)
 		}
 
 		return analysis, nil
@@ -479,18 +486,56 @@ func downstreamAnalysisForStores(
 	return legacyDownstreamAnalysis(ctx, root, dbPath, limit, duckOpenErr)
 }
 
+func printDownstreamAnalysisFormat(
+	output *os.File,
+	analysis codeintel.DownstreamAnalysis,
+	format string,
+) error {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "json":
+		return encodeJSON(output, analysis)
+	case "toon":
+		err := feedback.WriteRendered(
+			output,
+			codeintel.FormatDownstreamAnalysisTOON(analysis),
+			feedback.FormatTOON,
+		)
+		if err != nil {
+			return fmt.Errorf("write downstream analysis TOON: %w", err)
+		}
+
+		return nil
+	case "human":
+		err := feedback.WriteRendered(
+			output,
+			codeintel.FormatDownstreamAnalysisHuman(analysis),
+			feedback.FormatHuman,
+		)
+		if err != nil {
+			return fmt.Errorf("write downstream analysis text: %w", err)
+		}
+
+		return nil
+	default:
+		return fmt.Errorf("%w: %q", errUnknownDownstreamAnalysisFormat, format)
+	}
+}
+
 func legacyDownstreamAnalysis(
 	ctx context.Context,
 	root string,
 	dbPath string,
 	limit int,
 	duckOpenErr error,
-) (any, error) {
+) (codeintel.DownstreamAnalysis, error) {
 	store, openErr := openReadOnlyStore(ctx, root, dbPath)
 	if openErr != nil {
 		analysis, err := codeintel.AnalyzeDownstream(ctx, root, nil, limit)
 		if err != nil {
-			return nil, fmt.Errorf("analyze downstream logs: %w", err)
+			return codeintel.DownstreamAnalysis{}, fmt.Errorf(
+				"analyze downstream logs: %w",
+				err,
+			)
 		}
 
 		analysis.SQLiteStrategy.OpenError = openErr.Error()
@@ -502,7 +547,10 @@ func legacyDownstreamAnalysis(
 
 	analysis, err := codeintel.AnalyzeDownstream(ctx, root, store, limit)
 	if err != nil {
-		return nil, fmt.Errorf("analyze downstream code intelligence: %w", err)
+		return codeintel.DownstreamAnalysis{}, fmt.Errorf(
+			"analyze downstream code intelligence: %w",
+			err,
+		)
 	}
 
 	return analysis, nil
