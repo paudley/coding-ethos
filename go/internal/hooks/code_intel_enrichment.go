@@ -379,14 +379,6 @@ func addCodeIntelIncomingRelatedHints(
 		})
 	}
 
-	addCodeIntelImportersByRawText(
-		ctx,
-		store,
-		path,
-		targetCandidates,
-		&state,
-	)
-
 	for _, candidate := range codeIntelTargetSymbolCandidates(ctx, store, path) {
 		if state.Full() {
 			return
@@ -414,38 +406,6 @@ func addQueriedCodeIntelIncomingEdges(
 	for _, edge := range edges {
 		if state.Full() {
 			return
-		}
-
-		appendCodeIntelIncomingRelated(edge, state)
-	}
-}
-
-func addCodeIntelImportersByRawText(
-	ctx context.Context,
-	store *codeintel.Store,
-	path string,
-	candidates []string,
-	state *codeIntelIncomingRelatedState,
-) {
-	if state.Full() {
-		return
-	}
-
-	edges, err := store.CodeEdges(ctx, codeintel.CodeEdgeQuery{
-		Kind:  "imports",
-		Limit: defaultCodeIntelEnrichmentMaxOutputPaths,
-	})
-	if err != nil {
-		return
-	}
-
-	for _, edge := range edges {
-		if state.Full() {
-			return
-		}
-
-		if edge.Path == path || !codeIntelImportEdgeMatches(edge, candidates) {
-			continue
 		}
 
 		appendCodeIntelIncomingRelated(edge, state)
@@ -491,19 +451,6 @@ func (state codeIntelIncomingRelatedState) Full() bool {
 
 func (state codeIntelIncomingRelatedState) Remaining() int {
 	return state.MaxEdges - len(state.Enrichment.Related)
-}
-
-func codeIntelImportEdgeMatches(edge codeintel.CodeEdge, candidates []string) bool {
-	target := strings.TrimSpace(
-		edge.TargetPath + " " + edge.TargetName + " " + edge.RawText,
-	)
-	for _, candidate := range candidates {
-		if candidate != "" && strings.Contains(target, candidate) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func codeIntelTargetCandidates(path string) []string {
