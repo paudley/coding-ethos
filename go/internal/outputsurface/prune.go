@@ -471,15 +471,26 @@ func pruneCandidates(
 		return nil, nil
 	}
 
-	var (
-		candidates []PruneCandidate
-		err        error
-	)
+	candidates, err := rawPruneCandidates(root, definition, policy, olderThan, now)
+	if err != nil {
+		return nil, err
+	}
+
+	return markReportOnlyCandidates(definition, candidates), nil
+}
+
+func rawPruneCandidates(
+	root string,
+	definition Definition,
+	policy SurfaceRetentionPolicy,
+	olderThan time.Duration,
+	now time.Time,
+) ([]PruneCandidate, error) {
 	switch definition.RecordKind {
 	case recordKindDirectory:
-		candidates, err = directoryCandidates(root, definition, policy, olderThan, now)
+		return directoryCandidates(root, definition, policy, olderThan, now)
 	case recordKindGlob:
-		candidates, err = globCandidates(
+		return globCandidates(
 			surfacePattern(root, definition),
 			definition.ID,
 			policy,
@@ -487,7 +498,7 @@ func pruneCandidates(
 			now,
 		)
 	case recordKindFile:
-		candidates, err = fileCandidate(
+		return fileCandidate(
 			surfacePattern(root, definition),
 			definition.ID,
 			policy,
@@ -502,12 +513,6 @@ func pruneCandidates(
 			definition.RecordKind,
 		)
 	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	return markReportOnlyCandidates(definition, candidates), nil
 }
 
 func shouldSkipPruneCandidates(
