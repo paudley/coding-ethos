@@ -2946,6 +2946,15 @@ func Hidden() {}
 		}
 	}
 
+	stats, err := store.CodeFileIndexStats(ctx)
+	if err != nil {
+		t.Fatalf("code file index stats: %v", err)
+	}
+
+	if stats.ActiveFiles != 2 || stats.LatestIndexedAtUTC == "" {
+		t.Fatalf("index stats = %#v", stats)
+	}
+
 	if _, found := files["pkg/sub/deeper/hidden.go"]; found {
 		t.Fatalf("too-deep file was indexed: %#v", files)
 	}

@@ -1965,8 +1965,14 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 	if got := mapValue(t, orderedTargets[0])["path"]; got != "pkg/helper.py" {
 		t.Fatalf("first context card target path = %#v, want pkg/helper.py", got)
 	}
+	if got := len(listValue(t, mapValue(t, orderedTargets[0])["chunks"])); got == 0 {
+		t.Fatalf("first context card target chunks = %d, want at least 1", got)
+	}
 	if got := mapValue(t, orderedTargets[1])["path"]; got != "pkg/app.py" {
 		t.Fatalf("second context card target path = %#v, want pkg/app.py", got)
+	}
+	if got := len(listValue(t, mapValue(t, orderedTargets[1])["chunks"])); got == 0 {
+		t.Fatalf("second context card target chunks = %d, want at least 1", got)
 	}
 
 	answerOutput := runServerWithRuntime(t, compactJSON(t, `{

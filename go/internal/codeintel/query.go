@@ -131,6 +131,12 @@ type HybridSearchResult struct {
 	FTSScore    float64           `json:"fts_score,omitempty"`
 }
 
+// CodeFileIndexStats summarizes indexed code-file freshness metadata.
+type CodeFileIndexStats struct {
+	LatestIndexedAtUTC string
+	ActiveFiles        int
+}
+
 type IndexStatus struct {
 	Backend          string               `json:"backend"`
 	ModelID          string               `json:"model_id,omitempty"`
@@ -772,6 +778,31 @@ func (store *Store) CodeFilesByPath(ctx context.Context) (map[string]CodeFile, e
 	}
 
 	return files, nil
+}
+
+// CodeFileIndexStats returns aggregate code-file freshness metadata.
+func (store *Store) CodeFileIndexStats(
+	ctx context.Context,
+) (CodeFileIndexStats, error) {
+	row := store.database.QueryRowContext(
+		ctx,
+		`SELECT
+			COALESCE(MAX(CASE
+				WHEN COALESCE(deleted_at_utc, '') = '' THEN indexed_at_utc
+				ELSE ''
+			END), ''),
+			COUNT(CASE WHEN COALESCE(deleted_at_utc, '') = '' THEN 1 END)
+		FROM code_files`,
+	)
+
+	var stats CodeFileIndexStats
+
+	err := row.Scan(&stats.LatestIndexedAtUTC, &stats.ActiveFiles)
+	if err != nil {
+		return CodeFileIndexStats{}, fmt.Errorf("scan code file index stats: %w", err)
+	}
+
+	return stats, nil
 }
 
 func scanRepeatedFailures(rows *sql.Rows) ([]RepeatedFailure, error) {

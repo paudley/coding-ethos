@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -33,7 +35,7 @@ const (
 )
 
 type codeIntelTaskMeta struct {
-	IndexedCommit  string   `json:"indexed_commit,omitempty"`
+	RepoHeadCommit string   `json:"repo_head_commit,omitempty"`
 	IndexAge       string   `json:"index_age,omitempty"`
 	IndexedAtUTC   string   `json:"indexed_at_utc,omitempty"`
 	StaleWarning   string   `json:"stale_warning,omitempty"`
@@ -290,6 +292,18 @@ func codeIntelAnswerResults(
 
 		results = append(results, pathResults...)
 	}
+
+	slices.SortFunc(results, func(left, right codeintel.HybridSearchResult) int {
+		if left.Score > right.Score {
+			return -1
+		}
+
+		if left.Score < right.Score {
+			return 1
+		}
+
+		return strings.Compare(left.RecordID, right.RecordID)
+	})
 
 	if len(results) > limit {
 		results = results[:limit]
@@ -626,7 +640,7 @@ func (server Server) codeIntelContextCard(args json.RawMessage) (any, error) {
 	ctx := argsContext()
 	limit := boundedCodeIntelLimit(input.Limit, codeIntelDefaultTaskLimit)
 
-	targets, err := server.contextCardTargets(ctx, store, input, paths, limit)
+	targets, truncated, err := server.contextCardTargets(ctx, store, input, paths, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -641,7 +655,7 @@ func (server Server) codeIntelContextCard(args json.RawMessage) (any, error) {
 		return nil, err
 	}
 
-	meta.Truncated = meta.Truncated || len(targets) >= limit
+	meta.Truncated = meta.Truncated || truncated
 
 	result := map[string]any{
 		"kind":    "code_intel_context_card",
@@ -868,18 +882,18 @@ func (server Server) codeIntelTaskMeta(
 		return codeIntelTaskMeta{}, fmt.Errorf("read code intelligence index status: %w", err)
 	}
 
-	files, err := store.CodeFilesByPath(ctx)
+	fileStats, err := store.CodeFileIndexStats(ctx)
 	if err != nil {
 		return codeIntelTaskMeta{}, fmt.Errorf(
-			"read code intelligence file metadata: %w",
+			"read code intelligence file stats: %w",
 			err,
 		)
 	}
 
-	indexedAt := latestIndexedAt(files)
+	indexedAt := fileStats.LatestIndexedAtUTC
 
 	meta := codeIntelTaskMeta{
-		IndexedCommit:  currentGitCommit(ctx, server.codeIntelRoot()),
+		RepoHeadCommit: currentGitCommit(ctx, server.codeIntelRoot()),
 		IndexedAtUTC:   indexedAt,
 		IndexAge:       indexAgeDescription(indexedAt),
 		Fresh:          status.Fresh,
@@ -887,7 +901,7 @@ func (server Server) codeIntelTaskMeta(
 		Compression:    "bounded_json",
 		ReadyRecords:   status.ReadyRecords,
 		MissingVectors: status.MissingVectors,
-		IndexedFiles:   activeIndexedFileCount(files),
+		IndexedFiles:   fileStats.ActiveFiles,
 		IndexedChunks:  status.Stats.CodeChunks,
 		SchemaVersion:  status.Stats.SchemaVersion,
 	}
@@ -898,35 +912,19 @@ func (server Server) codeIntelTaskMeta(
 	return meta, nil
 }
 
-func latestIndexedAt(files map[string]codeintel.CodeFile) string {
-	latest := ""
-	for _, file := range files {
-		if file.DeletedAtUTC == "" && file.IndexedAtUTC > latest {
-			latest = file.IndexedAtUTC
-		}
-	}
-
-	return latest
-}
-
-func activeIndexedFileCount(files map[string]codeintel.CodeFile) int {
-	count := 0
-
-	for _, file := range files {
-		if file.DeletedAtUTC == "" {
-			count++
-		}
-	}
-
-	return count
-}
-
 func indexAgeDescription(indexedAt string) string {
 	if strings.TrimSpace(indexedAt) == "" {
 		return "unknown"
 	}
 
-	return "indexed_at " + indexedAt
+	indexedTime, err := time.Parse(time.RFC3339Nano, indexedAt)
+	if err != nil {
+		return "unknown"
+	}
+
+	age := max(time.Since(indexedTime), 0)
+
+	return age.Round(time.Second).String()
 }
 
 func currentGitCommit(ctx context.Context, root string) string {
@@ -1058,15 +1056,10 @@ func (server Server) contextCardTargets(
 	input codeIntelContextCardInput,
 	paths []string,
 	limit int,
-) ([]codeIntelContextTarget, error) {
-	chunks, err := store.CodeChunks(ctx, codeintel.CodeChunkQuery{
-		Path:       firstPath(paths),
-		SymbolName: input.SymbolName,
-		SymbolPath: input.SymbolPath,
-		Limit:      limit,
-	})
+) ([]codeIntelContextTarget, bool, error) {
+	chunks, truncated, err := contextCardChunks(ctx, store, input, paths, limit)
 	if err != nil {
-		return nil, fmt.Errorf("query context-card chunks: %w", err)
+		return nil, false, err
 	}
 
 	targetsByPath := map[string]codeIntelContextTarget{}
@@ -1086,9 +1079,9 @@ func (server Server) contextCardTargets(
 		}
 
 		target := targetsByPath[chunk.Path]
-		target.Path = chunk.Path
-		target.Found = true
-		target.IndexFresh = true
+		if target.Path == "" {
+			target = contextTargetForPath(ctx, store, chunk.Path)
+		}
 
 		if !input.IncludeRaw {
 			chunk.RawText = ""
@@ -1123,16 +1116,61 @@ func (server Server) contextCardTargets(
 
 	if len(targets) == 0 {
 		for _, chunk := range chunks {
+			target := contextTargetForPath(ctx, store, chunk.Path)
+			target.Chunks = []codeintel.CodeChunk{chunk}
+
 			targets = append(targets, codeIntelContextTarget{
-				Path:       chunk.Path,
-				Chunks:     []codeintel.CodeChunk{chunk},
-				Found:      true,
-				IndexFresh: true,
+				Path:       target.Path,
+				Chunks:     target.Chunks,
+				File:       target.File,
+				Found:      target.Found,
+				IndexFresh: target.IndexFresh,
 			})
 		}
 	}
 
-	return targets, nil
+	return targets, truncated, nil
+}
+
+func contextCardChunks(
+	ctx context.Context,
+	store *codeintel.Store,
+	input codeIntelContextCardInput,
+	paths []string,
+	limit int,
+) ([]codeintel.CodeChunk, bool, error) {
+	if len(paths) == 0 {
+		chunks, err := store.CodeChunks(ctx, codeintel.CodeChunkQuery{
+			SymbolName: input.SymbolName,
+			SymbolPath: input.SymbolPath,
+			Limit:      limit,
+		})
+		if err != nil {
+			return nil, false, fmt.Errorf("query context-card chunks: %w", err)
+		}
+
+		return chunks, len(chunks) == limit, nil
+	}
+
+	chunks := []codeintel.CodeChunk{}
+	truncated := false
+
+	for _, path := range paths {
+		pathChunks, err := store.CodeChunks(ctx, codeintel.CodeChunkQuery{
+			Path:       path,
+			SymbolName: input.SymbolName,
+			SymbolPath: input.SymbolPath,
+			Limit:      limit,
+		})
+		if err != nil {
+			return nil, false, fmt.Errorf("query context-card chunks for %s: %w", path, err)
+		}
+
+		truncated = truncated || len(pathChunks) == limit
+		chunks = append(chunks, pathChunks...)
+	}
+
+	return chunks, truncated, nil
 }
 
 func contextTargetForPath(
