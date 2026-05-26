@@ -24,9 +24,10 @@ import (
 )
 
 const (
-	commandArgIndex   = 1
-	commandArgsOffset = 2
-	dirMode           = 0o755
+	commandArgIndex    = 1
+	commandArgsOffset  = 2
+	configSectionProxy = "proxy"
+	dirMode            = 0o755
 )
 
 var (
@@ -690,13 +691,14 @@ func addRepoConfigOnlyShape(reference map[string]any) {
 		"exclude_paths": []any{},
 	}
 
-	reference["git"] = map[string]any{
-		"signed_operations": map[string]any{
-			"enabled": true,
+	reference[configSectionProxy] = map[string]any{
+		"code_intel_enrichment": map[string]any{
+			"enabled":      true,
+			"max_edges":    0,
+			"max_failures": 0,
+			"max_paths":    0,
+			"max_symbols":  0,
 		},
-	}
-
-	reference["proxy"] = map[string]any{
 		"output_compression": map[string]any{
 			"head_lines":      0,
 			"head_tokens":     0,
@@ -747,7 +749,7 @@ func knownConfigSection(section string) bool {
 		"hooks",
 		"policy",
 		"project",
-		"proxy",
+		configSectionProxy,
 		"profiles",
 		"python",
 		"repo",

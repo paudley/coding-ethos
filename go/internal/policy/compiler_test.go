@@ -530,8 +530,6 @@ git:
     enabled: true
   destructive_worktree:
     enabled: true
-  stash_blocked:
-    enabled: true
 `)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -573,8 +571,6 @@ func TestCompileBuildsSmallGitPoliciesAsCELPolicies(t *testing.T) {
 	writeTestFile(t, configPath, testConfigYAML+`
 git:
   destructive_worktree:
-    enabled: true
-  stash_blocked:
     enabled: true
 `)
 
@@ -1868,9 +1864,6 @@ func TestCompileHonorsPolicyEnabledFlags(t *testing.T) {
 
 	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML+`
-git:
-  hook_bypass:
-    enabled: false
 filesystem:
   protected_path:
     enabled: false

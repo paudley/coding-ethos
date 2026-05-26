@@ -5052,6 +5052,431 @@ func TestRunFallsBackToLegacyRepoMapWhenDuckDBUpgradeIsLocked(t *testing.T) {
 	}
 }
 
+func TestRunAddsCodeIntelEnrichmentForReadTool(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	sourcePath := filepath.Join(repo, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def run():\n    return 'ok'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	consumerPath := filepath.Join(repo, "pkg", "consumer.py")
+	err = os.WriteFile(
+		consumerPath,
+		[]byte("from pkg.app import run\n\n\ndef call():\n    return run()\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write consumer: %v", err)
+	}
+
+	indexHookRepo(t, repo, []string{"pkg"})
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      "Read",
+			Cwd:           repo,
+			SessionID:     "session-code-intel-read",
+			ToolInput: map[string]any{
+				"file_path": "pkg/app.py",
+			},
+			ToolResponse: map[string]any{
+				"content": "def run():\n    return 'ok'\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run read hook: %v", err)
+	}
+
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing code-intel enrichment output: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"code_intel_enrichment:",
+		"status: ready",
+		"paths[1]{path,language,lines,symbols,risk}:",
+		"pkg/app.py",
+		"symbols[1]{path,symbol,line,signature}:",
+		"run",
+		"related[",
+		"pkg/consumer.py",
+		"imported_by",
+		`code_intel_context_card {"path":"pkg/app.py"}`,
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("read enrichment missing %q:\n%s", expected, context)
+		}
+	}
+}
+
+func TestRunReportsStaleCodeIntelEnrichmentForModifiedReadTarget(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	sourcePath := filepath.Join(repo, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def run():\n    return 'ok'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	indexHookRepo(t, repo, []string{"pkg/app.py"})
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def run():\n    return 'changed'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("modify source after index: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      "Read",
+			Cwd:           repo,
+			SessionID:     "session-code-intel-stale-read",
+			ToolInput: map[string]any{
+				"file_path": "pkg/app.py",
+			},
+			ToolResponse: map[string]any{
+				"content": "def run():\n    return 'changed'\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run stale read hook: %v", err)
+	}
+
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing stale code-intel enrichment output: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"code_intel_enrichment:",
+		"status: stale",
+		"refresh: coding-ethos-code-intel rebuild-index",
+		"reason: stale code context; refresh required",
+		`code_intel_context_card {"path":"pkg/app.py"}`,
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("stale enrichment missing %q:\n%s", expected, context)
+		}
+	}
+
+	for _, unexpected := range []string{
+		"paths[",
+		"symbols[",
+		"related[",
+		"def run():",
+	} {
+		if strings.Contains(context, unexpected) {
+			t.Fatalf("stale enrichment should suppress %q:\n%s", unexpected, context)
+		}
+	}
+}
+
+func TestRunAddsGoldenCodeIntelEnrichmentForGlobTool(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	sourcePath := filepath.Join(repo, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def run():\n    return 'ok'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	indexHookRepo(t, repo, []string{"pkg/app.py"})
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      "Glob",
+			Cwd:           repo,
+			SessionID:     "session-code-intel-glob",
+			ToolResponse: map[string]any{
+				"content": "pkg/app.py\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run glob hook: %v", err)
+	}
+
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing code-intel enrichment output: %#v", result)
+	}
+
+	expected := strings.Join([]string{
+		"code_intel_enrichment:",
+		"status: ready",
+		"refresh: coding-ethos-code-intel rebuild-index",
+		"paths[1]{path,language,lines,symbols,risk}:",
+		"  pkg/app.py,python,3,1,normal",
+		"symbols[1]{path,symbol,line,signature}:",
+		"  pkg/app.py,run,1,def run():",
+		"next_mcp_calls[2]{call}:",
+		`  code_intel_repo_map {"limit":3\,"symbols_per_file":3}`,
+		`  code_intel_context_card {"path":"pkg/app.py"}`,
+	}, "\n")
+
+	if result.HookSpecificOutput.AdditionalContext != expected {
+		t.Fatalf(
+			"glob enrichment mismatch\nwant:\n%s\n\ngot:\n%s",
+			expected,
+			result.HookSpecificOutput.AdditionalContext,
+		)
+	}
+}
+
+func TestRunSkipsCodeIntelEnrichmentWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+
+	err := os.WriteFile(
+		filepath.Join(repo, "repo_config.yaml"),
+		[]byte("proxy:\n  code_intel_enrichment:\n    enabled: false\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      "Read",
+			Cwd:           repo,
+			SessionID:     "session-code-intel-disabled",
+			ToolInput: map[string]any{
+				"file_path": "pkg/app.py",
+			},
+			ToolResponse: map[string]any{
+				"content": "def run():\n    return 'ok'\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run disabled read hook: %v", err)
+	}
+
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("disabled enrichment should not emit output: %#v", result)
+	}
+}
+
+func TestRunReportsMissingCodeIntelIndexForSearchTool(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      "Grep",
+			Cwd:           repo,
+			SessionID:     "session-code-intel-missing",
+			ToolInput: map[string]any{
+				"pattern": "run",
+				"path":    "pkg",
+			},
+			ToolResponse: map[string]any{
+				"content": "pkg/app.py:def run():",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run grep hook: %v", err)
+	}
+
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing-index enrichment should emit output: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"code_intel_enrichment:",
+		"status: missing_index",
+		"refresh: coding-ethos-code-intel rebuild-index",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("missing-index context lacks %q:\n%s", expected, context)
+		}
+	}
+}
+
+func TestRunCapsCodeIntelEnrichmentPathsFromSearchOutput(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	for _, source := range []string{"pkg/app.py", "pkg/worker.py"} {
+		path := filepath.Join(repo, filepath.FromSlash(source))
+		err := os.MkdirAll(filepath.Dir(path), 0o700)
+		if err != nil {
+			t.Fatalf("create source dir: %v", err)
+		}
+
+		err = os.WriteFile(path, []byte("def run():\n    return 'ok'\n"), 0o600)
+		if err != nil {
+			t.Fatalf("write source: %v", err)
+		}
+	}
+
+	err := os.WriteFile(
+		filepath.Join(repo, "repo_config.yaml"),
+		[]byte("proxy:\n  code_intel_enrichment:\n    max_paths: 1\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	indexHookRepo(t, repo, []string{"pkg"})
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      "Grep",
+			Cwd:           repo,
+			SessionID:     "session-code-intel-cap",
+			ToolResponse: map[string]any{
+				"content": "pkg/missing.py:def missing():\n" +
+					"pkg/app.py:def run():\n" +
+					"pkg/worker.py:def run():\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run capped grep hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "paths[1]{path,language,lines,symbols,risk}:") ||
+		!strings.Contains(context, "pkg/app.py") ||
+		strings.Contains(context, "pkg/missing.py") ||
+		strings.Contains(context, "pkg/worker.py") {
+		t.Fatalf("enrichment did not honor max_paths: %s", context)
+	}
+}
+
+func TestRunDedupesCodeIntelFreshnessNoticeAfterCommit(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	sourcePath := filepath.Join(repo, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(sourcePath, []byte("def run():\n    return 'ok'\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	indexHookRepo(t, repo, []string{"pkg/app.py"})
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def run():\n    return 'changed'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("modify source: %v", err)
+	}
+
+	runHookGit(t, repo, "add", "pkg/app.py")
+	runHookGitWithEnv(
+		t,
+		repo,
+		map[string]string{
+			"GIT_AUTHOR_DATE":    "2099-01-02T03:04:05+00:00",
+			"GIT_COMMITTER_DATE": "2099-01-02T03:04:05+00:00",
+		},
+		"commit",
+		"-m",
+		"change app",
+	)
+
+	event := Event{
+		HookEventName: eventPostToolUse,
+		ToolName:      "Bash",
+		Cwd:           repo,
+		SessionID:     "session-code-intel-freshness",
+		ToolInput: map[string]any{
+			"command": "git commit -m 'change app'",
+		},
+		ToolResponse: map[string]any{
+			"stdout":      "commit hooks completed\n",
+			"return_code": 0,
+		},
+	}
+
+	first, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run first commit hook: %v", err)
+	}
+
+	firstContext := first.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(firstContext, "code_intel_freshness:") ||
+		!strings.Contains(firstContext, "status: stale") ||
+		!strings.Contains(firstContext, "coding-ethos-code-intel rebuild-index") {
+		t.Fatalf("first commit missing freshness notice:\n%s", firstContext)
+	}
+
+	second, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run second commit hook: %v", err)
+	}
+
+	secondContext := ""
+	if second.HookSpecificOutput != nil {
+		secondContext = second.HookSpecificOutput.AdditionalContext
+	}
+	if strings.Contains(secondContext, "code_intel_freshness:") {
+		t.Fatalf("freshness notice was not deduped:\n%s", secondContext)
+	}
+}
+
 func TestRunImportsMemoriesOnSessionStart(t *testing.T) {
 	t.Parallel()
 
@@ -5507,6 +5932,17 @@ func indexHookRepo(t *testing.T, repo string, paths []string) {
 func runHookGit(t *testing.T, repo string, args ...string) {
 	t.Helper()
 
+	runHookGitWithEnv(t, repo, nil, args...)
+}
+
+func runHookGitWithEnv(
+	t *testing.T,
+	repo string,
+	extraEnv map[string]string,
+	args ...string,
+) {
+	t.Helper()
+
 	gitPath, err := realgit.Resolve(context.Background(), "git")
 	if err != nil {
 		t.Fatalf("resolve git: %v", err)
@@ -5515,6 +5951,9 @@ func runHookGit(t *testing.T, repo string, args ...string) {
 	cmd := exec.CommandContext(context.Background(), gitPath, args...)
 	cmd.Dir = repo
 	cmd.Env = cleanGitTestEnv()
+	for name, value := range extraEnv {
+		cmd.Env = append(cmd.Env, name+"="+value)
+	}
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

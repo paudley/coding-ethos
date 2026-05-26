@@ -20,7 +20,7 @@ const adminApprovedEnv = "CODE_ETHOS_ADMIN_APPROVED"
 
 func Execute(realGit string, options Options) error {
 	normalized := normalizeArgv(options.Argv)
-	normalized = forceSignedGitArgs(normalized, options.Cwd)
+	normalized = forceSignedGitArgs(normalized)
 
 	cmd := realgit.CommandFor(context.Background(), realGit, false, normalized[1:]...)
 	if options.Cwd != "" {

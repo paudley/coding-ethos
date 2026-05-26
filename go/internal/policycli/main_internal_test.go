@@ -234,6 +234,39 @@ func TestValidateRepoConfigSectionsAllowsProxyOutputCompression(t *testing.T) {
 	}
 }
 
+func TestValidateRepoConfigSectionsAllowsProxyCodeIntelEnrichment(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	inlineErr := os.WriteFile(
+		repoConfigPath,
+		[]byte(
+			"proxy:\n"+
+				"  code_intel_enrichment:\n"+
+				"    enabled: true\n"+
+				"    max_paths: 3\n"+
+				"    max_symbols: 6\n"+
+				"    max_edges: 4\n"+
+				"    max_failures: 4\n",
+		),
+		0o600,
+	)
+	if inlineErr != nil {
+		t.Fatalf("write repo config: %v", inlineErr)
+	}
+
+	sections, err := validateRepoConfigSections(repoConfigPath, map[string]any{})
+	if err != nil {
+		t.Fatalf("validate repo config: %v", err)
+	}
+
+	if strings.Join(sections, ",") != "proxy" {
+		t.Fatalf("sections = %#v", sections)
+	}
+}
+
 func TestValidateRepoConfigSectionsRejectsUnknownProxyOutputKey(t *testing.T) {
 	t.Parallel()
 

@@ -305,28 +305,48 @@ func hookSpecificOutput(
 		return output, nil
 	}
 
+	if event.HookEventName == eventPostToolUse && event.ToolName != toolBash {
+		if output := codeIntelEnrichmentOutput(event, event.ToolOutput()); output != nil {
+			return output, nil
+		}
+	}
+
 	if event.HookEventName != eventPostToolUse || event.ToolName != toolBash {
 		return nil, nil
 	}
 
+	return postToolBashOutput(bundle, event)
+}
+
+func postToolBashOutput(
+	bundle policy.Bundle,
+	event Event,
+) (*HookSpecificOutput, []agentproxy.ProviderEvent) {
 	command := event.Command()
 	output := event.ToolOutput()
 	proxiedOutput := proxyPostToolOutput(event, output)
+	codeIntelContext := codeIntelEnrichmentContext(event, proxiedOutput.Text)
 
-	if !shouldEmitPostToolBashContext(event, command, output, proxiedOutput) {
+	if !shouldEmitPostToolBashContext(event, command, output, proxiedOutput) &&
+		codeIntelContext == "" {
 		return nil, proxiedOutput.Events
 	}
 
+	context := buildHookOutputContext(
+		command,
+		proxiedOutput.Text,
+		event.ReturnCode(),
+		selectedOutputFormat(),
+		event.Cwd,
+		postToolReminder(bundle, event),
+	)
+	if codeIntelContext != "" {
+		context = strings.TrimSpace(context + "\n\n" + codeIntelContext)
+	}
+
 	return &HookSpecificOutput{
-		HookEventName: event.HookEventName,
-		AdditionalContext: buildHookOutputContext(
-			command,
-			proxiedOutput.Text,
-			event.ReturnCode(),
-			selectedOutputFormat(),
-			event.Cwd,
-			postToolReminder(bundle, event),
-		),
+		HookEventName:     event.HookEventName,
+		AdditionalContext: context,
 	}, proxiedOutput.Events
 }
 

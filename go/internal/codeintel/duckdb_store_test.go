@@ -300,6 +300,47 @@ func TestDuckDBRebuildLockRemovesStaleLock(t *testing.T) {
 	defer release()
 }
 
+func TestRebuildDuckDBIndexSkipsOversizedLegacySQLite(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	legacyPath := DefaultDBPath(root)
+
+	err := os.MkdirAll(filepath.Dir(legacyPath), 0o700)
+	if err != nil {
+		t.Fatalf("create legacy dir: %v", err)
+	}
+
+	file, err := os.OpenFile(legacyPath, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("create oversized legacy SQLite placeholder: %v", err)
+	}
+	err = file.Truncate(maxLegacySQLiteImportBytes + 1)
+	if closeErr := file.Close(); closeErr != nil {
+		t.Fatalf("close oversized legacy SQLite placeholder: %v", closeErr)
+	}
+	if err != nil {
+		t.Fatalf("truncate oversized legacy SQLite placeholder: %v", err)
+	}
+
+	summary, err := RebuildDuckDBIndex(ctx, root, "", "")
+	if err != nil {
+		t.Fatalf("rebuild DuckDB index: %v", err)
+	}
+
+	if summary.ImportedLegacySQLite ||
+		!summary.SkippedLegacySQLite ||
+		summary.RemovedLegacySQLite ||
+		!strings.Contains(summary.LegacySQLiteSkipReason, "maximum automatic import") {
+		t.Fatalf("unexpected oversized legacy summary: %#v", summary)
+	}
+
+	if _, err := os.Stat(legacyPath); err != nil {
+		t.Fatalf("oversized legacy SQLite store should remain for explicit handling: %v", err)
+	}
+}
+
 const extendedLegacySeedSQL = `INSERT INTO hook_targets(trace_id, ordinal, target_path, target_kind)
 VALUES ('trace-1', 0, 'src/big.py', 'source_file');
 INSERT INTO hook_reviews(review_id, trace_id, tracking_id, disposition, reviewer, notes, recorded_at_utc)

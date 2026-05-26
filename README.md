@@ -486,6 +486,15 @@ session recomputes the file hash and, when it still matches, records a
 `cache_hit` event and returns a short cached-read stub instead of resending the
 file body. This is the reusable core for future transparent read interception.
 
+Agent search, glob, and read PostToolUse hooks add compact code-intel
+enrichment when the repo-local index is available. The TOON hint includes
+detected repo paths, likely symbols, direct graph edges, repeated-failure
+evidence, risk flags, and exact MCP follow-up calls such as
+`code_intel_context_card {"path":"pkg/app.py"}`. Missing or stale code-intel
+does not block the tool result; the hook emits a concise refresh hint with
+`coding-ethos-code-intel rebuild-index`. Repositories can disable or cap this
+context with `proxy.code_intel_enrichment` in `repo_config.yaml`.
+
 Provider-native file read tools are the supported path for reading source.
 Claude-style Bash file-tool emulation such as `cat <path>`,
 `sed -n '1,20p' <path>`, `awk ... <path>`, `tee <path>`, and `echo`/`printf`

@@ -4,6 +4,7 @@
 package e2e_test
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -203,8 +204,7 @@ func preparedParentRuntimeRepo(t *testing.T) parentRuntimeFixture {
 		RequireExit(t, 0)
 	e2e.Run(t, parentRepo, realGitPath(t), "config", "user.name", "Test User").
 		RequireExit(t, 0)
-	e2e.Run(t, parentRepo, realGitPath(t), "config", "commit.gpgsign", "false").
-		RequireExit(t, 0)
+	configureManagedGitSigning(t, parentRepo)
 
 	writeParentRuntimeFile(t, parentRepo, "repo_config.yaml", managedGitCommitRepoConfig())
 	writeParentRuntimeFile(
@@ -261,6 +261,7 @@ func preparedManagedGitCommitRepo(t *testing.T) e2e.Repo {
 	e2e.RequireRuntime(t, sourceRoot)
 	repo := e2e.FromReference(t, sourceRoot, "policy-lint-basic")
 	repo.EthosRoot = repoLocalCoverageRuntime(t, repo)
+	configureManagedGitSigning(t, repo.Root)
 	syncManagedGitGeneratedFixtures(t, repo)
 	repo.Touch(t, "repo_config.yaml", managedGitCommitRepoConfig())
 	installManagedGitPolicyArtifacts(t, repo)
@@ -489,9 +490,6 @@ func managedGitCommitRepoConfig() string {
 		"hooks:",
 		"  enabled_groups:",
 		"    - python-policy",
-		"git:",
-		"  signed_operations:",
-		"    enabled: false",
 		"python:",
 		"  optional_returns:",
 		"    enabled: false",
@@ -739,6 +737,84 @@ func realGitPath(t *testing.T) string {
 	}
 
 	return path
+}
+
+func configureManagedGitSigning(t *testing.T, repo string) {
+	t.Helper()
+
+	gpgPath, err := exec.LookPath("gpg")
+	if err != nil {
+		t.Skipf("gpg is required for signed managed git e2e: %v", err)
+	}
+
+	gnupgHome := filepath.Join(t.TempDir(), "gnupg")
+	if err := os.Mkdir(gnupgHome, 0o700); err != nil {
+		t.Fatalf("create gnupg home: %v", err)
+	}
+	t.Setenv("GNUPGHOME", gnupgHome)
+
+	fingerprint := generateManagedGitSigningKey(t, gpgPath, gnupgHome)
+	e2e.Run(t, repo, realGitPath(t), "config", "user.signingkey", fingerprint).
+		RequireExit(t, 0)
+	e2e.Run(t, repo, realGitPath(t), "config", "gpg.program", gpgPath).
+		RequireExit(t, 0)
+	e2e.Run(t, repo, realGitPath(t), "config", "commit.gpgsign", "true").
+		RequireExit(t, 0)
+}
+
+func generateManagedGitSigningKey(t *testing.T, gpgPath, gnupgHome string) string {
+	t.Helper()
+
+	keyParams := filepath.Join(t.TempDir(), "key.params")
+	err := os.WriteFile(keyParams, []byte(`%no-protection
+Key-Type: eddsa
+Key-Curve: ed25519
+Key-Usage: sign
+Name-Real: Coding Ethos E2E Test
+Name-Email: coding-ethos-e2e@example.invalid
+Expire-Date: 1d
+%commit
+`), 0o600)
+	if err != nil {
+		t.Fatalf("write key params: %v", err)
+	}
+
+	cmd := exec.CommandContext(
+		context.Background(),
+		gpgPath,
+		"--batch",
+		"--homedir",
+		gnupgHome,
+		"--generate-key",
+		keyParams,
+	)
+	if output, inlineErr := cmd.CombinedOutput(); inlineErr != nil {
+		t.Fatalf("generate gpg key: %v\n%s", inlineErr, output)
+	}
+
+	cmd = exec.CommandContext(
+		context.Background(),
+		gpgPath,
+		"--batch",
+		"--homedir",
+		gnupgHome,
+		"--list-secret-keys",
+		"--with-colons",
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("list gpg key: %v", err)
+	}
+
+	for line := range strings.SplitSeq(string(output), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) > 9 && fields[0] == "fpr" && fields[9] != "" {
+			return fields[9]
+		}
+	}
+
+	t.Fatalf("no generated key fingerprint found:\n%s", output)
+	return ""
 }
 
 func retainedTraceContent(t *testing.T, repo e2e.Repo) string {

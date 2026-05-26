@@ -645,13 +645,9 @@ policy:
           - make pre-commit
 
 git:
-  hook_bypass:
-    enabled: true
   destructive_command:
     enabled: true
   merge_strategy_shortcut:
-    enabled: true
-  history_rewrite_prevention:
     enabled: true
   force_push_protected_branch:
     enabled: true
@@ -659,13 +655,7 @@ git:
     enabled: true
   destructive_worktree:
     enabled: true
-  protected_submodule_update:
-    enabled: true
-    paths:
-      - coding-ethos
   change_dir_flag:
-    enabled: true
-  stash_blocked:
     enabled: true
   commit_head_advanced:
     enabled: true

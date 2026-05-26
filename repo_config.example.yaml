@@ -91,6 +91,14 @@ code_intel:
     - "**/dist/**"
 
 proxy:
+  code_intel_enrichment:
+    # Compact PostToolUse hints for search/glob/read workflows. These hints are
+    # advisory and never block when the repo-local code-intel index is missing.
+    enabled: true
+    max_paths: 3
+    max_symbols: 6
+    max_edges: 4
+    max_failures: 4
   output_compression:
     # Repo-local defaults for Bash PostToolUse output returned to agents.
     # The token ledger records every session-scoped Bash action in code-intel.
@@ -105,22 +113,6 @@ proxy:
     max_diagnostics: 12
 
 git:
-  # Parent repos that cannot use signed git operations yet can disable the
-  # wrapper's signing invariant explicitly. coding-ethos itself keeps this
-  # enabled: commits are forced through `git commit -S`, and pushes containing
-  # unsigned outgoing commits are blocked.
-  signed_operations:
-    enabled: true
-  hook_bypass:
-    enabled: true
-  history_rewrite_prevention:
-    enabled: true
-  stash_blocked:
-    enabled: true
-  protected_submodule_update:
-    enabled: true
-    paths:
-      - coding-ethos
   staged_admin_files:
     enabled: true
     basenames:

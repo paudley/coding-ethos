@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -696,7 +697,7 @@ func (server Server) codeIntelRepoMap(args json.RawMessage) (any, error) {
 		)
 	}
 
-	repoMap, rendered, err := server.loadFreshRepoMap(input)
+	repoMap, rendered, err := server.loadRepoMap(input)
 	if err != nil {
 		return nil, err
 	}
@@ -712,6 +713,16 @@ func (server Server) codeIntelRepoMap(args json.RawMessage) (any, error) {
 	}
 
 	return result, nil
+}
+
+func (server Server) loadRepoMap(
+	input codeIntelRepoMapInput,
+) (codeintel.RepoMap, string, error) {
+	if repoMapRefreshPath(input) == "" {
+		return server.loadStoredRepoMap(input)
+	}
+
+	return server.loadFreshRepoMap(input)
 }
 
 func (server Server) codeIntelChangeRisk(args json.RawMessage) (any, error) {
@@ -855,12 +866,33 @@ func (server Server) readRepoMap(
 }
 
 func repoMapIndexPaths(input codeIntelRepoMapInput) []string {
-	path := strings.TrimSpace(input.Path)
+	path := repoMapRefreshPath(input)
 	if path == "" {
 		return nil
 	}
 
 	return []string{path}
+}
+
+func repoMapRefreshPath(input codeIntelRepoMapInput) string {
+	path := strings.TrimSpace(input.Path)
+	if path == "" {
+		return ""
+	}
+
+	cleaned := filepath.Clean(path)
+	if filepath.IsAbs(cleaned) {
+		return ""
+	}
+
+	cleanPath := filepath.ToSlash(cleaned)
+	if cleanPath == "." ||
+		cleanPath == ".." ||
+		strings.HasPrefix(cleanPath, "../") {
+		return ""
+	}
+
+	return cleanPath
 }
 
 func (server Server) codeIntelTaskMeta(

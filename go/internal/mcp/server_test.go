@@ -990,6 +990,91 @@ func TestServerCodeIntelRepoMapResourceDoesNotRefreshIndex(t *testing.T) {
 	}
 }
 
+func TestServerCodeIntelRepoMapRootPathDoesNotRefreshIndex(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	seedCodeIntelToolData(t, root)
+	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+
+	newSourcePath := filepath.Join(root, "pkg", "new_file.py")
+	inlineErr0 := os.WriteFile(
+		newSourcePath,
+		[]byte("def newly_added():\n    return 'new'\n"),
+		0o600,
+	)
+	if inlineErr0 != nil {
+		t.Fatalf("write new source: %v", inlineErr0)
+	}
+
+	toolOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":58,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_repo_map",
+			"arguments":{"path":".","format":"toon"}
+		}
+	}`), runtime)
+	if strings.Contains(toolOutput, "pkg/new_file.py") {
+		t.Fatalf("root repo-map tool refreshed unindexed file:\n%s", toolOutput)
+	}
+
+	if !strings.Contains(toolOutput, "pkg/app.py") ||
+		!strings.Contains(toolOutput, "coding_ethos_repo_map") {
+		t.Fatalf("root repo-map tool did not return stored repo map:\n%s", toolOutput)
+	}
+
+	assertRepoMapPathAbsent(t, root, "pkg/new_file.py")
+}
+
+func TestServerCodeIntelRepoMapRejectsTraversalRefreshPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	seedCodeIntelToolData(t, root)
+	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+
+	outsideRoot := t.TempDir()
+	outsidePath := filepath.Join(outsideRoot, "outside.py")
+	inlineErr0 := os.WriteFile(
+		outsidePath,
+		[]byte("def outside():\n    return 'outside'\n"),
+		0o600,
+	)
+	if inlineErr0 != nil {
+		t.Fatalf("write outside source: %v", inlineErr0)
+	}
+
+	toolOutput := runServerWithRuntime(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":59,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_repo_map",
+			"arguments":{"path":%q,"format":"toon"}
+		}
+	}`, outsidePath)), runtime)
+	if strings.Contains(toolOutput, "outside.py") ||
+		strings.Contains(toolOutput, "outside") {
+		t.Fatalf("repo-map tool indexed absolute outside path:\n%s", toolOutput)
+	}
+
+	traversalOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":60,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_repo_map",
+			"arguments":{"path":"../outside.py","format":"toon"}
+		}
+	}`), runtime)
+	if strings.Contains(traversalOutput, "outside.py") ||
+		strings.Contains(traversalOutput, "outside") {
+		t.Fatalf("repo-map tool indexed traversal outside path:\n%s", traversalOutput)
+	}
+}
+
 func TestServerCodeIntelRepoMapReturnsDirectoryPath(t *testing.T) {
 	t.Parallel()
 

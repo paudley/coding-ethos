@@ -5,11 +5,8 @@ package gitwrap
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
-	"blackcat.ca/coding-ethos/go/internal/configdata"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
@@ -24,7 +21,7 @@ const (
 )
 
 func gitSigningPreDecisions(options Options, operation string) []policy.Decision {
-	if operation == "" || !gitSigningEnforcementEnabled(options.Cwd) {
+	if operation == "" {
 		return nil
 	}
 
@@ -56,7 +53,7 @@ func gitCommitSignatureDecisions(options Options) []policy.Decision {
 }
 
 func gitSigningPostDecisions(options Options, operation string) []policy.Decision {
-	if operation == "" || !gitSigningEnforcementEnabled(options.Cwd) {
+	if operation == "" {
 		return nil
 	}
 
@@ -138,11 +135,7 @@ func gitHeadSignatureDecisions(options Options) []policy.Decision {
 	return nil
 }
 
-func forceSignedGitArgs(argv []string, cwd string) []string {
-	if !gitSigningEnforcementEnabled(cwd) {
-		return argv
-	}
-
+func forceSignedGitArgs(argv []string) []string {
 	operationIndex := gitOperationIndex(argv)
 	if operationIndex < 0 {
 		return argv
@@ -194,55 +187,6 @@ func outgoingCommitSignatureStatuses(cwd string) []string {
 	}
 
 	return nonEmptyLines(output)
-}
-
-func gitSigningEnforcementEnabled(cwd string) bool {
-	repoRoot := gitRepoRoot(cwd)
-	if repoRoot == "" {
-		return true
-	}
-
-	config := loadGitRepoConfig(repoRoot)
-	value := configdata.GetPath(config, "git.signed_operations.enabled", true)
-
-	enabled, ok := value.(bool)
-	if !ok {
-		return true
-	}
-
-	return enabled
-}
-
-func loadGitRepoConfig(repoRoot string) configdata.Map {
-	for _, name := range configdata.RepoConfigCandidates() {
-		path := filepath.Join(repoRoot, name)
-
-		_, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-
-		config, err := configdata.LoadYAMLMap(path)
-		if err == nil {
-			return config
-		}
-	}
-
-	return configdata.Map{}
-}
-
-func gitRepoRoot(cwd string) string {
-	output, err := gitOutput(cwd, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return cwd
-	}
-
-	root := strings.TrimSpace(output)
-	if root != "" {
-		return root
-	}
-
-	return cwd
 }
 
 func gitInsideWorkTree(cwd string) bool {
