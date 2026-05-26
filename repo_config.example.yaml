@@ -91,6 +91,14 @@ code_intel:
     - "**/dist/**"
 
 proxy:
+  code_intel_enrichment:
+    # Compact PostToolUse hints for search/glob/read workflows. These hints are
+    # advisory and never block when the repo-local code-intel index is missing.
+    enabled: true
+    max_paths: 3
+    max_symbols: 6
+    max_edges: 4
+    max_failures: 4
   output_compression:
     # Repo-local defaults for Bash PostToolUse output returned to agents.
     # The token ledger records every session-scoped Bash action in code-intel.
