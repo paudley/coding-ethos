@@ -256,12 +256,16 @@ func downstreamHumanPolicyBlockers(items []DownstreamPolicyBlocker) []string {
 	lines = append(lines, fmt.Sprintf("Policy blockers (%d):", len(items)))
 
 	for _, item := range items {
-		lines = append(lines, fmt.Sprintf(
-			"- %s: %d (%s)",
+		line := fmt.Sprintf(
+			"- %s: %d",
 			firstNonEmpty(item.PolicyID, "unknown"),
 			item.Count,
-			downstreamCommandSummary(item.AffectedCommands),
-		))
+		)
+		if summary := downstreamCommandSummary(item.AffectedCommands); summary != "" {
+			line += fmt.Sprintf(" (%s)", summary)
+		}
+
+		lines = append(lines, line)
 	}
 
 	return lines

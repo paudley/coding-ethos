@@ -261,6 +261,80 @@ func TestFormatDownstreamAnalysisTOONEmitsActionableSummary(t *testing.T) {
 	}
 }
 
+func TestFormatDownstreamAnalysisHumanEmitsStableSummary(t *testing.T) {
+	t.Parallel()
+
+	analysis := DownstreamAnalysis{
+		IssueSummary: DownstreamIssueSummary{
+			NextActions: []string{
+				"coding-ethos-run code-intel rebuild-index --root <repo>",
+			},
+		},
+		PolicyBlockers: []DownstreamPolicyBlocker{
+			{
+				PolicyID: "git.wrapper_required",
+				Severity: "block",
+				Count:    4,
+				AffectedCommands: []DownstreamAffectedCommand{{
+					Tool:          "Bash",
+					OperationKind: "git_status",
+					TargetKind:    "repo_state",
+					RiskCategory:  "bypass",
+					Status:        "blocked",
+					Count:         4,
+				}},
+			},
+			{
+				PolicyID: "filesystem.line_limits",
+				Severity: "block",
+				Count:    2,
+			},
+		},
+		AffectedCommands: []DownstreamAffectedCommand{{
+			Tool:          "Bash",
+			OperationKind: "git_status",
+			Status:        "blocked",
+			Count:         4,
+		}},
+		RemediationLoops: []DownstreamRemediationLoop{{
+			PolicyID:   "python.direct_imports",
+			File:       "src/app.py",
+			TraceCount: 3,
+		}},
+		StorageHealth: DownstreamStorageHealth{
+			Backend:        "duckdb",
+			SourceOfTruth:  "event_log",
+			Recommendation: "healthy",
+		},
+		LogSignals: DownstreamLogSignals{
+			HookRunCount:          9,
+			LintRunCount:          2,
+			ToolchainFailureCount: 1,
+		},
+	}
+
+	output := FormatDownstreamAnalysisHuman(analysis)
+	for _, want := range []string{
+		"Downstream coding-ethos analysis",
+		"Storage: duckdb backed by event_log (healthy)",
+		"Signals: 9 hook runs, 2 lint runs, 0 SQLite busy logs, 1 toolchain failure logs",
+		"Next actions (1):",
+		"Policy blockers (2):",
+		"- git.wrapper_required: 4 (Bash git_status repo_state bypass blocked)",
+		"- filesystem.line_limits: 2",
+		"Affected commands (1):",
+		"Remediation loops (1):",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("human output missing %q:\n%s", want, output)
+		}
+	}
+
+	if strings.Contains(output, "- filesystem.line_limits: 2 ()") {
+		t.Fatalf("human output should omit empty command summary parentheses:\n%s", output)
+	}
+}
+
 func seedDownstreamAnalysisStore(ctx context.Context, store *Store) error {
 	err := store.IngestTrace(ctx, Trace{
 		ID:            "trace-1",
