@@ -125,7 +125,20 @@ func defaultGitHookAuthorizationVerifier() gitHookAuthorizationVerifier {
 }
 
 func gitHookCommitAmendInAncestry(verifier gitHookAuthorizationVerifier) bool {
+	if verifier.CurrentPID == nil ||
+		verifier.ParentPID == nil ||
+		verifier.ProcessCommandLine == nil {
+		return false
+	}
+
+	visited := map[int]bool{}
 	for current := verifier.CurrentPID(); current > 0; {
+		if visited[current] {
+			return false
+		}
+
+		visited[current] = true
+
 		parent, err := verifier.ParentPID(current)
 		if err != nil || parent == current {
 			return false
