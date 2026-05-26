@@ -148,7 +148,7 @@ func TestDirectAgentGitCommitBlocksThroughInstalledHooks(t *testing.T) {
 		"provider: codex",
 		"policy_id: git.wrapper_required",
 		"Codex must retry the original git command through cerun",
-		"/bin/cerun -- 'git commit <same arguments>'",
+		"cerun -- 'git commit <same arguments>'",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("direct Codex git output missing %q:\n%s", want, output)
@@ -429,6 +429,61 @@ func TestRunWithArgsRejectsSpoofedWrapperAuthorization(t *testing.T) {
 
 	if !strings.Contains(output, "direct git execution reached coding-ethos hooks") {
 		t.Fatalf("spoofed hook output missing hostile-path block:\n%s", output)
+	}
+}
+
+func TestCerunForGitHookPrefersExistingCheckoutLocalCerun(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	binDir := filepath.Join(repo, "bin")
+	err := os.MkdirAll(binDir, 0o700)
+	if err != nil {
+		t.Fatalf("create bin dir: %v", err)
+	}
+
+	cerunPath := filepath.Join(binDir, "cerun")
+	writeExecutableTestScript(t, cerunPath, "#!/usr/bin/env sh\nexit 0\n")
+
+	got := cerunForGitHook(gitHookConfig{
+		Cwd:        repo,
+		RunnerPath: filepath.Join(t.TempDir(), "bin", gitHookRunner),
+	})
+	if got != cerunPath {
+		t.Fatalf("cerunForGitHook() = %q, want %q", got, cerunPath)
+	}
+}
+
+func TestCerunForGitHookFallsBackToExistingRunnerSibling(t *testing.T) {
+	t.Parallel()
+
+	runnerBinDir := filepath.Join(t.TempDir(), "bin")
+	err := os.MkdirAll(runnerBinDir, 0o700)
+	if err != nil {
+		t.Fatalf("create runner bin dir: %v", err)
+	}
+
+	cerunPath := filepath.Join(runnerBinDir, "cerun")
+	writeExecutableTestScript(t, cerunPath, "#!/usr/bin/env sh\nexit 0\n")
+
+	got := cerunForGitHook(gitHookConfig{
+		Cwd:        filepath.Join(t.TempDir(), "stale-checkout"),
+		RunnerPath: filepath.Join(runnerBinDir, "coding-ethos-hook-runner"),
+	})
+	if got != cerunPath {
+		t.Fatalf("cerunForGitHook() = %q, want %q", got, cerunPath)
+	}
+}
+
+func TestCerunForGitHookAvoidsMissingAbsolutePaths(t *testing.T) {
+	t.Parallel()
+
+	got := cerunForGitHook(gitHookConfig{
+		Cwd:        filepath.Join(t.TempDir(), "stale-checkout"),
+		RunnerPath: filepath.Join(t.TempDir(), "bin", gitHookRunner),
+	})
+	if got != "cerun" {
+		t.Fatalf("cerunForGitHook() = %q, want PATH fallback", got)
 	}
 }
 

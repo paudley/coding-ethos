@@ -733,17 +733,32 @@ func directGitHookRetryCommand(config gitHookConfig, hookName string) string {
 }
 
 func cerunForGitHook(config gitHookConfig) string {
-	runner := strings.TrimSpace(config.RunnerPath)
-	if filepath.Base(runner) == gitHookRunner {
-		return filepath.Join(filepath.Dir(runner), "cerun")
-	}
-
 	cwd := strings.TrimSpace(config.Cwd)
 	if cwd != "" {
-		return filepath.Join(cwd, "bin", "cerun")
+		candidate := filepath.Join(cwd, "bin", "cerun")
+		if executableFile(candidate) {
+			return candidate
+		}
+	}
+
+	runner := strings.TrimSpace(config.RunnerPath)
+	if runner != "" {
+		candidate := filepath.Join(filepath.Dir(runner), "cerun")
+		if executableFile(candidate) {
+			return candidate
+		}
 	}
 
 	return "cerun"
+}
+
+func executableFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+
+	return !info.IsDir() && info.Mode().Perm()&0o111 != 0
 }
 
 func gitHookRetryGitCommand(hookName string) string {
