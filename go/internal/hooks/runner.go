@@ -315,6 +315,13 @@ func hookSpecificOutput(
 		return nil, nil
 	}
 
+	return postToolBashOutput(bundle, event)
+}
+
+func postToolBashOutput(
+	bundle policy.Bundle,
+	event Event,
+) (*HookSpecificOutput, []agentproxy.ProviderEvent) {
 	command := event.Command()
 	output := event.ToolOutput()
 	proxiedOutput := proxyPostToolOutput(event, output)
