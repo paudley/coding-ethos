@@ -29,6 +29,7 @@ const (
 	protocolVersion         = "2025-06-18"
 	maxSARIFHistoryPayloads = 1000
 	skillSummaryLimit       = 100
+	fallbackSkillMatchScore = 5
 	repoMapResourceURI      = "coding-ethos://code-intel/repo-map"
 )
 
@@ -982,12 +983,39 @@ func (server Server) skillRecommendations(
 	return recommendations
 }
 
+func fallbackSkillScore(skill policy.Skill, text string) int {
+	if skill.ID != "agent-operating-discipline" || !broadEngineeringWorkSignal(text) {
+		return 0
+	}
+
+	return fallbackSkillMatchScore
+}
+
+func broadEngineeringWorkSignal(text string) bool {
+	for _, signal := range []string{
+		"address",
+		"debug",
+		"diagnose",
+		"fix",
+		"implement",
+		"repair",
+		"resolve",
+		"refactor",
+	} {
+		if strings.Contains(text, signal) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func scoreSkillByText(skill policy.Skill, text string) int {
 	if strings.TrimSpace(text) == "" {
 		return 0
 	}
 
-	score := 0
+	score := fallbackSkillScore(skill, text)
 
 	for _, term := range skill.TriggerTerms {
 		normalized := strings.ToLower(strings.TrimSpace(term))

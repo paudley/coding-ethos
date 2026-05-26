@@ -170,6 +170,7 @@ func queryRepoMapFiles(
 	label string,
 ) ([]RepoMapFile, error) {
 	ignoreMatcher := newGitIgnoreMatcher(ctx, strings.TrimSpace(query.Root))
+	pathFilter := repoMapPathFilter(query.Path)
 
 	rows, err := database.QueryContext(
 		ctx,
@@ -178,15 +179,16 @@ func queryRepoMapFiles(
 			SUM(CASE WHEN COALESCE(chunk.symbol_path, '') != '' THEN 1 ELSE 0 END) AS symbols
 		FROM code_files file
 		LEFT JOIN code_chunks chunk ON chunk.path = file.path
-		WHERE (? = '' OR file.path = ?)
+		WHERE (? = '' OR file.path = ? OR file.path LIKE ? ESCAPE '\')
 			AND (? = '' OR file.language = ?)
 			AND COALESCE(file.deleted_at_utc, '') = ''
 			AND COALESCE(file.stale_reason, '') = ''
 		GROUP BY file.path, file.language, file.line_count
 		ORDER BY symbols DESC, chunks DESC, file.line_count DESC, file.path
 		LIMIT ?`,
-		strings.TrimSpace(query.Path),
-		strings.TrimSpace(query.Path),
+		pathFilter.Exact,
+		pathFilter.Exact,
+		pathFilter.PrefixLike,
 		strings.TrimSpace(query.Language),
 		strings.TrimSpace(query.Language),
 		repoMapCandidateLimit(query),
@@ -230,6 +232,34 @@ func queryRepoMapFiles(
 	}
 
 	return files, nil
+}
+
+type repoMapPathQueryFilter struct {
+	Exact      string
+	PrefixLike string
+}
+
+func repoMapPathFilter(path string) repoMapPathQueryFilter {
+	cleanPath := strings.Trim(
+		filepath.ToSlash(filepath.Clean(strings.TrimSpace(path))),
+		"/",
+	)
+	if cleanPath == "." {
+		cleanPath = ""
+	}
+
+	return repoMapPathQueryFilter{
+		Exact:      cleanPath,
+		PrefixLike: escapeSQLLikePattern(cleanPath) + "/%",
+	}
+}
+
+func escapeSQLLikePattern(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `%`, `\%`)
+	value = strings.ReplaceAll(value, `_`, `\_`)
+
+	return value
 }
 
 func repoMapPathExcluded(

@@ -2674,6 +2674,61 @@ func main() { fmt.Println("x"); fmt.Println("y") }
 	}
 }
 
+func TestGlobalRepoMapFiltersDirectoryPath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelGit(t, root, "init")
+	writeFile(
+		t,
+		filepath.Join(root, "internal", "query", "postgres", "index.go"),
+		[]byte(`package postgres
+
+type Index struct{}
+
+func OpenIndex() *Index { return &Index{} }
+`),
+	)
+	writeFile(
+		t,
+		filepath.Join(root, "internal", "query", "sqlite", "index.go"),
+		[]byte(`package sqlite
+
+func OpenIndex() {}
+`),
+	)
+
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+	)
+
+	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"internal/query"})
+	if err != nil {
+		t.Fatalf("index code: %v", err)
+	}
+
+	repoMap, err := store.GlobalRepoMap(ctx, RepoMapQuery{
+		Root:           root,
+		Path:           "internal/query/postgres",
+		Language:       "go",
+		Limit:          8,
+		SymbolsPerFile: 8,
+	})
+	if err != nil {
+		t.Fatalf("global repo map: %v", err)
+	}
+
+	rendered := RenderRepoMapTOON(repoMap)
+	if len(repoMap.Files) != 1 ||
+		!strings.Contains(rendered, "internal/query/postgres/index.go") ||
+		strings.Contains(rendered, "internal/query/sqlite/index.go") {
+		t.Fatalf("repo map = %#v\n%s", repoMap, rendered)
+	}
+}
+
 func TestASTDerivedContextRefusesStaleSource(t *testing.T) {
 	t.Parallel()
 
