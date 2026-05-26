@@ -373,7 +373,7 @@ func hookGroupResultFilePath(path string) (string, bool) {
 		return "", false
 	}
 
-	tempDir, err := filepath.Abs(filepath.Clean(os.TempDir()))
+	tempDir, err := resolvedPath(os.TempDir())
 	if err != nil {
 		return "", false
 	}
@@ -383,7 +383,12 @@ func hookGroupResultFilePath(path string) (string, bool) {
 		return "", false
 	}
 
-	relativePath, err := filepath.Rel(tempDir, absolutePath)
+	resolvedTarget, err := resolvedHookGroupResultTarget(absolutePath)
+	if err != nil {
+		return "", false
+	}
+
+	relativePath, err := filepath.Rel(tempDir, resolvedTarget)
 	if err != nil ||
 		relativePath == ".." ||
 		strings.HasPrefix(relativePath, ".."+string(os.PathSeparator)) {
@@ -391,6 +396,38 @@ func hookGroupResultFilePath(path string) (string, bool) {
 	}
 
 	return absolutePath, true
+}
+
+func resolvedPath(path string) (string, error) {
+	absolutePath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", fmt.Errorf("resolve absolute path for hook group result: %w", err)
+	}
+
+	resolved, err := filepath.EvalSymlinks(absolutePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve hook group result symlinks: %w", err)
+	}
+
+	return resolved, nil
+}
+
+func resolvedHookGroupResultTarget(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved, nil
+	}
+
+	if !os.IsNotExist(err) {
+		return "", fmt.Errorf("resolve hook group result target: %w", err)
+	}
+
+	parent, err := resolvedPath(filepath.Dir(path))
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(parent, filepath.Base(path)), nil
 }
 
 func readHookGroupResultFile(path string) (hookGroupResult, bool) {

@@ -401,7 +401,7 @@ cutover_repo="$tmp_root/cutover-repo"
 mkdir -p "$cutover_repo"
 git -C "$cutover_repo" init > /dev/null
 "$repo_root/go/scripts/smoke_hook_edges.sh" install-runtime "$repo_root" "$go_bin" "$policy_dir" "$cutover_repo"
-printf '.coding-ethos/cache/\n.coding-ethos/\n' > "$cutover_repo/.gitignore"
+printf '.coding-ethos/cache/\n.coding-ethos/code-intel.db\n.coding-ethos/code-intel.db-shm\n.coding-ethos/code-intel.db-wal\n.coding-ethos/code-intel.duckdb\n.coding-ethos/code-intel.duckdb.wal\n.coding-ethos/events/\n.coding-ethos/hook-runs/\n.coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n.coding-ethos/state/\n' > "$cutover_repo/.gitignore"
 set +e
 (
   cd "$cutover_repo"
