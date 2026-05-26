@@ -433,8 +433,16 @@ Add tools only after the store has a stable schema:
   remediation, and AST chunk memory.
 - `semantic_search`: code-focused hybrid search that returns exact indexed code
   chunks with path, symbol, raw text, and line metadata.
+- `code_intel_overview`: task-shaped repository orientation with ranked files,
+  freshness metadata, evidence counts, and follow-up MCP calls.
+- `code_intel_answer`: cited retrieval packet for a repository question with
+  `retrieval_quality` reported separately from answer `confidence`.
 - `code_intel_repo_map`: return compact ranked files, symbols, and signatures
   from the repo-local AST index for session orientation.
+- `code_intel_context_card`: compact file/symbol triage card combining chunks,
+  local graph context, linked findings, freshness, and next MCP calls.
+- `code_intel_change_risk`: modification-risk summary for target files using
+  indexed chunks, repeated failure evidence, and recommended checks.
 - `code_intel_index_code`: refresh Tree-sitter code chunks for selected paths.
 - `code_intel_code_chunks`: return focused symbol/config chunks by path,
   language, symbol kind, or symbol name.

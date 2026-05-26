@@ -203,7 +203,9 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "policy_explain", Handler: server.explainPolicy},
 		{Name: "skill_lookup", Handler: server.lookupSkill},
 		{Name: "remediation_explain", Handler: server.explainRemediation},
+		{Name: "code_intel_overview", Handler: server.codeIntelOverview},
 		{Name: "code_intel_search", Handler: server.codeIntelSearch},
+		{Name: "code_intel_answer", Handler: server.codeIntelAnswer},
 		{Name: "semantic_search", Handler: server.semanticSearch},
 		{Name: "code_intel_index_status", Handler: server.codeIntelIndexStatus},
 		{Name: "code_intel_hook_usage", Handler: server.codeIntelHookUsage},
@@ -216,6 +218,8 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		},
 		{Name: "code_intel_code_chunks", Handler: server.codeIntelCodeChunks},
 		{Name: "code_intel_code_context", Handler: server.codeIntelCodeContext},
+		{Name: "code_intel_context_card", Handler: server.codeIntelContextCard},
+		{Name: "code_intel_change_risk", Handler: server.codeIntelChangeRisk},
 		{Name: "skill_recommend", Handler: server.recommendSkills},
 	}
 }
