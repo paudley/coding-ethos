@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/evaluators"
 )
 
 const (
@@ -136,7 +138,7 @@ func trustedAgentShellToolDir() string {
 		return ""
 	}
 
-	realGitBind := filepath.Clean(strings.TrimSpace(os.Getenv("CODING_ETHOS_REAL_GIT")))
+	realGitBind := filepath.Clean(strings.TrimSpace(os.Getenv(evaluators.RealGitEnv)))
 	if filepath.Base(realGitBind) != "real-git" {
 		return ""
 	}
