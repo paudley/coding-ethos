@@ -1062,33 +1062,23 @@ func (server Server) contextCardTargets(
 		return nil, false, err
 	}
 
-	targetsByPath := map[string]codeIntelContextTarget{}
-	targetOrder := make([]string, 0, len(paths)+len(chunks))
-	targetSeen := map[string]bool{}
-
-	for _, path := range paths {
-		targetsByPath[path] = contextTargetForPath(ctx, store, path)
-		targetOrder = append(targetOrder, path)
-		targetSeen[path] = true
-	}
+	targetsByPath, targetOrder, targetSeen := contextCardPathTargets(
+		ctx,
+		store,
+		paths,
+		chunks,
+	)
 
 	for _, chunk := range chunks {
-		if !targetSeen[chunk.Path] {
-			targetOrder = append(targetOrder, chunk.Path)
-			targetSeen[chunk.Path] = true
-		}
-
-		target := targetsByPath[chunk.Path]
-		if target.Path == "" {
-			target = contextTargetForPath(ctx, store, chunk.Path)
-		}
-
-		if !input.IncludeRaw {
-			chunk.RawText = ""
-		}
-
-		target.Chunks = append(target.Chunks, chunk)
-		targetsByPath[chunk.Path] = target
+		targetOrder = appendContextCardChunk(
+			ctx,
+			store,
+			input,
+			targetsByPath,
+			targetSeen,
+			targetOrder,
+			chunk,
+		)
 	}
 
 	if len(chunks) != 0 {
@@ -1114,22 +1104,55 @@ func (server Server) contextCardTargets(
 		}
 	}
 
-	if len(targets) == 0 {
-		for _, chunk := range chunks {
-			target := contextTargetForPath(ctx, store, chunk.Path)
-			target.Chunks = []codeintel.CodeChunk{chunk}
+	return targets, truncated, nil
+}
 
-			targets = append(targets, codeIntelContextTarget{
-				Path:       target.Path,
-				Chunks:     target.Chunks,
-				File:       target.File,
-				Found:      target.Found,
-				IndexFresh: target.IndexFresh,
-			})
-		}
+func contextCardPathTargets(
+	ctx context.Context,
+	store *codeintel.Store,
+	paths []string,
+	chunks []codeintel.CodeChunk,
+) (map[string]codeIntelContextTarget, []string, map[string]bool) {
+	targetsByPath := map[string]codeIntelContextTarget{}
+	targetOrder := make([]string, 0, len(paths)+len(chunks))
+	targetSeen := map[string]bool{}
+
+	for _, path := range paths {
+		targetsByPath[path] = contextTargetForPath(ctx, store, path)
+		targetOrder = append(targetOrder, path)
+		targetSeen[path] = true
 	}
 
-	return targets, truncated, nil
+	return targetsByPath, targetOrder, targetSeen
+}
+
+func appendContextCardChunk(
+	ctx context.Context,
+	store *codeintel.Store,
+	input codeIntelContextCardInput,
+	targetsByPath map[string]codeIntelContextTarget,
+	targetSeen map[string]bool,
+	targetOrder []string,
+	chunk codeintel.CodeChunk,
+) []string {
+	if !targetSeen[chunk.Path] {
+		targetOrder = append(targetOrder, chunk.Path)
+		targetSeen[chunk.Path] = true
+	}
+
+	target := targetsByPath[chunk.Path]
+	if target.Path == "" {
+		target = contextTargetForPath(ctx, store, chunk.Path)
+	}
+
+	if !input.IncludeRaw {
+		chunk.RawText = ""
+	}
+
+	target.Chunks = append(target.Chunks, chunk)
+	targetsByPath[chunk.Path] = target
+
+	return targetOrder
 }
 
 func contextCardChunks(
@@ -1189,14 +1212,6 @@ func contextTargetForPath(
 		Found:      found,
 		IndexFresh: found && file.DeletedAtUTC == "" && file.StaleReason == "",
 	}
-}
-
-func firstPath(paths []string) string {
-	if len(paths) == 0 {
-		return ""
-	}
-
-	return paths[0]
 }
 
 func targetPaths(targets []codeIntelContextTarget) []string {
