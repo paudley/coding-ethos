@@ -19,6 +19,64 @@ import (
 
 const statusBlocked = "blocked"
 
+func TestMain(m *testing.M) {
+	if runFakeGitFromSidecar() {
+		return
+	}
+
+	os.Exit(m.Run())
+}
+
+func runFakeGitFromSidecar() bool {
+	if filepath.Base(os.Args[0]) != "git" {
+		return false
+	}
+
+	dir := filepath.Dir(os.Args[0])
+	mode, err := os.ReadFile(filepath.Join(dir, "fake-git-mode"))
+	if err != nil {
+		return false
+	}
+
+	logPathBytes, err := os.ReadFile(filepath.Join(dir, "fake-git-log"))
+	if err != nil {
+		os.Exit(1)
+	}
+
+	logPath := strings.TrimSpace(string(logPathBytes))
+	switch strings.TrimSpace(string(mode)) {
+	case "args":
+		writeFakeGitLog(logPath, strings.Join(os.Args[1:], "\n")+"\n")
+	case "env":
+		writeFakeGitLog(logPath, fakeGitEnvLog())
+	default:
+		os.Exit(1)
+	}
+
+	os.Exit(0)
+	return true
+}
+
+func writeFakeGitLog(path, payload string) {
+	err := os.WriteFile(path, []byte(payload), 0o600)
+	if err != nil {
+		os.Exit(1)
+	}
+}
+
+func fakeGitEnvLog() string {
+	return strings.Join([]string{
+		"CODING_ETHOS_EXEC_STACK=" + os.Getenv("CODING_ETHOS_EXEC_STACK"),
+		"CODE_ETHOS_ADMIN_APPROVED=" + os.Getenv("CODE_ETHOS_ADMIN_APPROVED"),
+		"CODE_ETHOS_GIT_WRAPPER_AUTHORIZED=" +
+			os.Getenv("CODE_ETHOS_GIT_WRAPPER_AUTHORIZED"),
+		"CODE_ETHOS_GIT_WRAPPER_PID=" + os.Getenv("CODE_ETHOS_GIT_WRAPPER_PID"),
+		"DISPLAY=" + os.Getenv("DISPLAY"),
+		"WAYLAND_DISPLAY=" + os.Getenv("WAYLAND_DISPLAY"),
+		"XAUTHORITY=" + os.Getenv("XAUTHORITY"),
+	}, "\n") + "\n"
+}
+
 func TestVerifyPostBlocksFalseSuccessfulCommit(t *testing.T) {
 	t.Parallel()
 
@@ -315,54 +373,45 @@ Expire-Date: 1d
 func fakeEnvGit(t *testing.T, logPath string) string {
 	t.Helper()
 
-	scriptPath := filepath.Join(t.TempDir(), "git")
-	script := `#!/usr/bin/env bash
-set -euo pipefail
-log_path=` + strconv.Quote(logPath) + `
-printf 'CODING_ETHOS_EXEC_STACK=%s\n' "${CODING_ETHOS_EXEC_STACK:-}" >> "$log_path"
-printf 'CODE_ETHOS_ADMIN_APPROVED=%s\n' "${CODE_ETHOS_ADMIN_APPROVED:-}" >> "$log_path"
-printf 'CODE_ETHOS_GIT_WRAPPER_AUTHORIZED=%s\n' "${CODE_ETHOS_GIT_WRAPPER_AUTHORIZED:-}" >> "$log_path"
-printf 'CODE_ETHOS_GIT_WRAPPER_PID=%s\n' "${CODE_ETHOS_GIT_WRAPPER_PID:-}" >> "$log_path"
-printf 'DISPLAY=%s\n' "${DISPLAY:-}" >> "$log_path"
-printf 'WAYLAND_DISPLAY=%s\n' "${WAYLAND_DISPLAY:-}" >> "$log_path"
-printf 'XAUTHORITY=%s\n' "${XAUTHORITY:-}" >> "$log_path"
-`
-
-	writeExecutableGitFixture(t, scriptPath, script)
-
-	return scriptPath
+	return fakeGitExecutable(t, "env", logPath)
 }
 
 func fakeArgsGit(t *testing.T, logPath string) string {
 	t.Helper()
 
-	scriptPath := filepath.Join(t.TempDir(), "git")
-	script := `#!/usr/bin/env bash
-set -euo pipefail
-log_path=` + strconv.Quote(logPath) + `
-printf '%s\n' "$@" > "$log_path"
-`
-
-	writeExecutableGitFixture(t, scriptPath, script)
-
-	return scriptPath
+	return fakeGitExecutable(t, "args", logPath)
 }
 
-func writeExecutableGitFixture(t *testing.T, scriptPath, script string) {
+func fakeGitExecutable(t *testing.T, mode, logPath string) string {
 	t.Helper()
 
-	file, err := os.OpenFile(scriptPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
+	executable, err := os.Executable()
 	if err != nil {
-		t.Fatalf("create fake git: %v", err)
+		t.Fatalf("resolve test executable: %v", err)
 	}
 
-	if _, err = file.WriteString(script); err != nil {
-		_ = file.Close()
-		t.Fatalf("write fake git: %v", err)
+	dir := t.TempDir()
+	gitPath := filepath.Join(dir, "git")
+	if err = os.Symlink(executable, gitPath); err != nil {
+		t.Fatalf("install fake git symlink: %v", err)
 	}
-	if err = file.Close(); err != nil {
-		t.Fatalf("close fake git: %v", err)
+
+	if err = os.WriteFile(
+		filepath.Join(dir, "fake-git-mode"),
+		[]byte(mode),
+		0o600,
+	); err != nil {
+		t.Fatalf("write fake git mode: %v", err)
 	}
+	if err = os.WriteFile(
+		filepath.Join(dir, "fake-git-log"),
+		[]byte(logPath),
+		0o600,
+	); err != nil {
+		t.Fatalf("write fake git log path: %v", err)
+	}
+
+	return gitPath
 }
 
 func cleanGitTestEnv() []string {

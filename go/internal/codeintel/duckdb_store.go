@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	duckDBStoreMode    = 0o700
-	duckDBLockFileMode = 0o600
-	duckDBStaleLockAge = 30 * time.Minute
+	duckDBStoreMode                  = 0o700
+	duckDBLockFileMode               = 0o600
+	duckDBStaleLockAge               = 30 * time.Minute
+	maxLegacySQLiteImportBytes int64 = 1 << 30
 )
 
 // DuckDBStore is the code-intel analytical query store.
@@ -34,14 +35,22 @@ type DuckDBStore struct {
 
 // RebuildIndexSummary reports a DuckDB rebuild/import run.
 type RebuildIndexSummary struct {
-	Backend              string `json:"backend"`
-	Path                 string `json:"path"`
-	LegacySQLitePath     string `json:"legacy_sqlite_path,omitempty"`
-	EventCount           int    `json:"event_count"`
-	ImportedEventCount   int    `json:"imported_event_count"`
-	ImportedLegacySQLite bool   `json:"imported_legacy_sqlite"`
-	RemovedLegacySQLite  bool   `json:"removed_legacy_sqlite"`
-	Stats                Stats  `json:"stats"`
+	Backend                string `json:"backend"`
+	Path                   string `json:"path"`
+	LegacySQLitePath       string `json:"legacy_sqlite_path,omitempty"`
+	LegacySQLiteSkipReason string `json:"legacy_sqlite_skip_reason,omitempty"`
+	EventCount             int    `json:"event_count"`
+	ImportedEventCount     int    `json:"imported_event_count"`
+	ImportedLegacySQLite   bool   `json:"imported_legacy_sqlite"`
+	SkippedLegacySQLite    bool   `json:"skipped_legacy_sqlite"`
+	RemovedLegacySQLite    bool   `json:"removed_legacy_sqlite"`
+	Stats                  Stats  `json:"stats"`
+}
+
+type legacySQLiteImportResult struct {
+	skipReason string
+	imported   bool
+	skipped    bool
 }
 
 type StorageUpgradeSummary struct {
@@ -187,7 +196,7 @@ func RebuildDuckDBIndex(
 		return RebuildIndexSummary{}, err
 	}
 
-	importedLegacy, err := importLegacySQLiteIntoDuckDB(ctx, store, legacySQLitePath)
+	legacyImport, err := importLegacySQLiteIntoDuckDB(ctx, store, legacySQLitePath)
 	if err != nil {
 		return RebuildIndexSummary{}, err
 	}
@@ -198,7 +207,7 @@ func RebuildDuckDBIndex(
 	}
 
 	removedLegacy := false
-	if importedLegacy {
+	if legacyImport.imported {
 		removedLegacy, err = RemoveLegacySQLiteStore(legacySQLitePath)
 		if err != nil {
 			return RebuildIndexSummary{}, err
@@ -206,14 +215,16 @@ func RebuildDuckDBIndex(
 	}
 
 	return RebuildIndexSummary{
-		Backend:              "duckdb",
-		Path:                 duckDBPath,
-		LegacySQLitePath:     legacySQLitePath,
-		EventCount:           eventCount,
-		ImportedEventCount:   importedEventCount,
-		ImportedLegacySQLite: importedLegacy,
-		RemovedLegacySQLite:  removedLegacy,
-		Stats:                stats,
+		Backend:                "duckdb",
+		Path:                   duckDBPath,
+		LegacySQLitePath:       legacySQLitePath,
+		LegacySQLiteSkipReason: legacyImport.skipReason,
+		EventCount:             eventCount,
+		ImportedEventCount:     importedEventCount,
+		ImportedLegacySQLite:   legacyImport.imported,
+		SkippedLegacySQLite:    legacyImport.skipped,
+		RemovedLegacySQLite:    removedLegacy,
+		Stats:                  stats,
 	}, nil
 }
 
@@ -346,34 +357,47 @@ func importLegacySQLiteIntoDuckDB(
 	ctx context.Context,
 	store *DuckDBStore,
 	legacySQLitePath string,
-) (bool, error) {
-	_, err := os.Stat(legacySQLitePath)
+) (legacySQLiteImportResult, error) {
+	info, err := os.Stat(legacySQLitePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return false, nil
+			return legacySQLiteImportResult{}, nil
 		}
 
-		return false, fmt.Errorf("stat legacy SQLite store: %w", err)
+		return legacySQLiteImportResult{},
+			errors.Join(apperror.StaticError("stat legacy SQLite store"), err)
+	}
+
+	if info.Size() > maxLegacySQLiteImportBytes {
+		return legacySQLiteImportResult{
+			skipped: true,
+			skipReason: "legacy SQLite store is " +
+				strconv.FormatInt(info.Size(), 10) +
+				" bytes; maximum automatic import is " +
+				strconv.FormatInt(maxLegacySQLiteImportBytes, 10) +
+				" bytes",
+		}, nil
 	}
 
 	legacy, err := OpenReadOnly(ctx, legacySQLitePath)
 	if err != nil {
-		return false, fmt.Errorf("open legacy SQLite for import: %w", err)
+		return legacySQLiteImportResult{},
+			errors.Join(apperror.StaticError("open legacy SQLite for import"), err)
 	}
 
 	err = store.RebuildFromLegacySQLite(ctx, legacy)
 	if err != nil {
 		_ = legacy.Close()
 
-		return false, err
+		return legacySQLiteImportResult{}, err
 	}
 
 	err = legacy.Close()
 	if err != nil {
-		return false, err
+		return legacySQLiteImportResult{}, err
 	}
 
-	return true, nil
+	return legacySQLiteImportResult{imported: true}, nil
 }
 
 func RemoveLegacySQLiteStore(path string) (bool, error) {
