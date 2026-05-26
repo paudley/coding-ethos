@@ -68,6 +68,80 @@ func TestRunMapsChangedScopeToFiles(t *testing.T) {
 	}
 }
 
+func TestOutputDiagnosticsUsesDecisionEvidenceForEmbeddedDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	result := Result{
+		Scope:  ScopeStaged,
+		Status: statusBlocked,
+		Decisions: []policy.Decision{{
+			Decision:   "block",
+			PolicyID:   "git.staged_admin_files",
+			Severity:   "block",
+			Message:    "Administrative staged files require explicit handling.",
+			Suggestion: "Confirm the policy change is intentional.",
+			Evidence: map[string]any{
+				"files":    []any{"coding_ethos.yml"},
+				"skill_id": "safe-git-workflow",
+			},
+			Diagnostics: []diagnostics.Diagnostic{{
+				Message: "staged admin file detected",
+			}},
+		}},
+	}
+
+	diagnostics := OutputDiagnostics(result)
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %#v", diagnostics)
+	}
+
+	item := diagnostics[0]
+	if item.File != "coding_ethos.yml" ||
+		item.PolicyID != "git.staged_admin_files" ||
+		item.SkillID != "safe-git-workflow" ||
+		item.Message != "staged admin file detected" {
+		t.Fatalf("diagnostic = %#v", item)
+	}
+}
+
+func TestOutputDiagnosticsNormalizesPrepopulatedDecisionDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	rawDiagnostic := diagnostics.Diagnostic{
+		Message: "staged admin file detected",
+	}
+	result := Result{
+		Scope:       ScopeStaged,
+		Status:      statusBlocked,
+		Diagnostics: []diagnostics.Diagnostic{rawDiagnostic},
+		Decisions: []policy.Decision{{
+			Decision:   "block",
+			PolicyID:   "git.staged_admin_files",
+			Severity:   "block",
+			Message:    "Administrative staged files require explicit handling.",
+			Suggestion: "Confirm the policy change is intentional.",
+			Evidence: map[string]any{
+				"files":    []any{"coding_ethos.yml"},
+				"skill_id": "safe-git-workflow",
+			},
+			Diagnostics: []diagnostics.Diagnostic{rawDiagnostic},
+		}},
+	}
+
+	items := OutputDiagnostics(result)
+	if len(items) != 1 {
+		t.Fatalf("diagnostics = %#v", items)
+	}
+
+	item := items[0]
+	if item.File != "coding_ethos.yml" ||
+		item.PolicyID != "git.staged_admin_files" ||
+		item.SkillID != "safe-git-workflow" ||
+		item.Message != "staged admin file detected" {
+		t.Fatalf("diagnostic = %#v", item)
+	}
+}
+
 func TestRunRejectsUnknownScope(t *testing.T) {
 	t.Parallel()
 

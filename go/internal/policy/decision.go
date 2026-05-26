@@ -93,6 +93,68 @@ func (decision Decision) EvidenceImplementation() string {
 	return decision.EvidenceString("implementation")
 }
 
+func (decision Decision) EvidenceDiagnostics() []diagnostics.Diagnostic {
+	if len(decision.Diagnostics) == 0 {
+		return nil
+	}
+
+	items := make([]diagnostics.Diagnostic, 0, len(decision.Diagnostics))
+	for _, diagnostic := range decision.Diagnostics {
+		items = append(items, decision.evidenceDiagnostic(diagnostic))
+	}
+
+	return items
+}
+
+func (decision Decision) evidenceDiagnostic(
+	diagnostic diagnostics.Diagnostic,
+) diagnostics.Diagnostic {
+	item := diagnostic
+	files := decision.EvidenceFiles()
+
+	if item.File == "" {
+		switch len(files) {
+		case 0:
+		case 1:
+			item.File = files[0]
+		default:
+			item.Detail = appendEvidenceDiagnosticDetail(
+				item.Detail,
+				"files="+strings.Join(files, ","),
+			)
+		}
+	}
+
+	item.Tool = firstNonEmpty(
+		item.Tool,
+		decision.EvidenceTool(),
+		"policy",
+	)
+	item.PolicyID = firstNonEmpty(item.PolicyID, decision.PolicyID)
+	item.Severity = firstNonEmpty(item.Severity, decision.Severity)
+	item.SkillID = firstNonEmpty(item.SkillID, decision.EvidenceSkillID())
+	item.Message = firstNonEmpty(item.Message, decision.Message)
+
+	item.Advice = firstNonEmpty(item.Advice, decision.Suggestion)
+	if len(item.PrincipleIDs) == 0 {
+		item.PrincipleIDs = append([]string(nil), decision.PrincipleIDs...)
+	}
+
+	return item
+}
+
+func appendEvidenceDiagnosticDetail(detail, value string) string {
+	if strings.TrimSpace(value) == "" || strings.Contains(detail, value) {
+		return detail
+	}
+
+	if strings.TrimSpace(detail) == "" {
+		return value
+	}
+
+	return detail + "; " + value
+}
+
 func evidenceStringList(evidence map[string]any, key string) []string {
 	if len(evidence) == 0 {
 		return nil

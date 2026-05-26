@@ -268,7 +268,7 @@ func resultStatus(decisions []policy.Decision) string {
 func diagnosticsFromDecisions(decisions []policy.Decision) []diagnostics.Diagnostic {
 	diagnosticItems := []diagnostics.Diagnostic{}
 	for _, decision := range decisions {
-		diagnosticItems = append(diagnosticItems, decision.Diagnostics...)
+		diagnosticItems = append(diagnosticItems, decision.EvidenceDiagnostics()...)
 	}
 
 	return diagnosticItems
@@ -287,7 +287,7 @@ func findingsFromDecisions(
 			continue
 		}
 
-		for _, diagnostic := range decision.Diagnostics {
+		for _, diagnostic := range decision.EvidenceDiagnostics() {
 			findings = append(
 				findings,
 				findingFromDiagnostic(decision, diagnostic, files),

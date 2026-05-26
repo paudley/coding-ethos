@@ -106,6 +106,47 @@ func TestFormatLintResultTOONSuppressesRecordOnlyPolicyNoise(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultTOONUsesDecisionEvidenceForDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  lint.ScopeStaged,
+		Status: "blocked",
+		Decisions: []policy.Decision{{
+			Decision:   "block",
+			PolicyID:   "git.staged_admin_files",
+			Severity:   "block",
+			Message:    "Administrative staged files require explicit handling.",
+			Suggestion: "Confirm the policy change is intentional.",
+			Evidence: map[string]any{
+				"files": []string{"coding_ethos.yml"},
+			},
+			Diagnostics: []diagnostics.Diagnostic{{
+				Message: "staged admin file detected",
+			}},
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, want := range []string{
+		toonFindingsHeader,
+		"policy,coding_ethos.yml,0,0,block,,git.staged_admin_files,," +
+			"staged admin file detected,Confirm the policy change is intentional.,",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+
+	if strings.Contains(output, "policy,,0,0,block") {
+		t.Fatalf("TOON output lost decision evidence file:\n%s", output)
+	}
+}
+
 func TestFormatLintResultTOONPreservesRuffCodeAndFullMessage(t *testing.T) {
 	t.Parallel()
 
@@ -711,6 +752,50 @@ func TestFormatLintResultSARIFOmitPathlessPolicyFindings(t *testing.T) {
 	if len(results) != 0 {
 		t.Fatalf("pathless policy SARIF results = %#v, want none", results)
 	}
+}
+
+func TestFormatLintResultSARIFUsesDecisionEvidenceForDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  lint.ScopeStaged,
+		Status: "blocked",
+		Decisions: []policy.Decision{{
+			Decision: "block",
+			PolicyID: "git.staged_admin_files",
+			Severity: "block",
+			Evidence: map[string]any{
+				"files": []string{"coding_ethos.yml"},
+			},
+			Diagnostics: []diagnostics.Diagnostic{{
+				Message: "staged admin file detected",
+			}},
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatSARIF)
+	if err != nil {
+		t.Fatalf("format SARIF: %v", err)
+	}
+
+	var payload map[string]any
+	inlineErr4 := json.Unmarshal([]byte(output), &payload)
+	if inlineErr4 != nil {
+		t.Fatalf("decode SARIF: %v\n%s", inlineErr4, output)
+	}
+
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.locations.0.physicalLocation.artifactLocation.uri",
+		"coding_ethos.yml",
+	)
+	assertJSONPath(
+		t,
+		payload,
+		"runs.0.results.0.properties.policy_id",
+		"git.staged_admin_files",
+	)
 }
 
 func TestFormatLintResultSARIFIncludesRecordOnlyPolicyContext(t *testing.T) {

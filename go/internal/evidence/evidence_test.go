@@ -111,8 +111,10 @@ func TestFromDiagnosticsAndDecisionsFilterEmptyRecords(t *testing.T) {
 		},
 		{
 			PolicyID: "diagnostic.policy",
+			Evidence: map[string]any{
+				"files": []string{"pkg/evidence.py"},
+			},
 			Diagnostics: []diagnostics.Diagnostic{{
-				File:     "pkg/diag.py",
 				Message:  "diagnostic message",
 				PolicyID: "diagnostic.policy",
 			}},
@@ -123,7 +125,7 @@ func TestFromDiagnosticsAndDecisionsFilterEmptyRecords(t *testing.T) {
 	}
 
 	if decisionFindings[0].PolicyID != "git.hook_bypass" ||
-		decisionFindings[1].SourceSpan.Path != "pkg/diag.py" {
+		decisionFindings[1].SourceSpan.Path != "pkg/evidence.py" {
 		t.Fatalf("decision findings = %#v", decisionFindings)
 	}
 }
