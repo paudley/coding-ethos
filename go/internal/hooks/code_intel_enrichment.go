@@ -228,7 +228,7 @@ func buildCodeIntelEnrichment(
 	defer store.Close()
 
 	enrichment := codeIntelEnrichment{
-		Status:  codeIntelIndexStatus(ctx, store, root),
+		Status:  codeIntelIndexStatus(ctx, store),
 		Refresh: codeIntelEnrichmentRefreshCommand,
 	}
 
@@ -435,7 +435,12 @@ func outputCandidatePaths(output string) []string {
 			continue
 		}
 
-		candidate := strings.Fields(line)[0]
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+
+		candidate := fields[0]
 		candidate = strings.Trim(candidate, `"'(),`)
 
 		if before, _, ok := strings.Cut(candidate, ":"); ok {
@@ -476,6 +481,18 @@ func boundedUniquePaths(paths []string, limit int) []string {
 }
 
 func codeIntelIndexStatus(
+	ctx context.Context,
+	store *codeintel.Store,
+) string {
+	stats, err := store.CodeFileIndexStats(ctx)
+	if err != nil || stats.ActiveFiles == 0 {
+		return codeIntelStatusMissingIndex
+	}
+
+	return codeIntelStatusReady
+}
+
+func codeIntelFreshnessStatus(
 	ctx context.Context,
 	store *codeintel.Store,
 	root string,
@@ -562,7 +579,7 @@ func codeIntelFreshnessNotice(event Event, root string) string {
 
 	store, err := codeintel.OpenReadOnly(ctx, codeintel.DefaultDBPath(root))
 	if err != nil {
-		if !markCodeIntelFreshnessNoticeEmitted(root) {
+		if !markCodeIntelFreshnessNoticeEmitted(ctx, root) {
 			return ""
 		}
 
@@ -570,8 +587,9 @@ func codeIntelFreshnessNotice(event Event, root string) string {
 	}
 	defer store.Close()
 
-	status := codeIntelIndexStatus(ctx, store, root)
-	if status == codeIntelStatusReady || !markCodeIntelFreshnessNoticeEmitted(root) {
+	status := codeIntelFreshnessStatus(ctx, store, root)
+	if status == codeIntelStatusReady ||
+		!markCodeIntelFreshnessNoticeEmitted(ctx, root) {
 		return ""
 	}
 
@@ -588,8 +606,8 @@ func codeIntelFreshnessCommand(command string) bool {
 		strings.Contains(lower, "coding-ethos-code-intel")
 }
 
-func markCodeIntelFreshnessNoticeEmitted(root string) bool {
-	head := currentHookGitCommit(context.Background(), root)
+func markCodeIntelFreshnessNoticeEmitted(ctx context.Context, root string) bool {
+	head := currentHookGitCommit(ctx, root)
 	if head == "" {
 		head = codeIntelFreshnessUnknownHead
 	}

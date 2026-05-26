@@ -880,12 +880,19 @@ func repoMapRefreshPath(input codeIntelRepoMapInput) string {
 		return ""
 	}
 
-	cleanPath := strings.Trim(filepath.ToSlash(filepath.Clean(path)), "/")
-	if cleanPath == "." {
+	cleaned := filepath.Clean(path)
+	if filepath.IsAbs(cleaned) {
 		return ""
 	}
 
-	return path
+	cleanPath := filepath.ToSlash(cleaned)
+	if cleanPath == "." ||
+		cleanPath == ".." ||
+		strings.HasPrefix(cleanPath, "../") {
+		return ""
+	}
+
+	return cleanPath
 }
 
 func (server Server) codeIntelTaskMeta(
