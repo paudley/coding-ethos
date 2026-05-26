@@ -287,7 +287,7 @@ func findingsFromDecisions(
 			continue
 		}
 
-		for _, diagnostic := range decision.Diagnostics {
+		for _, diagnostic := range decision.EvidenceDiagnostics() {
 			findings = append(
 				findings,
 				findingFromDiagnostic(decision, diagnostic, files),
