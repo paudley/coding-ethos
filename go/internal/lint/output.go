@@ -16,7 +16,7 @@ import (
 
 func OutputDiagnostics(result Result) []diagnostics.Diagnostic {
 	if len(result.Diagnostics) > 0 {
-		return diagnostics.Dedupe(result.Diagnostics)
+		return diagnostics.Dedupe(normalizedResultDiagnostics(result))
 	}
 
 	if len(result.Findings) > 0 {
@@ -56,6 +56,50 @@ func OutputDiagnostics(result Result) []diagnostics.Diagnostic {
 	}
 
 	return sortDiagnostics(diagnostics.Dedupe(findings))
+}
+
+func normalizedResultDiagnostics(result Result) []diagnostics.Diagnostic {
+	items := make([]diagnostics.Diagnostic, 0, len(result.Diagnostics))
+	decisionDiagnostics := rawDecisionDiagnostics(result.Decisions)
+
+	for _, item := range result.Diagnostics {
+		if slices.ContainsFunc(decisionDiagnostics, func(raw diagnostics.Diagnostic) bool {
+			return sameDiagnostic(item, raw)
+		}) {
+			continue
+		}
+
+		items = append(items, item)
+	}
+
+	for _, decision := range result.Decisions {
+		items = append(items, decision.EvidenceDiagnostics()...)
+	}
+
+	return items
+}
+
+func rawDecisionDiagnostics(decisions []policy.Decision) []diagnostics.Diagnostic {
+	items := []diagnostics.Diagnostic{}
+	for _, decision := range decisions {
+		items = append(items, decision.Diagnostics...)
+	}
+
+	return items
+}
+
+func sameDiagnostic(left, right diagnostics.Diagnostic) bool {
+	return left.File == right.File &&
+		left.Line == right.Line &&
+		left.Column == right.Column &&
+		left.Tool == right.Tool &&
+		left.Code == right.Code &&
+		left.PolicyID == right.PolicyID &&
+		left.Severity == right.Severity &&
+		left.SkillID == right.SkillID &&
+		left.Message == right.Message &&
+		left.Advice == right.Advice &&
+		left.Detail == right.Detail
 }
 
 func diagnosticFromDecision(decision policy.Decision) diagnostics.Diagnostic {

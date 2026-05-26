@@ -146,12 +146,12 @@ func TestDecisionEvidenceDiagnosticsFillCanonicalContext(t *testing.T) {
 		}},
 	}
 
-	diagnostics := decision.EvidenceDiagnostics()
-	if len(diagnostics) != 1 {
-		t.Fatalf("diagnostics = %#v", diagnostics)
+	items := decision.EvidenceDiagnostics()
+	if len(items) != 1 {
+		t.Fatalf("diagnostics = %#v", items)
 	}
 
-	item := diagnostics[0]
+	item := items[0]
 	if item.File != "coding_ethos.yml" ||
 		item.Tool != "policy-lint" ||
 		item.PolicyID != "git.staged_admin_files" ||

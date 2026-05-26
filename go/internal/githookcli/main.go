@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -758,7 +759,15 @@ func executableFile(path string) bool {
 		return false
 	}
 
-	return !info.IsDir() && info.Mode().Perm()&0o111 != 0
+	if !info.Mode().IsRegular() {
+		return false
+	}
+
+	if runtime.GOOS == "windows" {
+		return true
+	}
+
+	return info.Mode().Perm()&0o111 != 0
 }
 
 func gitHookRetryGitCommand(hookName string) string {

@@ -519,6 +519,14 @@ func TestCerunForGitHookAvoidsBareRunnerSiblingLookup(t *testing.T) {
 	}
 }
 
+func TestExecutableFileRejectsDirectories(t *testing.T) {
+	t.Parallel()
+
+	if executableFile(t.TempDir()) {
+		t.Fatal("executableFile() accepted directory")
+	}
+}
+
 func TestTrustedGitWrapperProcessAcceptsOnlyManagedEntrypoints(t *testing.T) {
 	t.Parallel()
 
