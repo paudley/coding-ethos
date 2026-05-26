@@ -302,7 +302,12 @@ func shouldRunLockMaintenance(
 		return false
 	}
 
-	policy := settings.Prune.Surfaces[codeIntelLockID]
+	lockDefinition, found := definitionByID(codeIntelLockID)
+	if !found {
+		return false
+	}
+
+	policy := retentionPolicy(settings, lockDefinition)
 	if !policy.Enabled && options.OlderThan == 0 && !options.All {
 		return false
 	}
@@ -332,6 +337,16 @@ func runLockMaintenance(
 	}
 
 	return maintenance, nil
+}
+
+func definitionByID(surfaceID string) (Definition, bool) {
+	for _, definition := range Definitions() {
+		if definition.ID == surfaceID {
+			return definition, true
+		}
+	}
+
+	return Definition{}, false
 }
 
 func skippedCandidateCount(candidates []PruneCandidate) int {
@@ -456,11 +471,15 @@ func pruneCandidates(
 		return nil, nil
 	}
 
+	var (
+		candidates []PruneCandidate
+		err        error
+	)
 	switch definition.RecordKind {
 	case recordKindDirectory:
-		return directoryCandidates(root, definition, policy, olderThan, now)
+		candidates, err = directoryCandidates(root, definition, policy, olderThan, now)
 	case recordKindGlob:
-		return globCandidates(
+		candidates, err = globCandidates(
 			surfacePattern(root, definition),
 			definition.ID,
 			policy,
@@ -468,7 +487,7 @@ func pruneCandidates(
 			now,
 		)
 	case recordKindFile:
-		return fileCandidate(
+		candidates, err = fileCandidate(
 			surfacePattern(root, definition),
 			definition.ID,
 			policy,
@@ -483,6 +502,12 @@ func pruneCandidates(
 			definition.RecordKind,
 		)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return markReportOnlyCandidates(definition, candidates), nil
 }
 
 func shouldSkipPruneCandidates(
@@ -499,6 +524,26 @@ func shouldSkipPruneCandidates(
 	}
 
 	return !policy.Enabled && options.OlderThan == 0 && !options.All
+}
+
+func markReportOnlyCandidates(
+	definition Definition,
+	candidates []PruneCandidate,
+) []PruneCandidate {
+	if definition.CommandPrune {
+		return candidates
+	}
+
+	for index := range candidates {
+		if candidates[index].Skipped {
+			continue
+		}
+
+		candidates[index].Skipped = true
+		candidates[index].Reason = "report-only: " + candidates[index].Reason
+	}
+
+	return candidates
 }
 
 func candidateRetentionAge(

@@ -412,12 +412,8 @@ func inspectDuckDBRebuildLock(
 		return maintenance, nil
 	}
 
-	if hostSupportsProcStatus() {
-		stale, err := duckDBRebuildLockPIDStale(pid)
-		if err != nil {
-			return RebuildLockMaintenance{}, err
-		}
-
+	stale, err := duckDBRebuildLockPIDStale(pid)
+	if err == nil {
 		maintenance.Stale = stale
 		if stale {
 			maintenance.Reason = "owner process missing"
@@ -432,12 +428,6 @@ func inspectDuckDBRebuildLock(
 	}
 
 	return maintenance, nil
-}
-
-func hostSupportsProcStatus() bool {
-	_, err := os.Stat("/proc")
-
-	return err == nil
 }
 
 func parseDuckDBRebuildLockPID(pidText string) (int, bool) {

@@ -460,8 +460,9 @@ when they delete files, prune rows, vacuum, or hit errors. Output lifecycle
 defaults live in `config.toml`; consuming repos can override `outputs.*` in
 `repo_config.toml` without changing the existing YAML enforcement config path.
 Code-intel maintenance also tracks DuckDB and SQLite sidecar files and validates
-`.coding-ethos/code-intel-rebuild.lock` by PID before clearing stale locks, so a
-dead rebuild process does not block later maintenance.
+`.coding-ethos/code-intel-rebuild.lock` by PID before clearing stale locks. If
+the host cannot answer PID liveness, cleanup falls back to the configured stale
+lock age, so a dead rebuild process does not block later maintenance.
 
 The directory anatomy map is inspired by Aider's repo map: agents get a compact
 symbol preview before deciding which files to open, while coding-ethos keeps the

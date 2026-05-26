@@ -353,6 +353,23 @@ func TestPruneReportsOversizedCodeIntelDBWithoutAutomaticFileDelete(t *testing.T
 		report.Candidates[0].SurfaceID != codeIntelDBSurfaceID {
 		t.Fatalf("manual prune did not report oversized DB candidate: %#v", report)
 	}
+	if !report.Candidates[0].Skipped ||
+		!strings.Contains(report.Candidates[0].Reason, "report-only") {
+		t.Fatalf("manual DB candidate should be report-only: %#v", report.Candidates[0])
+	}
+
+	report, err = Prune(context.Background(), PruneOptions{
+		Root:     root,
+		Settings: settings,
+		Scopes:   []string{codeIntelDBSurfaceID},
+		Apply:    true,
+	})
+	if err != nil {
+		t.Fatalf("manual apply Prune returned error: %v", err)
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("manual apply removed report-only DB file: %v", err)
+	}
 }
 
 func TestPruneReportsOversizedDuckDBCandidate(t *testing.T) {
@@ -379,6 +396,33 @@ func TestPruneReportsOversizedDuckDBCandidate(t *testing.T) {
 	if len(report.Candidates) != 1 ||
 		report.Candidates[0].SurfaceID != "code_intel_duckdb" {
 		t.Fatalf("DuckDB prune candidate missing: %#v", report)
+	}
+}
+
+func TestPruneLockMaintenanceUsesDefaultPolicyWhenSettingMissing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	lockPath := codeintel.DuckDBRebuildLockPath(root)
+	writePruneFixture(t, lockPath, "-1\n")
+
+	settings := DefaultSettings()
+	delete(settings.Prune.Surfaces, codeIntelLockID)
+
+	report, err := Prune(context.Background(), PruneOptions{
+		Root:     root,
+		Settings: settings,
+		Scopes:   []string{codeIntelLockID},
+		Apply:    true,
+	})
+	if err != nil {
+		t.Fatalf("Prune returned error: %v", err)
+	}
+	if len(report.LockMaintenance) != 1 || !report.LockMaintenance[0].Removed {
+		t.Fatalf("missing lock fallback maintenance: %#v", report)
+	}
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("stale lock still exists: %v", err)
 	}
 }
 
