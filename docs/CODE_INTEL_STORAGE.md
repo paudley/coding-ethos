@@ -35,7 +35,9 @@ rebuildable analytical surface.
 - `code-intel rebuild-index` creates or refreshes `code-intel.duckdb` and
   removes legacy SQLite files after successful import.
 - `code-intel downstream-analysis` prefers DuckDB, then falls back to legacy
-  SQLite/log analysis.
+  SQLite/log analysis. Its default `json` output is stable for automation;
+  `--format toon` provides the compact operator handoff, and `--format human`
+  provides a short readable summary.
 - Existing SQLite DBs remain readable and importable until the upgrade removes
   them.
 - SessionStart performs the same storage upgrade check so old repo-local stores
@@ -57,4 +59,6 @@ Downstream reports expose storage and support fields directly:
 - `issue_summary`
 
 These fields are intended for issue-ready support summaries without manual DB or
-log spelunking.
+log spelunking. Compact downstream output ranks blocking friction ahead of
+allowed activity and includes command-ready repair guidance such as
+`coding-ethos-run code-intel rebuild-index --root <repo>`.

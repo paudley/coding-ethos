@@ -143,9 +143,19 @@ func TestDownstreamQueriesGroupByDisplayedValues(t *testing.T) {
 	_, err = store.database.ExecContext(
 		ctx,
 		`INSERT INTO traces(trace_id, trace_kind, raw_json)
-		VALUES ('trace-null', 'hook', '{}'), ('trace-empty', 'hook', '{}');
+		VALUES
+			('trace-null', 'hook', '{}'),
+			('trace-empty', 'hook', '{}'),
+			('trace-allowed-a', 'hook', '{}'),
+			('trace-allowed-b', 'hook', '{}'),
+			('trace-allowed-c', 'hook', '{}');
 		INSERT INTO hook_events(trace_id, blocked)
-		VALUES ('trace-null', 1), ('trace-empty', 1);
+		VALUES
+			('trace-null', 1),
+			('trace-empty', 1),
+			('trace-allowed-a', 0),
+			('trace-allowed-b', 0),
+			('trace-allowed-c', 0);
 		UPDATE hook_events SET operation_kind = '' WHERE trace_id = 'trace-empty';
 		INSERT INTO findings(finding_id, tool, code, message, policy_id, raw_json)
 		VALUES
@@ -164,8 +174,12 @@ func TestDownstreamQueriesGroupByDisplayedValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query hook friction: %v", err)
 	}
-	if len(friction) != 1 || friction[0].Count != 2 {
-		t.Fatalf("hook friction did not coalesce displayed values: %#v", friction)
+	if len(friction) != 2 ||
+		!friction[0].Blocked ||
+		friction[0].Count != 2 ||
+		friction[1].Blocked ||
+		friction[1].Count != 3 {
+		t.Fatalf("hook friction did not rank blocked values first: %#v", friction)
 	}
 
 	hotspots, err := downstreamFindingHotspots(ctx, store.database, 5)
@@ -182,6 +196,142 @@ func TestDownstreamQueriesGroupByDisplayedValues(t *testing.T) {
 	}
 	if len(failures) != 1 || failures[0].Count != 2 {
 		t.Fatalf("toolchain failures did not coalesce displayed values: %#v", failures)
+	}
+}
+
+func TestFormatDownstreamAnalysisTOONEmitsActionableSummary(t *testing.T) {
+	t.Parallel()
+
+	analysis := DownstreamAnalysis{
+		IssueSummary: DownstreamIssueSummary{
+			NextActions: []string{
+				"coding-ethos-run code-intel rebuild-index --root <repo>",
+			},
+		},
+		PolicyBlockers: []DownstreamPolicyBlocker{{
+			PolicyID: "git.wrapper_required",
+			Severity: "block",
+			Count:    4,
+			AffectedCommands: []DownstreamAffectedCommand{{
+				Tool:          "Bash",
+				OperationKind: "git_status",
+				TargetKind:    "repo_state",
+				RiskCategory:  "bypass",
+				Status:        "blocked",
+				Count:         4,
+			}},
+		}},
+		AffectedCommands: []DownstreamAffectedCommand{{
+			Tool:          "Bash",
+			OperationKind: "git_status",
+			TargetKind:    "repo_state",
+			RiskCategory:  "bypass",
+			Status:        "blocked",
+			Count:         4,
+		}},
+		RemediationLoops: []DownstreamRemediationLoop{{
+			PolicyID:        "python.direct_imports",
+			File:            "src/app.py",
+			TraceCount:      3,
+			OccurrenceCount: 3,
+		}},
+		StorageHealth: DownstreamStorageHealth{
+			Backend:        "duckdb",
+			SourceOfTruth:  "event_log",
+			Recommendation: "healthy",
+		},
+		LogSignals: DownstreamLogSignals{
+			HookRunCount:          9,
+			LintRunCount:          2,
+			ToolchainFailureCount: 1,
+		},
+	}
+
+	output := FormatDownstreamAnalysisTOON(analysis)
+	for _, want := range []string{
+		"operation: downstream-analysis",
+		"next_actions[1]{action}:",
+		"policy_blockers[1]{policy_id,count,severity,top_command}:",
+		"git.wrapper_required,4,block,Bash git_status repo_state bypass blocked",
+		"remediation_loops[1]{policy_id,file,trace_count,occurrence_count}:",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestFormatDownstreamAnalysisHumanEmitsStableSummary(t *testing.T) {
+	t.Parallel()
+
+	analysis := DownstreamAnalysis{
+		IssueSummary: DownstreamIssueSummary{
+			NextActions: []string{
+				"coding-ethos-run code-intel rebuild-index --root <repo>",
+			},
+		},
+		PolicyBlockers: []DownstreamPolicyBlocker{
+			{
+				PolicyID: "git.wrapper_required",
+				Severity: "block",
+				Count:    4,
+				AffectedCommands: []DownstreamAffectedCommand{{
+					Tool:          "Bash",
+					OperationKind: "git_status",
+					TargetKind:    "repo_state",
+					RiskCategory:  "bypass",
+					Status:        "blocked",
+					Count:         4,
+				}},
+			},
+			{
+				PolicyID: "filesystem.line_limits",
+				Severity: "block",
+				Count:    2,
+			},
+		},
+		AffectedCommands: []DownstreamAffectedCommand{{
+			Tool:          "Bash",
+			OperationKind: "git_status",
+			Status:        "blocked",
+			Count:         4,
+		}},
+		RemediationLoops: []DownstreamRemediationLoop{{
+			PolicyID:   "python.direct_imports",
+			File:       "src/app.py",
+			TraceCount: 3,
+		}},
+		StorageHealth: DownstreamStorageHealth{
+			Backend:        "duckdb",
+			SourceOfTruth:  "event_log",
+			Recommendation: "healthy",
+		},
+		LogSignals: DownstreamLogSignals{
+			HookRunCount:          9,
+			LintRunCount:          2,
+			ToolchainFailureCount: 1,
+		},
+	}
+
+	output := FormatDownstreamAnalysisHuman(analysis)
+	for _, want := range []string{
+		"Downstream coding-ethos analysis",
+		"Storage: duckdb backed by event_log (healthy)",
+		"Signals: 9 hook runs, 2 lint runs, 0 SQLite busy logs, 1 toolchain failure logs",
+		"Next actions (1):",
+		"Policy blockers (2):",
+		"- git.wrapper_required: 4 (Bash git_status repo_state bypass blocked)",
+		"- filesystem.line_limits: 2",
+		"Affected commands (1):",
+		"Remediation loops (1):",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("human output missing %q:\n%s", want, output)
+		}
+	}
+
+	if strings.Contains(output, "- filesystem.line_limits: 2 ()") {
+		t.Fatalf("human output should omit empty command summary parentheses:\n%s", output)
 	}
 }
 

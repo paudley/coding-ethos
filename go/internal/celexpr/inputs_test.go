@@ -2148,6 +2148,23 @@ func TestActivationMarksTopLevelGeneratedDirectory(t *testing.T) {
 	}
 }
 
+func TestActivationMarksProtobufGoFileGenerated(t *testing.T) {
+	t.Parallel()
+
+	activation := Activation(ActivationInput{
+		Files: []string{"go/internal/proto/events.pb.go"},
+	})
+
+	pathInput, found := activation["path"].(PathInput)
+	if !found {
+		t.Fatalf("path input = %#v", activation["path"])
+	}
+
+	if !pathInput.IsGenerated {
+		t.Fatalf("path input = %#v, want generated", pathInput)
+	}
+}
+
 func TestActivationUsesExplicitPathsForMultipleFiles(t *testing.T) {
 	t.Parallel()
 

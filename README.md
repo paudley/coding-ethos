@@ -407,7 +407,7 @@ bin/coding-ethos-run code-intel compact-context --path pkg/app.py
 bin/coding-ethos-run code-intel proxy-file-read --session-id sess-1 --path pkg/app.py
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel repeated-edits --path pkg/app.py
-bin/coding-ethos-run code-intel downstream-analysis
+bin/coding-ethos-run code-intel downstream-analysis --format toon
 ```
 
 The store lives at `.coding-ethos/code-intel.db`; it is repo-local and derived
@@ -423,6 +423,10 @@ loops, large-file pressure, toolchain failures, stale code context, and SQLite
 lock evidence without creating or migrating the store. When the database is
 missing or unavailable it still scans retained hook-run and lint-run logs for
 support signals.
+Use `--format json|toon|human` to choose between the stable automation payload,
+compact TOON handoff, or a short operator-readable summary. The compact output
+puts blocking friction, affected command families, repeated remediation loops,
+storage repair commands, and evidence gaps ahead of high-volume allowed events.
 
 Inspect the repo-local disk output surface before pruning or deeper analysis:
 
