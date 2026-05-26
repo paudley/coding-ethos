@@ -919,7 +919,7 @@ const shellForbiddenStringsCEL = `!(
 				[
 					"*.md",
 					"**/*.md",
-					".code-ethos/**",
+					".coding-ethos/**",
 					"coding_ethos.yml",
 					"go/internal/policy/**",
 					"go/internal/redteam/**",

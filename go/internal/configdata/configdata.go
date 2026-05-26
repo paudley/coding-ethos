@@ -23,8 +23,6 @@ func RepoConfigCandidates() []string {
 	return []string{
 		"repo_config.yaml",
 		"repo_config.yml",
-		"code-ethos.repo.yaml",
-		"code-ethos.repo.yml",
 		"coding-ethos.repo.yaml",
 		"coding-ethos.repo.yml",
 	}

@@ -1019,7 +1019,7 @@ func TestFormatGroupRunsManagedFormattersForMatchingFiles(t *testing.T) {
 	mustWriteExecutable(t, filepath.Join(fakeBin, "uv"), "#!/usr/bin/env sh\nexit 0\n")
 	mustWriteExecutable(
 		t,
-		filepath.Join(tempDir, "code-ethos", "build", "toolchain", "go-bin", "golangci-lint"),
+		filepath.Join(tempDir, "coding-ethos", "build", "toolchain", "go-bin", "golangci-lint"),
 		"#!/usr/bin/env sh\nexit 0\n",
 	)
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -1056,7 +1056,7 @@ func TestFormatGroupRestageSkipsUnchangedFiles(t *testing.T) {
 	fakeBin := filepath.Join(tempDir, "bin")
 	mustWriteExecutable(
 		t,
-		filepath.Join(tempDir, "code-ethos", "build", "toolchain", "go-bin", "golangci-lint"),
+		filepath.Join(tempDir, "coding-ethos", "build", "toolchain", "go-bin", "golangci-lint"),
 		"#!/usr/bin/env sh\nexit 0\n",
 	)
 	mustWriteExecutable(
@@ -2868,7 +2868,7 @@ func TestShellAndYamlCommandsExecuteExternalToolsAndReportFindings(t *testing.T)
 		t,
 		filepath.Join(
 			tempDir,
-			"code-ethos",
+			"coding-ethos",
 			"build",
 			"toolchain",
 			"github-bin",
@@ -2881,7 +2881,7 @@ exit 1
 	)
 	mustWriteExecutable(
 		t,
-		filepath.Join(tempDir, "code-ethos", "build", "toolchain", "go-bin", "shfmt"),
+		filepath.Join(tempDir, "coding-ethos", "build", "toolchain", "go-bin", "shfmt"),
 		"#!/usr/bin/env sh\nprintf -- '--- scripts/run.sh.orig\\n+++ scripts/run.sh\\n@@ -1 +1 @@\\n'\nexit 1\n",
 	)
 	mustWriteExecutable(
@@ -3329,18 +3329,18 @@ func mustJSON(t *testing.T, value any) string {
 func writeTestBundleRoot(t *testing.T, root string) string {
 	t.Helper()
 
-	ethosRoot := filepath.Join(root, "code-ethos")
-	bundleRoot := filepath.Join(root, "code-ethos", "pre-commit")
+	ethosRoot := filepath.Join(root, "coding-ethos")
+	bundleRoot := filepath.Join(root, "coding-ethos", "pre-commit")
 	mustWriteTestFile(t, filepath.Join(ethosRoot, "config.yaml"), "version: 1\n")
 	buildTestSandboxHelper(t, filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"))
 	mustWriteTestFile(
 		t,
-		filepath.Join(root, "code-ethos", "build", "policy", "policy-bundle.json"),
+		filepath.Join(root, "coding-ethos", "build", "policy", "policy-bundle.json"),
 		`{"version":1,"policies":{},"skills":{},"evidence_maps":[]}`,
 	)
 	mustWriteTestFile(
 		t,
-		filepath.Join(root, "code-ethos", ".code-ethos", "gemini", "prompt-pack.json"),
+		filepath.Join(root, "coding-ethos", ".coding-ethos", "gemini", "prompt-pack.json"),
 		`{
   "version": 1,
   "checks": {

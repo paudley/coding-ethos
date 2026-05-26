@@ -415,8 +415,7 @@ func agentShellWorktreeWritePaths(root string) ([]string, error) {
 
 func protectedAgentShellWorktreeEntry(name string) bool {
 	return name == ".git" ||
-		name == ".coding-ethos" ||
-		name == ".code-ethos"
+		name == ".coding-ethos"
 }
 
 func agentShellProcessEnv(root, gitWrapper, realGitBind string) []string {

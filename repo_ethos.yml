@@ -432,7 +432,7 @@ principles:
                       ".agents/ethos/**",
                       ".claude/ethos/**",
                       ".agent-context/prompt-addons/**",
-                      ".code-ethos/gemini/prompt-pack.json"
+                      ".coding-ethos/gemini/prompt-pack.json"
                     ],
                     path.file
                   )
@@ -449,7 +449,7 @@ principles:
                       ".agents/ethos/**",
                       ".claude/ethos/**",
                       ".agent-context/prompt-addons/**",
-                      ".code-ethos/gemini/prompt-pack.json"
+                      ".coding-ethos/gemini/prompt-pack.json"
                     ],
                     file.file
                   )

@@ -727,7 +727,7 @@ make sync-tool-configs REPO=/path/to/repo
 ```
 
 By default the same command writes the managed SARIF CI files and includes
-them in `.code-ethos/tool-config-hashes.json`. The generated GitHub workflow is
+them in `.coding-ethos/tool-config-hashes.json`. The generated GitHub workflow is
 reusable by default so a repo-level CI workflow can own concurrency, required
 checks, package validation, and attestations without duplicate SARIF uploads.
 Repos with a deliberate exception can set
@@ -764,7 +764,7 @@ make sync-gemini-prompts REPO=/path/to/repo PRIMARY=coding_ethos.yml
 | `repo_config.yaml` / `repo_config.yml` | consumer repo overrides | repo-specific enforcement |
 | `config.toml` | output lifecycle defaults | output report/prune retention policy |
 | `repo_config.toml` | consumer output lifecycle overrides | repo-specific output retention |
-| `pre-commit/prompts/` | Gemini prompt templates | `.code-ethos/gemini/prompt-pack.json` |
+| `pre-commit/prompts/` | Gemini prompt templates | `.coding-ethos/gemini/prompt-pack.json` |
 | `pre-commit/` | hook bundle | repo-local Git and agent hook runtime |
 
 Generated Markdown files are derived artifacts. Change the YAML source or
@@ -823,7 +823,7 @@ repo/
 ├── .sqlfluff
 ├── tombi.toml
 ├── .golangci.yml
-└── .code-ethos/
+└── .coding-ethos/
     ├── cache/
     │   └── ... ignored runtime caches
     └── gemini/

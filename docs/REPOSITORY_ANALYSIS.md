@@ -59,7 +59,7 @@ tool configs and hook policy. Consumer repositories refine those defaults with
 `repo_config.yaml` or `repo_config.yml`.
 
 `pre-commit/prompts/` contains Jinja templates used to render
-`.code-ethos/gemini/prompt-pack.json`. The prompt pack is generated from ethos
+`.coding-ethos/gemini/prompt-pack.json`. The prompt pack is generated from ethos
 content, repo context, enforcement settings, and template text.
 
 ## Generated artifacts
@@ -84,7 +84,7 @@ Enforcement generated artifacts:
 - `.sqlfluff`
 - `tombi.toml`
 - `.golangci.yml`
-- `.code-ethos/gemini/prompt-pack.json`
+- `.coding-ethos/gemini/prompt-pack.json`
 
 Generated Markdown files should not be hand-edited unless the task is
 explicitly about the generated output itself. Change the ethos YAML or renderer
@@ -107,7 +107,7 @@ writes them or reports drift.
 For Gemini prompt-pack sync, the CLI remains the user-facing entrypoint while
 the Go implementation under `go/internal/geminiprompts` merges ethos context
 and enforcement config, renders every prompt template, attaches check selectors
-and runtime metadata, and writes `.code-ethos/gemini/prompt-pack.json`.
+and runtime metadata, and writes `.coding-ethos/gemini/prompt-pack.json`.
 
 For hooks, the Makefile installs repo-local Git hook entrypoints that resolve
 to the Go helper and compiled policy entrypoints. `cutover` also syncs Claude, Codex, and

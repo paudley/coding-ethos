@@ -35,7 +35,7 @@ func loadManifestValidationSettings() (manifestValidationSettings, error) {
 	}
 
 	if len(settings.CandidatePaths) == 0 {
-		settings.CandidatePaths = []string{"manifest.yaml", "code-ethos/manifest.yaml"}
+		settings.CandidatePaths = []string{"manifest.yaml", "coding-ethos/manifest.yaml"}
 	}
 
 	if len(settings.RequiredStringFields) == 0 {

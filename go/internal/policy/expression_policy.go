@@ -787,12 +787,8 @@ func consumerOverrideCandidateNames(config map[string]any) []string {
 		[]string{
 			"repo_config.yaml",
 			"repo_config.yml",
-			"code-ethos.repo.yaml",
-			"code-ethos.repo.yml",
 			"coding-ethos.repo.yaml",
 			"coding-ethos.repo.yml",
-			"code-ethos.pre-commit.yaml",
-			"code-ethos.pre-commit.yml",
 			"coding-ethos.pre-commit.yaml",
 			"coding-ethos.pre-commit.yml",
 		},

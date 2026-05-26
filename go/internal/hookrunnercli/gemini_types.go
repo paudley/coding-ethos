@@ -146,8 +146,8 @@ func loadGeminiPromptPack(bundleRoot string) (GeminiPromptPack, error) {
 	consumer := consumerRoot(ethosRoot)
 
 	candidates := []string{
-		filepath.Join(consumer, ".code-ethos", "gemini", "prompt-pack.json"),
-		filepath.Join(ethosRoot, ".code-ethos", "gemini", "prompt-pack.json"),
+		filepath.Join(consumer, ".coding-ethos", "gemini", "prompt-pack.json"),
+		filepath.Join(ethosRoot, ".coding-ethos", "gemini", "prompt-pack.json"),
 	}
 	for _, candidate := range candidates {
 		data, err := os.ReadFile(candidate)

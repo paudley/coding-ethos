@@ -11,7 +11,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
-const ToolConfigHashManifest = ".code-ethos/tool-config-hashes.json"
+const ToolConfigHashManifest = ".coding-ethos/tool-config-hashes.json"
 
 type ConfigDrift struct {
 	File string

@@ -24,7 +24,7 @@ The parent `pre-commit/hooks/` directory contains the actual hook implementation
 ## Installation
 
 Hooks are installed from the repository root with `make install-hooks` or, in a
-consuming repo, `make -C code-ethos install-hooks`. The bundle reads merged
+consuming repo, `make -C coding-ethos install-hooks`. The bundle reads merged
 policy from the repo-root `config.yaml` plus optional consumer override YAML and
 compiles that policy for the Git hook, agent hook, git wrapper, and lint
 entrypoints.

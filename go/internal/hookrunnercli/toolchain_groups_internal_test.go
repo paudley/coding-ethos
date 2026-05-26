@@ -137,7 +137,7 @@ func writePythonQualityToolFixtures(t *testing.T, tempDir string) string {
 	fakeBin := filepath.Join(tempDir, "bin")
 	mustWriteExecutable(
 		t,
-		filepath.Join(tempDir, "code-ethos", ".venv", "bin", "radon"),
+		filepath.Join(tempDir, "coding-ethos", ".venv", "bin", "radon"),
 		`#!/usr/bin/env sh
 case "$*" in
   *"cc -j -e"*)
@@ -155,7 +155,7 @@ exit 2
 	)
 	mustWriteExecutable(
 		t,
-		filepath.Join(tempDir, "code-ethos", ".venv", "bin", "vulture"),
+		filepath.Join(tempDir, "coding-ethos", ".venv", "bin", "vulture"),
 		`#!/usr/bin/env sh
 printf "pkg/app.py:17: unused function 'helper' (90%% confidence)\n"
 exit 1
@@ -231,7 +231,7 @@ func TestGoToolchainCommandsRunConfiguredWorktree(t *testing.T) {
 	managedLintConfig := filepath.Join(tempDir, ".golangci.yml")
 	mustWriteExecutable(
 		t,
-		filepath.Join(tempDir, "code-ethos", "build", "toolchain", "go-bin", "golangci-lint"),
+		filepath.Join(tempDir, "coding-ethos", "build", "toolchain", "go-bin", "golangci-lint"),
 		`#!/usr/bin/env sh
 case " $* " in
   *" run --allow-parallel-runners --output.json.path=stdout --output.text.path=stderr --config `+managedLintConfig+` ./... "*)
@@ -798,7 +798,7 @@ func TestGoCoveragePolicyAppliesOnlyToGoTestTools(t *testing.T) {
 
 func TestGoCoveragePolicyConfiguredDetectsPolicyBundleBar(t *testing.T) {
 	tempDir := t.TempDir()
-	ethosRoot := filepath.Join(tempDir, "code-ethos")
+	ethosRoot := filepath.Join(tempDir, "coding-ethos")
 
 	configured, err := goCoveragePolicyConfiguredAt(ethosRoot)
 	if err == nil {
@@ -921,7 +921,7 @@ func writeGoCoveragePolicyBundle(t *testing.T, root string) {
 
 	mustWriteTestFile(
 		t,
-		filepath.Join(root, "code-ethos", "build", "policy", "policy-bundle.json"),
+		filepath.Join(root, "coding-ethos", "build", "policy", "policy-bundle.json"),
 		string(payload),
 	)
 }
@@ -940,7 +940,7 @@ func writeNoGoCoveragePolicyBundle(t *testing.T, root string) {
 
 	mustWriteTestFile(
 		t,
-		filepath.Join(root, "code-ethos", "build", "policy", "policy-bundle.json"),
+		filepath.Join(root, "coding-ethos", "build", "policy", "policy-bundle.json"),
 		string(payload),
 	)
 }
@@ -1042,7 +1042,7 @@ func TestCatalogLintCommandsRunExternalToolsAndParseFindings(t *testing.T) {
 func writeManagedToolchainBundle(t *testing.T, root string) string {
 	t.Helper()
 
-	ethosRoot := filepath.Join(root, "code-ethos")
+	ethosRoot := filepath.Join(root, "coding-ethos")
 	bundleRoot := filepath.Join(ethosRoot, "pre-commit")
 	mustWriteTestFile(t, filepath.Join(ethosRoot, "config.yaml"), "version: 1\n")
 	buildTestSandboxHelper(t, filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"))
@@ -1081,10 +1081,10 @@ func writeCatalogLintTools(t *testing.T, tempDir string) {
 	t.Helper()
 
 	fakeBin := filepath.Join(tempDir, "bin")
-	goBin := filepath.Join(tempDir, "code-ethos", "build", "toolchain", "go-bin")
+	goBin := filepath.Join(tempDir, "coding-ethos", "build", "toolchain", "go-bin")
 	githubBin := filepath.Join(
 		tempDir,
-		"code-ethos",
+		"coding-ethos",
 		"build",
 		"toolchain",
 		"github-bin",

@@ -944,7 +944,7 @@ func addGeneratedGeminiPromptsPolicy(
 		Suggestion:      "Run the configured Gemini prompt sync/check command.",
 		DefenseLayers:   GeneratedConfigDefenseLayers(),
 		AppliesTo: AppliesTo{
-			Paths: []string{".code-ethos/gemini/prompt-pack.json"},
+			Paths: []string{".coding-ethos/gemini/prompt-pack.json"},
 		},
 		Evaluators: []Evaluator{
 			{

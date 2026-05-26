@@ -219,7 +219,7 @@ func assertGeneratedConfigDiagnostics(
 		t.Fatalf("unexpected generated config diagnostic: %#v", diagnostics[0])
 	}
 
-	if diagnostics[1].File != ".code-ethos/tool-config-hashes.json" {
+	if diagnostics[1].File != ".coding-ethos/tool-config-hashes.json" {
 		t.Fatalf("unexpected manifest diagnostic: %#v", diagnostics[1])
 	}
 }
@@ -287,7 +287,7 @@ func assertGeneratedConfigSARIF(t *testing.T, decisions []policy.Decision) {
 	for _, want := range []string{
 		`"ruleId": "generated_config.freshness"`,
 		`"uri": "ruff.toml"`,
-		`"uri": ".code-ethos/tool-config-hashes.json"`,
+		`"uri": ".coding-ethos/tool-config-hashes.json"`,
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("generated config SARIF missing %q:\n%s", want, output)
@@ -311,7 +311,7 @@ func assertGeneratedGeminiPromptsSARIF(t *testing.T, decisions []policy.Decision
 
 	for _, want := range []string{
 		`"ruleId": "generated_gemini_prompts.freshness"`,
-		`"uri": ".code-ethos/gemini/prompt-pack.json"`,
+		`"uri": ".coding-ethos/gemini/prompt-pack.json"`,
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("generated Gemini prompt SARIF missing %q:\n%s", want, output)

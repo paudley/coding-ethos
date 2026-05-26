@@ -573,7 +573,7 @@ func findBundleRoot() (string, error) {
 }
 
 func findBundleRootFromRoot(root string) (string, bool) {
-	for _, candidate := range []string{"code-ethos/pre-commit", "pre-commit"} {
+	for _, candidate := range []string{"coding-ethos/pre-commit", "pre-commit"} {
 		resolved := filepath.Join(root, candidate)
 		if isBundleRoot(resolved) {
 			return resolved, true
@@ -614,12 +614,8 @@ func overrideCandidates(root string, rootConfig map[string]any) []string {
 	names := []string{
 		"repo_config.yaml",
 		"repo_config.yml",
-		"code-ethos.repo.yaml",
-		"code-ethos.repo.yml",
 		"coding-ethos.repo.yaml",
 		"coding-ethos.repo.yml",
-		"code-ethos.pre-commit.yaml",
-		"code-ethos.pre-commit.yml",
 		"coding-ethos.pre-commit.yaml",
 		"coding-ethos.pre-commit.yml",
 	}

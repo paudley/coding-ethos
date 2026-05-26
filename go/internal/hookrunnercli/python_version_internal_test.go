@@ -220,7 +220,7 @@ func pythonVersionConsumerFixture(t *testing.T) string {
 
 	mustWriteTestFile(
 		t,
-		filepath.Join(tempDir, "code-ethos", "config.yaml"),
+		filepath.Join(tempDir, "coding-ethos", "config.yaml"),
 		strings.TrimSpace(`
 style:
   python_version: "3.13"
@@ -230,12 +230,12 @@ python:
 `)+"\n")
 	mustWriteTestFile(
 		t,
-		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks", "managed-toolchain.tsv"),
+		filepath.Join(tempDir, "coding-ethos", "pre-commit", "hooks", "managed-toolchain.tsv"),
 		"#!/bin/sh\n",
 	)
 	mustWriteTestFile(
 		t,
-		filepath.Join(tempDir, "code-ethos", "pre-commit", "hooks", "pyproject.toml"),
+		filepath.Join(tempDir, "coding-ethos", "pre-commit", "hooks", "pyproject.toml"),
 		"",
 	)
 

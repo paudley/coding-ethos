@@ -7,7 +7,7 @@ This bundle provides ETHOS-oriented Git hooks through the bundled Go runner.
 The bundle supports two layouts:
 
 - Source repo: `pre-commit/`
-- Vendored/submodule repo: `code-ethos/pre-commit/`
+- Vendored/submodule repo: `coding-ethos/pre-commit/`
 
 The hook runners resolve either layout automatically. Installed Git hooks call
 the Go runner directly.
@@ -22,15 +22,15 @@ make cutover-install
 make cutover-verify
 ```
 
-In a consuming repo, run the same target from `code-ethos/`.
+In a consuming repo, run the same target from `coding-ethos/`.
 
-When `code-ethos/` is a submodule, the root `Makefile` resolves the parent
+When `coding-ethos/` is a submodule, the root `Makefile` resolves the parent
 repo automatically and installs hooks into the parent repo's `.git/hooks`.
 
 Before the hook entrypoints are installed, `make install-hooks` also generates the
 consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`, `.pylintrc`,
 `.yamllint.yml`, `.bandit.yml`, `.sqlfluff`, `tombi.toml`, `.golangci.yml`, and
-`.code-ethos/gemini/prompt-pack.json` from the shared bundle inputs plus any
+`.coding-ethos/gemini/prompt-pack.json` from the shared bundle inputs plus any
 consuming-repo overrides.
 
 `make install-hooks` installs `.git/hooks/pre-commit`, `pre-push`, and
@@ -50,7 +50,7 @@ entries that name the stale or missing surface and the next action.
 Each top-level hook runner invocation logs stdout, stderr, and run metadata
 under `.coding-ethos/hook-runs/<run-id>/` in the repo being checked. Keep
 generated runtime subpaths such as `.coding-ethos/hook-runs/`,
-`.coding-ethos/lint-runs/`, `.coding-ethos/cache/`, and `.code-ethos/cache/`
+`.coding-ethos/lint-runs/` and `.coding-ethos/cache/`
 ignored in both the bundle repo and consuming repos; do not ignore the parent
 `.coding-ethos/` directory, because `.coding-ethos/memories/` is repo source.
 The cutover gate reports missing or overly broad ignore rules before
@@ -150,7 +150,7 @@ Primary files:
   `../.yamllint.yml`, `../.bandit.yml`, `../.sqlfluff`, `../tombi.toml`,
   `../.golangci.yml` - generated consumer-repo tool
   configs
-- `../.code-ethos/gemini/prompt-pack.json` - generated consumer-repo Gemini
+- `../.coding-ethos/gemini/prompt-pack.json` - generated consumer-repo Gemini
   prompt pack with rendered prompts and per-check runtime metadata
 - `hooks/pyproject.toml` - Ruff, mypy, pyright, and tool dependency config for the hook project
 - `../bin/coding-ethos-run` - compiled hook/runtime entrypoint; policy
@@ -160,7 +160,7 @@ Primary files:
 - `go/cmd/coding-ethos-hook-runner/main.go` - Go-backed hook commands, including the active Gemini AI review runner
 
 The active Go Gemini runner now executes file batches concurrently, applies
-repo-local response caching under `.code-ethos/cache/`,
+repo-local response caching under `.coding-ethos/cache/`,
 supports per-check `model_overrides` and `service_tier_overrides`, reuses
 Gemini `cachedContents` entries when the same batch corpus is reviewed by
 multiple prompts, and can run `standard`, `flex`, or `priority` requests from
@@ -376,7 +376,7 @@ Troubleshooting and regression coverage should work from the same contract:
 
 ## Configuration
 
-Bundle defaults live in the code-ethos repo-root `config.yaml`. Consuming repos
+Bundle defaults live in the coding-ethos repo-root `config.yaml`. Consuming repos
 can override them with one of these root-level files:
 
 - `repo_config.yaml`
@@ -389,7 +389,7 @@ Use `bin/coding-ethos-run policy config-trace --json` after
 enforcement config edits to validate known top-level sections, compile the
 merged policy bundle, and report policy/evidence/dispatch counts.
 
-Legacy override names like `code-ethos.pre-commit.yaml` are still accepted, but
+Legacy override names like `coding-ethos.pre-commit.yaml` are still accepted, but
 `repo_config.yaml` is the preferred consuming-repo entry point.
 
 Set `repo.protected_branch_work.enabled: false` in `repo_config.yaml` when a
@@ -422,7 +422,7 @@ make sync-gemini-prompts
 ```
 
 The Go runner invokes Python tools with
-`uv run --project code-ethos/pre-commit/hooks` or
+`uv run --project coding-ethos/pre-commit/hooks` or
 `uv run --project pre-commit/hooks`. Ruff, mypy, pyright, pylint, yamllint,
 Bandit, SQLFluff, Tombi, and golangci-lint read policy from the generated consumer-repo config files at the
 repo root. The hook project `hooks/pyproject.toml` remains the isolated

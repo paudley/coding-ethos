@@ -72,7 +72,6 @@ func requiredModuleDocsExcludedDirs() []string {
 	return []string{
 		".git",
 		".coding-ethos",
-		".code-ethos",
 	}
 }
 

@@ -22,7 +22,7 @@ runtime:
   read_paths:
     - "."
   write_paths:
-    - ".code-ethos/cache"
+    - ".coding-ethos/cache"
 ```
 
 ## Expected Behavior
