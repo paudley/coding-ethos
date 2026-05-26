@@ -135,7 +135,7 @@ func gitHeadSignatureDecisions(options Options) []policy.Decision {
 	return nil
 }
 
-func forceSignedGitArgs(argv []string, cwd string) []string {
+func forceSignedGitArgs(argv []string) []string {
 	operationIndex := gitOperationIndex(argv)
 	if operationIndex < 0 {
 		return argv
