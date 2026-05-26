@@ -33,6 +33,8 @@ const (
 	// DefaultCodeIntelRowRetentionDays is the automatic row retention window for
 	// derived code-intelligence trace and proxy-event records.
 	DefaultCodeIntelRowRetentionDays = 90
+	otherRepoAuditDefinitionCount    = 10
+	codeIntelSurfaceDefinitionCount  = 7
 	toonReportStaticLines            = 5
 	humanReportStaticLines           = 3
 	humanSurfaceLineEstimate         = 3
@@ -178,7 +180,8 @@ func hookAuditDefinitions() []Definition {
 }
 
 func otherRepoAuditDefinitions() []Definition {
-	return []Definition{
+	definitions := make([]Definition, 0, otherRepoAuditDefinitionCount)
+	definitions = append(definitions,
 		repoDir(
 			"lint_traces",
 			".coding-ethos/lint-runs",
@@ -201,6 +204,45 @@ func otherRepoAuditDefinitions() []Definition {
 			"audit_evidence",
 			false,
 		),
+	)
+	definitions = append(definitions, codeIntelSurfaceDefinitions()...)
+	definitions = append(definitions, repoFile(
+		"ci_sarif_artifact",
+		"coding-ethos.sarif",
+		"Local CI SARIF artifact path.",
+		"go/cmd/coding-ethos-run",
+		"GitHub/GitLab code scanning",
+		"high",
+		"audit_evidence",
+		true,
+		false,
+		false,
+	))
+
+	return definitions
+}
+
+func codeIntelSurfaceDefinitions() []Definition {
+	definitions := make([]Definition, 0, codeIntelSurfaceDefinitionCount)
+	definitions = append(definitions, codeIntelStoreSurfaceDefinitions()...)
+	definitions = append(definitions, codeIntelSidecarSurfaceDefinitions()...)
+	definitions = append(definitions, repoDir(
+		"code_intel_events",
+		".coding-ethos/events",
+		"Append-only code intelligence event logs.",
+		"go/internal/codeintel",
+		"DuckDB rebuild and downstream-analysis",
+		"medium",
+		"high",
+		"audit_evidence",
+		true,
+	))
+
+	return definitions
+}
+
+func codeIntelStoreSurfaceDefinitions() []Definition {
+	return []Definition{
 		repoFile(
 			codeIntelDBSurfaceID,
 			".coding-ethos/code-intel.db",
@@ -225,6 +267,11 @@ func otherRepoAuditDefinitions() []Definition {
 			true,
 			false,
 		),
+	}
+}
+
+func codeIntelSidecarSurfaceDefinitions() []Definition {
+	return []Definition{
 		repoFile(
 			"code_intel_duckdb_wal",
 			".coding-ethos/code-intel.duckdb.wal",
@@ -271,29 +318,6 @@ func otherRepoAuditDefinitions() []Definition {
 			"ephemeral",
 			true,
 			true,
-			false,
-		),
-		repoDir(
-			"code_intel_events",
-			".coding-ethos/events",
-			"Append-only code intelligence event logs.",
-			"go/internal/codeintel",
-			"DuckDB rebuild and downstream-analysis",
-			"medium",
-			"high",
-			"audit_evidence",
-			true,
-		),
-		repoFile(
-			"ci_sarif_artifact",
-			"coding-ethos.sarif",
-			"Local CI SARIF artifact path.",
-			"go/cmd/coding-ethos-run",
-			"GitHub/GitLab code scanning",
-			"high",
-			"audit_evidence",
-			true,
-			false,
 			false,
 		),
 	}
