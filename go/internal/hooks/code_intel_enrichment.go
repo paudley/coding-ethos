@@ -241,7 +241,7 @@ func buildCodeIntelEnrichment(
 
 	paths := enrichmentTargetPaths(event, root, toolOutput, options.MaxPaths)
 	for _, path := range paths {
-		addCodeIntelPathHints(ctx, store, path, options, &enrichment)
+		addCodeIntelPathHints(ctx, store, root, path, options, &enrichment)
 	}
 
 	if len(enrichment.Paths) == 0 && len(paths) == 0 {
@@ -256,11 +256,15 @@ func buildCodeIntelEnrichment(
 func addCodeIntelPathHints(
 	ctx context.Context,
 	store *codeintel.Store,
+	root string,
 	path string,
 	options codeIntelEnrichmentOptions,
 	enrichment *codeIntelEnrichment,
 ) {
-	addCodeIntelPathSummary(ctx, store, path, enrichment)
+	if !addCodeIntelPathSummary(ctx, store, root, path, enrichment) {
+		return
+	}
+
 	addCodeIntelSymbolHints(ctx, store, path, options, enrichment)
 	addCodeIntelRelatedHints(ctx, store, path, options, enrichment)
 	addCodeIntelEvidenceHints(ctx, store, path, options, enrichment)
@@ -269,14 +273,22 @@ func addCodeIntelPathHints(
 func addCodeIntelPathSummary(
 	ctx context.Context,
 	store *codeintel.Store,
+	root string,
 	path string,
 	enrichment *codeIntelEnrichment,
-) {
+) bool {
 	repoMap, err := store.RepoMap(ctx, codeintel.CompactCodeContextQuery{
 		Path:  path,
-		Root:  "",
+		Root:  root,
 		Limit: 1,
 	})
+	if codeintel.IsStaleCodeContextError(err) {
+		enrichment.Status = codeIntelStatusStale
+		enrichment.Reason = "stale code context; refresh required"
+
+		return false
+	}
+
 	if err == nil && len(repoMap) > 0 {
 		entry := repoMap[0]
 		enrichment.Paths = append(enrichment.Paths, codeIntelEnrichmentPath{
@@ -287,6 +299,8 @@ func addCodeIntelPathSummary(
 			Risk:     codeIntelPathRisk(entry),
 		})
 	}
+
+	return true
 }
 
 func addCodeIntelSymbolHints(

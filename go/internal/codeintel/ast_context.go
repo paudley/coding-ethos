@@ -6,6 +6,7 @@ package codeintel
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,8 +17,16 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
 )
 
+var errStaleCodeContext = apperror.StaticError("stale code context")
+
 type sqlContextQuerier interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// IsStaleCodeContextError reports whether err means indexed source content no
+// longer matches the working tree.
+func IsStaleCodeContextError(err error) bool {
+	return errors.Is(err, errStaleCodeContext)
 }
 
 func (store *Store) CodeContext(
@@ -246,7 +255,7 @@ func uniqueASTContextPaths(paths []string) []string {
 
 func staleCodeContextError(path string) error {
 	return apperror.Wrapf(
-		apperror.StaticError("stale code context for %s; reindex before using AST context"),
+		errStaleCodeContext,
 		"stale code context for %s; reindex before using AST context",
 		path,
 	)

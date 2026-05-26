@@ -5125,6 +5125,84 @@ func TestRunAddsCodeIntelEnrichmentForReadTool(t *testing.T) {
 	}
 }
 
+func TestRunReportsStaleCodeIntelEnrichmentForModifiedReadTarget(t *testing.T) {
+	t.Parallel()
+
+	repo := initHookRepo(t)
+	sourcePath := filepath.Join(repo, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def run():\n    return 'ok'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	indexHookRepo(t, repo, []string{"pkg/app.py"})
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def run():\n    return 'changed'\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("modify source after index: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPostToolUse,
+			ToolName:      "Read",
+			Cwd:           repo,
+			SessionID:     "session-code-intel-stale-read",
+			ToolInput: map[string]any{
+				"file_path": "pkg/app.py",
+			},
+			ToolResponse: map[string]any{
+				"content": "def run():\n    return 'changed'\n",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run stale read hook: %v", err)
+	}
+
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing stale code-intel enrichment output: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"code_intel_enrichment:",
+		"status: stale",
+		"refresh: coding-ethos-code-intel rebuild-index",
+		"reason: stale code context; refresh required",
+		`code_intel_context_card {"path":"pkg/app.py"}`,
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("stale enrichment missing %q:\n%s", expected, context)
+		}
+	}
+
+	for _, unexpected := range []string{
+		"paths[",
+		"symbols[",
+		"related[",
+		"def run():",
+	} {
+		if strings.Contains(context, unexpected) {
+			t.Fatalf("stale enrichment should suppress %q:\n%s", unexpected, context)
+		}
+	}
+}
+
 func TestRunAddsGoldenCodeIntelEnrichmentForGlobTool(t *testing.T) {
 	t.Parallel()
 
