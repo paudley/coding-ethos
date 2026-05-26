@@ -1848,6 +1848,15 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
+	helperPath := filepath.Join(root, "pkg", "helper.py")
+
+	err = os.WriteFile(helperPath, []byte(`def helper_message(name):
+    return name.upper()
+`), 0o600)
+	if err != nil {
+		t.Fatalf("write helper source: %v", err)
+	}
+
 	runtime := mcp.Runtime{ConsumerRoot: root}
 
 	indexOutput := runServerWithRuntime(t, compactJSON(t, `{
@@ -1859,7 +1868,7 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 			"arguments":{"paths":["pkg"]}
 		}
 	}`), runtime)
-	if !strings.Contains(indexOutput, `"files_indexed":1`) ||
+	if !strings.Contains(indexOutput, `"files_indexed":2`) ||
 		!strings.Contains(indexOutput, `"code_intel_index_code"`) {
 		t.Fatalf("index output missing summary:\n%s", indexOutput)
 	}
@@ -1939,6 +1948,27 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 		t.Fatalf("context card output missing indexed symbol:\n%s", contextCardOutput)
 	}
 
+	orderedContextOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":43,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_context_card",
+			"arguments":{"paths":["pkg/helper.py","pkg/app.py"],"limit":5}
+		}
+	}`), runtime)
+	orderedContext := structuredContent(t, decodeResponse(t, orderedContextOutput))
+	orderedTargets := listValue(t, orderedContext["targets"])
+	if len(orderedTargets) != 2 {
+		t.Fatalf("ordered context card target count = %d, want 2", len(orderedTargets))
+	}
+	if got := mapValue(t, orderedTargets[0])["path"]; got != "pkg/helper.py" {
+		t.Fatalf("first context card target path = %#v, want pkg/helper.py", got)
+	}
+	if got := mapValue(t, orderedTargets[1])["path"]; got != "pkg/app.py" {
+		t.Fatalf("second context card target path = %#v, want pkg/app.py", got)
+	}
+
 	answerOutput := runServerWithRuntime(t, compactJSON(t, `{
 		"jsonrpc":"2.0",
 		"id":41,
@@ -1952,6 +1982,25 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 		!strings.Contains(answerOutput, `"retrieval_quality"`) ||
 		!strings.Contains(answerOutput, `"citations"`) {
 		t.Fatalf("answer output missing retrieval contract:\n%s", answerOutput)
+	}
+
+	limitedAnswerOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":44,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_answer",
+			"arguments":{
+				"question":"Where are message functions implemented?",
+				"paths":["pkg/helper.py","pkg/app.py"],
+				"limit":1
+			}
+		}
+	}`), runtime)
+	limitedAnswer := structuredContent(t, decodeResponse(t, limitedAnswerOutput))
+	limitedCitations := listValue(t, limitedAnswer["citations"])
+	if len(limitedCitations) > 1 {
+		t.Fatalf("limited answer citations = %d, want at most 1", len(limitedCitations))
 	}
 
 	riskOutput := runServerWithRuntime(t, compactJSON(t, `{

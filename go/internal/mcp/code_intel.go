@@ -291,6 +291,10 @@ func codeIntelAnswerResults(
 		results = append(results, pathResults...)
 	}
 
+	if len(results) > limit {
+		results = results[:limit]
+	}
+
 	return results, nil
 }
 
@@ -1066,11 +1070,21 @@ func (server Server) contextCardTargets(
 	}
 
 	targetsByPath := map[string]codeIntelContextTarget{}
+	targetOrder := make([]string, 0, len(paths)+len(chunks))
+	targetSeen := map[string]bool{}
+
 	for _, path := range paths {
 		targetsByPath[path] = contextTargetForPath(ctx, store, path)
+		targetOrder = append(targetOrder, path)
+		targetSeen[path] = true
 	}
 
 	for _, chunk := range chunks {
+		if !targetSeen[chunk.Path] {
+			targetOrder = append(targetOrder, chunk.Path)
+			targetSeen[chunk.Path] = true
+		}
+
 		target := targetsByPath[chunk.Path]
 		target.Path = chunk.Path
 		target.Found = true
@@ -1100,8 +1114,11 @@ func (server Server) contextCardTargets(
 	}
 
 	targets := make([]codeIntelContextTarget, 0, len(targetsByPath))
-	for _, target := range targetsByPath {
-		targets = append(targets, target)
+
+	for _, path := range targetOrder {
+		if target, ok := targetsByPath[path]; ok {
+			targets = append(targets, target)
+		}
 	}
 
 	if len(targets) == 0 {
@@ -1226,7 +1243,7 @@ func changeRiskTarget(
 		reasons = append(reasons, "target has repeated failure evidence")
 	}
 
-	if file.StaleReason != "" || file.DeletedAtUTC != "" {
+	if found && (file.StaleReason != "" || file.DeletedAtUTC != "") {
 		reasons = append(reasons, "target index metadata is stale")
 	}
 
