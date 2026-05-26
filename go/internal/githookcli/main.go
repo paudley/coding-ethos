@@ -742,7 +742,7 @@ func cerunForGitHook(config gitHookConfig) string {
 	}
 
 	runner := strings.TrimSpace(config.RunnerPath)
-	if runner != "" {
+	if runner != "" && filepath.Base(runner) != runner {
 		candidate := filepath.Join(filepath.Dir(runner), "cerun")
 		if executableFile(candidate) {
 			return candidate

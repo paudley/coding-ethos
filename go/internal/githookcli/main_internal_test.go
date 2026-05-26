@@ -487,6 +487,38 @@ func TestCerunForGitHookAvoidsMissingAbsolutePaths(t *testing.T) {
 	}
 }
 
+func TestCerunForGitHookAvoidsBareRunnerSiblingLookup(t *testing.T) {
+	repo := t.TempDir()
+	originalCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get current directory: %v", err)
+	}
+	t.Cleanup(func() {
+		chdirErr := os.Chdir(originalCwd)
+		if chdirErr != nil {
+			t.Fatalf("restore current directory: %v", chdirErr)
+		}
+	})
+	err = os.Chdir(repo)
+	if err != nil {
+		t.Fatalf("enter temp repo: %v", err)
+	}
+
+	writeExecutableTestScript(
+		t,
+		filepath.Join(repo, "cerun"),
+		"#!/usr/bin/env sh\nexit 0\n",
+	)
+
+	got := cerunForGitHook(gitHookConfig{
+		Cwd:        filepath.Join(t.TempDir(), "stale-checkout"),
+		RunnerPath: gitHookRunner,
+	})
+	if got != "cerun" {
+		t.Fatalf("cerunForGitHook() = %q, want PATH fallback", got)
+	}
+}
+
 func TestTrustedGitWrapperProcessAcceptsOnlyManagedEntrypoints(t *testing.T) {
 	t.Parallel()
 
