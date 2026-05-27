@@ -46,6 +46,11 @@ type compileInputPayloads struct {
 	ExpressionSources []expressionPolicySource
 }
 
+type compileSourcePayload struct {
+	Values map[string]any
+	Hash   string
+}
+
 func Compile(options CompileOptions) (Bundle, Metadata, error) {
 	options = normalizedCompileOptions(options)
 
@@ -164,24 +169,22 @@ func sourceFileName(path, fallback string) string {
 }
 
 func compileInputs(options CompileOptions) (compileInputPayloads, error) {
-	primaryPayload, primaryHash, err := loadYAMLFile(options.Primary)
+	primarySource, err := loadCompileSource(options.Primary, false)
 	if err != nil {
 		return compileInputPayloads{}, err
 	}
 
-	configPayload, configHash, err := loadYAMLFile(options.Config)
+	configSource, err := loadCompileSource(options.Config, true)
 	if err != nil {
 		return compileInputPayloads{}, err
 	}
 
-	err = validateRemovedCriticalEnforcementConfigPaths(options.Config, configPayload)
-	if err != nil {
-		return compileInputPayloads{}, err
-	}
+	primaryPayload := primarySource.Values
+	configPayload := configSource.Values
 
 	sourceHashes := map[string]string{
-		options.Primary: primaryHash,
-		options.Config:  configHash,
+		options.Primary: primarySource.Hash,
+		options.Config:  configSource.Hash,
 	}
 	expressionSources := []expressionPolicySource{}
 
@@ -248,6 +251,25 @@ func compileInputs(options CompileOptions) (compileInputPayloads, error) {
 		ExpressionSources: expressionSources,
 		SourceHashes:      sourceHashes,
 	}, nil
+}
+
+func loadCompileSource(
+	path string,
+	rejectRemovedToggles bool,
+) (compileSourcePayload, error) {
+	values, hash, err := loadYAMLFile(path)
+	if err != nil {
+		return compileSourcePayload{}, err
+	}
+
+	if rejectRemovedToggles {
+		err = validateRemovedCriticalEnforcementConfigPaths(path, values)
+		if err != nil {
+			return compileSourcePayload{}, err
+		}
+	}
+
+	return compileSourcePayload{Values: values, Hash: hash}, nil
 }
 
 func mergeRepoConfigInput(
