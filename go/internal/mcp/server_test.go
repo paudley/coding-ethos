@@ -38,8 +38,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 29 {
-		t.Fatalf("tool count = %d, want 29: %#v", len(tools), tools)
+	if len(tools) != 30 {
+		t.Fatalf("tool count = %d, want 30: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -67,6 +67,7 @@ func TestServerListsTools(t *testing.T) {
 		"code_intel_repo_map",
 		"code_intel_context_card",
 		"code_intel_change_risk",
+		"code_intel_health",
 		"code_intel_index_code",
 		"code_intel_embedding_candidates",
 		"code_intel_code_chunks",
@@ -2106,8 +2107,24 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 	if !strings.Contains(riskOutput, `"code_intel_change_risk"`) ||
 		!strings.Contains(riskOutput, `"risk_level"`) ||
 		!strings.Contains(riskOutput, `"git_signal_freshness"`) ||
+		!strings.Contains(riskOutput, `"health"`) ||
 		!strings.Contains(riskOutput, `"recommended_checks"`) {
 		t.Fatalf("change risk output missing task-shaped fields:\n%s", riskOutput)
+	}
+
+	healthOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":45,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_health",
+			"arguments":{"path":"pkg/app.py","refresh":true,"limit":5}
+		}
+	}`), runtime)
+	if !strings.Contains(healthOutput, `"code_intel_health"`) ||
+		!strings.Contains(healthOutput, `"total_health_score"`) ||
+		!strings.Contains(healthOutput, `"trend"`) {
+		t.Fatalf("health output missing snapshot fields:\n%s", healthOutput)
 	}
 }
 

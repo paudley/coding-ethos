@@ -77,16 +77,17 @@ type codeIntelContextTarget struct {
 type gitReviewerSuggestions []codeintel.GitReviewerSuggestion
 
 type codeIntelRiskTarget struct {
-	File               *codeintel.CodeFile         `json:"file,omitempty"`
-	Path               string                      `json:"path"`
-	RiskLevel          string                      `json:"risk_level"`
-	GitSignalFreshness *codeintel.GitSignalSummary `json:"git_signal_freshness"`
-	Chunks             []codeintel.CodeChunk       `json:"chunks,omitempty"`
-	GitSignals         []codeintel.GitFileSignal   `json:"git_signals,omitempty"`
-	Reviewers          gitReviewerSuggestions      `json:"reviewers,omitempty"`
-	RepeatedFailures   []codeintel.RepeatedFailure `json:"repeated_failures,omitempty"`
-	Reasons            []string                    `json:"reasons,omitempty"`
-	RecommendedChecks  []map[string]string         `json:"recommended_checks,omitempty"`
+	File               *codeintel.CodeFile          `json:"file,omitempty"`
+	Path               string                       `json:"path"`
+	RiskLevel          string                       `json:"risk_level"`
+	GitSignalFreshness *codeintel.GitSignalSummary  `json:"git_signal_freshness"`
+	Chunks             []codeintel.CodeChunk        `json:"chunks,omitempty"`
+	GitSignals         []codeintel.GitFileSignal    `json:"git_signals,omitempty"`
+	Health             []codeintel.CodeHealthTarget `json:"health"`
+	Reviewers          gitReviewerSuggestions       `json:"reviewers,omitempty"`
+	RepeatedFailures   []codeintel.RepeatedFailure  `json:"repeated_failures,omitempty"`
+	Reasons            []string                     `json:"reasons,omitempty"`
+	RecommendedChecks  []map[string]string          `json:"recommended_checks,omitempty"`
 }
 
 func (server Server) codeIntelOverview(args json.RawMessage) (any, error) {
@@ -772,6 +773,7 @@ func (server Server) codeIntelChangeRisk(args json.RawMessage) (any, error) {
 		"code_files",
 		"code_chunks",
 		"code_edges",
+		"code_health_snapshots",
 		"finding_occurrences",
 		"remediation_outcomes",
 	})
@@ -786,6 +788,59 @@ func (server Server) codeIntelChangeRisk(args json.RawMessage) (any, error) {
 		"next_actions": []string{
 			"Run focused tests for each target path before broad checks.",
 			"Inspect code_intel_context_card for high-risk targets.",
+		},
+	}, nil
+}
+
+func (server Server) codeIntelHealth(args json.RawMessage) (any, error) {
+	var input codeIntelHealthInput
+
+	inlineErr0 := json.Unmarshal(args, &input)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf("parse code intelligence health arguments: %w", inlineErr0)
+	}
+
+	store, index, closeAll, err := server.openCodeIntel()
+	if err != nil {
+		return nil, fmt.Errorf("open code intelligence index: %w", err)
+	}
+	defer closeAll()
+
+	ctx := argsContext()
+
+	health, err := store.CodeHealth(ctx, codeintel.CodeHealthQuery{
+		Root:     server.codeIntelRoot(),
+		Path:     input.Path,
+		Limit:    input.Limit,
+		Refresh:  input.Refresh || input.LCOV != "",
+		Trend:    input.Trend,
+		GitHead:  input.GitHead,
+		LCOVPath: input.LCOV,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query code health: %w", err)
+	}
+
+	meta, err := server.codeIntelTaskMeta(ctx, store, index, []string{
+		"code_files",
+		"code_chunks",
+		"git_file_signals",
+		"git_cochanges",
+		"finding_occurrences",
+		"code_health_snapshots",
+		"code_health_coverage",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"kind":   "code_intel_health",
+		"_meta":  meta,
+		"health": health,
+		"next_actions": []string{
+			"Start with the highest priority target whose evidence matches the change.",
+			"Use code_intel_context_card before editing a ranked refactoring target.",
 		},
 	}, nil
 }
@@ -1333,6 +1388,15 @@ func changeRiskTarget(
 		return codeIntelRiskTarget{}, err
 	}
 
+	health, err := store.CodeHealth(ctx, codeintel.CodeHealthQuery{
+		Root:  root,
+		Path:  path,
+		Limit: 1,
+	})
+	if err != nil {
+		return codeIntelRiskTarget{}, fmt.Errorf("query health score for %s: %w", path, err)
+	}
+
 	reasons := changeRiskReasons(
 		file,
 		found,
@@ -1349,6 +1413,7 @@ func changeRiskTarget(
 		Chunks:             chunks,
 		GitSignalFreshness: &gitFreshness,
 		GitSignals:         gitSignals,
+		Health:             health.Targets,
 		Reviewers:          gitReviewerSuggestions(reviewers),
 		RepeatedFailures:   failures,
 		RiskLevel:          riskLevelForReasons(reasons),

@@ -128,6 +128,23 @@ func TestVectorStatsCreatesDuckDBVectorStore(t *testing.T) {
 	}
 }
 
+func TestHealthCommandReturnsSnapshot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
+
+	err := run(context.Background(), []string{
+		"health",
+		"--root", root,
+		"--db", dbPath,
+		"--refresh",
+	})
+	if err != nil {
+		t.Fatalf("health command returned error: %v", err)
+	}
+}
+
 func TestIndexCodeAndCodeChunksCommands(t *testing.T) {
 	t.Parallel()
 

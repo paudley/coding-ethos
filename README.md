@@ -355,6 +355,9 @@ The first tools are intentionally narrow and auditable:
 - `code_intel_change_risk`: summarize modification risk for target files from
   indexed chunks, git-history hotspots/co-changes, reviewer suggestions,
   repeated failures, and recommended checks.
+- `code_intel_health`: rank deterministic refactoring targets from indexed
+  structure, structural clones, git signals, LCOV coverage, and repeated
+  failure evidence with persisted trend snapshots.
 - `code_intel_index_code`: refresh Tree-sitter chunks for Go, Python,
   JavaScript/TypeScript, shell, YAML, JSON, and TOML paths.
 - `code_intel_code_chunks`: fetch focused symbol/config chunks before broad
@@ -423,6 +426,7 @@ bin/coding-ethos-run code-intel ingest-traces
 bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_imports
 bin/coding-ethos-run code-intel search --text 'unused import'
 bin/coding-ethos-run code-intel git-signals --path pkg/app.py --paths pkg/app.py,pkg/store.py
+bin/coding-ethos-run code-intel health --refresh --lcov coverage/lcov.info
 bin/coding-ethos-run code-intel anatomy-map --path pkg --format toon
 ls pkg | bin/coding-ethos-run code-intel enrich-listing --command 'ls pkg'
 bin/coding-ethos-run code-intel rebuild-index
@@ -445,7 +449,8 @@ bin/coding-ethos-run code-intel downstream-analysis --format toon
 The live telemetry surface lives in `.coding-ethos/events/*.jsonl`, and the
 rebuildable analytical index lives at `.coding-ethos/code-intel.duckdb`. These
 repo-local artifacts are derived from retained traces, SARIF, AST chunks, proxy
-session events, remediation records, hook review labels, and vector metadata.
+session events, remediation records, hook review labels, LCOV coverage, health
+snapshots, and vector metadata.
 They are not replacements for hooks or CEL policy evaluation.
 
 `downstream-analysis` is the read-only support view for downstream repo
@@ -984,8 +989,10 @@ The merged config drives:
 - shared style settings such as `style.python_version` and `style.line_length`
 
 Code-intel also reads repo-root `repo_config.yaml` / `repo_config.yml`
-directly for source indexing exclusions such as `code_intel.exclude_paths`.
-Use that setting for repo-specific generated output that should not be indexed.
+directly for source indexing exclusions such as `code_intel.exclude_paths` and
+health scoring controls under `code_intel.health`. Use those settings for
+repo-specific generated, legacy, test, or vendor paths whose biomarkers should
+be disabled or reweighted.
 
 `coding-ethos-policy config-trace` validates known top-level enforcement
 sections, compiles the merged bundle, validates it, and reports policy,

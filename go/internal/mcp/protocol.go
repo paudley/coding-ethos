@@ -334,6 +334,15 @@ type codeIntelChangeRiskInput struct {
 	Limit int      `json:"limit,omitempty"`
 }
 
+type codeIntelHealthInput struct {
+	Path    string `json:"path,omitempty"`
+	GitHead string `json:"git_head,omitempty"`
+	LCOV    string `json:"lcov,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
+	Trend   int    `json:"trend,omitempty"`
+	Refresh bool   `json:"refresh,omitempty"`
+}
+
 type codeSimilarityCheckInput struct {
 	Code      string  `json:"code"`
 	Path      string  `json:"path,omitempty"`
@@ -431,7 +440,7 @@ func toolResult(result any) map[string]any {
 
 const (
 	toolDefinitionCapacity          = 31
-	codeIntelToolDefinitionCapacity = 15
+	codeIntelToolDefinitionCapacity = 16
 )
 
 func toolDefinitions() []map[string]any {
@@ -1105,6 +1114,7 @@ func codeIntelCodeToolDefinitions() []map[string]any {
 		codeIntelRepoMapToolDefinition(),
 		codeIntelContextCardToolDefinition(),
 		codeIntelChangeRiskToolDefinition(),
+		codeIntelHealthToolDefinition(),
 		codeIntelIndexCodeToolDefinition(),
 		toolDefinition(
 			"code_intel_code_chunks",
@@ -1158,6 +1168,36 @@ func codeIntelCodeToolDefinitions() []map[string]any {
 			},
 		),
 	}
+}
+
+func codeIntelHealthToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_health",
+		toolText(
+			"Rank deterministic code-health and refactoring targets from",
+			"indexed structure, git signals, coverage, clones, and repeated",
+			"failure evidence.",
+		),
+		map[string]any{
+			"path":     map[string]any{"type": "string"},
+			"limit":    map[string]any{"type": "integer"},
+			"refresh":  map[string]any{"type": "boolean"},
+			"trend":    map[string]any{"type": "integer"},
+			"git_head": map[string]any{"type": "string"},
+			"lcov":     map[string]any{"type": "string"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"choose high-impact refactoring targets before broad",
+				"implementation work",
+			),
+			TracePersisted: true,
+		},
+	)
 }
 
 func codeIntelIndexCodeToolDefinition() map[string]any {
