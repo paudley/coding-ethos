@@ -1227,8 +1227,8 @@ func codeIntelChangeRiskToolDefinition() map[string]any {
 		"code_intel_change_risk",
 		toolText(
 			"Summarize modification risk for target files from indexed",
-			"chunks, dependency edges, linked findings, and repeated",
-			"failure evidence.",
+			"chunks, dependency edges, git history signals, linked",
+			"findings, and repeated failure evidence.",
 		),
 		map[string]any{
 			"path": map[string]any{"type": "string"},

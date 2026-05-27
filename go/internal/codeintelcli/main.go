@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	defaultResultLimit = 20
-	defaultSearchLimit = 10
+	defaultGitSignalCommitLimit = 500
+	defaultResultLimit          = 20
+	defaultSearchLimit          = 10
 )
 
 var (
@@ -65,6 +66,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"embedding-candidates":      printEmbeddingCandidates,
 		"embedding-records":         printEmbeddingRecords,
 		"enrich-listing":            enrichDirectoryListing,
+		"git-signals":               gitSignals,
 		"hook-reviews":              printHookReviews,
 		"hook-usage":                printHookUsage,
 		"repeated-edits":            printRepeatedEdits,
@@ -429,6 +431,79 @@ func printStats(ctx context.Context, args []string) error {
 	}
 
 	return encodeJSON(os.Stdout, stats)
+}
+
+func gitSignals(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("git-signals", flag.ExitOnError)
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
+	path := flags.String("path", "", "Filter by source path")
+	paths := flags.String(
+		"paths",
+		"",
+		"Comma-separated source paths for reviewer suggestions",
+	)
+	limit := addResultLimit(flags)
+	refresh := flags.Bool("refresh", true, "Refresh git signals before querying")
+	force := flags.Bool("force", false, "Force refresh even when HEAD is already indexed")
+	commits := flags.Int(
+		"commits",
+		defaultGitSignalCommitLimit,
+		"Maximum recent commits to index when refreshing",
+	)
+
+	err := parseCommandFlags(flags, args, "git-signals")
+	if err != nil {
+		return err
+	}
+
+	store, err := openStore(ctx, *storeFlags.root, *storeFlags.dbPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	var summary codeintel.GitSignalSummary
+	if *refresh {
+		summary, err = store.RefreshGitSignals(
+			ctx,
+			*storeFlags.root,
+			codeintel.GitSignalRefreshOptions{CommitLimit: *commits, Force: *force},
+		)
+		if err != nil {
+			return fmt.Errorf("refresh git signals: %w", err)
+		}
+	}
+
+	signals, err := store.GitSignals(ctx, codeintel.GitSignalQuery{
+		Path:  *path,
+		Limit: *limit,
+	})
+	if err != nil {
+		return fmt.Errorf("query git signals: %w", err)
+	}
+
+	reviewPaths := codeIntelCSVPaths(*paths)
+	if *path != "" {
+		reviewPaths = append(reviewPaths, *path)
+	}
+
+	reviewers, err := store.GitReviewerSuggestions(
+		ctx,
+		codeintel.GitReviewerSuggestionQuery{
+			Paths: reviewPaths,
+			Limit: *limit,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("query git reviewer suggestions: %w", err)
+	}
+
+	return encodeJSON(os.Stdout, map[string]any{
+		"kind":      "git_signals",
+		"summary":   summary,
+		"signals":   signals,
+		"reviewers": reviewers,
+	})
 }
 
 func printDownstreamAnalysis(ctx context.Context, args []string) error {
@@ -983,6 +1058,20 @@ func encodeJSON(output *os.File, value any) error {
 	}
 
 	return nil
+}
+
+func codeIntelCSVPaths(value string) []string {
+	parts := strings.Split(strings.TrimSpace(value), ",")
+	paths := []string{}
+
+	for _, part := range parts {
+		path := strings.TrimSpace(part)
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+
+	return paths
 }
 
 func parseOptionalVector(value string) ([]float32, error) {

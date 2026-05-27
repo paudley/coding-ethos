@@ -199,6 +199,9 @@ tables for:
 - remediation attempts and outcomes keyed by stable remediation ID
 - embedding metadata: model, provider, dimension, input kind, chunk hash, and
   vector backend row ID
+- git-history signals: indexed HEAD freshness, per-file churn, ownership
+  percentages, hotspot score, co-change partners, hidden coupling, and
+  deterministic reviewer suggestions
 
 Use the DuckDB term index for text, symbol, file path, policy, skill, command,
 and advice search. Text search is not a fallback; it is part of hybrid
@@ -214,6 +217,7 @@ bin/coding-ethos-run code-intel record-hook-review --trace-id hook-1 --dispositi
 bin/coding-ethos-run code-intel hook-reviews --disposition false_positive
 bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_imports
 bin/coding-ethos-run code-intel index-code pkg scripts config.yml
+bin/coding-ethos-run code-intel git-signals --path pkg/app.go --paths pkg/app.go,pkg/store.go
 bin/coding-ethos-run code-intel anatomy-map --path pkg --format toon
 ls pkg | bin/coding-ethos-run code-intel enrich-listing --command 'ls pkg'
 bin/coding-ethos-run code-intel code-chunks --path pkg/app.go --symbol-name BuildMessage
@@ -237,6 +241,14 @@ bin/coding-ethos-run code-intel search --text 'unused import'
 
 These commands read retained `.coding-ethos` traces and write only the
 repo-local `.coding-ethos/code-intel.duckdb` store.
+
+`git-signals` records the HEAD commit and indexed timestamp before exposing
+stored signals. A refresh is skipped when the current HEAD is already indexed;
+`--force` rebuilds the bounded default window, and `--commits` raises or lowers
+that window for large repositories. Reviewer suggestions are deterministic:
+direct authorship percentage, co-change ownership, and recency relative to the
+indexed history are reported as score inputs. Co-change rows also mark hidden
+coupling when no direct static edge explains the pair.
 
 `anatomy-map` is inspired by Aider's repo map, which gives agents a compact
 symbol-level view before they spend context on full file reads. coding-ethos
