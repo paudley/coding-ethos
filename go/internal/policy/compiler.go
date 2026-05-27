@@ -227,21 +227,15 @@ func compileInputs(options CompileOptions) (compileInputPayloads, error) {
 	var repoConfigPayload map[string]any
 
 	if options.RepoConfig != "" && fileExists(options.RepoConfig) {
-		repoConfigPayload, err = mergeRepoConfigInput(
+		configPayload, repoConfigPayload, err = mergeAndApplyRepoConfigInput(
 			options,
+			configPayload,
 			sourceHashes,
 			&expressionSources,
 		)
 		if err != nil {
 			return compileInputPayloads{}, err
 		}
-
-		configPayload = configprofiles.ApplyWithEthosRoot(
-			configPayload,
-			repoConfigPayload,
-			filepath.Dir(options.RepoConfig),
-			filepath.Dir(options.Primary),
-		)
 	}
 
 	return compileInputPayloads{
@@ -251,6 +245,29 @@ func compileInputs(options CompileOptions) (compileInputPayloads, error) {
 		ExpressionSources: expressionSources,
 		SourceHashes:      sourceHashes,
 	}, nil
+}
+
+func mergeAndApplyRepoConfigInput(
+	options CompileOptions,
+	configPayload map[string]any,
+	sourceHashes map[string]string,
+	expressionSources *[]expressionPolicySource,
+) (map[string]any, map[string]any, error) {
+	repoConfigPayload, err := mergeRepoConfigInput(
+		options,
+		sourceHashes,
+		expressionSources,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return configprofiles.ApplyWithEthosRoot(
+		configPayload,
+		repoConfigPayload,
+		filepath.Dir(options.RepoConfig),
+		filepath.Dir(options.Primary),
+	), repoConfigPayload, nil
 }
 
 func loadCompileSource(
