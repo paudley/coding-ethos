@@ -149,6 +149,31 @@ func TestValidateRepoConfigSectionsAllowsRepoLicenseOverlay(t *testing.T) {
 	}
 }
 
+func TestValidateRepoConfigSectionsAllowsRepoProfiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	inlineErr := os.WriteFile(
+		repoConfigPath,
+		[]byte("repo:\n  kind: go-static-site\nprofiles:\n  - generated-site-output\n"),
+		0o600,
+	)
+	if inlineErr != nil {
+		t.Fatalf("write repo config: %v", inlineErr)
+	}
+
+	sections, err := validateRepoConfigSections(repoConfigPath, map[string]any{})
+	if err != nil {
+		t.Fatalf("validate repo config: %v", err)
+	}
+
+	if strings.Join(sections, ",") != "profiles,repo" {
+		t.Fatalf("sections = %#v", sections)
+	}
+}
+
 func TestValidateRepoConfigSectionsAllowsCodeIntelOverlay(t *testing.T) {
 	t.Parallel()
 
@@ -289,6 +314,47 @@ func TestValidateRepoConfigSectionsRejectsUnknownProxyOutputKey(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "proxy.output_compression.max_tokenz") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestValidateRepoConfigSectionsRejectsInvariantGitPolicyToggles(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"hook bypass":            "git:\n  hook_bypass:\n    enabled: false\n",
+		"history rewrite":        "git:\n  history_rewrite_prevention:\n    enabled: false\n",
+		"stash blocked":          "git:\n  stash_blocked:\n    enabled: false\n",
+		"protected submodule":    "git:\n  protected_submodule_update:\n    enabled: false\n",
+		"signed operations":      "git:\n  signed_operations:\n    enabled: false\n",
+		"protected work guard":   "repo:\n  protected_branch_work:\n    enabled: false\n",
+		"protected branch write": "filesystem:\n  protected_branch_write:\n    enabled: false\n",
+	}
+
+	for name, payload := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+			inlineErr := os.WriteFile(repoConfigPath, []byte(payload), 0o600)
+			if inlineErr != nil {
+				t.Fatalf("write repo config: %v", inlineErr)
+			}
+
+			_, err := validateRepoConfigSections(repoConfigPath, map[string]any{
+				"filesystem": map[string]any{},
+				"git":        map[string]any{},
+				"repo":       map[string]any{},
+			})
+			if err == nil {
+				t.Fatal("expected invariant git policy toggle rejection")
+			}
+
+			if !strings.Contains(err.Error(), "unknown config path") {
+				t.Fatalf("error = %v", err)
+			}
+		})
 	}
 }
 

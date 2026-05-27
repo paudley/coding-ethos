@@ -996,13 +996,11 @@ inherit this repo's license policy. To opt in, set
 verifies the repo `LICENSE` file without overwriting it, and requires matching
 SPDX source headers.
 
-Consumer repos that intentionally allow direct work on protected branches can
-set `repo.protected_branch_work.enabled: false` in `repo_config.yaml`. That
-repo-level switch disables branch-switch blocking and protected-branch
-file-write blocking together while leaving history-rewrite prevention enabled.
-The history-rewrite policy blocks amend commits, force pushes, branch-moving
-resets, `git checkout -B`, and `git branch -f`; use a new commit instead of
-rewriting review history.
+Protected Git enforcement is invariant. Consumer repo configuration cannot
+disable hook-bypass prevention, history-rewrite prevention, stash blocking,
+protected-submodule protection, signed operation checks, branch-switch
+blocking, or protected-branch file-write blocking. Model repo-specific
+variation as policy data, not an `enabled` switch for critical behavior.
 
 See [repo_config.example.yaml](repo_config.example.yaml).
 

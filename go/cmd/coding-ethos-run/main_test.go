@@ -21,7 +21,6 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
-	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
@@ -432,9 +431,10 @@ func TestSyncParentPolicyBundleUsesParentRepoConfig(t *testing.T) {
 	repoConfig := filepath.Join(parentRepo, "repo_config.yaml")
 
 	err := os.WriteFile(repoConfig, []byte(`
-repo:
-  protected_branch_work:
-    enabled: false
+filesystem:
+  protected_branch_write:
+    branches:
+      - main
 `), 0o600)
 	if err != nil {
 		t.Fatalf("write repo config: %v", err)
@@ -468,7 +468,7 @@ repo:
 	}
 
 	parentBundle := parentPolicyBundlePath(paths, options)
-	assertProtectedBranchWorkPoliciesAbsent(t, parentBundle)
+	assertProtectedBranchWorkPoliciesPresent(t, parentBundle)
 
 	err = checkParentPolicyBundle(paths, options)
 	if err != nil {
@@ -498,7 +498,7 @@ repo:
 	}
 }
 
-func TestParentRuntimeBundleDisablesProtectedBranchHookPolicy(t *testing.T) {
+func TestParentRuntimeBundleRejectsRemovedProtectedBranchWorkConfig(t *testing.T) {
 	t.Parallel()
 
 	sourceRoot := findRunnerRepoRoot(t)
@@ -534,33 +534,9 @@ repo:
 		RepoEthos:  filepath.Join(sourceRoot, "repo_ethos.yml"),
 		RepoConfig: repoConfig,
 	})
-	if err != nil {
-		t.Fatalf("sync parent policy bundle: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "repo.protected_branch_work.enabled") {
+		t.Fatalf("sync parent policy bundle error = %v", err)
 	}
-
-	parentBundle := parentPolicyBundlePath(paths, parentWorkflowOptions{Repo: parentRepo})
-	assertProtectedBranchWorkPoliciesAbsent(t, parentBundle)
-
-	bundle := readPolicyBundleForTest(t, parentBundle)
-	assertParentHookAllowsProtectedBranchDisabledEvent(t, bundle, parentRepo, hooks.Event{
-		HookEventName: "PreToolUse",
-		ProviderHint:  "codex",
-		ToolName:      "Bash",
-		Cwd:           parentRepo,
-		ToolInput: map[string]any{
-			"command": "printf '%s\n' ready",
-		},
-	})
-	assertParentHookAllowsProtectedBranchDisabledEvent(t, bundle, parentRepo, hooks.Event{
-		HookEventName: "PreToolUse",
-		ProviderHint:  "codex",
-		ToolName:      "Write",
-		Cwd:           parentRepo,
-		ToolInput: map[string]any{
-			"file_path": "shared/podcasts.go",
-			"content":   "package shared\n",
-		},
-	})
 }
 
 func TestRebuildParentGoToolsBuildsRepoLocalBinaries(t *testing.T) {
@@ -3075,7 +3051,7 @@ func parentBuildableGoToolsSourceFixture(t *testing.T, ethosRoot string) string 
 	return sourceRoot
 }
 
-func assertProtectedBranchWorkPoliciesAbsent(t *testing.T, bundlePath string) {
+func assertProtectedBranchWorkPoliciesPresent(t *testing.T, bundlePath string) {
 	t.Helper()
 
 	bundle := readPolicyBundleForTest(t, bundlePath)
@@ -3084,8 +3060,8 @@ func assertProtectedBranchWorkPoliciesAbsent(t *testing.T, bundlePath string) {
 		"git.checkout_protected_branch",
 		"filesystem.protected_branch_write",
 	} {
-		if _, found := bundle.Policies[policyID]; found {
-			t.Fatalf("%s should be disabled in %s", policyID, bundlePath)
+		if _, found := bundle.Policies[policyID]; !found {
+			t.Fatalf("%s should remain enabled in %s", policyID, bundlePath)
 		}
 	}
 }
@@ -3119,30 +3095,6 @@ func writePolicyBundleForTest(t *testing.T, bundlePath string) {
 	err = policy.EncodeBundle(file, policy.ExampleBundle())
 	if err != nil {
 		t.Fatalf("encode policy bundle %s: %v", bundlePath, err)
-	}
-}
-
-func assertParentHookAllowsProtectedBranchDisabledEvent(
-	t *testing.T,
-	bundle policy.Bundle,
-	parentRepo string,
-	event hooks.Event,
-) {
-	t.Helper()
-
-	result, err := hooks.Run(bundle, hooks.Options{Event: event})
-	if err != nil {
-		t.Fatalf("run parent hook event: %v", err)
-	}
-
-	for _, decision := range result.Decisions {
-		if decision.PolicyID == "filesystem.protected_branch_write" {
-			t.Fatalf("protected branch policy dispatched despite disabled config: %#v", result)
-		}
-	}
-
-	if result.Status != "allowed" {
-		t.Fatalf("parent hook status for %s = %#v", parentRepo, result)
 	}
 }
 

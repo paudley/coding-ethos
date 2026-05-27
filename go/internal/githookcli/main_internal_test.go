@@ -20,6 +20,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
+	"blackcat.ca/coding-ethos/go/internal/repoignore"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
@@ -944,12 +945,7 @@ func newGitHookE2ERepo(t *testing.T) gitHookE2ERepo {
 		t,
 		repo,
 		".gitignore",
-		".coding-ethos/cache/\n.coding-ethos/code-intel.duckdb\n"+
-			".coding-ethos/code-intel.duckdb.shm\n.coding-ethos/code-intel.duckdb.wal\n"+
-			".coding-ethos/code-intel.duckdb\n.coding-ethos/code-intel.duckdb.wal\n"+
-			".coding-ethos/events/\n"+
-			".coding-ethos/hook-runs/\n.coding-ethos/lint-runs/\n"+
-			".coding-ethos/prune-runs/\n.coding-ethos/state/\nbin/\nbuild/\n",
+		strings.Join(repoignore.RuntimePaths(), "\n")+"\nbin/\nbuild/\n",
 	)
 	writeTestManifest(t, repo)
 	writeTestRepoConfig(t, repo)

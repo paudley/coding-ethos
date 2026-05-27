@@ -686,10 +686,12 @@ func addRepoConfigOnlyShape(reference map[string]any) {
 		"text":            "",
 		"url":             "",
 	}
+	repo["kind"] = ""
 
 	reference["code_intel"] = map[string]any{
 		"exclude_paths": []any{},
 	}
+	reference["profiles"] = []any{}
 
 	reference[configSectionProxy] = map[string]any{
 		"code_intel_enrichment": map[string]any{

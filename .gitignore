@@ -90,6 +90,7 @@ sandbox-tmp/
 .codex/*
 !.codex/skills/
 !.codex/skills/**
+.gemini/settings.json
 .gemini/*
 !.gemini/extensions/
 .gemini/extensions/*

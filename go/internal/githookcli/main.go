@@ -30,6 +30,7 @@ import (
 const (
 	blockedExitCode      = 2
 	adminApprovedEnv     = "CODE_ETHOS_ADMIN_APPROVED"
+	cerunBinary          = "cerun"
 	gitHookRunner        = "coding-ethos-run"
 	gitHookWrapper       = "coding-ethos-git"
 	policyGitCommand     = "policy-git"
@@ -736,7 +737,7 @@ func directGitHookRetryCommand(config gitHookConfig, hookName string) string {
 func cerunForGitHook(config gitHookConfig) string {
 	cwd := strings.TrimSpace(config.Cwd)
 	if cwd != "" {
-		candidate := filepath.Join(cwd, "bin", "cerun")
+		candidate := filepath.Join(cwd, "bin", cerunBinary)
 		if executableFile(candidate) {
 			return candidate
 		}
@@ -744,13 +745,13 @@ func cerunForGitHook(config gitHookConfig) string {
 
 	runner := strings.TrimSpace(config.RunnerPath)
 	if runner != "" && filepath.Base(runner) != runner {
-		candidate := filepath.Join(filepath.Dir(runner), "cerun")
+		candidate := filepath.Join(filepath.Dir(runner), cerunBinary)
 		if executableFile(candidate) {
 			return candidate
 		}
 	}
 
-	return "cerun"
+	return cerunBinary
 }
 
 func executableFile(path string) bool {

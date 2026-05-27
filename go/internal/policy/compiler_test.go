@@ -524,13 +524,7 @@ func TestCompileBuildsGitChangeDirAsCELPolicy(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 
 	writeTestFile(t, primaryPath, testEthosYAML(t))
-	writeTestFile(t, configPath, testConfigYAML+`
-git:
-  change_dir_flag:
-    enabled: true
-  destructive_worktree:
-    enabled: true
-`)
+	writeTestFile(t, configPath, testConfigYAML)
 
 	bundle, _, err := Compile(CompileOptions{
 		Primary: primaryPath,
@@ -568,11 +562,7 @@ func TestCompileBuildsSmallGitPoliciesAsCELPolicies(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 
 	writeTestFile(t, primaryPath, testEthosYAML(t))
-	writeTestFile(t, configPath, testConfigYAML+`
-git:
-  destructive_worktree:
-    enabled: true
-`)
+	writeTestFile(t, configPath, testConfigYAML)
 
 	bundle, _, err := Compile(CompileOptions{
 		Primary: primaryPath,
@@ -1906,7 +1896,7 @@ go:
 	}
 }
 
-func TestCompileRepoConfigCanDisableProtectedBranchWorkPolicies(t *testing.T) {
+func TestCompileRejectsRemovedProtectedBranchWorkToggle(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -1922,67 +1912,94 @@ repo:
     enabled: false
 `)
 
-	bundle, _, err := Compile(CompileOptions{
+	_, _, err := Compile(CompileOptions{
 		Primary:    primaryPath,
 		Config:     configPath,
 		RepoConfig: repoConfigPath,
 	})
-	if err != nil {
-		t.Fatalf("compile: %v", err)
-	}
-
-	for _, policyID := range []string{
-		"git.checkout_protected_branch",
-		"filesystem.protected_branch_write",
-	} {
-		if _, found := bundle.Policies[policyID]; found {
-			t.Fatalf("policy should be disabled by repo_config: %s", policyID)
-		}
-	}
-
-	if _, found := bundle.Policies["git.force_push_protected_branch"]; !found {
-		t.Fatal("force-push protection should remain enabled")
+	if err == nil || !strings.Contains(err.Error(), "repo.protected_branch_work.enabled") {
+		t.Fatalf("compile error = %v", err)
 	}
 }
 
-func TestCompileProtectedBranchWorkSwitchOwnsRelatedPolicies(t *testing.T) {
+func TestCompileRejectsRemovedGitPolicyEnabledToggles(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	primaryPath := filepath.Join(dir, "coding_ethos.yml")
-	configPath := filepath.Join(dir, "config.yaml")
-	repoConfigPath := filepath.Join(dir, repoConfigFileName)
-
-	writeTestFile(t, primaryPath, testEthosYAML(t))
-	writeTestFile(t, configPath, testConfigYAML)
-	writeTestFile(t, repoConfigPath, `
-repo:
-  protected_branch_work:
+	tests := map[string]struct {
+		config     string
+		repoConfig string
+		wantPath   string
+	}{
+		"config built in": {
+			config: `
+git:
+  wrapper_required:
     enabled: false
+`,
+			wantPath: "git.wrapper_required.enabled",
+		},
+		"repo built in": {
+			repoConfig: `
+git:
+  staged_admin_files:
+    enabled: false
+`,
+			wantPath: "git.staged_admin_files.enabled",
+		},
+		"repo protected branch write": {
+			repoConfig: `
 filesystem:
   protected_branch_write:
-    enabled: true
+    enabled: false
+`,
+			wantPath: "filesystem.protected_branch_write.enabled",
+		},
+		"repo expression backed": {
+			repoConfig: `
 git:
-  checkout_protected_branch:
-    enabled: true
-`)
-
-	bundle, _, err := Compile(CompileOptions{
-		Primary:    primaryPath,
-		Config:     configPath,
-		RepoConfig: repoConfigPath,
-	})
-	if err != nil {
-		t.Fatalf("compile: %v", err)
+  hook_bypass:
+    enabled: false
+`,
+			wantPath: "git.hook_bypass.enabled",
+		},
+		"old signed operations": {
+			repoConfig: `
+git:
+  signed_operations:
+    enabled: false
+`,
+			wantPath: "git.signed_operations.enabled",
+		},
 	}
 
-	for _, policyID := range []string{
-		"git.checkout_protected_branch",
-		"filesystem.protected_branch_write",
-	} {
-		if _, found := bundle.Policies[policyID]; found {
-			t.Fatalf("repo switch should own related policy disable: %s", policyID)
-		}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			primaryPath := filepath.Join(dir, "coding_ethos.yml")
+			configPath := filepath.Join(dir, "config.yaml")
+			repoConfigPath := filepath.Join(dir, repoConfigFileName)
+
+			writeTestFile(t, primaryPath, testEthosYAML(t))
+			writeTestFile(t, configPath, testConfigYAML+test.config)
+			if test.repoConfig != "" {
+				writeTestFile(t, repoConfigPath, test.repoConfig)
+			}
+
+			options := CompileOptions{
+				Primary: primaryPath,
+				Config:  configPath,
+			}
+			if test.repoConfig != "" {
+				options.RepoConfig = repoConfigPath
+			}
+
+			_, _, err := Compile(options)
+			if err == nil || !strings.Contains(err.Error(), test.wantPath) {
+				t.Fatalf("compile error = %v, want path %s", err, test.wantPath)
+			}
+		})
 	}
 }
 

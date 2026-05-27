@@ -21,6 +21,7 @@ import (
 var (
 	errNoCompiledPrinciples = apperror.StaticError("no principles found")
 	errNoCompiledPolicies   = apperror.StaticError("no enabled policies found")
+	errRemovedConfigPath    = apperror.StaticError("removed config path")
 )
 
 const (
@@ -43,6 +44,11 @@ type compileInputPayloads struct {
 	SourceHashes      map[string]string
 	RepoConfig        map[string]any
 	ExpressionSources []expressionPolicySource
+}
+
+type compileSourcePayload struct {
+	Values map[string]any
+	Hash   string
 }
 
 func Compile(options CompileOptions) (Bundle, Metadata, error) {
@@ -163,19 +169,22 @@ func sourceFileName(path, fallback string) string {
 }
 
 func compileInputs(options CompileOptions) (compileInputPayloads, error) {
-	primaryPayload, primaryHash, err := loadYAMLFile(options.Primary)
+	primarySource, err := loadCompileSource(options.Primary, false)
 	if err != nil {
 		return compileInputPayloads{}, err
 	}
 
-	configPayload, configHash, err := loadYAMLFile(options.Config)
+	configSource, err := loadCompileSource(options.Config, true)
 	if err != nil {
 		return compileInputPayloads{}, err
 	}
+
+	primaryPayload := primarySource.Values
+	configPayload := configSource.Values
 
 	sourceHashes := map[string]string{
-		options.Primary: primaryHash,
-		options.Config:  configHash,
+		options.Primary: primarySource.Hash,
+		options.Config:  configSource.Hash,
 	}
 	expressionSources := []expressionPolicySource{}
 
@@ -218,21 +227,15 @@ func compileInputs(options CompileOptions) (compileInputPayloads, error) {
 	var repoConfigPayload map[string]any
 
 	if options.RepoConfig != "" && fileExists(options.RepoConfig) {
-		repoConfigPayload, err = mergeRepoConfigInput(
+		configPayload, repoConfigPayload, err = mergeAndApplyRepoConfigInput(
 			options,
+			configPayload,
 			sourceHashes,
 			&expressionSources,
 		)
 		if err != nil {
 			return compileInputPayloads{}, err
 		}
-
-		configPayload = configprofiles.ApplyWithEthosRoot(
-			configPayload,
-			repoConfigPayload,
-			filepath.Dir(options.RepoConfig),
-			filepath.Dir(options.Primary),
-		)
 	}
 
 	return compileInputPayloads{
@@ -244,12 +247,62 @@ func compileInputs(options CompileOptions) (compileInputPayloads, error) {
 	}, nil
 }
 
+func mergeAndApplyRepoConfigInput(
+	options CompileOptions,
+	configPayload map[string]any,
+	sourceHashes map[string]string,
+	expressionSources *[]expressionPolicySource,
+) (map[string]any, map[string]any, error) {
+	repoConfigPayload, err := mergeRepoConfigInput(
+		options,
+		sourceHashes,
+		expressionSources,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return configprofiles.ApplyWithEthosRoot(
+		configPayload,
+		repoConfigPayload,
+		filepath.Dir(options.RepoConfig),
+		filepath.Dir(options.Primary),
+	), repoConfigPayload, nil
+}
+
+func loadCompileSource(
+	path string,
+	rejectRemovedToggles bool,
+) (compileSourcePayload, error) {
+	values, hash, err := loadYAMLFile(path)
+	if err != nil {
+		return compileSourcePayload{}, err
+	}
+
+	if rejectRemovedToggles {
+		err = validateRemovedCriticalEnforcementConfigPaths(path, values)
+		if err != nil {
+			return compileSourcePayload{}, err
+		}
+	}
+
+	return compileSourcePayload{Values: values, Hash: hash}, nil
+}
+
 func mergeRepoConfigInput(
 	options CompileOptions,
 	sourceHashes map[string]string,
 	expressionSources *[]expressionPolicySource,
 ) (map[string]any, error) {
 	repoConfigPayload, repoConfigHash, err := loadYAMLFile(options.RepoConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	err = validateRemovedCriticalEnforcementConfigPaths(
+		options.RepoConfig,
+		repoConfigPayload,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +322,45 @@ func mergeRepoConfigInput(
 	}
 
 	return repoConfigPayload, nil
+}
+
+func validateRemovedCriticalEnforcementConfigPaths(
+	file string,
+	values map[string]any,
+) error {
+	for _, path := range removedCriticalEnforcementConfigPaths() {
+		if _, found := valueAt(values, path...); found {
+			return fmt.Errorf(
+				"%w %q in %s: critical enforcement cannot be enabled or disabled by config",
+				errRemovedConfigPath,
+				strings.Join(path, "."),
+				file,
+			)
+		}
+	}
+
+	return nil
+}
+
+func removedCriticalEnforcementConfigPaths() [][]string {
+	return [][]string{
+		{"filesystem", "protected_branch_write", "enabled"},
+		{"git", "change_dir_flag", "enabled"},
+		{"git", "checkout_protected_branch", "enabled"},
+		{"git", "commit_head_advanced", "enabled"},
+		{"git", "destructive_command", "enabled"},
+		{"git", "destructive_worktree", "enabled"},
+		{"git", "force_push_protected_branch", "enabled"},
+		{"git", "history_rewrite_prevention", "enabled"},
+		{"git", "hook_bypass", "enabled"},
+		{"git", "merge_strategy_shortcut", "enabled"},
+		{"git", "protected_submodule_update", "enabled"},
+		{"git", "signed_operations", "enabled"},
+		{"git", "staged_admin_files", "enabled"},
+		{"git", "stash_blocked", "enabled"},
+		{"git", "wrapper_required", "enabled"},
+		{"repo", "protected_branch_work", "enabled"},
+	}
 }
 
 func loadYAMLFile(path string) (map[string]any, string, error) {

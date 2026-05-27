@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/realgit"
+	"blackcat.ca/coding-ethos/go/internal/repoignore"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
@@ -643,12 +644,7 @@ func TestCutoverVerifyPassesAllSurfaces(t *testing.T) {
 
 	err := os.WriteFile(
 		filepath.Join(root, ".gitignore"),
-		[]byte(".coding-ethos/cache/\n"+
-			".coding-ethos/code-intel.duckdb\n.coding-ethos/code-intel.duckdb.wal\n"+
-			".coding-ethos/events/\n"+
-			".coding-ethos/hook-runs/\n"+
-			".coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n"+
-			".coding-ethos/state/\n"),
+		[]byte(strings.Join(repoignore.RuntimePaths(), "\n")+"\n"),
 		privateFileMode,
 	)
 	if err != nil {
@@ -1190,18 +1186,13 @@ func TestRepoIgnoreFixItemLines(t *testing.T) {
 		t.Fatalf("repo ignore fix items before ignore: %v", err)
 	}
 
-	if len(items) != 8 {
+	if len(items) != len(repoignore.RuntimePaths()) {
 		t.Fatalf("items before ignore = %#v", items)
 	}
 
 	inlineErr8 := os.WriteFile(
 		filepath.Join(repo, ".gitignore"),
-		[]byte(".coding-ethos/cache/\n"+
-			".coding-ethos/code-intel.duckdb\n.coding-ethos/code-intel.duckdb.wal\n"+
-			".coding-ethos/events/\n"+
-			".coding-ethos/hook-runs/\n"+
-			".coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n"+
-			".coding-ethos/state/\n"),
+		[]byte(strings.Join(repoignore.RuntimePaths(), "\n")+"\n"),
 		privateFileMode,
 	)
 	if inlineErr8 != nil {
