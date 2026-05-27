@@ -26,6 +26,31 @@ const (
 	repoMapCandidateLimitFactor  = 5
 )
 
+const globalRepoMapFilesSQL = `SELECT file.path, file.language, file.line_count,
+	COUNT(chunk.chunk_id) AS chunks,
+	SUM(CASE WHEN COALESCE(chunk.symbol_path, '') != '' THEN 1 ELSE 0 END) AS symbols,
+	COALESCE(git.hotspot_score, 0) AS hotspot_score,
+	COALESCE(git.primary_author_email, '') AS primary_author_email,
+	COALESCE(hidden.hidden_coupling_count, 0) AS hidden_coupling_count
+FROM code_files file
+LEFT JOIN code_chunks chunk ON chunk.path = file.path
+LEFT JOIN git_file_signals git ON git.path = file.path
+LEFT JOIN (
+	SELECT path, COUNT(*) AS hidden_coupling_count
+	FROM git_cochanges
+	WHERE hidden_coupling != 0
+	GROUP BY path
+) hidden ON hidden.path = file.path
+WHERE (? = '' OR file.path = ? OR file.path LIKE ? ESCAPE '\')
+	AND (? = '' OR file.language = ?)
+	AND COALESCE(file.deleted_at_utc, '') = ''
+	AND COALESCE(file.stale_reason, '') = ''
+GROUP BY file.path, file.language, file.line_count, git.hotspot_score,
+	git.primary_author_email, hidden.hidden_coupling_count
+ORDER BY hotspot_score DESC, symbols DESC, chunks DESC,
+	file.line_count DESC, file.path
+LIMIT ?`
+
 // GlobalRepoMap returns a compact repository-level AST map for startup and MCP
 // context. It ranks files by indexed symbol density and then includes the first
 // high-signal symbols from each selected file.
@@ -174,18 +199,7 @@ func queryRepoMapFiles(
 
 	rows, err := database.QueryContext(
 		ctx,
-		`SELECT file.path, file.language, file.line_count,
-			COUNT(chunk.chunk_id) AS chunks,
-			SUM(CASE WHEN COALESCE(chunk.symbol_path, '') != '' THEN 1 ELSE 0 END) AS symbols
-		FROM code_files file
-		LEFT JOIN code_chunks chunk ON chunk.path = file.path
-		WHERE (? = '' OR file.path = ? OR file.path LIKE ? ESCAPE '\')
-			AND (? = '' OR file.language = ?)
-			AND COALESCE(file.deleted_at_utc, '') = ''
-			AND COALESCE(file.stale_reason, '') = ''
-		GROUP BY file.path, file.language, file.line_count
-		ORDER BY symbols DESC, chunks DESC, file.line_count DESC, file.path
-		LIMIT ?`,
+		globalRepoMapFilesSQL,
 		pathFilter.Exact,
 		pathFilter.Exact,
 		pathFilter.PrefixLike,
@@ -209,6 +223,9 @@ func queryRepoMapFiles(
 			&file.LineCount,
 			&file.ChunkCount,
 			&file.SymbolCount,
+			&file.HotspotScore,
+			&file.PrimaryAuthorEmail,
+			&file.HiddenCouplingCount,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan %s repo map file: %w", label, err)
@@ -466,7 +483,9 @@ func repoMapFileScore(file RepoMapFile) int {
 
 	return file.SymbolCount*repoMapSymbolWeight +
 		file.ChunkCount*repoMapChunkWeight +
-		lineWeight
+		lineWeight +
+		int(math.Round(file.HotspotScore)) +
+		file.HiddenCouplingCount*repoMapChunkWeight
 }
 
 func repoMapSignature(rawText string) string {
@@ -503,7 +522,7 @@ func RenderRepoMapTOON(repoMap RepoMap) string {
 		"coding_ethos_repo_map:",
 		"root: " + quoteAnatomyValue(repoMap.Root),
 		"files[" + strconv.Itoa(len(repoMap.Files)) +
-			"]{path,language,lines,score,symbols}:",
+			"]{path,language,lines,score,hotspot,hidden_couplings,owner,symbols}:",
 	}
 
 	for _, file := range repoMap.Files {
@@ -512,6 +531,9 @@ func RenderRepoMapTOON(repoMap RepoMap) string {
 			quoteAnatomyValue(file.Language),
 			strconv.Itoa(file.LineCount),
 			strconv.Itoa(file.Score),
+			strconv.FormatFloat(file.HotspotScore, 'f', 1, 64),
+			strconv.Itoa(file.HiddenCouplingCount),
+			quoteAnatomyValue(file.PrimaryAuthorEmail),
 			quoteAnatomyValue(renderRepoMapSymbols(file.Symbols)),
 		}, ","))
 	}

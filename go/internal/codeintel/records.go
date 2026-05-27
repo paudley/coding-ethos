@@ -449,13 +449,16 @@ type RepoMap struct {
 }
 
 type RepoMapFile struct {
-	Path        string          `json:"path"`
-	Language    string          `json:"language"`
-	Symbols     []RepoMapSymbol `json:"symbols,omitempty"`
-	SymbolCount int             `json:"symbol_count"`
-	ChunkCount  int             `json:"chunk_count"`
-	LineCount   int             `json:"line_count"`
-	Score       int             `json:"score"`
+	Path                string          `json:"path"`
+	Language            string          `json:"language"`
+	PrimaryAuthorEmail  string          `json:"primary_author_email,omitempty"`
+	Symbols             []RepoMapSymbol `json:"symbols,omitempty"`
+	SymbolCount         int             `json:"symbol_count"`
+	ChunkCount          int             `json:"chunk_count"`
+	LineCount           int             `json:"line_count"`
+	HiddenCouplingCount int             `json:"hidden_coupling_count,omitempty"`
+	Score               int             `json:"score"`
+	HotspotScore        float64         `json:"hotspot_score,omitempty"`
 }
 
 type RepoMapSymbol struct {

@@ -61,11 +61,13 @@ skill metadata used by those enforcement paths.
   symbols using normalized hashes and MinHash LSH before an agent writes a
   duplicate implementation.
 - `code_intel_repo_map`: return the compact repository-wide AST map used for
-  startup orientation.
+  startup orientation, including top git-history hotspots and hidden
+  couplings when indexed.
 - `code_intel_context_card`: compose a compact file/symbol triage card with
   chunks, graph context, linked findings, freshness, and follow-up MCP calls.
 - `code_intel_change_risk`: summarize modification risk for target files from
-  indexed chunks, repeated failures, and recommended checks.
+  indexed chunks, git-history signals, reviewer suggestions, repeated
+  failures, and recommended checks.
 - `code_intel_index_code`: parse selected repository paths with Tree-sitter
   and persist symbol/config chunks in the repo-local code-intelligence store.
 - `code_intel_code_chunks`: return focused Tree-sitter chunks by path,

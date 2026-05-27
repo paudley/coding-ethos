@@ -348,11 +348,13 @@ The first tools are intentionally narrow and auditable:
 - `code_similarity_check`: preflight proposed code against indexed repository
   symbols using normalized hashes and MinHash LSH.
 - `code_intel_repo_map`: return a compact repository-wide AST map with ranked
-  files, symbols, and signatures for startup orientation.
+  files, git-history hotspots, hidden couplings, symbols, and signatures for
+  startup orientation.
 - `code_intel_context_card`: compose a compact file/symbol triage card with
   chunks, graph context, linked findings, freshness, and follow-up MCP calls.
 - `code_intel_change_risk`: summarize modification risk for target files from
-  indexed chunks, repeated failures, and recommended checks.
+  indexed chunks, git-history hotspots/co-changes, reviewer suggestions,
+  repeated failures, and recommended checks.
 - `code_intel_index_code`: refresh Tree-sitter chunks for Go, Python,
   JavaScript/TypeScript, shell, YAML, JSON, and TOML paths.
 - `code_intel_code_chunks`: fetch focused symbol/config chunks before broad
@@ -420,6 +422,7 @@ DuckDB code-intelligence store for repeated-failure and remediation search:
 bin/coding-ethos-run code-intel ingest-traces
 bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_imports
 bin/coding-ethos-run code-intel search --text 'unused import'
+bin/coding-ethos-run code-intel git-signals --path pkg/app.py --paths pkg/app.py,pkg/store.py
 bin/coding-ethos-run code-intel anatomy-map --path pkg --format toon
 ls pkg | bin/coding-ethos-run code-intel enrich-listing --command 'ls pkg'
 bin/coding-ethos-run code-intel rebuild-index

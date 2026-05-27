@@ -9,6 +9,7 @@ func schemaStatements() []string {
 	statements = append(statements, hookSchemaStatements()...)
 	statements = append(statements, proxySchemaStatements()...)
 	statements = append(statements, codeSchemaStatements()...)
+	statements = append(statements, gitSignalSchemaStatements()...)
 	statements = append(statements, sarifSchemaStatements()...)
 	statements = append(statements, remediationSchemaStatements()...)
 	statements = append(statements, searchSchemaStatements()...)
@@ -16,7 +17,7 @@ func schemaStatements() []string {
 	return statements
 }
 
-const schemaStatementCapacity = 40
+const schemaStatementCapacity = 45
 
 func traceSchemaStatements() []string {
 	return []string{
@@ -321,6 +322,51 @@ func codeSchemaStatements() []string {
 		path TEXT NOT NULL,
 		symbol_name TEXT NOT NULL,
 		FOREIGN KEY(chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE CASCADE
+	)`,
+	}
+}
+
+func gitSignalSchemaStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS git_signal_metadata (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`,
+		`CREATE TABLE IF NOT EXISTS git_signal_commits (
+		commit_hash TEXT PRIMARY KEY,
+		indexed_at_utc TEXT NOT NULL
+	)`,
+		`CREATE TABLE IF NOT EXISTS git_file_signals (
+		path TEXT PRIMARY KEY,
+		commit_count INTEGER NOT NULL,
+		churn INTEGER NOT NULL,
+		additions INTEGER NOT NULL,
+		deletions INTEGER NOT NULL,
+		author_count INTEGER NOT NULL,
+		primary_author_name TEXT,
+		primary_author_email TEXT,
+		primary_author_commits INTEGER NOT NULL,
+		first_seen_utc TEXT,
+		last_seen_utc TEXT,
+		hotspot_score DOUBLE NOT NULL
+	)`,
+		`CREATE TABLE IF NOT EXISTS git_file_authors (
+		path TEXT NOT NULL,
+		author_email TEXT NOT NULL,
+		author_name TEXT NOT NULL,
+		commit_count INTEGER NOT NULL,
+		additions INTEGER NOT NULL,
+		deletions INTEGER NOT NULL,
+		last_seen_utc TEXT,
+		PRIMARY KEY(path, author_email)
+	)`,
+		`CREATE TABLE IF NOT EXISTS git_cochanges (
+		path TEXT NOT NULL,
+		related_path TEXT NOT NULL,
+		cochange_count INTEGER NOT NULL,
+		last_seen_utc TEXT,
+		hidden_coupling INTEGER NOT NULL,
+		PRIMARY KEY(path, related_path)
 	)`,
 	}
 }

@@ -26,11 +26,14 @@ import (
 
 const (
 	codeIntelDefaultTaskLimit  = 5
+	codeIntelAuthorRiskCount   = 3
+	codeIntelHotspotThreshold  = 25
 	codeIntelMaxTaskLimit      = 25
 	codeIntelMediumRiskReason  = 1
 	codeIntelQualityHigh       = "high"
 	codeIntelQualityMedium     = "medium"
 	codeIntelQualityLow        = "low"
+	codeIntelReviewerLimit     = 3
 	contextCardTOONHeaderLines = 3
 	semanticSearchContextLimit = 5
 )
@@ -71,14 +74,19 @@ type codeIntelContextTarget struct {
 	IndexFresh bool                   `json:"index_fresh"`
 }
 
+type gitReviewerSuggestions []codeintel.GitReviewerSuggestion
+
 type codeIntelRiskTarget struct {
-	Path              string                      `json:"path"`
-	RiskLevel         string                      `json:"risk_level"`
-	Chunks            []codeintel.CodeChunk       `json:"chunks,omitempty"`
-	RepeatedFailures  []codeintel.RepeatedFailure `json:"repeated_failures,omitempty"`
-	Reasons           []string                    `json:"reasons,omitempty"`
-	RecommendedChecks []map[string]string         `json:"recommended_checks,omitempty"`
-	File              codeintel.CodeFile          `json:"file,omitzero"`
+	File               *codeintel.CodeFile         `json:"file,omitempty"`
+	Path               string                      `json:"path"`
+	RiskLevel          string                      `json:"risk_level"`
+	GitSignalFreshness *codeintel.GitSignalSummary `json:"git_signal_freshness"`
+	Chunks             []codeintel.CodeChunk       `json:"chunks,omitempty"`
+	GitSignals         []codeintel.GitFileSignal   `json:"git_signals,omitempty"`
+	Reviewers          gitReviewerSuggestions      `json:"reviewers,omitempty"`
+	RepeatedFailures   []codeintel.RepeatedFailure `json:"repeated_failures,omitempty"`
+	Reasons            []string                    `json:"reasons,omitempty"`
+	RecommendedChecks  []map[string]string         `json:"recommended_checks,omitempty"`
 }
 
 func (server Server) codeIntelOverview(args json.RawMessage) (any, error) {
@@ -752,7 +760,7 @@ func (server Server) codeIntelChangeRisk(args json.RawMessage) (any, error) {
 
 	targets := make([]codeIntelRiskTarget, 0, len(paths))
 	for _, path := range paths {
-		target, targetErr := changeRiskTarget(ctx, store, path, limit)
+		target, targetErr := changeRiskTarget(ctx, store, server.codeIntelRoot(), path, limit)
 		if targetErr != nil {
 			return nil, targetErr
 		}
@@ -1282,6 +1290,7 @@ func renderContextCardTOON(
 func changeRiskTarget(
 	ctx context.Context,
 	store *codeintel.Store,
+	root string,
 	path string,
 	limit int,
 ) (codeIntelRiskTarget, error) {
@@ -1314,33 +1323,129 @@ func changeRiskTarget(
 		)
 	}
 
-	reasons := []string{}
+	gitFreshness, gitSignals, reviewers, err := changeRiskGitSignals(
+		ctx,
+		store,
+		root,
+		path,
+	)
+	if err != nil {
+		return codeIntelRiskTarget{}, err
+	}
 
+	reasons := changeRiskReasons(
+		file,
+		found,
+		len(chunks),
+		limit,
+		len(failures),
+		gitFreshness,
+		gitSignals,
+	)
+
+	return codeIntelRiskTarget{
+		Path:               path,
+		File:               &file,
+		Chunks:             chunks,
+		GitSignalFreshness: &gitFreshness,
+		GitSignals:         gitSignals,
+		Reviewers:          gitReviewerSuggestions(reviewers),
+		RepeatedFailures:   failures,
+		RiskLevel:          riskLevelForReasons(reasons),
+		Reasons:            reasons,
+		RecommendedChecks:  recommendedChecksForPath(path),
+	}, nil
+}
+
+func changeRiskReasons(
+	file codeintel.CodeFile,
+	found bool,
+	chunkCount int,
+	limit int,
+	failureCount int,
+	gitFreshness codeintel.GitSignalSummary,
+	gitSignals []codeintel.GitFileSignal,
+) []string {
+	reasons := []string{}
 	if !found {
 		reasons = append(reasons, "target is not indexed")
 	}
 
-	if len(chunks) >= limit {
+	if chunkCount >= limit {
 		reasons = append(reasons, "target has many indexed chunks")
 	}
 
-	if len(failures) != 0 {
+	if failureCount != 0 {
 		reasons = append(reasons, "target has repeated failure evidence")
+	}
+
+	if gitFreshness.Stale {
+		reasons = append(reasons, "git-signal index metadata is stale")
+	}
+
+	if len(gitSignals) != 0 && gitSignals[0].HotspotScore >= codeIntelHotspotThreshold {
+		reasons = append(reasons, "target is a git-history hotspot")
+	}
+
+	if len(gitSignals) != 0 && gitSignals[0].AuthorCount >= codeIntelAuthorRiskCount {
+		reasons = append(reasons, "target has multi-author ownership risk")
 	}
 
 	if found && (file.StaleReason != "" || file.DeletedAtUTC != "") {
 		reasons = append(reasons, "target index metadata is stale")
 	}
 
-	return codeIntelRiskTarget{
-		Path:              path,
-		File:              file,
-		Chunks:            chunks,
-		RepeatedFailures:  failures,
-		RiskLevel:         riskLevelForReasons(reasons),
-		Reasons:           reasons,
-		RecommendedChecks: recommendedChecksForPath(path),
-	}, nil
+	return reasons
+}
+
+func changeRiskGitSignals(
+	ctx context.Context,
+	store *codeintel.Store,
+	root string,
+	path string,
+) (
+	codeintel.GitSignalSummary,
+	[]codeintel.GitFileSignal,
+	[]codeintel.GitReviewerSuggestion,
+	error,
+) {
+	freshness := codeintel.GitSignalSummary{}
+
+	summary, err := store.GitSignalSummary(ctx, root)
+	if err != nil {
+		freshness.Stale = true
+	} else {
+		freshness = summary
+	}
+
+	gitSignals, err := store.GitSignals(ctx, codeintel.GitSignalQuery{
+		Path:  path,
+		Limit: 1,
+	})
+	if err != nil {
+		return codeintel.GitSignalSummary{}, nil, nil, fmt.Errorf(
+			"query git signals for %s: %w",
+			path,
+			err,
+		)
+	}
+
+	reviewers, err := store.GitReviewerSuggestions(
+		ctx,
+		codeintel.GitReviewerSuggestionQuery{
+			Paths: []string{path},
+			Limit: codeIntelReviewerLimit,
+		},
+	)
+	if err != nil {
+		return codeintel.GitSignalSummary{}, nil, nil, fmt.Errorf(
+			"query git reviewers for %s: %w",
+			path,
+			err,
+		)
+	}
+
+	return freshness, gitSignals, reviewers, nil
 }
 
 func riskLevelForReasons(reasons []string) string {

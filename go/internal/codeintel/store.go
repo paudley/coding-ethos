@@ -43,6 +43,8 @@ type Stats struct {
 	Files               int `json:"files"`
 	CodeChunks          int `json:"code_chunks"`
 	CodeEdges           int `json:"code_edges"`
+	GitFileSignals      int `json:"git_file_signals"`
+	GitCoChanges        int `json:"git_cochanges"`
 	ASTFindingLinks     int `json:"ast_finding_links"`
 	Remediations        int `json:"remediations"`
 	RemediationEvents   int `json:"remediation_events"`
@@ -554,14 +556,8 @@ type statCountQuery struct {
 	query  string
 }
 
+//nolint:funlen // Stats query inventory stays in one auditable list.
 func statCountQueries(stats *Stats) []statCountQuery {
-	return append(
-		coreStatCountQueries(stats),
-		derivedStatCountQueries(stats)...,
-	)
-}
-
-func coreStatCountQueries(stats *Stats) []statCountQuery {
 	return []statCountQuery{
 		{name: "traces", query: "SELECT COUNT(*) FROM traces", target: &stats.Traces},
 		{
@@ -614,15 +610,20 @@ func coreStatCountQueries(stats *Stats) []statCountQuery {
 			query:  "SELECT COUNT(*) FROM code_chunks",
 			target: &stats.CodeChunks,
 		},
-	}
-}
-
-func derivedStatCountQueries(stats *Stats) []statCountQuery {
-	return []statCountQuery{
 		{
 			name:   "code_edges",
 			query:  "SELECT COUNT(*) FROM code_edges",
 			target: &stats.CodeEdges,
+		},
+		{
+			name:   "git_file_signals",
+			query:  "SELECT COUNT(*) FROM git_file_signals",
+			target: &stats.GitFileSignals,
+		},
+		{
+			name:   "git_cochanges",
+			query:  "SELECT COUNT(*) FROM git_cochanges",
+			target: &stats.GitCoChanges,
 		},
 		{
 			name:   "ast_finding_links",

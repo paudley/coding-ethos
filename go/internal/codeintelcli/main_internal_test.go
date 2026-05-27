@@ -6,9 +6,12 @@ package codeintelcli
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
 func TestRunRejectsUnknownCommand(t *testing.T) {
@@ -32,6 +35,38 @@ func TestStatsCreatesStore(t *testing.T) {
 	}
 }
 
+func TestGitSignalsCommandRefreshesRealRepository(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelCLIGit(t, ctx, root, "init", "--initial-branch", "main")
+	runCodeIntelCLIGit(t, ctx, root, "config", "user.name", "Test User")
+	runCodeIntelCLIGit(t, ctx, root, "config", "user.email", "test@example.invalid")
+	runCodeIntelCLIGit(t, ctx, root, "config", "commit.gpgsign", "false")
+
+	sourcePath := filepath.Join(root, "pkg", "app.go")
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("package pkg\n"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	runCodeIntelCLIGit(t, ctx, root, "add", "pkg/app.go")
+	runCodeIntelCLIGit(t, ctx, root, "commit", "-m", "test(repo): add app")
+
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
+	err := run(ctx, []string{
+		"git-signals",
+		"--root", root,
+		"--db", dbPath,
+		"--path", "pkg/app.go",
+	})
+	if err != nil {
+		t.Fatalf("git-signals command returned error: %v", err)
+	}
+}
+
 func TestDownstreamAnalysisDoesNotRequireExistingStore(t *testing.T) {
 	t.Parallel()
 
@@ -50,6 +85,35 @@ func TestDownstreamAnalysisDoesNotRequireExistingStore(t *testing.T) {
 	dbPath := filepath.Join(stateDir, "code-intel.duckdb")
 	if _, statErr := os.Stat(dbPath); !os.IsNotExist(statErr) {
 		t.Fatalf("downstream-analysis created store %q: %v", dbPath, statErr)
+	}
+}
+
+func runCodeIntelCLIGit(
+	t *testing.T,
+	ctx context.Context,
+	root string,
+	args ...string,
+) {
+	t.Helper()
+
+	gitPath, err := realgit.Resolve(ctx, "git")
+	if err != nil {
+		t.Fatalf("resolve git: %v", err)
+	}
+
+	command := exec.CommandContext(ctx, gitPath, args...)
+	command.Dir = root
+	command.Env = append(
+		os.Environ(),
+		"GIT_AUTHOR_NAME=Test User",
+		"GIT_AUTHOR_EMAIL=test@example.invalid",
+		"GIT_COMMITTER_NAME=Test User",
+		"GIT_COMMITTER_EMAIL=test@example.invalid",
+	)
+
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}
 }
 
