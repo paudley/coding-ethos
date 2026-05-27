@@ -5,6 +5,7 @@ package codeintel
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -223,8 +224,74 @@ func TestHealthCochangesLoadsSignalsInOneBatch(t *testing.T) {
 
 	if len(cochanges["pkg/legacy.py"]) != 1 ||
 		!cochanges["pkg/legacy.py"][0].HiddenCoupling ||
-		len(cochanges["cmd/other.go"]) != 1 {
+		len(cochanges["cmd/other.go"]) != 1 ||
+		len(cochanges["unrequested.go"]) != 0 {
 		t.Fatalf("batched cochanges = %#v", cochanges)
+	}
+}
+
+func TestCodeHealthPrunesSnapshotsPerRepoRoot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store := openHealthTestStore(t, root)
+	defer store.Close()
+
+	oldOther := CodeHealthSnapshot{
+		ID:               "old-other",
+		RepoRoot:         "/other",
+		IndexedAtUTC:     "2026-01-01T00:00:00Z",
+		TotalHealthScore: 100,
+	}
+	oldCurrent := CodeHealthSnapshot{
+		ID:               "old-current",
+		RepoRoot:         root,
+		IndexedAtUTC:     "2026-01-01T00:00:00Z",
+		TotalHealthScore: 100,
+	}
+
+	if err := store.persistCodeHealth(ctx, oldOther); err != nil {
+		t.Fatalf("persist other snapshot: %v", err)
+	}
+	if err := store.persistCodeHealth(ctx, oldCurrent); err != nil {
+		t.Fatalf("persist current snapshot: %v", err)
+	}
+
+	for index := range defaultHealthTrendLimit {
+		snapshot := CodeHealthSnapshot{
+			ID:               fmt.Sprintf("current-%02d", index),
+			RepoRoot:         root,
+			IndexedAtUTC:     fmt.Sprintf("2026-01-02T00:%02d:00Z", index),
+			TotalHealthScore: 100,
+		}
+		if err := store.persistCodeHealth(ctx, snapshot); err != nil {
+			t.Fatalf("persist snapshot %d: %v", index, err)
+		}
+	}
+
+	var oldCurrentCount int
+	if err := store.database.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM code_health_snapshots WHERE snapshot_id = ?`,
+		oldCurrent.ID,
+	).Scan(&oldCurrentCount); err != nil {
+		t.Fatalf("count old current snapshot: %v", err)
+	}
+	if oldCurrentCount != 0 {
+		t.Fatalf("old current snapshot count = %d, want 0", oldCurrentCount)
+	}
+
+	var oldOtherCount int
+	if err := store.database.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM code_health_snapshots WHERE snapshot_id = ?`,
+		oldOther.ID,
+	).Scan(&oldOtherCount); err != nil {
+		t.Fatalf("count old other snapshot: %v", err)
+	}
+	if oldOtherCount != 1 {
+		t.Fatalf("other repo snapshot count = %d, want 1", oldOtherCount)
 	}
 }
 

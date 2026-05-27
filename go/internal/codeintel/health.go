@@ -430,10 +430,18 @@ func (store *Store) healthCochanges(
 	}
 
 	signalPaths := map[string]bool{}
+	placeholders := make([]string, 0, len(signals))
+	args := []any{defaultGitSignalCoChangeLimit}
+
 	for _, signal := range signals {
 		signalPaths[signal.Path] = true
+
+		placeholders = append(placeholders, "?")
+		args = append(args, signal.Path)
 	}
 
+	// #nosec G202 -- IN-list placeholders are generated from indexed paths;
+	// path values remain bound parameters.
 	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT path, related_path, cochange_count, COALESCE(last_seen_utc, ''),
@@ -446,9 +454,9 @@ func (store *Store) healthCochanges(
 				) AS rank
 			FROM git_cochanges
 		)
-		WHERE rank <= ?
+		WHERE rank <= ? AND path IN (`+strings.Join(placeholders, ",")+`)
 		ORDER BY path, rank`,
-		defaultGitSignalCoChangeLimit,
+		args...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query health co-changes: %w", err)
