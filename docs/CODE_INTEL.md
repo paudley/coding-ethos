@@ -145,12 +145,15 @@ auditable source of truth.
 
 Code health scoring is another derived DuckDB surface. `code-intel health` and
 MCP `code_intel_health` compute deterministic refactoring rankings from indexed
-files/chunks, exact structural clones, git hotspots, co-change coupling,
-ownership risk, repeated lint/hook failures, and LCOV line coverage. Snapshots,
-targets, evidence rows, and bounded trend history are persisted so every score
-is explainable by biomarker and evidence ID. Consumer repos can reweight or
-disable biomarkers by glob under `code_intel.health` in `repo_config.yaml` for
-generated, vendor, legacy, or test paths.
+files/chunks, large files/functions, complex functions, complex conditionals,
+exact structural clones, git hotspots, co-change coupling, ownership risk,
+repeated lint/hook failures, and LCOV line coverage. Snapshots, targets,
+evidence rows, and bounded trend history are persisted so every score is
+explainable by biomarker and evidence ID. Refreshes persist repo-wide snapshots
+and apply path filters only when reading the ranked targets, so targeted review
+queries cannot replace the repository health baseline. Consumer repos can
+reweight or disable biomarkers by glob under `code_intel.health` in
+`repo_config.yaml` for generated, vendor, legacy, or test paths.
 
 Automatic output pruning applies the configured `code_intel_db` row-retention
 policy after high-volume code-intel writes. The default keeps 90 days of trace

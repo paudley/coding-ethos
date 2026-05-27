@@ -114,18 +114,27 @@ func TestReportFormatsIncludeInventoryRows(t *testing.T) {
 				FileCount:  2,
 				DirCount:   1,
 				TotalBytes: 10,
+				DBStats: &codeintel.Stats{
+					CodeHealthSnapshots: 2,
+					CodeHealthTargets:   7,
+					CodeHealthCoverage:  3,
+				},
 			},
 		},
 	}
 
 	toon := FormatTOON(report)
-	if !strings.Contains(toon, "surfaces[1]") || !strings.Contains(toon, "hook_runs") {
+	if !strings.Contains(toon, "surfaces[1]") ||
+		!strings.Contains(toon, "hook_runs") ||
+		!strings.Contains(toon, "code_intel_db_stats[1]") ||
+		!strings.Contains(toon, "hook_runs,0,0,0,0,2,7,3") {
 		t.Fatalf("TOON report missing inventory row:\n%s", toon)
 	}
 
 	human := FormatHuman(report)
 	if !strings.Contains(human, "coding-ethos output surface report") ||
-		!strings.Contains(human, "- hook_runs: present") {
+		!strings.Contains(human, "- hook_runs: present") ||
+		!strings.Contains(human, "health_snapshots=2 health_targets=7 health_coverage=3") {
 		t.Fatalf("human report missing inventory row:\n%s", human)
 	}
 }

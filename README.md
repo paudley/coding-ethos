@@ -482,7 +482,9 @@ bin/coding-ethos-run output prune --scope code_intel_db --older-than 90d --apply
 The report is non-destructive. It inventories retained hook runs and component
 logs, lint traces, the code-intelligence database, sandbox/cache/state
 directories, runtime caches, local SARIF artifacts, prune traces, and optional
-OS temp evidence. The prune command uses the same registry, defaults to preview
+OS temp evidence. Code-intelligence report rows include health snapshot, target,
+and LCOV coverage counts alongside trace, hook, proxy, and FTS row counts. The
+prune command uses the same registry, defaults to preview
 mode, refuses unknown surface IDs, skips symlinks, and requires `--apply` before
 deleting files. Retention policies support `max_age`, `keep_last`, `max_bytes`,
 code-intel row pruning through `row_retention_days` or `--older-than`, and

@@ -821,6 +821,8 @@ func FormatTOON(report Report) string {
 		))
 	}
 
+	lines = appendCodeIntelDBStatsTOON(lines, report.Surfaces)
+
 	return strings.Join(lines, "\n") + "\n"
 }
 
@@ -855,11 +857,16 @@ func FormatHuman(report Report) string {
 		))
 		if surface.DBStats != nil {
 			lines = append(lines, fmt.Sprintf(
-				"  code-intel: traces=%d hook_events=%d proxy_sessions=%d fts_rows=%d",
+				"  code-intel: traces=%d hook_events=%d proxy_sessions=%d "+
+					"fts_rows=%d health_snapshots=%d health_targets=%d "+
+					"health_coverage=%d",
 				surface.DBStats.Traces,
 				surface.DBStats.HookEvents,
 				surface.DBStats.ProxySessions,
 				surface.DBStats.FtsRows,
+				surface.DBStats.CodeHealthSnapshots,
+				surface.DBStats.CodeHealthTargets,
+				surface.DBStats.CodeHealthCoverage,
 			))
 		}
 
@@ -869,6 +876,45 @@ func FormatHuman(report Report) string {
 	}
 
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func appendCodeIntelDBStatsTOON(lines []string, surfaces []Inventory) []string {
+	stats := []Inventory{}
+
+	for _, surface := range surfaces {
+		if surface.DBStats != nil {
+			stats = append(stats, surface)
+		}
+	}
+
+	if len(stats) == 0 {
+		return lines
+	}
+
+	lines = append(lines,
+		fmt.Sprintf(
+			"code_intel_db_stats[%d]{surface,traces,hook_events,"+
+				"proxy_sessions,fts_rows,health_snapshots,health_targets,"+
+				"health_coverage}:",
+			len(stats),
+		),
+	)
+
+	for _, surface := range stats {
+		lines = append(lines, fmt.Sprintf(
+			"  %s,%d,%d,%d,%d,%d,%d,%d",
+			toonCell(surface.ID),
+			surface.DBStats.Traces,
+			surface.DBStats.HookEvents,
+			surface.DBStats.ProxySessions,
+			surface.DBStats.FtsRows,
+			surface.DBStats.CodeHealthSnapshots,
+			surface.DBStats.CodeHealthTargets,
+			surface.DBStats.CodeHealthCoverage,
+		))
+	}
+
+	return lines
 }
 
 // FormatPruneTOON renders a compact prune report.

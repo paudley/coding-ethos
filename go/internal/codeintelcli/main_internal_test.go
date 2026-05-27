@@ -5,14 +5,18 @@ package codeintelcli
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
+
+var stdoutCaptureMu sync.Mutex
 
 func TestRunRejectsUnknownCommand(t *testing.T) {
 	t.Parallel()
@@ -129,6 +133,67 @@ func TestVectorStatsCreatesDuckDBVectorStore(t *testing.T) {
 }
 
 func TestHealthCommandReturnsSnapshot(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = run(context.Background(), []string{
+			"health",
+			"--root", root,
+			"--db", dbPath,
+			"--refresh",
+		})
+	})
+	if runErr != nil {
+		t.Fatalf("health command returned error: %v", runErr)
+	}
+
+	for _, want := range []string{
+		`"kind": "code_intel_health"`,
+		`"health": {`,
+		`"total_health_score": 100`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("health command output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func captureStdout(t *testing.T, runCommand func()) string {
+	t.Helper()
+
+	stdoutCaptureMu.Lock()
+	defer stdoutCaptureMu.Unlock()
+
+	original := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = original
+	}()
+
+	runCommand()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stdout pipe: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stdout reader: %v", err)
+	}
+
+	return string(output)
+}
+
+func TestHealthCommandAcceptsDirectoryPathFilter(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -139,6 +204,7 @@ func TestHealthCommandReturnsSnapshot(t *testing.T) {
 		"--root", root,
 		"--db", dbPath,
 		"--refresh",
+		"--path", "pkg",
 	})
 	if err != nil {
 		t.Fatalf("health command returned error: %v", err)

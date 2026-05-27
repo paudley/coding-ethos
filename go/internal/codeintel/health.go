@@ -30,6 +30,7 @@ const (
 	largeFileLineThreshold     = 400
 	deepNestingThreshold       = 4
 	complexConditionalBranches = 5
+	complexFunctionBranches    = 10
 	brainMethodLineThreshold   = 90
 	brainMethodBranchThreshold = 8
 	healthHotspotThreshold     = 25
@@ -47,6 +48,7 @@ const (
 	healthLargeFunctionScore   = 10
 	healthNestingScore         = 7
 	healthConditionalScore     = 7
+	healthComplexFuncScore     = 12
 	healthBrainMethodScore     = 16
 	healthCloneScore           = 6
 	healthHotspotScore         = 12
@@ -152,6 +154,8 @@ func (store *Store) CodeHealth(
 	ctx context.Context,
 	query CodeHealthQuery,
 ) (CodeHealthSnapshot, error) {
+	query.GitHead = codeHealthGitHead(ctx, query.Root, query.GitHead)
+
 	if query.Refresh {
 		return store.RefreshCodeHealth(ctx, query)
 	}
@@ -168,17 +172,32 @@ func (store *Store) CodeHealth(
 	return store.RefreshCodeHealth(ctx, query)
 }
 
+func codeHealthGitHead(ctx context.Context, root, explicit string) string {
+	if strings.TrimSpace(explicit) != "" {
+		return strings.TrimSpace(explicit)
+	}
+
+	head, err := currentGitSignalHead(ctx, root)
+	if err != nil {
+		return ""
+	}
+
+	return head
+}
+
 func (store *Store) RefreshCodeHealth(
 	ctx context.Context,
 	query CodeHealthQuery,
 ) (CodeHealthSnapshot, error) {
+	query.GitHead = codeHealthGitHead(ctx, query.Root, query.GitHead)
+
 	settings, err := LoadCodeHealthSettings(query.Root)
 	if err != nil {
 		return CodeHealthSnapshot{}, err
 	}
 
 	if query.LCOVPath != "" {
-		_, err = store.ImportLCOV(ctx, query.LCOVPath, time.Now().UTC())
+		_, err = store.ImportLCOV(ctx, query.Root, query.LCOVPath, time.Now().UTC())
 		if err != nil {
 			return CodeHealthSnapshot{}, err
 		}
@@ -189,7 +208,10 @@ func (store *Store) RefreshCodeHealth(
 		return CodeHealthSnapshot{}, err
 	}
 
-	snapshot := buildCodeHealthSnapshot(query, facts, settings, time.Now().UTC())
+	snapshotQuery := query
+	snapshotQuery.Path = ""
+
+	snapshot := buildCodeHealthSnapshot(snapshotQuery, facts, settings, time.Now().UTC())
 
 	err = store.persistCodeHealth(ctx, snapshot)
 	if err != nil {
@@ -235,6 +257,7 @@ func LoadCodeHealthSettings(root string) (CodeHealthSettings, error) {
 
 func (store *Store) ImportLCOV(
 	ctx context.Context,
+	root string,
 	path string,
 	now time.Time,
 ) (LCOVImportSummary, error) {
@@ -249,7 +272,7 @@ func (store *Store) ImportLCOV(
 	}
 	defer file.Close()
 
-	coverage, err := parseLCOV(file, cleanPath, now.UTC().Format(time.RFC3339))
+	coverage, err := parseLCOV(file, root, cleanPath, now.UTC().Format(time.RFC3339))
 	if err != nil {
 		return LCOVImportSummary{}, err
 	}
@@ -491,7 +514,7 @@ func buildCodeHealthSnapshot(
 		),
 		RepoRoot:         query.Root,
 		GitHead:          query.GitHead,
-		IndexedAtUTC:     now.Format(time.RFC3339),
+		IndexedAtUTC:     now.Format(time.RFC3339Nano),
 		TotalHealthScore: totalHealthScore(targets),
 		TargetCount:      len(targets),
 		Targets:          targets,
@@ -576,6 +599,7 @@ func chunkHealthEvidence(chunks []CodeChunk) []CodeHealthEvidence {
 func singleChunkHealthEvidence(chunk CodeChunk) []CodeHealthEvidence {
 	lineCount := chunk.EndLine - chunk.StartLine + 1
 	branchCount := branchTokenCount(chunk.RawText)
+	cyclomaticEstimate := branchCount + 1
 	depth := indentationDepth(chunk.RawText)
 	evidence := []CodeHealthEvidence{}
 
@@ -603,6 +627,15 @@ func singleChunkHealthEvidence(chunk CodeChunk) []CodeHealthEvidence {
 				"%s has %d conditional branches",
 				healthChunkName(chunk),
 				branchCount,
+			), chunk.ID, chunk.StartLine))
+	}
+
+	if isCallableChunk(chunk) && cyclomaticEstimate >= complexFunctionBranches {
+		evidence = append(evidence, healthEvidence("complex_function", "high",
+			healthComplexFuncScore, fmt.Sprintf(
+				"%s has estimated cyclomatic complexity %d",
+				healthChunkName(chunk),
+				cyclomaticEstimate,
 			), chunk.ID, chunk.StartLine))
 	}
 
@@ -869,10 +902,13 @@ func (store *Store) latestCodeHealth(
 			total_health_score, target_count
 		FROM code_health_snapshots
 		WHERE (? = '' OR repo_root = ?)
+			AND (? = '' OR COALESCE(git_head, '') = ?)
 		ORDER BY indexed_at_utc DESC
 		LIMIT 1`,
 		query.Root,
 		query.Root,
+		query.GitHead,
+		query.GitHead,
 	)
 
 	var snapshot CodeHealthSnapshot
@@ -919,17 +955,21 @@ func (store *Store) healthTargets(
 		limit = defaultHealthLimit
 	}
 
+	filter := strings.TrimSuffix(strings.TrimSpace(filepath.ToSlash(path)), "/")
+	childPattern := filter + "/%"
+
 	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT path, COALESCE(language, ''), health_score, impact_score,
 			effort_score, priority_score, rank
 		FROM code_health_targets
-		WHERE snapshot_id = ? AND (? = '' OR path = ?)
+		WHERE snapshot_id = ? AND (? = '' OR path = ? OR path LIKE ?)
 		ORDER BY rank, priority_score DESC
 		LIMIT ?`,
 		snapshotID,
-		path,
-		path,
+		filter,
+		filter,
+		childPattern,
 		limit,
 	)
 	if err != nil {
@@ -1104,12 +1144,13 @@ func pruneHealthSnapshots(ctx context.Context, transaction *sql.Tx) error {
 
 func parseLCOV(
 	input *os.File,
+	root string,
 	sourcePath string,
 	importedAt string,
 ) ([]CodeHealthCoverage, error) {
 	records := []CodeHealthCoverage{}
 	scanner := bufio.NewScanner(input)
-	current := lcovAccumulator{sourcePath: sourcePath, importedAt: importedAt}
+	current := lcovAccumulator{root: root, sourcePath: sourcePath, importedAt: importedAt}
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -1117,6 +1158,7 @@ func parseLCOV(
 		case strings.HasPrefix(line, "SF:"):
 			current = lcovAccumulator{
 				path:       filepath.ToSlash(strings.TrimPrefix(line, "SF:")),
+				root:       root,
 				sourcePath: sourcePath,
 				importedAt: importedAt,
 			}
@@ -1127,7 +1169,7 @@ func parseLCOV(
 				records = append(records, current.record())
 			}
 
-			current = lcovAccumulator{sourcePath: sourcePath, importedAt: importedAt}
+			current = lcovAccumulator{root: root, sourcePath: sourcePath, importedAt: importedAt}
 		}
 	}
 
@@ -1145,6 +1187,7 @@ func parseLCOV(
 
 type lcovAccumulator struct {
 	path       string
+	root       string
 	sourcePath string
 	importedAt string
 	found      int
@@ -1176,7 +1219,7 @@ func (accumulator *lcovAccumulator) record() CodeHealthCoverage {
 	}
 
 	return CodeHealthCoverage{
-		Path:                cleanLCOVPath(accumulator.path),
+		Path:                cleanLCOVPath(accumulator.path, accumulator.root),
 		SourcePath:          accumulator.sourcePath,
 		ImportedAtUTC:       accumulator.importedAt,
 		FoundLines:          accumulator.found,
@@ -1185,8 +1228,16 @@ func (accumulator *lcovAccumulator) record() CodeHealthCoverage {
 	}
 }
 
-func cleanLCOVPath(path string) string {
-	cleaned := filepath.ToSlash(filepath.Clean(path))
+func cleanLCOVPath(path, root string) string {
+	cleaned := filepath.Clean(path)
+	if filepath.IsAbs(cleaned) && strings.TrimSpace(root) != "" {
+		relative, err := filepath.Rel(root, cleaned)
+		if err == nil && relative != "." && !strings.HasPrefix(relative, "..") {
+			cleaned = relative
+		}
+	}
+
+	cleaned = filepath.ToSlash(cleaned)
 	if after, ok := strings.CutPrefix(cleaned, "../"); ok {
 		return after
 	}
@@ -1200,6 +1251,7 @@ func defaultHealthBiomarkers() map[string]CodeHealthBiomarkerSetting {
 		"large_function":                {Enabled: true, Weight: 1},
 		"deep_nesting":                  {Enabled: true, Weight: 1},
 		"complex_conditional":           {Enabled: true, Weight: 1},
+		"complex_function":              {Enabled: true, Weight: 1},
 		"brain_method_candidate":        {Enabled: true, Weight: 1},
 		"structural_clone":              {Enabled: true, Weight: 1},
 		"git_hotspot":                   {Enabled: true, Weight: 1},
