@@ -645,24 +645,7 @@ policy:
           - make pre-commit
 
 git:
-  destructive_command:
-    enabled: true
-  merge_strategy_shortcut:
-    enabled: true
-  force_push_protected_branch:
-    enabled: true
-  checkout_protected_branch:
-    enabled: true
-  destructive_worktree:
-    enabled: true
-  change_dir_flag:
-    enabled: true
-  commit_head_advanced:
-    enabled: true
-  wrapper_required:
-    enabled: true
   staged_admin_files:
-    enabled: true
     basenames:
       - .pre-commit-config.yaml
       - pre-commit-config.yaml

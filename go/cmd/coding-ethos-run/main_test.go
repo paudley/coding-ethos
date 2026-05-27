@@ -468,7 +468,7 @@ repo:
 	}
 
 	parentBundle := parentPolicyBundlePath(paths, options)
-	assertProtectedBranchWorkPoliciesAbsent(t, parentBundle)
+	assertProtectedBranchWorkPoliciesPresent(t, parentBundle)
 
 	err = checkParentPolicyBundle(paths, options)
 	if err != nil {
@@ -498,7 +498,7 @@ repo:
 	}
 }
 
-func TestParentRuntimeBundleDisablesProtectedBranchHookPolicy(t *testing.T) {
+func TestParentRuntimeBundleKeepsProtectedBranchHookPolicy(t *testing.T) {
 	t.Parallel()
 
 	sourceRoot := findRunnerRepoRoot(t)
@@ -539,10 +539,10 @@ repo:
 	}
 
 	parentBundle := parentPolicyBundlePath(paths, parentWorkflowOptions{Repo: parentRepo})
-	assertProtectedBranchWorkPoliciesAbsent(t, parentBundle)
+	assertProtectedBranchWorkPoliciesPresent(t, parentBundle)
 
 	bundle := readPolicyBundleForTest(t, parentBundle)
-	assertParentHookAllowsProtectedBranchDisabledEvent(t, bundle, parentRepo, hooks.Event{
+	assertParentHookAllowsUnrelatedProtectedBranchEvent(t, bundle, parentRepo, hooks.Event{
 		HookEventName: "PreToolUse",
 		ProviderHint:  "codex",
 		ToolName:      "Bash",
@@ -551,7 +551,7 @@ repo:
 			"command": "printf '%s\n' ready",
 		},
 	})
-	assertParentHookAllowsProtectedBranchDisabledEvent(t, bundle, parentRepo, hooks.Event{
+	assertParentHookBlocksProtectedBranchWriteEvent(t, bundle, parentRepo, hooks.Event{
 		HookEventName: "PreToolUse",
 		ProviderHint:  "codex",
 		ToolName:      "Write",
@@ -3075,7 +3075,7 @@ func parentBuildableGoToolsSourceFixture(t *testing.T, ethosRoot string) string 
 	return sourceRoot
 }
 
-func assertProtectedBranchWorkPoliciesAbsent(t *testing.T, bundlePath string) {
+func assertProtectedBranchWorkPoliciesPresent(t *testing.T, bundlePath string) {
 	t.Helper()
 
 	bundle := readPolicyBundleForTest(t, bundlePath)
@@ -3084,8 +3084,8 @@ func assertProtectedBranchWorkPoliciesAbsent(t *testing.T, bundlePath string) {
 		"git.checkout_protected_branch",
 		"filesystem.protected_branch_write",
 	} {
-		if _, found := bundle.Policies[policyID]; found {
-			t.Fatalf("%s should be disabled in %s", policyID, bundlePath)
+		if _, found := bundle.Policies[policyID]; !found {
+			t.Fatalf("%s should remain enabled in %s", policyID, bundlePath)
 		}
 	}
 }
@@ -3122,7 +3122,7 @@ func writePolicyBundleForTest(t *testing.T, bundlePath string) {
 	}
 }
 
-func assertParentHookAllowsProtectedBranchDisabledEvent(
+func assertParentHookAllowsUnrelatedProtectedBranchEvent(
 	t *testing.T,
 	bundle policy.Bundle,
 	parentRepo string,
@@ -3137,13 +3137,35 @@ func assertParentHookAllowsProtectedBranchDisabledEvent(
 
 	for _, decision := range result.Decisions {
 		if decision.PolicyID == "filesystem.protected_branch_write" {
-			t.Fatalf("protected branch policy dispatched despite disabled config: %#v", result)
+			t.Fatalf("protected branch policy dispatched for unrelated event: %#v", result)
 		}
 	}
 
 	if result.Status != "allowed" {
 		t.Fatalf("parent hook status for %s = %#v", parentRepo, result)
 	}
+}
+
+func assertParentHookBlocksProtectedBranchWriteEvent(
+	t *testing.T,
+	bundle policy.Bundle,
+	parentRepo string,
+	event hooks.Event,
+) {
+	t.Helper()
+
+	result, err := hooks.Run(bundle, hooks.Options{Event: event})
+	if err != nil {
+		t.Fatalf("run parent hook event: %v", err)
+	}
+
+	for _, decision := range result.Decisions {
+		if decision.PolicyID == "filesystem.protected_branch_write" {
+			return
+		}
+	}
+
+	t.Fatalf("protected branch write should be blocked for %s: %#v", parentRepo, result)
 }
 
 func runRunnerTestGit(t *testing.T, dir string, args ...string) {

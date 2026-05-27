@@ -44,12 +44,6 @@ repo:
   # Additional opt-in profiles can be layered when needed.
   profiles:
     - generated-site-output
-  # Parent repos that intentionally allow direct work on main/master can disable
-  # the protected-branch work guard here. This disables branch-switch blocking
-  # and protected-branch file-write blocking together; force-push protection
-  # remains enabled unless explicitly disabled under git.force_push_protected_branch.
-  protected_branch_work:
-    enabled: true
   license:
     # Set this per consuming repo to opt into LICENSE file and header checks.
     # When enabled, coding-ethos downloads the SPDX text, validates LICENSE
@@ -114,7 +108,6 @@ proxy:
 
 git:
   staged_admin_files:
-    enabled: true
     basenames:
       - pyproject.toml
       - repo_config.yaml

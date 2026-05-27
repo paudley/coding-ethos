@@ -65,11 +65,6 @@ func compilePolicies(
 		return nil, err
 	}
 
-	if protectedBranchWorkDisabled(config) {
-		delete(policies, "git.checkout_protected_branch")
-		delete(policies, "filesystem.protected_branch_write")
-	}
-
 	return policies, nil
 }
 
@@ -80,31 +75,16 @@ func addProxyPolicies(policies map[string]Policy, config map[string]any) {
 	}
 }
 
-func protectedBranchWorkDisabled(config map[string]any) bool {
-	value, exists := valueAt(config, "repo", "protected_branch_work", "enabled")
-	if !exists {
-		return false
-	}
-
-	boolValue, ok := value.(bool)
-
-	return ok && !boolValue
-}
-
 func addGitPolicies(
 	policies map[string]Policy,
 	config map[string]any,
 	principles map[string]Principle,
 ) {
 	for _, policy := range gitPolicies(config, principles) {
-		if policyConfigEnabled(config, policy.ID) {
-			policies[policy.ID] = policy
-		}
+		policies[policy.ID] = policy
 	}
 
-	if policyConfigEnabled(config, "git.wrapper_required") {
-		policies["git.wrapper_required"] = gitWrapperRequiredPolicy(principles)
-	}
+	policies["git.wrapper_required"] = gitWrapperRequiredPolicy(principles)
 
 	if enabledAt(config, []string{"go", "commit_attribution"}) {
 		policies["git.commit_attribution"] = gitCommitAttributionPolicy(

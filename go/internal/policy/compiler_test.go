@@ -1906,7 +1906,7 @@ go:
 	}
 }
 
-func TestCompileRepoConfigCanDisableProtectedBranchWorkPolicies(t *testing.T) {
+func TestCompileRepoConfigCannotDisableProtectedBranchWorkPolicies(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -1935,8 +1935,8 @@ repo:
 		"git.checkout_protected_branch",
 		"filesystem.protected_branch_write",
 	} {
-		if _, found := bundle.Policies[policyID]; found {
-			t.Fatalf("policy should be disabled by repo_config: %s", policyID)
+		if _, found := bundle.Policies[policyID]; !found {
+			t.Fatalf("policy should remain enabled despite repo_config: %s", policyID)
 		}
 	}
 
@@ -1945,7 +1945,7 @@ repo:
 	}
 }
 
-func TestCompileProtectedBranchWorkSwitchOwnsRelatedPolicies(t *testing.T) {
+func TestCompileGitPolicyEnabledFalseCannotDisableInvariantPolicies(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -1956,15 +1956,13 @@ func TestCompileProtectedBranchWorkSwitchOwnsRelatedPolicies(t *testing.T) {
 	writeTestFile(t, primaryPath, testEthosYAML(t))
 	writeTestFile(t, configPath, testConfigYAML)
 	writeTestFile(t, repoConfigPath, `
-repo:
-  protected_branch_work:
-    enabled: false
-filesystem:
-  protected_branch_write:
-    enabled: true
 git:
+  wrapper_required:
+    enabled: false
+  staged_admin_files:
+    enabled: false
   checkout_protected_branch:
-    enabled: true
+    enabled: false
 `)
 
 	bundle, _, err := Compile(CompileOptions{
@@ -1977,11 +1975,12 @@ git:
 	}
 
 	for _, policyID := range []string{
+		"git.wrapper_required",
+		"git.staged_admin_files",
 		"git.checkout_protected_branch",
-		"filesystem.protected_branch_write",
 	} {
-		if _, found := bundle.Policies[policyID]; found {
-			t.Fatalf("repo switch should own related policy disable: %s", policyID)
+		if _, found := bundle.Policies[policyID]; !found {
+			t.Fatalf("policy should remain enabled despite git enabled flag: %s", policyID)
 		}
 	}
 }
