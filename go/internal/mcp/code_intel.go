@@ -774,6 +774,9 @@ func (server Server) codeIntelChangeRisk(args json.RawMessage) (any, error) {
 		"code_chunks",
 		"code_edges",
 		"code_health_snapshots",
+		"code_health_targets",
+		"code_health_evidence",
+		"code_health_coverage",
 		"finding_occurrences",
 		"remediation_outcomes",
 	})

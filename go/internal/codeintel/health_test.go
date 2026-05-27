@@ -93,7 +93,7 @@ DA:2,0
 end_of_record
 SF:`+absoluteSourcePath+`
 DA:1,1
-DA:2,1
+DA:2,1,checksum
 end_of_record
 `), 0o600); err != nil {
 		t.Fatalf("write LCOV: %v", err)
@@ -116,10 +116,127 @@ end_of_record
 		t.Fatalf("path override did not disable large_function: %#v", snapshot.Targets[0])
 	}
 
-	coverage := store.healthCoverage(ctx)
+	coverage, err := store.healthCoverage(ctx)
+	if err != nil {
+		t.Fatalf("load health coverage: %v", err)
+	}
 	record, found := coverage["pkg/legacy.py"]
 	if !found || record.FoundLines != 2 || record.CoveredLines != 2 {
 		t.Fatalf("LCOV record = %#v, found=%t", record, found)
+	}
+}
+
+func TestCodeHealthTotalScoreIncludesHealthyFilesAndCountsAllTargets(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store := openHealthTestStore(t, root)
+	defer store.Close()
+
+	indexHealthFixture(t, ctx, store)
+	indexHealthHealthyFixture(t, ctx, store)
+
+	snapshot, err := store.RefreshCodeHealth(ctx, CodeHealthQuery{
+		Root:    root,
+		GitHead: "total-score",
+		Limit:   1,
+	})
+	if err != nil {
+		t.Fatalf("refresh health: %v", err)
+	}
+
+	if len(snapshot.Targets) != 1 {
+		t.Fatalf("target count after limit = %d, want 1", len(snapshot.Targets))
+	}
+	if snapshot.TargetCount != 2 {
+		t.Fatalf("untruncated target count = %d, want 2", snapshot.TargetCount)
+	}
+	if snapshot.TotalHealthScore <= snapshot.Targets[0].HealthScore {
+		t.Fatalf("repo score did not include healthy file: snapshot=%#v", snapshot)
+	}
+}
+
+func TestCodeHealthConfigSupportsZeroWeights(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store := openHealthTestStore(t, root)
+	defer store.Close()
+
+	indexHealthFixture(t, ctx, store)
+
+	config := []byte(`code_intel:
+  health:
+    biomarkers:
+      large_function:
+        enabled: true
+        weight: 0.0
+    path_overrides:
+      - glob: "**/legacy.py"
+        weights:
+          structural_clone: 0.0
+`)
+	if err := os.WriteFile(
+		filepath.Join(root, "repo_config.yaml"),
+		config,
+		0o600,
+	); err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	snapshot, err := store.RefreshCodeHealth(ctx, CodeHealthQuery{
+		Root:    root,
+		GitHead: "zero-weight",
+		Limit:   5,
+	})
+	if err != nil {
+		t.Fatalf("refresh health: %v", err)
+	}
+
+	target := healthTargetByPath(t, snapshot.Targets, "pkg/legacy.py")
+	if healthTargetHasBiomarker(target, "large_function") ||
+		healthTargetHasBiomarker(target, "structural_clone") {
+		t.Fatalf("zero-weight biomarkers were retained: %#v", target)
+	}
+}
+
+func TestHealthCochangesLoadsSignalsInOneBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store := openHealthTestStore(t, root)
+	defer store.Close()
+
+	insertHealthCochange(t, ctx, store, "pkg/legacy.py", "pkg/copy.py", 5, true)
+	insertHealthCochange(t, ctx, store, "cmd/other.go", "pkg/legacy.py", 3, false)
+
+	cochanges, err := store.healthCochanges(ctx, []GitFileSignal{
+		{Path: "pkg/legacy.py"},
+		{Path: "cmd/other.go"},
+	})
+	if err != nil {
+		t.Fatalf("load health cochanges: %v", err)
+	}
+
+	if len(cochanges["pkg/legacy.py"]) != 1 ||
+		!cochanges["pkg/legacy.py"][0].HiddenCoupling ||
+		len(cochanges["cmd/other.go"]) != 1 {
+		t.Fatalf("batched cochanges = %#v", cochanges)
+	}
+}
+
+func TestHealthBranchAndIndentHeuristicsHandleTabsAndLineStarts(t *testing.T) {
+	t.Parallel()
+
+	text := "if ready {\n\tfor _, item := range items {\n\t\tcaseName := item\n\t\tif caseName != \"\" && ok || fallback {\n\t\t\twhile ready {\n\t\t\t\tvalue++\n\t\t\t}\n\t\t}\n\t}\n}\n"
+	if got := branchTokenCount(text); got < 6 {
+		t.Fatalf("branchTokenCount() = %d, want at least 6", got)
+	}
+	if got := indentationDepth(text); got < 3 {
+		t.Fatalf("indentationDepth() = %d, want at least 3", got)
 	}
 }
 
@@ -307,6 +424,88 @@ func indexHealthOtherFixture(t *testing.T, ctx context.Context, store *Store) {
 	if err != nil {
 		t.Fatalf("index other fixture: %v", err)
 	}
+}
+
+func indexHealthHealthyFixture(t *testing.T, ctx context.Context, store *Store) {
+	t.Helper()
+
+	raw := "package pkg\n\nfunc ok() { println(\"ok\") }\n"
+	chunk := CodeChunk{
+		ID:             "chunk-healthy",
+		Path:           "pkg/healthy.go",
+		Language:       "go",
+		NodeKind:       "function_declaration",
+		SymbolKind:     "function",
+		SymbolName:     "ok",
+		SymbolPath:     "ok",
+		ContentHash:    "hash-healthy-chunk",
+		NormalizedHash: "",
+		SearchText:     "healthy function",
+		RawText:        raw,
+		StartLine:      3,
+		EndLine:        3,
+	}
+	err := store.ReplaceCodeFileIndex(ctx, CodeFile{
+		Path:         "pkg/healthy.go",
+		Language:     "go",
+		ContentHash:  "hash-healthy",
+		IndexedAtUTC: "2026-01-01T00:00:00Z",
+		SizeBytes:    len(raw),
+		LineCount:    3,
+	}, []CodeChunk{chunk}, nil)
+	if err != nil {
+		t.Fatalf("index healthy fixture: %v", err)
+	}
+}
+
+func insertHealthCochange(
+	t *testing.T,
+	ctx context.Context,
+	store *Store,
+	path string,
+	related string,
+	count int,
+	hidden bool,
+) {
+	t.Helper()
+
+	hiddenValue := 0
+	if hidden {
+		hiddenValue = 1
+	}
+
+	_, err := store.database.ExecContext(
+		ctx,
+		`INSERT INTO git_cochanges(
+			path, related_path, cochange_count, last_seen_utc, hidden_coupling
+		) VALUES (?, ?, ?, ?, ?)`,
+		path,
+		related,
+		count,
+		"2026-01-01T00:00:00Z",
+		hiddenValue,
+	)
+	if err != nil {
+		t.Fatalf("insert cochange: %v", err)
+	}
+}
+
+func healthTargetByPath(
+	t *testing.T,
+	targets []CodeHealthTarget,
+	path string,
+) CodeHealthTarget {
+	t.Helper()
+
+	for _, target := range targets {
+		if target.Path == path {
+			return target
+		}
+	}
+
+	t.Fatalf("target %q missing from %#v", path, targets)
+
+	return CodeHealthTarget{}
 }
 
 func runHealthTestGit(t *testing.T, dir string, args ...string) {

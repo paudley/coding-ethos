@@ -60,6 +60,10 @@ const (
 
 var errLCOVSourcePathRequired = apperror.StaticError("LCOV source path is required")
 
+var healthBranchTokenPattern = regexp.MustCompile(
+	`\b(if|else|elif|for|while|case)\b|&&|\|\||\?`,
+)
+
 type CodeHealthQuery struct {
 	Root     string `json:"root,omitempty"`
 	Path     string `json:"path,omitempty"`
@@ -339,13 +343,23 @@ func (store *Store) loadHealthFacts(ctx context.Context) (healthFacts, error) {
 		return healthFacts{}, err
 	}
 
+	cochanges, err := store.healthCochanges(ctx, signals)
+	if err != nil {
+		return healthFacts{}, err
+	}
+
+	coverage, err := store.healthCoverage(ctx)
+	if err != nil {
+		return healthFacts{}, err
+	}
+
 	return healthFacts{
 		files:      files,
 		chunks:     chunks,
 		gitSignals: gitSignalMap(signals),
-		cochanges:  store.healthCochanges(ctx, signals),
+		cochanges:  cochanges,
 		failures:   repeatedFailureMap(failures),
-		coverage:   store.healthCoverage(ctx),
+		coverage:   coverage,
 	}, nil
 }
 
@@ -409,20 +423,71 @@ func (store *Store) healthChunks(ctx context.Context) ([]CodeChunk, error) {
 func (store *Store) healthCochanges(
 	ctx context.Context,
 	signals []GitFileSignal,
-) map[string][]GitCoChange {
+) (map[string][]GitCoChange, error) {
 	cochanges := map[string][]GitCoChange{}
+	if len(signals) == 0 {
+		return cochanges, nil
+	}
 
+	signalPaths := map[string]bool{}
 	for _, signal := range signals {
-		items, err := store.GitCoChanges(ctx, signal.Path, defaultGitSignalCoChangeLimit)
-		if err == nil {
-			cochanges[signal.Path] = items
+		signalPaths[signal.Path] = true
+	}
+
+	rows, err := store.database.QueryContext(
+		ctx,
+		`SELECT path, related_path, cochange_count, COALESCE(last_seen_utc, ''),
+			hidden_coupling
+		FROM (
+			SELECT path, related_path, cochange_count, last_seen_utc, hidden_coupling,
+				ROW_NUMBER() OVER (
+					PARTITION BY path
+					ORDER BY cochange_count DESC, hidden_coupling DESC, related_path
+				) AS rank
+			FROM git_cochanges
+		)
+		WHERE rank <= ?
+		ORDER BY path, rank`,
+		defaultGitSignalCoChangeLimit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query health co-changes: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cochange GitCoChange
+
+		var hidden int
+
+		err = rows.Scan(
+			&cochange.Path,
+			&cochange.RelatedPath,
+			&cochange.Count,
+			&cochange.LastSeenUTC,
+			&hidden,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan health co-change: %w", err)
+		}
+
+		if signalPaths[cochange.Path] {
+			cochange.HiddenCoupling = hidden != 0
+			cochanges[cochange.Path] = append(cochanges[cochange.Path], cochange)
 		}
 	}
 
-	return cochanges
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("iterate health co-changes: %w", err)
+	}
+
+	return cochanges, nil
 }
 
-func (store *Store) healthCoverage(ctx context.Context) map[string]CodeHealthCoverage {
+func (store *Store) healthCoverage(
+	ctx context.Context,
+) (map[string]CodeHealthCoverage, error) {
 	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT path, source_path, imported_at_utc, found_lines, covered_lines,
@@ -430,7 +495,7 @@ func (store *Store) healthCoverage(ctx context.Context) map[string]CodeHealthCov
 		FROM code_health_coverage`,
 	)
 	if err != nil {
-		return map[string]CodeHealthCoverage{}
+		return nil, fmt.Errorf("query code health coverage: %w", err)
 	}
 	defer rows.Close()
 
@@ -439,7 +504,7 @@ func (store *Store) healthCoverage(ctx context.Context) map[string]CodeHealthCov
 	for rows.Next() {
 		var record CodeHealthCoverage
 
-		scanErr := rows.Scan(
+		err = rows.Scan(
 			&record.Path,
 			&record.SourcePath,
 			&record.ImportedAtUTC,
@@ -447,17 +512,19 @@ func (store *Store) healthCoverage(ctx context.Context) map[string]CodeHealthCov
 			&record.CoveredLines,
 			&record.LineCoveragePercent,
 		)
-		if scanErr == nil {
-			coverage[record.Path] = record
+		if err != nil {
+			return coverage, fmt.Errorf("scan code health coverage: %w", err)
 		}
+
+		coverage[record.Path] = record
 	}
 
 	err = rows.Err()
 	if err != nil {
-		return map[string]CodeHealthCoverage{}
+		return coverage, fmt.Errorf("iterate code health coverage: %w", err)
 	}
 
-	return coverage
+	return coverage, nil
 }
 
 func buildCodeHealthSnapshot(
@@ -469,12 +536,15 @@ func buildCodeHealthSnapshot(
 	targets := make([]CodeHealthTarget, 0, len(facts.files))
 	chunksByPath := chunksByPath(facts.chunks)
 	cloneCounts := cloneCountsByPath(facts.chunks)
+	totalFiles := 0
+	totalScore := 0.0
 
 	for path, file := range facts.files {
 		if file.DeletedAtUTC != "" || !healthPathMatches(path, query.Path) {
 			continue
 		}
 
+		totalFiles++
 		target := scoreHealthTarget(
 			file,
 			chunksByPath[path],
@@ -485,6 +555,8 @@ func buildCodeHealthSnapshot(
 			facts.coverage[path],
 			settings,
 		)
+
+		totalScore += target.HealthScore
 		if len(target.Evidence) != 0 {
 			targets = append(targets, target)
 		}
@@ -501,6 +573,7 @@ func buildCodeHealthSnapshot(
 		targets[index].Rank = index + 1
 	}
 
+	targetCount := len(targets)
 	if len(targets) > limit {
 		targets = targets[:limit]
 	}
@@ -515,8 +588,8 @@ func buildCodeHealthSnapshot(
 		RepoRoot:         query.Root,
 		GitHead:          query.GitHead,
 		IndexedAtUTC:     now.Format(time.RFC3339Nano),
-		TotalHealthScore: totalHealthScore(targets),
-		TargetCount:      len(targets),
+		TotalHealthScore: repoHealthScore(totalScore, totalFiles),
+		TargetCount:      targetCount,
 		Targets:          targets,
 	}
 }
@@ -816,7 +889,7 @@ func (store *Store) persistCodeHealth(
 		}
 	}
 
-	err = pruneHealthSnapshots(ctx, transaction)
+	err = pruneHealthSnapshots(ctx, transaction, snapshot.RepoRoot)
 	if err != nil {
 		return err
 	}
@@ -1112,15 +1185,23 @@ func (store *Store) healthTrend(
 	return trend, nil
 }
 
-func pruneHealthSnapshots(ctx context.Context, transaction *sql.Tx) error {
+func pruneHealthSnapshots(
+	ctx context.Context,
+	transaction *sql.Tx,
+	repoRoot string,
+) error {
 	_, err := transaction.ExecContext(
 		ctx,
 		`DELETE FROM code_health_snapshots
-		WHERE snapshot_id NOT IN (
+		WHERE repo_root = ?
+			AND snapshot_id NOT IN (
 			SELECT snapshot_id FROM code_health_snapshots
+			WHERE repo_root = ?
 			ORDER BY indexed_at_utc DESC
 			LIMIT ?
 		)`,
+		repoRoot,
+		repoRoot,
 		defaultHealthTrendLimit,
 	)
 	if err != nil {
@@ -1195,10 +1276,12 @@ type lcovAccumulator struct {
 }
 
 func (accumulator *lcovAccumulator) addLine(value string) {
-	lineNumber, countText, found := strings.Cut(value, ",")
+	lineNumber, rest, found := strings.Cut(value, ",")
 	if !found || strings.TrimSpace(lineNumber) == "" {
 		return
 	}
+
+	countText, _, _ := strings.Cut(rest, ",")
 
 	count, err := strconv.Atoi(strings.TrimSpace(countText))
 	if err != nil {
@@ -1278,8 +1361,8 @@ func applyCodeHealthConfig(settings *CodeHealthSettings, config configdata.Map) 
 			current.Enabled = enabled
 		}
 
-		if weight := floatValue(setting["weight"]); weight != 0 {
-			current.Weight = weight
+		if weightValue, found := setting["weight"]; found {
+			current.Weight = floatValue(weightValue)
 		}
 
 		settings.Biomarkers[name] = current
@@ -1312,7 +1395,7 @@ func weightedHealthEvidence(
 	}
 
 	weight := 1.0
-	if found && setting.Weight != 0 {
+	if found {
 		weight = setting.Weight
 	}
 
@@ -1354,9 +1437,7 @@ func floatMap(values configdata.Map) map[string]float64 {
 
 	result := make(map[string]float64, len(values))
 	for key, value := range values {
-		if parsed := floatValue(value); parsed != 0 {
-			result[key] = parsed
-		}
+		result[key] = floatValue(value)
 	}
 
 	return result
@@ -1470,16 +1551,7 @@ func healthChunkName(chunk CodeChunk) string {
 }
 
 func branchTokenCount(text string) int {
-	count := 0
-	tokens := []string{
-		" if ", " else ", " elif ", " for ", " while ", " case ", "&&", "||", "?",
-	}
-
-	for _, token := range tokens {
-		count += strings.Count(" "+text+" ", token)
-	}
-
-	return count
+	return len(healthBranchTokenPattern.FindAllString(text, -1))
 }
 
 func indentationDepth(text string) int {
@@ -1491,13 +1563,28 @@ func indentationDepth(text string) int {
 			continue
 		}
 
-		depth := (len(line) - len(trimmed)) / healthIndentSpaces
+		depth := indentationLevel(line[:len(line)-len(trimmed)])
 		if depth > maxDepth {
 			maxDepth = depth
 		}
 	}
 
 	return maxDepth
+}
+
+func indentationLevel(indent string) int {
+	columns := 0
+
+	for _, char := range indent {
+		switch char {
+		case '\t':
+			columns += healthIndentSpaces
+		case ' ':
+			columns++
+		}
+	}
+
+	return columns / healthIndentSpaces
 }
 
 func isTestPath(path string) bool {
@@ -1535,17 +1622,12 @@ func effortScore(file CodeFile, chunks []CodeChunk) float64 {
 	)
 }
 
-func totalHealthScore(targets []CodeHealthTarget) float64 {
-	if len(targets) == 0 {
+func repoHealthScore(totalScore float64, totalFiles int) float64 {
+	if totalFiles == 0 {
 		return healthBaseScore
 	}
 
-	total := 0.0
-	for _, target := range targets {
-		total += target.HealthScore
-	}
-
-	return roundedFloat(total / float64(len(targets)))
+	return roundedFloat(totalScore / float64(totalFiles))
 }
 
 func compareHealthTargets(left, right CodeHealthTarget) int {
