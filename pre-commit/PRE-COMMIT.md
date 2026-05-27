@@ -81,7 +81,7 @@ coding-ethos runtime boundary and command rewrite rules without copying a long
 command prefix.
 Use `cerun --check -- <command>` to run the same policy preflight without
 executing the command. The runner records preflight and execution attempts in
-`.coding-ethos/code-intel.db`, carries `--intent <text>` or the
+`.coding-ethos/code-intel.duckdb`, carries `--intent <text>` or the
 `CODING_ETHOS_STRATEGIC_INTENT`/Gemini update-topic environment into sandbox
 evidence and CEL event facts, emits SARIF `agent_remediation` for blocked
 runner commands, and blocks command argv that appears to contain secrets or

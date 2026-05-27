@@ -39,7 +39,7 @@ Go parser and context collectors
 |
 +--> SARIF with AST identity and fingerprints
 |
-+--> SQLite code-intel store, FTS5, and sqlite-vec metadata
++--> DuckDB code-intel store, FTS5, and duckdb-vss metadata
 |
 +--> MCP search, policy explanation, and remediation tools
 ```
@@ -87,7 +87,7 @@ function.
 For persisted context, code-intelligence indexing uses the same parser
 foundation to store code chunks, config entries, parent/child relationships,
 graph edges, parser metadata, and AST-to-finding links in
-`.coding-ethos/code-intel.db`. This keeps MCP retrieval and future embedding
+`.coding-ethos/code-intel.duckdb`. This keeps MCP retrieval and future embedding
 search on the same source identity used by CEL and SARIF.
 
 ### CEL Policy Decisions

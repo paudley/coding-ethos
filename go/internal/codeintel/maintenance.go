@@ -163,7 +163,7 @@ func rootedTracePath(root, tracePath string) (string, error) {
 
 // IngestHookTraceFile records a single hook event trace that was just written
 // by the hook runtime. The append-only event log is the durable telemetry path;
-// the legacy SQLite store is still updated as a compatibility query index.
+// the DuckDB store is updated as the query index.
 func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 	resolvedTracePath, err := rootedTracePath(root, tracePath)
 	if err != nil {
@@ -175,10 +175,7 @@ func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 		return fmt.Errorf("read hook trace for code-intel ingest: %w", err)
 	}
 
-	runID := strings.TrimSuffix(
-		filepath.Base(resolvedTracePath),
-		filepath.Ext(resolvedTracePath),
-	)
+	runID := hookTraceEventRunID(resolvedTracePath)
 
 	err = NewEventLog(DefaultEventLogDir(root)).Append(runID, []EventRecord{
 		{
@@ -193,11 +190,33 @@ func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 
 	store, err := Open(ctx, DefaultDBPath(root))
 	if err != nil {
+		if IsStoreLockError(err) {
+			return nil
+		}
+
 		return err
 	}
 	defer store.Close()
 
 	return NewTraceIngester(store).IngestHookTraceSource(ctx, resolvedTracePath, payload)
+}
+
+func hookTraceEventRunID(resolvedTracePath string) string {
+	fileName := filepath.Base(resolvedTracePath)
+	runID := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+
+	if fileName != downstreamEventJSONFile {
+		return runID
+	}
+
+	parentRunID := filepath.Base(filepath.Dir(resolvedTracePath))
+	if strings.TrimSpace(parentRunID) == "" ||
+		parentRunID == "." ||
+		parentRunID == string(filepath.Separator) {
+		return runID
+	}
+
+	return parentRunID
 }
 
 // IngestLintTraceFile records a single lint trace that was just written.
@@ -230,6 +249,10 @@ func IngestLintTraceFile(ctx context.Context, root, tracePath string) error {
 
 	store, err := Open(ctx, DefaultDBPath(root))
 	if err != nil {
+		if IsStoreLockError(err) {
+			return nil
+		}
+
 		return err
 	}
 	defer store.Close()

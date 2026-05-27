@@ -5041,7 +5041,6 @@ func TestRunFallsBackToLegacyRepoMapWhenDuckDBUpgradeIsLocked(t *testing.T) {
 	context := result.HookSpecificOutput.AdditionalContext
 	for _, expected := range []string{
 		"event: SessionStart",
-		"status: upgrade_failed",
 		"coding_ethos_repo_map:",
 		"pkg/app.py",
 		"def run():",

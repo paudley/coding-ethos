@@ -891,7 +891,7 @@ func codeIntelSearchToolDefinitions() []map[string]any {
 			"code_intel_index_status",
 			toolText(
 				"Report code-intelligence store freshness, embedding",
-				"metadata counts, and sqlite-vec row counts.",
+				"metadata counts, and duckdb-vss row counts.",
 			),
 			map[string]any{
 				"collection": map[string]any{"type": "string"},
@@ -946,7 +946,7 @@ func codeIntelSearchToolDefinition() map[string]any {
 		"code_intel_search",
 		toolText(
 			"Search stored remediation, SARIF, policy, and embedding",
-			"evidence with FTS plus sqlite-vec when a query vector is",
+			"evidence with FTS plus duckdb-vss when a query vector is",
 			"supplied.",
 		),
 		map[string]any{
@@ -1315,7 +1315,7 @@ func codeIntelEmbeddingToolDefinitions() []map[string]any {
 			"code_intel_embedding_candidates",
 			toolText(
 				"Return compact SARIF and remediation records that are",
-				"ready to embed and write into sqlite-vec.",
+				"ready to embed and write into duckdb-vss.",
 			),
 			map[string]any{
 				"record_kind": map[string]any{"type": "string"},

@@ -7,11 +7,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -27,7 +29,7 @@ func TestHookCLIBlocksBashBypass(t *testing.T) {
 			"command": "git commit --no-verify -m test",
 		}),
 	)
-	if status != blockedExitCode {
+	if status != 0 {
 		t.Fatalf("status mismatch: got %d", status)
 	}
 
@@ -123,8 +125,8 @@ func TestRunWithIOBlocksBashBypass(t *testing.T) {
 		&stdout,
 		&stderr,
 	)
-	if status != blockedExitCode {
-		t.Fatalf("status = %d, want %d", status, blockedExitCode)
+	if status != 0 {
+		t.Fatalf("status = %d, want provider JSON deny exit 0", status)
 	}
 
 	result := map[string]any{}
@@ -258,6 +260,64 @@ func TestRunWithIOPersistsProxyOutputTransforms(t *testing.T) {
 		events[0].Transforms[2].Decision != "truncate" ||
 		events[0].Transforms[2].EvidencePath == "" {
 		t.Fatalf("proxy transforms = %#v", events[0].Transforms)
+	}
+}
+
+func TestWriteProxyEventsKeepsDurableEventLogWhenLedgerLocked(t *testing.T) {
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS", "30")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS", "10")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS", "10")
+
+	repo := t.TempDir()
+	err := os.Mkdir(filepath.Join(repo, ".git"), 0o700)
+	if err != nil {
+		t.Fatalf("create git marker: %v", err)
+	}
+
+	attempts := 0
+	openStore := func(
+		context.Context,
+		string,
+	) (*codeintel.Store, error) {
+		attempts++
+
+		return nil, fmt.Errorf(
+			"open code intelligence store: database/sql/driver: " +
+				"could not connect to database: IO Error: Could not set lock",
+		)
+	}
+
+	result := hooks.Result{
+		ProxyEvents: []agentproxy.ProviderEvent{
+			{
+				ID:        "event-proxy-output-lock-wait",
+				Kind:      agentproxy.EventToolOutput,
+				RepoRoot:  repo,
+				SessionID: "session-proxy-output-lock-wait",
+				Tool:      "Bash",
+				Decision:  "allow",
+			},
+		},
+	}
+
+	err = writeProxyEvents(result, openStore)
+	if err != nil {
+		t.Fatalf("write proxy events: %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("proxy ledger open attempts = %d, want one bounded attempt", attempts)
+	}
+
+	records, err := codeintel.NewEventLog(
+		codeintel.DefaultEventLogDir(repo),
+	).ReadAll()
+	if err != nil {
+		t.Fatalf("read proxy event log: %v", err)
+	}
+	if len(records) != 1 ||
+		records[0].Kind != "proxy_event" ||
+		records[0].SourceRunID != "session-proxy-output-lock-wait" {
+		t.Fatalf("proxy event log records = %#v", records)
 	}
 }
 

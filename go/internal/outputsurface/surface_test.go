@@ -27,7 +27,7 @@ func TestBuildReportInventoriesRepoSurfaces(t *testing.T) {
 	writeReportFixture(t, root, ".coding-ethos/lint-runs/ruff.json", "{}\n")
 	writeReportFixture(t, root, ".coding-ethos/state/commit-head.json", `{"head":"abc"}`)
 
-	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 	store, err := codeintel.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("create code-intel store: %v", err)
@@ -182,7 +182,7 @@ func TestPruneFormatsIncludeCandidatesAndDBMaintenance(t *testing.T) {
 		!strings.Contains(human, "- lint_traces deleted") ||
 		!strings.Contains(
 			human,
-			"- code_intel_db rows: deleted_traces=2 deleted_proxy_events=3 vacuumed=true",
+			"- code_intel_db db: deleted_traces=2 deleted_proxy_events=3 vacuumed=true",
 		) ||
 		!strings.Contains(human, "trace_path: /repo/.coding-ethos/prune-runs/run.json") ||
 		!strings.Contains(human, "sample error") {
@@ -268,8 +268,8 @@ func TestAddCodeIntelStatsRecordsOpenError(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	path := filepath.Join(root, "code-intel.db")
-	if err := os.WriteFile(path, []byte("not sqlite"), 0o600); err != nil {
+	path := filepath.Join(root, "code-intel.duckdb")
+	if err := os.WriteFile(path, []byte("not duckdb"), 0o600); err != nil {
 		t.Fatalf("write invalid db: %v", err)
 	}
 

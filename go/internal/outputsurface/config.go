@@ -16,11 +16,19 @@ import (
 )
 
 const (
-	defaultReportFormat = "toon"
-	defaultMaxBytes     = int64(0)
-	hoursPerDay         = 24
-	kibibyte            = 1024
-	kilobyte            = 1000
+	defaultReportFormat          = "toon"
+	defaultMaxBytes              = int64(0)
+	defaultGiB                   = int64(1 << 30)
+	defaultCodeIntelDBMaxBytes   = 2 * defaultGiB
+	defaultDuckDBMaxBytes        = 4 * defaultGiB
+	defaultCodeIntelEventsBudget = 2 * defaultGiB
+	defaultCodeIntelKeepLast     = 20000
+	hoursPerDay                  = 24
+	kibibyte                     = 1024
+	kilobyte                     = 1000
+
+	defaultSidecarMaxAge = 7 * hoursPerDay * time.Hour
+	defaultEventsMaxAge  = DefaultCodeIntelRowRetentionDays * hoursPerDay * time.Hour
 )
 
 var (
@@ -119,7 +127,8 @@ func DefaultSettings() Settings {
 
 	for _, definition := range Definitions() {
 		settings.Prune.Surfaces[definition.ID] = SurfaceRetentionPolicy{
-			Enabled:                definition.CommandPrune || definition.DBMaintenance,
+			Enabled: definition.CommandPrune || definition.DBMaintenance ||
+				definition.AutomaticPrune,
 			Auto:                   definition.AutomaticPrune,
 			MaxAge:                 definition.maxAge,
 			MaxAgeText:             durationText(definition.maxAge),
@@ -130,6 +139,28 @@ func DefaultSettings() Settings {
 		if definition.ID == codeIntelDBSurfaceID {
 			policy := settings.Prune.Surfaces[definition.ID]
 			policy.RowRetentionDays = DefaultCodeIntelRowRetentionDays
+			policy.MaxBytes = defaultDuckDBMaxBytes
+			policy.MaxBytesText = bytesText(policy.MaxBytes)
+			policy.VacuumAfterPrune = true
+			settings.Prune.Surfaces[definition.ID] = policy
+		}
+
+		if definition.ID == codeIntelDuckDBWALID {
+			policy := settings.Prune.Surfaces[definition.ID]
+			policy.MaxAge = defaultSidecarMaxAge
+			policy.MaxAgeText = durationText(policy.MaxAge)
+			policy.MaxBytes = defaultGiB
+			policy.MaxBytesText = bytesText(policy.MaxBytes)
+			settings.Prune.Surfaces[definition.ID] = policy
+		}
+
+		if definition.ID == codeIntelEventsID {
+			policy := settings.Prune.Surfaces[definition.ID]
+			policy.MaxAge = defaultEventsMaxAge
+			policy.MaxAgeText = durationText(policy.MaxAge)
+			policy.KeepLast = defaultCodeIntelKeepLast
+			policy.MaxBytes = defaultCodeIntelEventsBudget
+			policy.MaxBytesText = bytesText(policy.MaxBytes)
 			settings.Prune.Surfaces[definition.ID] = policy
 		}
 	}

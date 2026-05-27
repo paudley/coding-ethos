@@ -24,6 +24,7 @@ const (
 	downstreamStateDir       = ".coding-ethos"
 	downstreamHookRunsDir    = "hook-runs"
 	downstreamLintRunsDir    = "lint-runs"
+	downstreamEventJSONFile  = "event.json"
 	downstreamRebuildIndex   = "rebuild_index"
 	downstreamHealthy        = "healthy"
 	downstreamAppendOnlyHint = "observed SQLITE_BUSY; consider append-only " +
@@ -41,7 +42,7 @@ type DownstreamAnalysis struct {
 	ToolchainHealth   []DownstreamToolchainHealth  `json:"toolchain_health,omitempty"`
 	EvidenceGaps      []DownstreamEvidenceGap      `json:"evidence_gaps,omitempty"`
 	PolicyBlockers    []DownstreamPolicyBlocker    `json:"policy_blockers,omitempty"`
-	SQLiteStrategy    DownstreamSQLiteStrategy     `json:"sqlite_strategy"`
+	StorageStrategy   DownstreamStorageStrategy    `json:"storage_strategy"`
 	StorageHealth     DownstreamStorageHealth      `json:"storage_health"`
 	Stats             Stats                        `json:"stats,omitzero"`
 	LogSignals        DownstreamLogSignals         `json:"log_signals"`
@@ -141,7 +142,7 @@ type DownstreamLogSignals struct {
 	NonEmptyStderrLogs     int `json:"non_empty_stderr_logs"`
 	NonEmptyLintRunLogs    int `json:"non_empty_lint_run_logs"`
 	LargeLogCount          int `json:"large_log_count"`
-	SQLiteBusyCount        int `json:"sqlite_busy_count"`
+	StorageBusyCount       int `json:"storage_busy_count"`
 	StaleRepoMapCount      int `json:"stale_repo_map_count"`
 	SandboxMissingCount    int `json:"sandbox_missing_count"`
 	ToolchainFailureCount  int `json:"toolchain_failure_count"`
@@ -153,12 +154,12 @@ type DownstreamLogSignals struct {
 	UnparsedDiagnosticLogs int `json:"unparsed_diagnostic_logs"`
 }
 
-type DownstreamSQLiteStrategy struct {
+type DownstreamStorageStrategy struct {
 	OpenError              string `json:"open_error,omitempty"`
 	JournalMode            string `json:"journal_mode,omitempty"`
 	AppendOnlyFallbackHint string `json:"append_only_fallback_hint,omitempty"`
 	BusyTimeoutMS          int    `json:"busy_timeout_ms,omitempty"`
-	SQLiteBusyLogCount     int    `json:"sqlite_busy_log_count"`
+	StorageBusyLogCount    int    `json:"storage_busy_log_count"`
 	StoreAvailable         bool   `json:"store_available"`
 	ReadOnlyAnalysis       bool   `json:"read_only_analysis"`
 	SingleConnectionPool   bool   `json:"single_connection_pool"`
@@ -168,15 +169,15 @@ type DownstreamStorageHealth struct {
 	Backend                 string `json:"backend"`
 	SourceOfTruth           string `json:"source_of_truth"`
 	Path                    string `json:"path,omitempty"`
-	LegacySQLitePath        string `json:"legacy_sqlite_path,omitempty"`
+	ObsoleteStorePath       string `json:"obsolete_store_path,omitempty"`
 	OpenError               string `json:"open_error,omitempty"`
 	Recommendation          string `json:"recommendation"`
 	EventCount              int    `json:"event_count"`
 	ImportedEventCount      int    `json:"imported_event_count"`
 	StoreAvailable          bool   `json:"store_available"`
 	ReadOnlyAnalysis        bool   `json:"read_only_analysis"`
-	ImportedLegacySQLite    bool   `json:"imported_legacy_sqlite"`
-	LogOnlySQLiteBusyCount  int    `json:"log_only_sqlite_busy_count"`
+	ImportedObsoleteStore   bool   `json:"imported_obsolete_store"`
+	LogOnlyStorageBusyCount int    `json:"log_only_storage_busy_count"`
 	LogOnlyToolchainSignals int    `json:"log_only_toolchain_signals"`
 }
 
@@ -197,17 +198,17 @@ func AnalyzeDownstream(
 
 	analysis := DownstreamAnalysis{
 		LogSignals:    logSignals,
-		StorageHealth: downstreamLegacySQLiteStorageHealth(root, store, logSignals),
-		SQLiteStrategy: DownstreamSQLiteStrategy{
+		StorageHealth: downstreamStorageHealth(root, store, logSignals),
+		StorageStrategy: DownstreamStorageStrategy{
 			StoreAvailable:       store != nil,
-			SQLiteBusyLogCount:   logSignals.SQLiteBusyCount,
+			StorageBusyLogCount:  logSignals.StorageBusyCount,
 			ReadOnlyAnalysis:     true,
 			SingleConnectionPool: downstreamSingleConnectionPool(store),
 		},
 	}
 
-	if logSignals.SQLiteBusyCount > 0 {
-		analysis.SQLiteStrategy.AppendOnlyFallbackHint = downstreamAppendOnlyHint
+	if logSignals.StorageBusyCount > 0 {
+		analysis.StorageStrategy.AppendOnlyFallbackHint = downstreamAppendOnlyHint
 	}
 
 	if store == nil {
@@ -242,19 +243,19 @@ func AnalyzeDownstreamDuckDB(
 			Backend:                 "duckdb",
 			SourceOfTruth:           "event_log",
 			Path:                    downstreamDuckDBStorePath(root, store),
-			LegacySQLitePath:        DefaultDBPath(root),
+			ObsoleteStorePath:       downstreamObsoleteStorePath(root),
 			EventCount:              downstreamEventCount(root),
 			ImportedEventCount:      downstreamImportedEventCount(ctx, store),
 			StoreAvailable:          store != nil,
 			ReadOnlyAnalysis:        true,
-			ImportedLegacySQLite:    false,
-			LogOnlySQLiteBusyCount:  logSignals.SQLiteBusyCount,
+			ImportedObsoleteStore:   false,
+			LogOnlyStorageBusyCount: logSignals.StorageBusyCount,
 			LogOnlyToolchainSignals: logSignals.ToolchainFailureCount,
 		},
-		SQLiteStrategy: DownstreamSQLiteStrategy{
-			StoreAvailable:     false,
-			SQLiteBusyLogCount: logSignals.SQLiteBusyCount,
-			ReadOnlyAnalysis:   true,
+		StorageStrategy: DownstreamStorageStrategy{
+			StoreAvailable:      false,
+			StorageBusyLogCount: logSignals.StorageBusyCount,
+			ReadOnlyAnalysis:    true,
 		},
 	}
 	analysis.StorageHealth.Recommendation = downstreamDuckDBStorageRecommendation(
@@ -310,25 +311,34 @@ func downstreamSingleConnectionPool(store *Store) bool {
 	return store.database.Stats().MaxOpenConnections == 1
 }
 
-func downstreamLegacySQLiteStorageHealth(
+func downstreamStorageHealth(
 	root string,
 	store *Store,
 	logSignals DownstreamLogSignals,
 ) DownstreamStorageHealth {
 	return DownstreamStorageHealth{
-		Backend:                 "sqlite_legacy",
-		SourceOfTruth:           "sqlite_legacy",
-		Path:                    DefaultDBPath(root),
-		LegacySQLitePath:        DefaultDBPath(root),
+		Backend:                 "obsolete_store",
+		SourceOfTruth:           "obsolete_store",
+		Path:                    downstreamObsoleteStorePath(root),
+		ObsoleteStorePath:       downstreamObsoleteStorePath(root),
 		Recommendation:          downstreamStorageRecommendation(store != nil, logSignals),
 		EventCount:              downstreamEventCount(root),
 		ImportedEventCount:      0,
 		StoreAvailable:          store != nil,
 		ReadOnlyAnalysis:        true,
-		ImportedLegacySQLite:    false,
-		LogOnlySQLiteBusyCount:  logSignals.SQLiteBusyCount,
+		ImportedObsoleteStore:   false,
+		LogOnlyStorageBusyCount: logSignals.StorageBusyCount,
 		LogOnlyToolchainSignals: logSignals.ToolchainFailureCount,
 	}
+}
+
+func downstreamObsoleteStorePath(root string) string {
+	paths := ObsoleteCodeIntelArtifactPaths(root)
+	if len(paths) == 0 {
+		return ""
+	}
+
+	return paths[0]
 }
 
 func downstreamStorageRecommendation(
@@ -339,7 +349,7 @@ func downstreamStorageRecommendation(
 		return downstreamRebuildIndex
 	}
 
-	if logSignals.SQLiteBusyCount > 0 ||
+	if logSignals.StorageBusyCount > 0 ||
 		logSignals.ToolchainFailureCount > 0 ||
 		logSignals.UnparsedDiagnosticLogs > 0 {
 		return downstreamRebuildIndex
@@ -364,7 +374,7 @@ func downstreamDuckDBStorageRecommendation(
 		return "event_log_missing"
 	}
 
-	if logSignals.SQLiteBusyCount > 0 ||
+	if logSignals.StorageBusyCount > 0 ||
 		logSignals.ToolchainFailureCount > 0 ||
 		logSignals.UnparsedDiagnosticLogs > 0 {
 		return "log_only_evidence_present"
@@ -450,12 +460,12 @@ func downstreamToolchainHealth(
 
 func downstreamEvidenceGaps(analysis DownstreamAnalysis) []DownstreamEvidenceGap {
 	gaps := []DownstreamEvidenceGap{}
-	if analysis.LogSignals.SQLiteBusyCount > 0 {
+	if analysis.LogSignals.StorageBusyCount > 0 {
 		gaps = append(gaps, DownstreamEvidenceGap{
-			Signal:         "sqlite_busy",
+			Signal:         "storage_busy",
 			Source:         "hook_or_lint_logs",
 			QueryIndex:     analysis.StorageHealth.Backend,
-			Count:          analysis.LogSignals.SQLiteBusyCount,
+			Count:          analysis.LogSignals.StorageBusyCount,
 			Recommendation: "rebuild DuckDB index from append-only events and legacy logs",
 		})
 	}
@@ -592,14 +602,6 @@ func populateDownstreamAnalysisFromStore(
 
 	analysis.Stats = stats
 
-	journalMode, busyTimeout, err := sqliteRuntimeSettings(ctx, store.database)
-	if err != nil {
-		return DownstreamAnalysis{}, err
-	}
-
-	analysis.SQLiteStrategy.JournalMode = journalMode
-	analysis.SQLiteStrategy.BusyTimeoutMS = busyTimeout
-
 	analysis, err = populateDownstreamAnalysisFromDatabase(
 		ctx,
 		store.database,
@@ -674,31 +676,6 @@ func populateDownstreamAnalysisFromDatabase(
 	}
 
 	return analysis, nil
-}
-
-func sqliteRuntimeSettings(
-	ctx context.Context,
-	database *sql.DB,
-) (string, int, error) {
-	var journalMode string
-
-	err := database.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(
-		&journalMode,
-	)
-	if err != nil {
-		return "", 0, fmt.Errorf("read SQLite journal mode: %w", err)
-	}
-
-	var busyTimeout int
-
-	err = database.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(
-		&busyTimeout,
-	)
-	if err != nil {
-		return "", 0, fmt.Errorf("read SQLite busy timeout: %w", err)
-	}
-
-	return journalMode, busyTimeout, nil
 }
 
 func downstreamHookFriction(
@@ -1322,7 +1299,7 @@ func recordDownstreamRunFile(
 	name string,
 	signals *DownstreamLogSignals,
 ) {
-	if name == "event.json" {
+	if name == downstreamEventJSONFile {
 		signals.EventJSONCount++
 	}
 
@@ -1381,7 +1358,7 @@ func scanDownstreamLogFile(path string, signals *DownstreamLogSignals) error {
 func recordDownstreamLogLine(line string, signals *DownstreamLogSignals) {
 	lower := strings.ToLower(line)
 
-	recordSQLiteBusySignal(lower, signals)
+	recordStorageBusySignal(lower, signals)
 	recordStaleRepoMapSignal(lower, signals)
 	recordSandboxMissingSignal(lower, signals)
 	recordToolchainFailureSignal(lower, signals)
@@ -1393,10 +1370,10 @@ func recordDownstreamLogLine(line string, signals *DownstreamLogSignals) {
 	recordUnparsedDiagnosticSignal(lower, signals)
 }
 
-func recordSQLiteBusySignal(lower string, signals *DownstreamLogSignals) {
-	if strings.Contains(lower, "sqlite_busy") ||
+func recordStorageBusySignal(lower string, signals *DownstreamLogSignals) {
+	if strings.Contains(lower, "storage_busy") ||
 		strings.Contains(lower, "database is locked") {
-		signals.SQLiteBusyCount++
+		signals.StorageBusyCount++
 	}
 }
 

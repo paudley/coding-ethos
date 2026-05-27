@@ -10,81 +10,28 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
-	"blackcat.ca/coding-ethos/go/internal/agentmsg"
 	"blackcat.ca/coding-ethos/go/internal/astfacts"
-	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
-func TestRebuildDuckDBIndexImportsLegacySQLite(t *testing.T) {
+func TestRebuildDuckDBIndexRemovesObsoleteStoreArtifacts(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	root := t.TempDir()
-	legacy, err := Open(ctx, DefaultDBPath(root))
-	if err != nil {
-		t.Fatalf("open legacy SQLite: %v", err)
+	for _, path := range ObsoleteCodeIntelArtifactPaths(root) {
+		err := os.MkdirAll(filepath.Dir(path), duckDBStoreMode)
+		if err != nil {
+			t.Fatalf("create obsolete artifact dir: %v", err)
+		}
+		err = os.WriteFile(path, []byte("obsolete"), 0o600)
+		if err != nil {
+			t.Fatalf("write obsolete artifact: %v", err)
+		}
 	}
 
-	err = legacy.IngestTrace(ctx, Trace{
-		ID:            "trace-1",
-		Kind:          "hook",
-		RecordedAtUTC: "2026-05-24T00:00:00Z",
-		Tool:          "Bash",
-		Status:        "blocked",
-		Raw:           []byte(`{"trace_id":"trace-1"}`),
-		HookEvent: &HookEventAnalytics{
-			TraceID:            "trace-1",
-			Tool:               "Bash",
-			Status:             "blocked",
-			OperationKind:      "lint",
-			TargetKind:         "unknown",
-			RiskCategory:       "policy_block",
-			CommandShapeSHA256: "shape-1",
-			Blocked:            true,
-		},
-		HookDecisions: []HookDecisionAnalytics{
-			{
-				TraceID:  "trace-1",
-				PolicyID: "filesystem.line_limits",
-				Decision: "block",
-				Severity: "block",
-			},
-		},
-		Findings: []evidence.Finding{
-			{
-				ID:       "finding-1",
-				Tool:     "ruff",
-				Code:     "E501",
-				PolicyID: "filesystem.line_limits",
-				Message:  "line too long",
-				SourceSpan: evidence.SourceSpan{
-					Path: "src/big.py",
-				},
-			},
-		},
-		AgentRemediation: []agentmsg.Remediation{
-			{
-				ID:       "rem-1",
-				PolicyID: "filesystem.line_limits",
-				SkillID:  "managed-toolchain",
-				File:     "src/big.py",
-				Message:  "split large file",
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("ingest legacy trace: %v", err)
-	}
-	_, err = legacy.database.ExecContext(ctx, extendedLegacySeedSQL)
-	if err != nil {
-		t.Fatalf("seed extended legacy rows: %v", err)
-	}
-	if err := legacy.Close(); err != nil {
-		t.Fatalf("close legacy SQLite: %v", err)
-	}
-
-	err = NewEventLog(DefaultEventLogDir(root)).Append("run-1", []EventRecord{
+	err := NewEventLog(DefaultEventLogDir(root)).Append("run-1", []EventRecord{
 		{
 			Kind:    "hook_trace",
 			TraceID: "trace-1",
@@ -99,31 +46,15 @@ func TestRebuildDuckDBIndexImportsLegacySQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rebuild DuckDB index: %v", err)
 	}
-	if !summary.ImportedLegacySQLite ||
-		summary.EventCount != 1 ||
+	if summary.EventCount != 1 ||
 		summary.ImportedEventCount != 1 ||
-		summary.Stats.Traces != 1 ||
-		summary.Stats.HookEvents != 1 ||
-		summary.Stats.HookDecisions != 1 ||
-		summary.Stats.HookTargets != 1 ||
-		summary.Stats.HookReviews != 1 ||
-		summary.Stats.ProxySessions != 1 ||
-		summary.Stats.ProxyEvents != 1 ||
-		summary.Stats.ProxyTransforms != 1 ||
-		summary.Stats.Findings != 1 ||
-		summary.Stats.Files != 1 ||
-		summary.Stats.CodeChunks != 1 ||
-		summary.Stats.CodeEdges != 1 ||
-		summary.Stats.ASTFindingLinks != 1 ||
-		summary.Stats.SARIFRuns != 1 ||
-		summary.Stats.SARIFResults != 1 ||
-		summary.Stats.Remediations != 1 ||
-		summary.Stats.RemediationEvents != 1 ||
-		summary.Stats.RemediationOutcomes != 1 ||
-		summary.Stats.EmbeddingRecords != 1 ||
-		summary.Stats.FtsRows != 4 ||
-		!summary.RemovedLegacySQLite {
+		len(summary.RemovedObsoleteArtifacts) != len(ObsoleteCodeIntelArtifactPaths(root)) {
 		t.Fatalf("unexpected rebuild summary: %#v", summary)
+	}
+	for _, path := range ObsoleteCodeIntelArtifactPaths(root) {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("obsolete artifact still exists: %s: %v", path, err)
+		}
 	}
 
 	duckStore, err := OpenDuckDBReadOnly(ctx, DefaultDuckDBPath(root))
@@ -136,15 +67,10 @@ func TestRebuildDuckDBIndexImportsLegacySQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("analyze DuckDB downstream: %v", err)
 	}
-	assertDownstreamPolicyBlocker(t, analysis, "filesystem.line_limits")
-	assertDownstreamAffectedCommand(t, analysis, "filesystem.line_limits", "Bash")
 	if analysis.StorageHealth.Backend != "duckdb" ||
 		analysis.StorageHealth.SourceOfTruth != "event_log" ||
 		analysis.StorageHealth.EventCount != 1 {
 		t.Fatalf("storage health = %#v", analysis.StorageHealth)
-	}
-	if len(analysis.AffectedCommands) == 0 {
-		t.Fatalf("missing top-level affected commands: %#v", analysis)
 	}
 	if analysis.IssueSummary.StorageDecision == "" {
 		t.Fatalf("missing issue summary: %#v", analysis.IssueSummary)
@@ -172,8 +98,8 @@ func TestAnalyzeDownstreamDuckDBReportsStorePath(t *testing.T) {
 	if analysis.StorageHealth.Path != customPath {
 		t.Fatalf("storage path = %q, want %q", analysis.StorageHealth.Path, customPath)
 	}
-	if analysis.StorageHealth.ImportedLegacySQLite {
-		t.Fatalf("DuckDB read-only analysis should not report legacy import")
+	if analysis.StorageHealth.Backend != "duckdb" {
+		t.Fatalf("storage health = %#v", analysis.StorageHealth)
 	}
 }
 
@@ -215,13 +141,14 @@ func TestDuckDBGlobalRepoMapRefusesStaleSource(t *testing.T) {
 	_, err = store.database.ExecContext(
 		ctx,
 		`INSERT INTO code_chunks(
-			chunk_id, path, language, start_byte, end_byte, start_line, end_line,
+			chunk_id, path, language, node_kind, start_byte, end_byte, start_line, end_line,
 			content_hash, normalized_hash, search_text, raw_text, symbol_path,
 			symbol_kind, symbol_name
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"chunk-1",
 		"pkg/worker.py",
 		"python",
+		"function_definition",
 		0,
 		len(original),
 		1,
@@ -247,19 +174,6 @@ func TestDuckDBGlobalRepoMapRefusesStaleSource(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "stale code context") {
 		t.Fatalf("global repo map error = %v, want stale code context", err)
-	}
-}
-
-func TestDownstreamLegacyStorageHealthDoesNotReportImport(t *testing.T) {
-	t.Parallel()
-
-	health := downstreamLegacySQLiteStorageHealth(
-		t.TempDir(),
-		&Store{},
-		DownstreamLogSignals{},
-	)
-	if health.ImportedLegacySQLite {
-		t.Fatalf("legacy-only storage health should not report legacy import")
 	}
 }
 
@@ -300,28 +214,88 @@ func TestDuckDBRebuildLockRemovesStaleLock(t *testing.T) {
 	defer release()
 }
 
-func TestRebuildDuckDBIndexSkipsOversizedLegacySQLite(t *testing.T) {
+func TestCleanupStaleDuckDBRebuildLockRemovesInvalidPID(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	lockPath := DuckDBRebuildLockPath(root)
+
+	err := os.MkdirAll(filepath.Dir(lockPath), duckDBStoreMode)
+	if err != nil {
+		t.Fatalf("create lock dir: %v", err)
+	}
+
+	err = os.WriteFile(lockPath, []byte("-1\n"), duckDBLockFileMode)
+	if err != nil {
+		t.Fatalf("write stale lock: %v", err)
+	}
+
+	maintenance, err := CleanupStaleDuckDBRebuildLock(root, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("cleanup stale lock: %v", err)
+	}
+	if !maintenance.Exists || !maintenance.Stale || !maintenance.Removed {
+		t.Fatalf("maintenance = %#v, want stale removed lock", maintenance)
+	}
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("lock still exists after cleanup: %v", err)
+	}
+}
+
+func TestCleanupStaleDuckDBRebuildLockRetainsCurrentPID(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	lockPath := DuckDBRebuildLockPath(root)
+
+	err := os.MkdirAll(filepath.Dir(lockPath), duckDBStoreMode)
+	if err != nil {
+		t.Fatalf("create lock dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		lockPath,
+		[]byte(strconv.Itoa(os.Getpid())+"\n"),
+		duckDBLockFileMode,
+	)
+	if err != nil {
+		t.Fatalf("write active lock: %v", err)
+	}
+
+	maintenance, err := CleanupStaleDuckDBRebuildLock(root, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("cleanup active lock: %v", err)
+	}
+	if !maintenance.Exists || maintenance.Stale || maintenance.Removed {
+		t.Fatalf("maintenance = %#v, want retained active lock", maintenance)
+	}
+	if _, err := os.Stat(lockPath); err != nil {
+		t.Fatalf("active lock missing after cleanup: %v", err)
+	}
+}
+
+func TestRebuildDuckDBIndexDeletesOversizedObsoleteArtifact(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	root := t.TempDir()
-	legacyPath := DefaultDBPath(root)
+	obsoletePath := ObsoleteCodeIntelArtifactPaths(root)[0]
 
-	err := os.MkdirAll(filepath.Dir(legacyPath), 0o700)
+	err := os.MkdirAll(filepath.Dir(obsoletePath), 0o700)
 	if err != nil {
-		t.Fatalf("create legacy dir: %v", err)
+		t.Fatalf("create obsolete artifact dir: %v", err)
 	}
 
-	file, err := os.OpenFile(legacyPath, os.O_CREATE|os.O_WRONLY, 0o600)
+	file, err := os.OpenFile(obsoletePath, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		t.Fatalf("create oversized legacy SQLite placeholder: %v", err)
+		t.Fatalf("create oversized obsolete artifact placeholder: %v", err)
 	}
-	err = file.Truncate(maxLegacySQLiteImportBytes + 1)
+	err = file.Truncate(2 << 20)
 	if closeErr := file.Close(); closeErr != nil {
-		t.Fatalf("close oversized legacy SQLite placeholder: %v", closeErr)
+		t.Fatalf("close oversized obsolete artifact placeholder: %v", closeErr)
 	}
 	if err != nil {
-		t.Fatalf("truncate oversized legacy SQLite placeholder: %v", err)
+		t.Fatalf("truncate oversized obsolete artifact placeholder: %v", err)
 	}
 
 	summary, err := RebuildDuckDBIndex(ctx, root, "", "")
@@ -329,125 +303,12 @@ func TestRebuildDuckDBIndexSkipsOversizedLegacySQLite(t *testing.T) {
 		t.Fatalf("rebuild DuckDB index: %v", err)
 	}
 
-	if summary.ImportedLegacySQLite ||
-		!summary.SkippedLegacySQLite ||
-		summary.RemovedLegacySQLite ||
-		!strings.Contains(summary.LegacySQLiteSkipReason, "maximum automatic import") {
-		t.Fatalf("unexpected oversized legacy summary: %#v", summary)
+	if len(summary.RemovedObsoleteArtifacts) != 1 ||
+		summary.RemovedObsoleteArtifacts[0] != obsoletePath {
+		t.Fatalf("unexpected obsolete artifact summary: %#v", summary)
 	}
 
-	if _, err := os.Stat(legacyPath); err != nil {
-		t.Fatalf("oversized legacy SQLite store should remain for explicit handling: %v", err)
+	if _, err := os.Stat(obsoletePath); !os.IsNotExist(err) {
+		t.Fatalf("obsolete artifact should be removed: %v", err)
 	}
 }
-
-const extendedLegacySeedSQL = `INSERT INTO hook_targets(trace_id, ordinal, target_path, target_kind)
-VALUES ('trace-1', 0, 'src/big.py', 'source_file');
-INSERT INTO hook_reviews(review_id, trace_id, tracking_id, disposition, reviewer, notes, recorded_at_utc)
-VALUES ('review-1', 'trace-1', 'track-1', 'correct_block', 'tester', '', '2026-05-24T00:00:00Z');
-INSERT INTO proxy_sessions(
-	session_id, provider, model, repo_root, started_at_utc, last_seen_utc,
-	request_count, tool_call_count, file_read_count, file_listing_count,
-	edit_count, cache_hit_count, injection_count, truncation_count, denial_count,
-	transform_count, input_tokens, output_tokens, total_tokens, raw_json
-) VALUES (
-	'session-1', 'codex', 'gpt', '', '2026-05-24T00:00:00Z',
-	'2026-05-24T00:00:00Z', 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2, 3, '{}'
-);
-INSERT INTO proxy_events(
-	event_id, session_id, event_kind, provider, tool, model, recorded_at_utc,
-	trace_id, tracking_id, repo_root, cwd, target_path, direction, payload_kind,
-	cache_key, input_hash, output_hash, payload_bytes, policy_id, decision,
-	input_tokens, output_tokens, total_tokens, policy_evidence_json, dlp_json,
-	metadata_json, raw_json
-) VALUES (
-	'proxy-1', 'session-1', 'tool_call', 'codex', 'Bash', 'gpt',
-	'2026-05-24T00:00:00Z', 'trace-1', 'track-1', '', '', 'src/big.py',
-	'local', 'tool_call', '', 'in', 'out', 10, 'filesystem.line_limits',
-	'block', 1, 2, 3, '{}', '[]', '{}', '{}'
-);
-INSERT INTO proxy_transforms(
-	event_id, ordinal, name, reason, input_hash, output_hash, policy_id,
-	decision, evidence_path, input_tokens, output_tokens, bytes_removed,
-	findings_count
-) VALUES (
-	'proxy-1', 0, 'redact', 'test', 'in', 'out', 'filesystem.line_limits',
-	'block', 'src/big.py', 1, 2, 3, 1
-);
-INSERT INTO code_files(path, language, content_hash, size_bytes, line_count, indexed_at_utc)
-VALUES ('src/big.py', 'python', 'hash', 100, 20, '2026-05-24T00:00:00Z');
-INSERT INTO code_delete_intents(
-	intent_id, path, intent_kind, trace_id, recorded_at_utc, provider, event,
-	tool, status, cwd, command_sha256, command_preview, raw_json
-) VALUES (
-	'intent-1', 'src/old.py', 'delete', 'trace-1', '2026-05-24T00:00:00Z',
-	'codex', 'PreToolUse', 'Bash', 'blocked', '', 'sha', 'rm src/old.py', '{}'
-);
-INSERT INTO code_chunks(
-	chunk_id, path, language, node_kind, symbol_kind, symbol_name, symbol_path,
-	parent_symbol_path, parent_chunk_id, start_byte, end_byte, start_line,
-	end_line, content_hash, normalized_hash, search_text, raw_text
-) VALUES (
-	'chunk-1', 'src/big.py', 'python', 'module', 'module', 'big', 'big',
-	'', '', 0, 10, 1, 1, 'hash', 'nhash', 'big', 'big'
-);
-INSERT INTO code_edges(
-	edge_id, edge_kind, path, source_chunk_id, target_path, target_chunk_id,
-	target_symbol_path, target_name, raw_text
-) VALUES (
-	'edge-1', 'contains', 'src/big.py', 'chunk-1', 'src/big.py', 'chunk-1',
-	'big', 'big', 'contains'
-);
-INSERT INTO ast_finding_links(
-	link_id, finding_kind, finding_id, chunk_id, path, policy_id, skill_id,
-	symbol_path, content_hash, stale
-) VALUES (
-	'link-1', 'finding', 'finding-1', 'chunk-1', 'src/big.py',
-	'filesystem.line_limits', 'managed-toolchain', 'big', 'hash', 0
-);
-INSERT INTO sarif_runs(
-	sarif_run_id, trace_id, source_path, category, tool_name, automation_id,
-	run_guid, baseline_guid, produced_at_utc, raw_json
-) VALUES (
-	'sarif-1', 'trace-1', 'sarif.json', 'lint', 'ruff', '', '', '',
-	'2026-05-24T00:00:00Z', '{}'
-);
-INSERT INTO sarif_results(
-	sarif_result_id, sarif_run_id, ordinal, rule_id, level, message,
-	fingerprint, finding_id, remediation_id, policy_id, skill_id, path,
-	search_text, raw_json
-) VALUES (
-	'sarif-result-1', 'sarif-1', 0, 'E501', 'error', 'line too long', 'fp',
-	'finding-1', 'rem-1', 'filesystem.line_limits', 'managed-toolchain',
-	'src/big.py', 'line too long', '{}'
-);
-INSERT INTO remediation_events(
-	event_id, trace_id, remediation_id, finding_id, event, policy_id, skill_id,
-	search_text, raw_json
-) VALUES (
-	'rem-event-1', 'trace-1', 'rem-1', 'finding-1', 'suggested',
-	'filesystem.line_limits', 'managed-toolchain', 'split large file', '{}'
-);
-INSERT INTO remediation_outcomes(
-	outcome_id, remediation_id, finding_id, source_trace_id, followup_trace_id,
-	policy_id, skill_id, file, path, provider, tool, outcome, attempt_ordinal,
-	recorded_at_utc, search_text, raw_json
-) VALUES (
-	'outcome-1', 'rem-1', 'finding-1', 'trace-1', NULL, 'filesystem.line_limits',
-	'managed-toolchain', 'src/big.py', 'src/big.py', 'codex', 'Bash',
-	'repeated', 1, '2026-05-24T00:00:00Z', 'repeated split large file', '{}'
-);
-INSERT INTO embedding_records(
-	embedding_id, backend, collection, model_id, dimension, input_kind,
-	record_kind, record_id, trace_id, policy_id, skill_id, path, content_hash,
-	provider, backend_row_id, created_at_utc, raw_json
-) VALUES (
-	'emb-1', 'sqlite-vec', 'remediations', 'model', 3, 'text', 'remediation',
-	'rem-1', 'trace-1', 'filesystem.line_limits', 'managed-toolchain',
-	'src/big.py', 'hash', 'codex', 'row-1', '2026-05-24T00:00:00Z', '{}'
-);
-INSERT INTO code_intel_fts(kind, policy_id, skill_id, path, message, search_text, record_id, trace_id)
-VALUES (
-	'finding', 'filesystem.line_limits', 'managed-toolchain', 'src/big.py',
-	'line too long', 'line too long', 'finding-1', 'trace-1'
-);`

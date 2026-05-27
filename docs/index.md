@@ -23,7 +23,7 @@ gaps are tracked in the [OpenSSF Gold checklist](OPENSSF_GOLD_CHECKLIST.md).
 - [AST/CEL/SARIF architecture](AST_CEL_SARIF_ARCHITECTURE.md): the preferred
   path for turning parsed source facts into principle-owned CEL policy,
   stable SARIF, and code-intelligence storage.
-- [Code intelligence](CODE_INTEL.md): local SQLite, sqlite-vec, Tree-sitter
+- [Code intelligence](CODE_INTEL.md): local DuckDB, duckdb-vss, Tree-sitter
   chunks, SARIF/remediation evidence, and MCP retrieval surfaces.
 - [Agent proxy foundation](AGENT_PROXY.md): opt-in proxy trust boundary,
   provider-neutral event envelope, code-intel ledger, CEL facts, SARIF

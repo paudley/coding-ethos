@@ -56,9 +56,9 @@ commercial licensing options.
 
 Use `coding-ethos` when you need:
 
-- AI-agent guardrails for Codex, Claude Code, Gemini CLI, and other coding
-  agents.
-- A local MCP server that agents can call for policy checks, lint advice,
+- AI-assisted workflow guardrails for Codex, Claude Code, Gemini CLI, and other
+  coding tools.
+- A local MCP server for policy checks, lint advice,
   SARIF remediation, and ETHOS-grounded context.
 - Git hook enforcement that catches unsafe commands, protected path edits,
   unmanaged tool use, and file-growth problems before commit time.
@@ -67,8 +67,13 @@ Use `coding-ethos` when you need:
 - SARIF and code-scanning output for CI, pull requests, IDEs, and trend
   analysis.
 - Code intelligence that stores hook traces, SARIF, remediation outcomes,
-  Tree-sitter chunks, AST links, and sqlite-vec metadata in a repo-local
-  SQLite store for agent search.
+  Tree-sitter chunks, AST links, and duckdb-vss metadata in a repo-local
+  DuckDB store for code-intel search.
+- A repo-local analytical code-intel index backed by append-only JSONL events
+  and rebuildable DuckDB storage for downstream support analysis.
+- Provider-agnostic memory routing that centralizes provider memory files
+  under `.coding-ethos/memories/` instead of scattering durable notes across
+  Claude, Codex, and Gemini private state.
 
 ## 30-Second Start
 
@@ -134,7 +139,7 @@ the places contributors actually work:
 | MCP | stdio policy, skill, lint, SARIF, and tool-capability queries from the compiled bundle |
 | AI review | Gemini prompt packs grounded in ethos and repo config |
 | CI/CD | SARIF output plus generated GitHub Actions and GitLab CI gates with actionlint, CodeQL, OSV-Scanner, zizmor, artifacts, package validation, and sandbox evidence |
-| Audit data | `.coding-ethos/hook-runs/`, `.coding-ethos/lint-runs/`, and `.coding-ethos/code-intel.db` with policy, tool, SARIF, AST, remediation, and sandbox evidence |
+| Audit data | `.coding-ethos/hook-runs/`, `.coding-ethos/lint-runs/`, `.coding-ethos/events/`, and `.coding-ethos/code-intel.duckdb` with policy, tool, SARIF, AST, proxy, remediation, memory-routing, and sandbox evidence |
 
 ## Agents Used In This Repository
 
@@ -243,14 +248,19 @@ and use the best available process execution evidence. See
 [docs/RUNTIME_SANDBOXING.md](docs/RUNTIME_SANDBOXING.md).
 
 Code-intelligence storage is the memory layer for this evidence. The
-repo-local SQLite store ingests hook traces, lint traces, SARIF, remediation
-outcomes, hook usage analytics, Tree-sitter chunks, graph edges, and
-AST-to-finding links. FTS5 provides exact search, while sqlite-vec stores
-derived embedding rows for hybrid retrieval without a daemon or hosted vector
-service. MCP tools expose search, code indexing, focused chunk lookup,
-embedding candidates, and index status so agents can retrieve relevant context
+repo-local DuckDB store ingests hook traces, lint traces, SARIF,
+remediation outcomes, hook usage analytics, Tree-sitter chunks, graph edges,
+AST-to-finding links, and duckdb-vss metadata. Append-only
+`.coding-ethos/events/*.jsonl` files are the durable live telemetry surface,
+and `.coding-ethos/code-intel.duckdb` is the rebuildable analytical query index
+used by downstream support analysis. A DuckDB-resident term index provides
+exact search, while duckdb-vss stores derived embedding rows for hybrid
+retrieval without a daemon or hosted vector service. MCP tools expose search,
+code indexing, focused chunk
+lookup, embedding candidates, and index status so relevant context is available
 before broad file reads or repeated failed repairs. See
-[docs/CODE_INTEL.md](docs/CODE_INTEL.md).
+[docs/CODE_INTEL.md](docs/CODE_INTEL.md) and
+[docs/CODE_INTEL_STORAGE.md](docs/CODE_INTEL_STORAGE.md).
 
 Repository trust surfaces are part of the product. The public repo now carries
 CODEOWNERS, structured issue templates for policy rules, hook false positives,
@@ -328,12 +338,12 @@ The first tools are intentionally narrow and auditable:
   ranked files, freshness metadata, evidence counts, and exact follow-up MCP
   calls.
 - `code_intel_search`: retrieve stored SARIF/remediation/code-chunk evidence
-  with FTS and sqlite-vec vector search.
+  with the DuckDB term index and duckdb-vss vector search.
 - `code_intel_answer`: retrieve cited code-intel evidence for a repository
   question with `retrieval_quality` separate from answer `confidence`.
 - `semantic_search`: retrieve exact indexed repository code chunks by semantic
   query before broad grep or whole-file reads.
-- `code_intel_index_status`: report SQLite/sqlite-vec index freshness and
+- `code_intel_index_status`: report DuckDB/duckdb-vss index freshness and
   embedding coverage.
 - `code_similarity_check`: preflight proposed code against indexed repository
   symbols using normalized hashes and MinHash LSH.
@@ -404,7 +414,7 @@ recurring unmapped findings into stronger evidence maps or repo-specific
 skills.
 
 `coding-ethos` can also import retained lint and hook traces into a local
-SQLite code-intelligence store for repeated-failure and remediation search:
+DuckDB code-intelligence store for repeated-failure and remediation search:
 
 ```bash
 bin/coding-ethos-run code-intel ingest-traces
@@ -412,30 +422,43 @@ bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_impo
 bin/coding-ethos-run code-intel search --text 'unused import'
 bin/coding-ethos-run code-intel anatomy-map --path pkg --format toon
 ls pkg | bin/coding-ethos-run code-intel enrich-listing --command 'ls pkg'
+bin/coding-ethos-run code-intel rebuild-index
+bin/coding-ethos-run code-intel hook-usage --risk-category bypass
+bin/coding-ethos-run code-intel record-hook-review --trace-id hook-1 --disposition false_positive
+bin/coding-ethos-run code-intel hook-reviews --disposition false_positive
 bin/coding-ethos-run code-intel compact-context --path pkg/app.py
 bin/coding-ethos-run code-intel proxy-file-read --session-id sess-1 --path pkg/app.py
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
+bin/coding-ethos-run code-intel proxy-events --session-id sess-1
 bin/coding-ethos-run code-intel repeated-edits --path pkg/app.py
+bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
+bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports
+bin/coding-ethos-run code-intel embedding-candidates --record-kind remediation_outcome
+bin/coding-ethos-run code-intel embedding-records --backend duckdb-vss
+bin/coding-ethos-run code-intel hybrid-search --text 'unused import' --model-id voyage-code-3 --vector '0.1,0.2,0.3'
 bin/coding-ethos-run code-intel downstream-analysis --format toon
 ```
 
-The store lives at `.coding-ethos/code-intel.db`; it is repo-local and derived
-from retained traces, SARIF, AST chunks, proxy session events, remediation
-records, and vector metadata. It is not a replacement for hooks or CEL policy
-evaluation.
+The live telemetry surface lives in `.coding-ethos/events/*.jsonl`, and the
+rebuildable analytical index lives at `.coding-ethos/code-intel.duckdb`. These
+repo-local artifacts are derived from retained traces, SARIF, AST chunks, proxy
+session events, remediation records, hook review labels, and vector metadata.
+They are not replacements for hooks or CEL policy evaluation.
 
 `downstream-analysis` is the read-only support view for downstream repo
 ergonomics. It opens an existing code-intelligence database in read-only mode,
 scans retained hook logs, and reports hook friction, blocker trends, lint
 hotspots, affected command families for blocking policies, repeated remediation
-loops, large-file pressure, toolchain failures, stale code context, and SQLite
-lock evidence without creating or migrating the store. When the database is
+loops, large-file pressure, toolchain failures, stale code context, and DuckDB
+lock evidence without creating the store. When the database is
 missing or unavailable it still scans retained hook-run and lint-run logs for
 support signals.
 Use `--format json|toon|human` to choose between the stable automation payload,
 compact TOON handoff, or a short operator-readable summary. The compact output
 puts blocking friction, affected command families, repeated remediation loops,
 storage repair commands, and evidence gaps ahead of high-volume allowed events.
+`rebuild-index` refreshes the DuckDB analytical index from append-only events
+and retained event logs, then removes obsolete store files after rebuild.
 
 Inspect the repo-local disk output surface before pruning or deeper analysis:
 
@@ -459,6 +482,17 @@ optional `--vacuum`. Apply runs write `.coding-ethos/prune-runs/*.json` traces
 when they delete files, prune rows, vacuum, or hit errors. Output lifecycle
 defaults live in `config.toml`; consuming repos can override `outputs.*` in
 `repo_config.toml` without changing the existing YAML enforcement config path.
+Code-intel maintenance treats database files as derived indexes and evidence
+logs as durable audit material. Automatic maintenance prunes old DuckDB rows,
+checkpoints and compacts the DuckDB index, removes stale DuckDB sidecar
+files, applies the explicit `.coding-ethos/events` age/count/size budget, and
+validates `.coding-ethos/code-intel-rebuild.lock` by PID before clearing stale
+locks. If the host cannot answer PID liveness, cleanup falls back to the
+configured stale lock age, so a dead rebuild process does not block later
+maintenance. Live DuckDB database files are report-only prune
+candidates: oversized stores are surfaced for operators, while the automated
+path uses row retention, checkpointing, compaction, and sidecar cleanup instead
+of deleting active indexes.
 
 The directory anatomy map is inspired by Aider's repo map: agents get a compact
 symbol preview before deciding which files to open, while coding-ethos keeps the
@@ -510,7 +544,7 @@ line-compressed, then capped by a hard token budget while preserving command
 identity and the terminal failure tail. The token ledger uses a conservative
 UTF-8 rune estimator, records every Bash `PostToolUse` action that includes a
 session id, and stores the resolved budget source, payload measurements, token
-usage, decision, and ordered transform records in `.coding-ethos/code-intel.db`.
+usage, decision, and ordered transform records in `.coding-ethos/code-intel.duckdb`.
 Unknown model/context windows default to 2,000 output tokens; events that carry
 model context metadata use bounded tiers of 4,000 (<=32k context), 8,000
 (<=128k), 12,000 (<=256k), 24,000 (<=1M), or 32,000 (>1M), and an explicit
@@ -826,6 +860,10 @@ repo/
 │           ├── gemini-extension.json
 │           └── skills/
 │               └── ...
+├── .coding-ethos/
+│   └── memories/
+│       ├── MEMORY.md
+│       └── index.yaml
 └── .claude/
     ├── ethos/
     │   └── MEMORY.md
@@ -848,6 +886,9 @@ repo/
 └── .coding-ethos/
     ├── cache/
     │   └── ... ignored runtime caches
+    ├── events/
+    │   └── ... append-only code-intel event logs
+    ├── code-intel.duckdb
     └── gemini/
         └── prompt-pack.json
 ```
@@ -967,25 +1008,38 @@ See [repo_config.example.yaml](repo_config.example.yaml).
 
 ### `config.toml` and `repo_config.toml`
 
-Output lifecycle settings live under `outputs.*` in TOML. `config.toml` carries
-the bundle defaults for report format, automatic pruning, command pruning, and
-per-surface retention. A consuming repo can override those settings with
-`repo_config.toml` at its root. This TOML path is intentionally scoped to output
-surface lifecycle settings; existing YAML config remains the enforcement source
-for generated tool configs and hook policy.
+Output lifecycle and central memory settings live in TOML. `config.toml`
+carries the bundle defaults for report format, automatic pruning, command
+pruning, per-surface retention, and `[memories]` behavior. A consuming repo can
+override those settings with `repo_config.toml` at its root. This TOML path is
+intentionally scoped to output surface lifecycle settings and provider-agnostic
+agent memory routing; existing YAML config remains the enforcement source for
+generated tool configs and hook policy.
 
 Per-surface retention keys are `enabled`, `auto`, `max_age`, `keep_last`,
 `max_bytes`, `require_code_intel_ingest`, `row_retention_days`, and
 `vacuum_after_prune`. Automatic pruning covers repo-local runtime outputs:
 proxy temp evidence is pruned before new evidence files are written,
-`code_intel_db` rows are pruned after code-intel writes, lint traces are pruned
-after managed lint trace writes, hook run directories prune after hook
-maintenance, and cache surfaces prune according to their per-surface retention.
-Automatic `code_intel_db` pruning does not vacuum by default; use
-manual `output prune --scope code_intel_db --apply --vacuum` for explicit
-database compaction.
+`code_intel_db` rows are pruned after code-intel writes and the DuckDB store is
+checkpointed and compacted, DuckDB WAL files are report-only and cleaned up by
+checkpointing rather than deletion, `.coding-ethos/events` is bounded by
+age/count/size policy, lint traces are pruned after managed lint trace writes,
+hook run directories prune after hook maintenance, stale
+`code_intel_rebuild_lock` files are removed after owner process validation, and
+cache surfaces prune according to their per-surface retention. Code-intel DB
+file-size budgets are reported during manual prune runs, while automatic
+code-intel maintenance preserves live database files and acts through row
+retention, checkpoint/compaction, sidecar reporting, and event-log retention.
+Use manual `output prune --scope code_intel_db --apply --vacuum` for explicit
+operator-requested database compaction.
 
 See [repo_config.example.toml](repo_config.example.toml).
+
+`[memories]` controls the central repo-local memory surface. Defaults keep it
+enabled, use `.coding-ethos/memories/MEMORY.md` as the primary Markdown file,
+store import metadata in `.coding-ethos/memories/index.yaml`, and import
+existing provider memory files once. Supported keys are `enabled`,
+`central_dir`, `primary_file`, and `import_existing`.
 
 ### CEL Expression Policies
 
@@ -1346,6 +1400,14 @@ and MCP settings and, when `coding-ethos` is installed inside a parent
 repository, refreshes the parent repo's `.agents/skills/`, `.claude/skills/`,
 `.codex/skills/`, Gemini extension skill surfaces, and native agent hook/MCP
 settings without rewriting parent root agent docs.
+
+Agent memory uses the same centralization model. `agent-hooks sync` creates and
+verifies `.coding-ethos/memories/MEMORY.md` plus
+`.coding-ethos/memories/index.yaml`, imports existing Claude/Codex/Gemini
+memory files idempotently, and keeps provider memory paths routed to the central
+repo-local surface. Providers that cannot rewrite a memory file tool request get
+a `memory.centralized` denial that points at the allowed memory path instead of
+silently writing durable notes into provider-private state.
 
 `agent-hooks verify` runs doctor first, then invokes the configured hook command
 with provider-native Claude, Codex, and Gemini payloads. The probes cover:

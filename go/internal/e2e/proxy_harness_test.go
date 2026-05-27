@@ -46,7 +46,7 @@ func TestAgentProxyHarnessRecordsProviderAndFileReadEvidence(t *testing.T) {
 
 	store, err := codeintel.Open(
 		context.Background(),
-		filepath.Join(repo.Root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(repo.Root, ".coding-ethos", "code-intel.duckdb"),
 	)
 	if err != nil {
 		t.Fatalf("open store: %v", err)

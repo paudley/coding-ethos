@@ -40,21 +40,23 @@ type PruneOptions struct {
 	Apply       bool
 	Vacuum      bool
 	All         bool
+	Automatic   bool
 }
 
 // PruneReport summarizes a prune run.
 type PruneReport struct {
-	GeneratedAtUTC string           `json:"generated_at_utc"`
-	Root           string           `json:"root"`
-	TracePath      string           `json:"trace_path,omitempty"`
-	Candidates     []PruneCandidate `json:"candidates"`
-	DBMaintenance  []DBMaintenance  `json:"db_maintenance,omitempty"`
-	Errors         []string         `json:"errors,omitempty"`
-	DeletedFiles   int              `json:"deleted_files"`
-	DeletedDirs    int              `json:"deleted_dirs"`
-	DeletedBytes   int64            `json:"deleted_bytes"`
-	Skipped        int              `json:"skipped"`
-	Apply          bool             `json:"apply"`
+	GeneratedAtUTC  string                             `json:"generated_at_utc"`
+	Root            string                             `json:"root"`
+	TracePath       string                             `json:"trace_path,omitempty"`
+	Candidates      []PruneCandidate                   `json:"candidates"`
+	DBMaintenance   []DBMaintenance                    `json:"db_maintenance,omitempty"`
+	LockMaintenance []codeintel.RebuildLockMaintenance `json:"lock_maintenance,omitempty"`
+	Errors          []string                           `json:"errors,omitempty"`
+	DeletedFiles    int                                `json:"deleted_files"`
+	DeletedDirs     int                                `json:"deleted_dirs"`
+	DeletedBytes    int64                              `json:"deleted_bytes"`
+	Skipped         int                                `json:"skipped"`
+	Apply           bool                               `json:"apply"`
 }
 
 // DBMaintenance describes code-intel database row and storage maintenance.
@@ -63,6 +65,10 @@ type DBMaintenance struct {
 	CutoffUTC          string `json:"cutoff_utc,omitempty"`
 	DeletedTraces      int    `json:"deleted_traces,omitempty"`
 	DeletedProxyEvents int    `json:"deleted_proxy_events,omitempty"`
+	SizeBeforeBytes    int64  `json:"size_before_bytes,omitempty"`
+	SizeAfterBytes     int64  `json:"size_after_bytes,omitempty"`
+	Checkpointed       bool   `json:"checkpointed,omitempty"`
+	Compacted          bool   `json:"compacted,omitempty"`
 	Vacuumed           bool   `json:"vacuumed,omitempty"`
 }
 
@@ -108,6 +114,8 @@ func Prune(ctx context.Context, options PruneOptions) (PruneReport, error) {
 	}
 
 	collectPruneWork(ctx, &report, settings, options, scopes, now, &codeIntelDB)
+	appendDuckDBMaintenance(ctx, &report, settings, options, scopes)
+	appendLockMaintenance(&report, settings, options, scopes, now)
 
 	if options.Apply && options.Vacuum && shouldVacuum(scopes) {
 		err = vacuumCodeIntel(ctx, &codeIntelDB, &report)
@@ -230,6 +238,10 @@ func appendDBMaintenance(
 		return
 	}
 
+	if !shouldRunDBMaintenance(policy, options) {
+		return
+	}
+
 	maintenance, hasMaintenance, err := pruneCodeIntelRows(
 		ctx,
 		codeIntelDB,
@@ -244,8 +256,274 @@ func appendDBMaintenance(
 	}
 
 	if hasMaintenance {
-		report.DBMaintenance = append(report.DBMaintenance, maintenance)
+		appendOrMergeDBMaintenance(report, maintenance)
 	}
+}
+
+func appendOrMergeDBMaintenance(report *PruneReport, maintenance DBMaintenance) {
+	for index := range report.DBMaintenance {
+		if report.DBMaintenance[index].SurfaceID != maintenance.SurfaceID {
+			continue
+		}
+
+		mergeDBMaintenance(&report.DBMaintenance[index], maintenance)
+
+		return
+	}
+
+	report.DBMaintenance = append(report.DBMaintenance, maintenance)
+}
+
+func mergeDBMaintenance(target *DBMaintenance, source DBMaintenance) {
+	target.DeletedTraces += source.DeletedTraces
+	target.DeletedProxyEvents += source.DeletedProxyEvents
+
+	if target.CutoffUTC == "" {
+		target.CutoffUTC = source.CutoffUTC
+	}
+
+	if source.SizeBeforeBytes > 0 {
+		target.SizeBeforeBytes = source.SizeBeforeBytes
+	}
+
+	if source.SizeAfterBytes > 0 {
+		target.SizeAfterBytes = source.SizeAfterBytes
+	}
+
+	target.Checkpointed = target.Checkpointed || source.Checkpointed
+	target.Compacted = target.Compacted || source.Compacted
+	target.Vacuumed = target.Vacuumed || source.Vacuumed
+}
+
+func shouldRunDBMaintenance(
+	policy SurfaceRetentionPolicy,
+	options PruneOptions,
+) bool {
+	if !policy.Enabled && options.OlderThan == 0 && !options.All && !options.Vacuum {
+		return false
+	}
+
+	return !options.Automatic || policy.Auto
+}
+
+func appendDuckDBMaintenance(
+	ctx context.Context,
+	report *PruneReport,
+	settings Settings,
+	options PruneOptions,
+	scopes map[string]bool,
+) {
+	if !shouldRunDuckDBMaintenance(settings, options, scopes) {
+		return
+	}
+
+	maintenance, hasMaintenance, err := runDuckDBMaintenance(
+		ctx,
+		report.Root,
+		settings,
+		options,
+	)
+	if err != nil {
+		report.Errors = append(report.Errors, err.Error())
+
+		return
+	}
+
+	if hasMaintenance {
+		appendOrMergeDBMaintenance(report, maintenance)
+	}
+}
+
+func shouldRunDuckDBMaintenance(
+	settings Settings,
+	options PruneOptions,
+	scopes map[string]bool,
+) bool {
+	if len(scopes) > 0 && !scopes[codeIntelDBSurfaceID] && !scopes[codeIntelDuckDBWALID] {
+		return false
+	}
+
+	if len(scopes) == 0 && !options.All {
+		return false
+	}
+
+	dbDefinition, found := definitionByID(codeIntelDBSurfaceID)
+	if !found {
+		return false
+	}
+
+	if duckDBMaintenanceEnabled(settings, dbDefinition, options) {
+		return options.Apply
+	}
+
+	walDefinition, found := definitionByID(codeIntelDuckDBWALID)
+	if !found || !duckDBMaintenanceEnabled(settings, walDefinition, options) {
+		return false
+	}
+
+	return options.Apply
+}
+
+func duckDBMaintenanceEnabled(
+	settings Settings,
+	definition Definition,
+	options PruneOptions,
+) bool {
+	policy := retentionPolicy(settings, definition)
+	if !policy.Enabled && !options.All && !options.Vacuum {
+		return false
+	}
+
+	return !options.Automatic || policy.Auto
+}
+
+func runDuckDBMaintenance(
+	ctx context.Context,
+	root string,
+	settings Settings,
+	options PruneOptions,
+) (DBMaintenance, bool, error) {
+	duckDBPath := codeintel.DefaultDuckDBPath(root)
+
+	info, err := os.Stat(duckDBPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return DBMaintenance{}, false, nil
+		}
+
+		return DBMaintenance{}, false, fmt.Errorf("stat DuckDB before maintenance: %w", err)
+	}
+
+	store, err := codeintel.OpenDuckDB(ctx, duckDBPath)
+	if err != nil {
+		return DBMaintenance{}, false, fmt.Errorf("open DuckDB for maintenance: %w", err)
+	}
+	defer store.Close()
+
+	err = store.Checkpoint(ctx)
+	if err != nil {
+		return DBMaintenance{}, false, fmt.Errorf("checkpoint DuckDB maintenance: %w", err)
+	}
+
+	compacted := false
+
+	if shouldCompactDuckDB(settings, options) {
+		err = store.Compact(ctx)
+		if err != nil {
+			return DBMaintenance{}, false, fmt.Errorf("compact DuckDB maintenance: %w", err)
+		}
+
+		compacted = true
+	}
+
+	after, err := os.Stat(duckDBPath)
+	if err != nil {
+		return DBMaintenance{}, false, fmt.Errorf("stat DuckDB after maintenance: %w", err)
+	}
+
+	return DBMaintenance{
+		SurfaceID:       codeIntelDBSurfaceID,
+		SizeBeforeBytes: info.Size(),
+		SizeAfterBytes:  after.Size(),
+		Checkpointed:    true,
+		Compacted:       compacted,
+	}, true, nil
+}
+
+func shouldCompactDuckDB(settings Settings, options PruneOptions) bool {
+	if options.Vacuum {
+		return true
+	}
+
+	duckDBDefinition, found := definitionByID(codeIntelDBSurfaceID)
+	if !found {
+		return false
+	}
+
+	return retentionPolicy(settings, duckDBDefinition).VacuumAfterPrune
+}
+
+func appendLockMaintenance(
+	report *PruneReport,
+	settings Settings,
+	options PruneOptions,
+	scopes map[string]bool,
+	now time.Time,
+) {
+	if !shouldRunLockMaintenance(settings, options, scopes) {
+		return
+	}
+
+	maintenance, err := runLockMaintenance(report.Root, options, now)
+	if err != nil {
+		report.Errors = append(report.Errors, err.Error())
+
+		return
+	}
+
+	if maintenance.Exists || maintenance.Removed {
+		report.LockMaintenance = append(report.LockMaintenance, maintenance)
+	}
+}
+
+func shouldRunLockMaintenance(
+	settings Settings,
+	options PruneOptions,
+	scopes map[string]bool,
+) bool {
+	if len(scopes) > 0 && !scopes[codeIntelLockID] {
+		return false
+	}
+
+	if len(scopes) == 0 && !options.All {
+		return false
+	}
+
+	lockDefinition, found := definitionByID(codeIntelLockID)
+	if !found {
+		return false
+	}
+
+	policy := retentionPolicy(settings, lockDefinition)
+	if !policy.Enabled && options.OlderThan == 0 && !options.All {
+		return false
+	}
+
+	return !options.Automatic || policy.Auto
+}
+
+func runLockMaintenance(
+	root string,
+	options PruneOptions,
+	now time.Time,
+) (codeintel.RebuildLockMaintenance, error) {
+	if options.Apply {
+		maintenance, err := codeintel.CleanupStaleDuckDBRebuildLock(root, now)
+		if err != nil {
+			return codeintel.RebuildLockMaintenance{},
+				fmt.Errorf("cleanup stale code-intel rebuild lock: %w", err)
+		}
+
+		return maintenance, nil
+	}
+
+	maintenance, err := codeintel.InspectDuckDBRebuildLock(root, now)
+	if err != nil {
+		return codeintel.RebuildLockMaintenance{},
+			fmt.Errorf("inspect code-intel rebuild lock: %w", err)
+	}
+
+	return maintenance, nil
+}
+
+func definitionByID(surfaceID string) (Definition, bool) {
+	for _, definition := range Definitions() {
+		if definition.ID == surfaceID {
+			return definition, true
+		}
+	}
+
+	return Definition{}, false
 }
 
 func skippedCandidateCount(candidates []PruneCandidate) int {
@@ -267,7 +545,14 @@ func reportHasTraceableWork(report PruneReport) bool {
 
 	for _, maintenance := range report.DBMaintenance {
 		hasDeletedRows := maintenance.DeletedTraces > 0 || maintenance.DeletedProxyEvents > 0
-		if hasDeletedRows || maintenance.Vacuumed {
+		if hasDeletedRows || maintenance.Vacuumed ||
+			maintenance.Checkpointed || maintenance.Compacted {
+			return true
+		}
+	}
+
+	for _, maintenance := range report.LockMaintenance {
+		if maintenance.Exists || maintenance.Removed {
 			return true
 		}
 	}
@@ -293,6 +578,7 @@ func AutoPruneSurface(ctx context.Context, root, scope string, includeTemp bool)
 		Scopes:      []string{scope},
 		IncludeTemp: includeTemp,
 		Apply:       true,
+		Automatic:   true,
 	})
 	if err != nil {
 		return fmt.Errorf("auto-prune output surface %s: %w", scope, err)
@@ -304,7 +590,40 @@ func AutoPruneSurface(ctx context.Context, root, scope string, includeTemp bool)
 // AutoPruneCodeIntelDB applies the configured automatic row-retention policy
 // for the repo-local code-intelligence database.
 func AutoPruneCodeIntelDB(ctx context.Context, root string) error {
-	return AutoPruneSurface(ctx, root, codeIntelDBSurfaceID, false)
+	settings, err := LoadSettings(root)
+	if err != nil {
+		return fmt.Errorf("load code-intel maintenance settings: %w", err)
+	}
+
+	if !settings.Prune.Enabled || !settings.Prune.AutoEnabled {
+		return nil
+	}
+
+	_, err = Prune(ctx, PruneOptions{
+		Root:      root,
+		Settings:  settings,
+		Scopes:    codeIntelAutomaticScopes(settings),
+		Apply:     true,
+		Automatic: true,
+	})
+	if err != nil {
+		return fmt.Errorf("auto-maintain code-intel state: %w", err)
+	}
+
+	return nil
+}
+
+func codeIntelAutomaticScopes(settings Settings) []string {
+	scopes := make([]string, 0, codeIntelSurfaceDefinitionCount)
+
+	for _, definition := range codeIntelSurfaceDefinitions() {
+		policy := retentionPolicy(settings, definition)
+		if policy.Enabled && policy.Auto {
+			scopes = append(scopes, definition.ID)
+		}
+	}
+
+	return scopes
 }
 
 func shouldPruneSurface(
@@ -324,7 +643,7 @@ func shouldPruneSurface(
 		return true
 	}
 
-	return definition.DBMaintenance && (len(scopes) > 0 || options.All || options.Vacuum)
+	return len(scopes) > 0 || options.All || options.Vacuum
 }
 
 func pruneCandidates(
@@ -343,6 +662,21 @@ func pruneCandidates(
 		return nil, nil
 	}
 
+	candidates, err := rawPruneCandidates(root, definition, policy, olderThan, now)
+	if err != nil {
+		return nil, err
+	}
+
+	return markReportOnlyCandidates(definition, candidates), nil
+}
+
+func rawPruneCandidates(
+	root string,
+	definition Definition,
+	policy SurfaceRetentionPolicy,
+	olderThan time.Duration,
+	now time.Time,
+) ([]PruneCandidate, error) {
 	switch definition.RecordKind {
 	case recordKindDirectory:
 		return directoryCandidates(root, definition, policy, olderThan, now)
@@ -377,11 +711,35 @@ func shouldSkipPruneCandidates(
 	policy SurfaceRetentionPolicy,
 	options PruneOptions,
 ) bool {
-	if definition.DBMaintenance && !definition.CommandPrune {
+	if definition.ID == codeIntelLockID {
+		return true
+	}
+
+	if definition.DBMaintenance && !definition.CommandPrune && options.Automatic {
 		return true
 	}
 
 	return !policy.Enabled && options.OlderThan == 0 && !options.All
+}
+
+func markReportOnlyCandidates(
+	definition Definition,
+	candidates []PruneCandidate,
+) []PruneCandidate {
+	if definition.CommandPrune {
+		return candidates
+	}
+
+	for index := range candidates {
+		if candidates[index].Skipped {
+			continue
+		}
+
+		candidates[index].Skipped = true
+		candidates[index].Reason = "report-only: " + candidates[index].Reason
+	}
+
+	return candidates
 }
 
 func candidateRetentionAge(

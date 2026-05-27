@@ -32,9 +32,9 @@ The current supported platform includes:
   attestations, SBOMs, and package validation;
 - runtime sandbox support for managed tool execution with native namespaces/cgroup
   evidence where available;
-- repo-local SQLite code-intelligence storage for hook traces, lint traces,
+- repo-local DuckDB code-intelligence storage for hook traces, lint traces,
   SARIF, remediation outcomes, hook analytics, Tree-sitter chunks, AST links,
-  FTS5 search, and sqlite-vec derived embedding rows;
+  FTS5 search, and duckdb-vss derived embedding rows;
 - CLA Assistant contribution certification, CODEOWNERS, governance,
   continuity, security policy, issue templates, and release documentation.
 
@@ -103,7 +103,7 @@ policy, code, and remediation evidence.
 
 Planned work:
 
-- harden sqlite-vec hybrid search and embedding metadata workflows;
+- harden duckdb-vss hybrid search and embedding metadata workflows;
 - add scheduled or explicit indexing commands suitable for CI and local
   worktrees;
 - improve MCP result expansion with nearby symbols, graph edges, linked SARIF,

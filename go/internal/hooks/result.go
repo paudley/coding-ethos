@@ -9,9 +9,9 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-// AgentHookBlockedExitCode is the provider hook process exit code for a
-// denied action. Agent hooks use the provider's generic failure contract here;
-// managed tool captures keep their separate policy-block exit code.
+// AgentHookBlockedExitCode is the standalone hook CLI exit code for a denied
+// action when no provider JSON contract is active. Provider hooks communicate
+// denies through their JSON payload and still exit successfully.
 const AgentHookBlockedExitCode = 1
 
 type Result struct {

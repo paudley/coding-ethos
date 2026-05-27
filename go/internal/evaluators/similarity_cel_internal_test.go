@@ -7,10 +7,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/duckdb/duckdb-go/v2"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
@@ -108,9 +109,9 @@ func TestCelSimilarityFacts_NoCwd(t *testing.T) {
 func createTestSimilarityDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	database, err := sql.Open("sqlite", ":memory:?cache=shared")
+	database, err := sql.Open("duckdb", filepath.Join(t.TempDir(), "similarity.duckdb"))
 	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
+		t.Fatalf("open DuckDB: %v", err)
 	}
 
 	database.SetMaxOpenConns(1)

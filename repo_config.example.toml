@@ -33,7 +33,22 @@ max_bytes = "512MiB"
 [outputs.prune.surfaces.code_intel_db]
 auto = true
 row_retention_days = 90
-vacuum_after_prune = false
+max_bytes = "4GiB"
+vacuum_after_prune = true
+
+[outputs.prune.surfaces.code_intel_duckdb_wal]
+auto = false
+max_age = "7d"
+max_bytes = "1GiB"
+
+[outputs.prune.surfaces.code_intel_rebuild_lock]
+auto = true
+
+[outputs.prune.surfaces.code_intel_events]
+auto = true
+max_age = "90d"
+keep_last = 20000
+max_bytes = "2GiB"
 
 [outputs.prune.surfaces.sandbox_go_cache]
 auto = true

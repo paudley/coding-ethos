@@ -463,15 +463,24 @@ func remediationSchemaStatements() []string {
 
 func searchSchemaStatements() []string {
 	return []string{
-		`CREATE VIRTUAL TABLE IF NOT EXISTS code_intel_fts USING fts5(
-		kind,
-		policy_id,
-		skill_id,
-		path,
-		message,
-		search_text,
-		record_id UNINDEXED,
-		trace_id UNINDEXED
+		`CREATE TABLE IF NOT EXISTS code_intel_fts (
+		fts_id TEXT,
+		kind TEXT,
+		policy_id TEXT,
+		skill_id TEXT,
+		path TEXT,
+		message TEXT,
+		search_text TEXT,
+		record_id TEXT,
+		trace_id TEXT
+	)`,
+		`ALTER TABLE code_intel_fts ADD COLUMN IF NOT EXISTS fts_id TEXT`,
+		`UPDATE code_intel_fts
+		SET fts_id = kind || ':' || record_id || ':' || trace_id
+		WHERE fts_id IS NULL OR fts_id = ''`,
+		`CREATE TABLE IF NOT EXISTS code_intel_search_terms (
+		term TEXT NOT NULL,
+		fts_id TEXT NOT NULL
 	)`,
 	}
 }
@@ -524,72 +533,9 @@ func indexSchemaStatements() []string {
 		ON code_chunks(normalized_hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_lsh_bands_lookup
 		ON lsh_bands(band_hash, band_index)`,
-	}
-}
-
-type migrationColumn struct {
-	Name string
-	Type string
-}
-
-func migrationColumns() map[string][]migrationColumn {
-	return map[string][]migrationColumn{
-		"findings": {
-			{Name: "evaluator_kind", Type: "TEXT"},
-			{Name: "cel_policy_id", Type: "TEXT"},
-			{Name: "cel_expression", Type: "TEXT"},
-			{Name: "policy_source", Type: "TEXT"},
-		},
-		"proxy_sessions": {
-			{Name: "denial_count", Type: "INTEGER NOT NULL DEFAULT 0"},
-			{Name: "transform_count", Type: "INTEGER NOT NULL DEFAULT 0"},
-		},
-		"proxy_events": {
-			{Name: "trace_id", Type: "TEXT"},
-			{Name: "tracking_id", Type: "TEXT"},
-			{Name: "direction", Type: "TEXT"},
-			{Name: "payload_kind", Type: "TEXT"},
-			{Name: "cache_key", Type: "TEXT"},
-			{Name: "payload_bytes", Type: "INTEGER NOT NULL DEFAULT 0"},
-			{Name: "policy_evidence_json", Type: "TEXT NOT NULL DEFAULT '{}'"},
-			{Name: "dlp_json", Type: "TEXT NOT NULL DEFAULT '[]'"},
-		},
-		"proxy_transforms": {
-			{Name: "policy_id", Type: "TEXT"},
-			{Name: "decision", Type: "TEXT"},
-			{Name: "evidence_path", Type: "TEXT"},
-		},
-		"code_files": {
-			{Name: "parser_name", Type: "TEXT"},
-			{Name: "parser_version", Type: "TEXT"},
-			{Name: "source_mtime_utc", Type: "TEXT"},
-			{Name: "deleted_at_utc", Type: "TEXT"},
-			{Name: "stale_reason", Type: "TEXT"},
-		},
-		"diff_edit_patterns": {
-			{Name: "first_git_head", Type: "TEXT"},
-			{Name: "last_git_head", Type: "TEXT"},
-		},
-		"code_chunks": {
-			{Name: "parent_symbol_path", Type: "TEXT"},
-			{Name: "normalized_hash", Type: "TEXT"},
-			{Name: "minhash_sig", Type: "BLOB"},
-		},
-		"sarif_results": {
-			{Name: "proxy_event_id", Type: "TEXT"},
-			{Name: "proxy_session_id", Type: "TEXT"},
-			{Name: "proxy_event_kind", Type: "TEXT"},
-			{Name: "proxy_direction", Type: "TEXT"},
-			{Name: "proxy_payload_kind", Type: "TEXT"},
-			{Name: "proxy_trace_id", Type: "TEXT"},
-			{Name: "proxy_tracking_id", Type: "TEXT"},
-			{Name: "proxy_transform", Type: "TEXT"},
-			{Name: "ast_language", Type: "TEXT"},
-			{Name: "ast_node_kind", Type: "TEXT"},
-			{Name: "ast_symbol_kind", Type: "TEXT"},
-			{Name: "ast_symbol_name", Type: "TEXT"},
-			{Name: "ast_symbol_path", Type: "TEXT"},
-			{Name: "linked_chunk_id", Type: "TEXT"},
-		},
+		`CREATE INDEX IF NOT EXISTS idx_code_intel_search_terms_term
+		ON code_intel_search_terms(term, fts_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_code_intel_search_terms_fts_id
+		ON code_intel_search_terms(fts_id)`,
 	}
 }

@@ -27,7 +27,7 @@ import (
 
 const (
 	codeChunkRecordKind = "code_chunk"
-	vectorBackendName   = "sqlite-vec"
+	vectorBackendName   = "duckdb-vss"
 )
 
 func TestStoreIngestsLintTracesAndReportsRepeatedFailures(t *testing.T) {
@@ -189,6 +189,56 @@ func TestIngestHookTraceFilePreservesSourcePath(t *testing.T) {
 
 	if sourcePath != tracePath {
 		t.Fatalf("source path = %q, want %q", sourcePath, tracePath)
+	}
+}
+
+func TestIngestHookTraceFileUsesHookRunDirectoryForEventRunID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	firstTracePath := filepath.Join(
+		root,
+		".coding-ethos",
+		"hook-runs",
+		"run-a",
+		"event.json",
+	)
+	secondTracePath := filepath.Join(
+		root,
+		".coding-ethos",
+		"hook-runs",
+		"run-b",
+		"event.json",
+	)
+
+	writeFile(t, firstTracePath, hookTracePayload(t))
+	writeFile(
+		t,
+		secondTracePath,
+		hookTracePayloadWithIDs(t, "trace-b", "decision-b", "2026-01-01T00:03:00Z"),
+	)
+
+	if err := IngestHookTraceFile(ctx, root, firstTracePath); err != nil {
+		t.Fatalf("ingest first hook trace file: %v", err)
+	}
+	if err := IngestHookTraceFile(ctx, root, secondTracePath); err != nil {
+		t.Fatalf("ingest second hook trace file: %v", err)
+	}
+
+	records, err := NewEventLog(DefaultEventLogDir(root)).ReadAll()
+	if err != nil {
+		t.Fatalf("read hook trace event records: %v", err)
+	}
+
+	sourceRunIDs := make([]string, 0, len(records))
+	for _, record := range records {
+		sourceRunIDs = append(sourceRunIDs, record.SourceRunID)
+	}
+	slices.Sort(sourceRunIDs)
+
+	if !slices.Equal(sourceRunIDs, []string{"run-a", "run-b"}) {
+		t.Fatalf("source run IDs = %#v, want run-a and run-b", sourceRunIDs)
 	}
 }
 
@@ -378,15 +428,9 @@ func TestRefreshRepositoryRecordsDiffEditPatternsWithoutASTChunk(t *testing.T) {
 	}
 	defer store.Close()
 
-	database, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open raw sqlite: %v", err)
-	}
-	defer database.Close()
-
 	var count int
 
-	err = database.QueryRowContext(
+	err = store.Database().QueryRowContext(
 		ctx,
 		`SELECT COUNT(*)
 		FROM diff_edit_patterns
@@ -1096,128 +1140,6 @@ func TestRefreshRepositoryMarksDenseSourcesInactive(t *testing.T) {
 	}
 }
 
-func TestOpenMigratesColumnsBeforeIndexes(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	root := t.TempDir()
-	dbPath := DefaultDBPath(root)
-
-	err := os.MkdirAll(filepath.Dir(dbPath), 0o700)
-	if err != nil {
-		t.Fatalf("create db dir: %v", err)
-	}
-
-	database, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open raw db: %v", err)
-	}
-
-	_, err = database.ExecContext(ctx, `CREATE TABLE code_chunks (
-		chunk_id TEXT PRIMARY KEY,
-		path TEXT NOT NULL,
-		language TEXT NOT NULL,
-		node_kind TEXT NOT NULL,
-		symbol_kind TEXT,
-		symbol_name TEXT,
-		symbol_path TEXT,
-		parent_chunk_id TEXT,
-		start_byte INTEGER NOT NULL,
-		end_byte INTEGER NOT NULL,
-		start_line INTEGER NOT NULL,
-		end_line INTEGER NOT NULL,
-		content_hash TEXT NOT NULL,
-		search_text TEXT NOT NULL,
-		raw_text TEXT NOT NULL
-	)`)
-	if err != nil {
-		t.Fatalf("create legacy code_chunks table: %v", err)
-	}
-
-	err = database.Close()
-	if err != nil {
-		t.Fatalf("close raw db: %v", err)
-	}
-
-	store, err := Open(ctx, dbPath)
-	if err != nil {
-		t.Fatalf("open migrated store: %v", err)
-	}
-	defer store.Close()
-
-	for _, column := range []string{"normalized_hash", "minhash_sig"} {
-		found, err := testColumnExists(ctx, store.Database(), "code_chunks", column)
-		if err != nil {
-			t.Fatalf("check migrated column %s: %v", column, err)
-		}
-
-		if !found {
-			t.Fatalf("column %s was not migrated", column)
-		}
-	}
-}
-
-func TestOpenMigratesProxyTransformEvidencePath(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	root := t.TempDir()
-	dbPath := DefaultDBPath(root)
-
-	err := os.MkdirAll(filepath.Dir(dbPath), 0o700)
-	if err != nil {
-		t.Fatalf("create db dir: %v", err)
-	}
-
-	database, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open raw db: %v", err)
-	}
-
-	_, err = database.ExecContext(ctx, `CREATE TABLE proxy_transforms (
-		event_id TEXT NOT NULL,
-		ordinal INTEGER NOT NULL,
-		name TEXT NOT NULL,
-		reason TEXT,
-		input_hash TEXT,
-		output_hash TEXT,
-		policy_id TEXT,
-		decision TEXT,
-		input_tokens INTEGER NOT NULL DEFAULT 0,
-		output_tokens INTEGER NOT NULL DEFAULT 0,
-		bytes_removed INTEGER NOT NULL DEFAULT 0,
-		findings_count INTEGER NOT NULL DEFAULT 0,
-		PRIMARY KEY(event_id, ordinal)
-	)`)
-	if err != nil {
-		t.Fatalf("create legacy proxy_transforms table: %v", err)
-	}
-
-	err = database.Close()
-	if err != nil {
-		t.Fatalf("close raw db: %v", err)
-	}
-
-	store, err := Open(ctx, dbPath)
-	if err != nil {
-		t.Fatalf("open migrated store: %v", err)
-	}
-	defer store.Close()
-
-	found, err := testColumnExists(
-		ctx,
-		store.Database(),
-		"proxy_transforms",
-		"evidence_path",
-	)
-	if err != nil {
-		t.Fatalf("check migrated evidence_path column: %v", err)
-	}
-	if !found {
-		t.Fatal("proxy_transforms.evidence_path was not migrated")
-	}
-}
-
 func TestOpenCreatesProxyEvidencePathOnlyOnTransforms(t *testing.T) {
 	t.Parallel()
 
@@ -1271,9 +1193,9 @@ func testColumnExists(
 			cid        int
 			columnName string
 			columnType string
-			notNull    int
+			notNull    any
 			defaultVal any
-			pk         int
+			pk         any
 		)
 
 		err = rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultVal, &pk)
@@ -1728,9 +1650,9 @@ func TestStoreQueriesMigratedSARIFResultsWithNullASTColumns(t *testing.T) {
 
 	ctx := context.Background()
 
-	path := filepath.Join(t.TempDir(), "code-intel.db")
+	path := filepath.Join(t.TempDir(), "code-intel.duckdb")
 	store := openTestStoreAt(t, ctx, path)
-	rawDatabase := openRawSQLite(t, path)
+	rawDatabase := store.Database()
 
 	_, inlineErrA := rawDatabase.ExecContext(
 		ctx,
@@ -1845,7 +1767,7 @@ func recordRemediationOutcomeFixture(
 		PolicyID:     "python.unused_imports",
 		SkillID:      "lint-remediation",
 		Path:         "pkg/app.py",
-		BackendRowID: "sqlite-vec-row-1",
+		BackendRowID: "duckdb-vss-row-1",
 	})
 	if err != nil {
 		t.Fatalf("record embedding: %v", err)
@@ -1897,7 +1819,7 @@ func assertRecordedEmbeddingMetadata(
 	}
 
 	if len(embeddingRecords) != 1 ||
-		embeddingRecords[0].BackendRowID != "sqlite-vec-row-1" {
+		embeddingRecords[0].BackendRowID != "duckdb-vss-row-1" {
 		t.Fatalf("embedding records = %#v", embeddingRecords)
 	}
 }
@@ -2051,7 +1973,7 @@ func (worker Worker) Run() string {
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	summary, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
@@ -2125,7 +2047,7 @@ func BuildMessage(name string) string {
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
@@ -2155,7 +2077,7 @@ func BuildMessage(name string) string {
 		Path:         chunks[0].Path,
 		ContentHash:  chunks[0].ContentHash,
 		Dimension:    1024,
-		BackendRowID: "sqlite-vec-row-code",
+		BackendRowID: "duckdb-vss-row-code",
 	})
 	if err != nil {
 		t.Fatalf("record code chunk embedding: %v", err)
@@ -2244,7 +2166,7 @@ func BuildMessage(name string) string {
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
@@ -2374,7 +2296,7 @@ func LastDirect() {}
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
@@ -2493,7 +2415,7 @@ class Worker:
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	summary, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
@@ -2571,7 +2493,7 @@ func TestASTIndexerReturnsCompactCodeContext(t *testing.T) {
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
@@ -2641,7 +2563,7 @@ func main() { fmt.Println("x"); fmt.Println("y") }
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"."})
@@ -2692,8 +2614,8 @@ func OpenIndex() *Index { return &Index{} }
 	)
 	writeFile(
 		t,
-		filepath.Join(root, "internal", "query", "sqlite", "index.go"),
-		[]byte(`package sqlite
+		filepath.Join(root, "internal", "query", "duckdb", "index.go"),
+		[]byte(`package duckdb
 
 func OpenIndex() {}
 `),
@@ -2702,7 +2624,7 @@ func OpenIndex() {}
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"internal/query"})
@@ -2724,7 +2646,7 @@ func OpenIndex() {}
 	rendered := RenderRepoMapTOON(repoMap)
 	if len(repoMap.Files) != 1 ||
 		!strings.Contains(rendered, "internal/query/postgres/index.go") ||
-		strings.Contains(rendered, "internal/query/sqlite/index.go") {
+		strings.Contains(rendered, "internal/query/duckdb/index.go") {
 		t.Fatalf("repo map = %#v\n%s", repoMap, rendered)
 	}
 }
@@ -2744,7 +2666,7 @@ func TestASTDerivedContextRefusesStaleSource(t *testing.T) {
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
@@ -2801,13 +2723,13 @@ func TestASTDerivedContextPreservesWhitespacePaths(t *testing.T) {
 			"    return \"ok\"\n",
 	)
 	writeFile(t, filepath.Join(root, " worker.py"), source)
-	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 	store := openTestStoreAt(
 		t,
 		ctx,
 		dbPath,
 	)
-	rawDatabase := openRawSQLite(t, dbPath)
+	rawDatabase := store.Database()
 
 	_, err := rawDatabase.ExecContext(
 		ctx,
@@ -2871,7 +2793,7 @@ func Nested() {}
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	summary, err := NewASTIndexer(store).IndexDirectoryChildren(ctx, root, "pkg")
@@ -2923,7 +2845,7 @@ func Hidden() {}
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	summary, err := NewASTIndexer(store).IndexDirectoryTree(ctx, root, "pkg", 2)
@@ -2978,7 +2900,7 @@ func Generated() {}
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 	indexer := NewASTIndexer(store)
 
@@ -3273,9 +3195,9 @@ func TestStoreQueriesMigratedCodeChunksWithNullParentSymbolPath(t *testing.T) {
 
 	ctx := context.Background()
 
-	path := filepath.Join(t.TempDir(), "code-intel.db")
+	path := filepath.Join(t.TempDir(), "code-intel.duckdb")
 	store := openTestStoreAt(t, ctx, path)
-	rawDatabase := openRawSQLite(t, path)
+	rawDatabase := store.Database()
 
 	_, inlineErrC := rawDatabase.ExecContext(
 		ctx,
@@ -3333,7 +3255,7 @@ func TestSARIFIngestLinksASTBackedResultsToCodeChunks(t *testing.T) {
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	_, inlineErrE := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
@@ -3386,12 +3308,12 @@ func TestSARIFIngestLinksASTBackedResultsToCodeChunks(t *testing.T) {
 	}
 }
 
-func TestSQLiteVectorIndexSearchesEmbeddings(t *testing.T) {
+func TestDuckDBVectorIndexSearchesEmbeddings(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 
-	index, err := NewSQLiteVectorIndex(ctx, filepath.Join(t.TempDir(), "vectors.db"))
+	index, err := NewDuckDBVectorIndex(ctx, filepath.Join(t.TempDir(), "vectors.db"))
 	if err != nil {
 		t.Fatalf("open vector index: %v", err)
 	}
@@ -3403,20 +3325,20 @@ func TestSQLiteVectorIndexSearchesEmbeddings(t *testing.T) {
 		}
 	})
 
-	seedSQLiteVectorIndex(t, ctx, index)
-	assertSQLiteVectorSearch(t, ctx, index)
-	assertSQLiteVectorMutation(t, ctx, index)
-	assertSQLiteVectorValidation(t, ctx, index)
+	seedDuckDBVectorIndex(t, ctx, index)
+	assertDuckDBVectorSearch(t, ctx, index)
+	assertDuckDBVectorMutation(t, ctx, index)
+	assertDuckDBVectorValidation(t, ctx, index)
 }
 
-func seedSQLiteVectorIndex(
+func seedDuckDBVectorIndex(
 	t *testing.T,
 	ctx context.Context,
-	index *SQLiteVectorIndex,
+	index *DuckDBVectorIndex,
 ) {
 	t.Helper()
 
-	for _, record := range sqliteVectorSeedRecords() {
+	for _, record := range duckDBVectorSeedRecords() {
 		err := index.UpsertEmbedding(ctx, record)
 		if err != nil {
 			t.Fatalf("upsert vector %q: %v", record.ID, err)
@@ -3424,7 +3346,7 @@ func seedSQLiteVectorIndex(
 	}
 }
 
-func sqliteVectorSeedRecords() []evidence.VectorRecord {
+func duckDBVectorSeedRecords() []evidence.VectorRecord {
 	return []evidence.VectorRecord{
 		{
 			ID:         "near",
@@ -3445,10 +3367,10 @@ func sqliteVectorSeedRecords() []evidence.VectorRecord {
 	}
 }
 
-func assertSQLiteVectorSearch(
+func assertDuckDBVectorSearch(
 	t *testing.T,
 	ctx context.Context,
-	index *SQLiteVectorIndex,
+	index *DuckDBVectorIndex,
 ) {
 	t.Helper()
 
@@ -3467,13 +3389,13 @@ func assertSQLiteVectorSearch(
 		t.Fatalf("matches = %#v", matches)
 	}
 
-	assertSQLiteVectorRows(t, ctx, index, 2, "vector stats")
+	assertDuckDBVectorRows(t, ctx, index, 2, "vector stats")
 }
 
-func assertSQLiteVectorMutation(
+func assertDuckDBVectorMutation(
 	t *testing.T,
 	ctx context.Context,
-	index *SQLiteVectorIndex,
+	index *DuckDBVectorIndex,
 ) {
 	t.Helper()
 
@@ -3499,20 +3421,20 @@ func assertSQLiteVectorMutation(
 		t.Fatalf("delete missing vector: %v", err)
 	}
 
-	assertSQLiteVectorRows(t, ctx, index, 1, "vector stats after delete")
+	assertDuckDBVectorRows(t, ctx, index, 1, "vector stats after delete")
 
 	err = index.Rebuild(ctx, "remediations")
 	if err != nil {
 		t.Fatalf("rebuild vectors: %v", err)
 	}
 
-	assertSQLiteVectorRows(t, ctx, index, 0, "vector stats after rebuild")
+	assertDuckDBVectorRows(t, ctx, index, 0, "vector stats after rebuild")
 }
 
-func assertSQLiteVectorRows(
+func assertDuckDBVectorRows(
 	t *testing.T,
 	ctx context.Context,
-	index *SQLiteVectorIndex,
+	index *DuckDBVectorIndex,
 	expected int,
 	label string,
 ) {
@@ -3528,16 +3450,16 @@ func assertSQLiteVectorRows(
 	}
 }
 
-func assertSQLiteVectorValidation(
+func assertDuckDBVectorValidation(
 	t *testing.T,
 	ctx context.Context,
-	index *SQLiteVectorIndex,
+	index *DuckDBVectorIndex,
 ) {
 	t.Helper()
 
-	_, err := NewSQLiteVectorIndex(ctx, "")
+	_, err := NewDuckDBVectorIndex(ctx, "")
 	if err == nil {
-		t.Fatal("NewSQLiteVectorIndex(empty) returned nil error")
+		t.Fatal("NewDuckDBVectorIndex(empty) returned nil error")
 	}
 
 	err = index.UpsertEmbedding(ctx, evidence.VectorRecord{})
@@ -3557,7 +3479,7 @@ func TestHybridSearchCombinesFTSVectorAndOutcomeBoost(t *testing.T) {
 	ctx := context.Background()
 	store := openTestStore(t, ctx)
 
-	index, err := NewSQLiteVectorIndex(ctx, filepath.Join(t.TempDir(), "vectors.db"))
+	index, err := NewDuckDBVectorIndex(ctx, filepath.Join(t.TempDir(), "vectors.db"))
 	if err != nil {
 		t.Fatalf("open vector index: %v", err)
 	}
@@ -3638,7 +3560,7 @@ func TestHybridSearchReturnsVectorBackedCodeChunks(t *testing.T) {
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	_, inlineErrF := NewASTIndexer(store).IndexPaths(ctx, root, []string{"pkg"})
@@ -3659,7 +3581,7 @@ func TestHybridSearchReturnsVectorBackedCodeChunks(t *testing.T) {
 		t.Fatalf("chunks = %#v", chunks)
 	}
 
-	index, err := NewSQLiteVectorIndex(ctx, filepath.Join(t.TempDir(), "vectors.db"))
+	index, err := NewDuckDBVectorIndex(ctx, filepath.Join(t.TempDir(), "vectors.db"))
 	if err != nil {
 		t.Fatalf("open vector index: %v", err)
 	}
@@ -3750,7 +3672,7 @@ run_check() {
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	summary, err := NewASTIndexer(
@@ -3805,7 +3727,7 @@ func TestVectorFactoryDefaultPathAndIndexStatus(t *testing.T) {
 	store := openTestStoreAt(
 		t,
 		ctx,
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 
 	replaceVectorStatusCodeChunk(t, ctx, store)
@@ -3857,7 +3779,7 @@ func assertDefaultVectorPath(t *testing.T, root string) {
 
 	got := DefaultVectorPath(root)
 
-	want := filepath.Join(root, ".coding-ethos", "code-intel-vectors.db")
+	want := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 	if got != want {
 		t.Fatalf("DefaultVectorPath() = %q", got)
 	}
@@ -4026,7 +3948,7 @@ func stringAnySlicesEqual(got, want []any) bool {
 func openTestStore(t *testing.T, ctx context.Context) *Store {
 	t.Helper()
 
-	return openTestStoreAt(t, ctx, filepath.Join(t.TempDir(), "code-intel.db"))
+	return openTestStoreAt(t, ctx, filepath.Join(t.TempDir(), "code-intel.duckdb"))
 }
 
 func openTestStoreAt(t *testing.T, ctx context.Context, path string) *Store {
@@ -4045,24 +3967,6 @@ func openTestStoreAt(t *testing.T, ctx context.Context, path string) *Store {
 	})
 
 	return store
-}
-
-func openRawSQLite(t *testing.T, path string) *sql.DB {
-	t.Helper()
-
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatalf("open raw sqlite: %v", err)
-	}
-
-	t.Cleanup(func() {
-		closeErr := database.Close()
-		if closeErr != nil {
-			t.Fatalf("close raw sqlite: %v", closeErr)
-		}
-	})
-
-	return database
 }
 
 func lintTracePayload(t *testing.T, traceID, recordedAt string) []byte {

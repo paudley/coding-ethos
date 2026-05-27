@@ -12,20 +12,23 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/duckdb/duckdb-go/v2"
 )
 
 const (
 	sourcePathClauseCapacityFactor = 2
 	sourcePathQueryArgFactor       = 4
 	schemaVersion                  = 1
-	sqliteImmediateTxParam         = "_txlock=immediate"
 	storeDirMode                   = 0o700
+	storeLockWait                  = 2 * time.Second
+	storeLockRetryInterval         = 100 * time.Millisecond
 )
 
 type Store struct {
 	database *sql.DB
 }
+
+type storeOpenFunc func(context.Context, string) (*Store, error)
 
 type Stats struct {
 	Traces              int `json:"traces"`
@@ -64,16 +67,73 @@ type SourcePathIngestRequest struct {
 }
 
 func DefaultDBPath(root string) string {
-	return filepath.Join(root, ".coding-ethos", "code-intel.db")
+	return DefaultDuckDBPath(root)
+}
+
+func IsStoreLockError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+
+	return strings.Contains(message, "could not set lock") ||
+		strings.Contains(message, "conflicting lock") ||
+		strings.Contains(message, "database is locked")
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
+	return openWithStoreLockWait(
+		ctx,
+		path,
+		storeLockWait,
+		storeLockRetryInterval,
+		openStoreOnce,
+	)
+}
+
+func openWithStoreLockWait(
+	ctx context.Context,
+	path string,
+	wait time.Duration,
+	retryInterval time.Duration,
+	openStore storeOpenFunc,
+) (*Store, error) {
+	deadline := time.Now().Add(wait)
+
+	for {
+		store, err := openStore(ctx, path)
+		if err == nil {
+			return store, nil
+		}
+
+		if !IsStoreLockError(err) || time.Now().After(deadline) {
+			return nil, err
+		}
+
+		timer := time.NewTimer(retryInterval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+
+			return nil, fmt.Errorf("wait for code intelligence store lock: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
+func openStoreOnce(ctx context.Context, path string) (*Store, error) {
 	inlineErr0 := os.MkdirAll(filepath.Dir(path), storeDirMode)
 	if inlineErr0 != nil {
 		return nil, fmt.Errorf("create code intelligence store dir: %w", inlineErr0)
 	}
 
-	database, err := sql.Open("sqlite", sqliteStoreDSN(path))
+	database, err := sql.Open("duckdb", path)
 	if err != nil {
 		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
@@ -98,12 +158,12 @@ func Open(ctx context.Context, path string) (*Store, error) {
 }
 
 func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
-	_, err := os.Stat(sqliteStoreStatPath(path))
+	_, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("stat code intelligence store: %w", err)
 	}
 
-	database, err := sql.Open("sqlite", sqliteReadOnlyStoreDSN(path))
+	database, err := sql.Open("duckdb", path+"?access_mode=READ_ONLY")
 	if err != nil {
 		return nil, fmt.Errorf("open read-only code intelligence store: %w", err)
 	}
@@ -120,47 +180,6 @@ func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
 	}
 
 	return store, nil
-}
-
-func sqliteStoreDSN(path string) string {
-	if strings.Contains(path, sqliteImmediateTxParam) {
-		return path
-	}
-
-	separator := "?"
-	if strings.Contains(path, "?") {
-		separator = "&"
-	}
-
-	return path + separator + sqliteImmediateTxParam
-}
-
-func sqliteReadOnlyStoreDSN(path string) string {
-	prefix := "file:"
-	if strings.HasPrefix(path, prefix) {
-		prefix = ""
-	}
-
-	separator := "?"
-	if strings.Contains(path, "?") {
-		separator = "&"
-	}
-
-	return prefix + filepath.ToSlash(path) + separator +
-		"mode=ro&_pragma=busy_timeout(30000)"
-}
-
-func sqliteStoreStatPath(path string) string {
-	result := strings.TrimPrefix(path, "file:")
-	if before, _, found := strings.Cut(result, "?"); found {
-		result = before
-	}
-
-	if before, _, found := strings.Cut(result, "#"); found {
-		result = before
-	}
-
-	return filepath.FromSlash(result)
 }
 
 func configureConnectionPool(database *sql.DB) {
@@ -485,52 +504,23 @@ func traceIDsOlderThan(
 }
 
 func configureStore(ctx context.Context, database *sql.DB) error {
-	for _, statement := range []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA synchronous = NORMAL",
-		"PRAGMA busy_timeout = 30000",
-	} {
-		_, inlineErrA := database.ExecContext(ctx, statement)
-		if inlineErrA != nil {
-			return fmt.Errorf("configure code intelligence store: %w", inlineErrA)
-		}
-	}
-
-	return nil
+	return configureReadOnlyStore(ctx, database)
 }
 
 func configureReadOnlyStore(ctx context.Context, database *sql.DB) error {
-	for _, statement := range []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA busy_timeout = 30000",
-	} {
-		_, inlineErrA := database.ExecContext(ctx, statement)
-		if inlineErrA != nil {
-			return fmt.Errorf(
-				"configure read-only code intelligence store: %w",
-				inlineErrA,
-			)
-		}
+	err := database.PingContext(ctx)
+	if err != nil {
+		return fmt.Errorf("configure DuckDB code intelligence store: %w", err)
 	}
 
 	return nil
 }
 
 func migrateStore(ctx context.Context, database *sql.DB) error {
-	for _, statement := range schemaStatements() {
+	for _, statement := range duckDBSchemaStatements() {
 		_, inlineErrB := database.ExecContext(ctx, statement)
 		if inlineErrB != nil {
 			return fmt.Errorf("migrate code intelligence store: %w", inlineErrB)
-		}
-	}
-
-	for table, columns := range migrationColumns() {
-		for _, column := range columns {
-			err := ensureColumn(ctx, database, table, column)
-			if err != nil {
-				return err
-			}
 		}
 	}
 
@@ -541,7 +531,12 @@ func migrateStore(ctx context.Context, database *sql.DB) error {
 		}
 	}
 
-	_, err := database.ExecContext(
+	err := backfillSearchTerms(ctx, database)
+	if err != nil {
+		return err
+	}
+
+	_, err = database.ExecContext(
 		ctx,
 		"INSERT OR REPLACE INTO schema_metadata(key, value) VALUES('schema_version', ?)",
 		schemaVersion,
@@ -551,74 +546,6 @@ func migrateStore(ctx context.Context, database *sql.DB) error {
 	}
 
 	return nil
-}
-
-func ensureColumn(
-	ctx context.Context,
-	database *sql.DB,
-	table string,
-	column migrationColumn,
-) error {
-	exists, err := columnExists(ctx, database, table, column.Name)
-	if err != nil {
-		return err
-	}
-
-	if exists {
-		return nil
-	}
-
-	_, inlineErrC := database.ExecContext(
-		ctx,
-		fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column.Name, column.Type),
-	)
-	if inlineErrC != nil {
-		return fmt.Errorf("add %s.%s column: %w", table, column.Name, inlineErrC)
-	}
-
-	return nil
-}
-
-func columnExists(
-	ctx context.Context,
-	database *sql.DB,
-	table, name string,
-) (bool, error) {
-	rows, err := database.QueryContext(
-		ctx,
-		fmt.Sprintf("PRAGMA table_info(%s)", table),
-	)
-	if err != nil {
-		return false, fmt.Errorf("inspect %s columns: %w", table, err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var (
-			cid        int
-			columnName string
-			columnType string
-			notNull    int
-			defaultVal any
-			pk         int
-		)
-
-		err := rows.Scan(&cid, &columnName, &columnType, &notNull, &defaultVal, &pk)
-		if err != nil {
-			return false, fmt.Errorf("scan %s column info: %w", table, err)
-		}
-
-		if columnName == name {
-			return true, nil
-		}
-	}
-
-	inlineErr3 := rows.Err()
-	if inlineErr3 != nil {
-		return false, fmt.Errorf("iterate %s column info: %w", table, inlineErr3)
-	}
-
-	return false, nil
 }
 
 type statCountQuery struct {

@@ -36,7 +36,7 @@ the end-to-end suite unless all of the following are true:
   cannot be made reliable enough for a blocking end-to-end test. The fixture
   provider replaces only the remote model endpoint; the scenario still uses a
   real temporary Git repository, real local files, real HTTP framing, real
-  provider-envelope structs, and the real code-intel SQLite ledger.
+  provider-envelope structs, and the real code-intel DuckDB ledger.
 - Real behavior replaced: remote provider request/response behavior for a
   single deterministic assistant response.
 - Remaining risk: provider-specific authentication, streaming semantics, rate

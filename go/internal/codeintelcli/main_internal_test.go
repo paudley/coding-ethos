@@ -24,7 +24,7 @@ func TestStatsCreatesStore(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 
 	err := run(context.Background(), []string{"stats", "--root", root, "--db", dbPath})
 	if err != nil {
@@ -47,13 +47,13 @@ func TestDownstreamAnalysisDoesNotRequireExistingStore(t *testing.T) {
 		t.Fatalf("downstream-analysis created state dir %q: %v", stateDir, statErr)
 	}
 
-	dbPath := filepath.Join(stateDir, "code-intel.db")
+	dbPath := filepath.Join(stateDir, "code-intel.duckdb")
 	if _, statErr := os.Stat(dbPath); !os.IsNotExist(statErr) {
 		t.Fatalf("downstream-analysis created store %q: %v", dbPath, statErr)
 	}
 }
 
-func TestVectorStatsCreatesSQLiteVectorStore(t *testing.T) {
+func TestVectorStatsCreatesDuckDBVectorStore(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -68,7 +68,7 @@ func TestIndexCodeAndCodeChunksCommands(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 
 	sourcePath := filepath.Join(root, "cmd", "app.go")
 
@@ -340,7 +340,7 @@ func TestRecordAndQueryCommands(t *testing.T) {
 		t.Fatalf("write app.py: %v", err)
 	}
 
-	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 	ctx := context.Background()
 	baseArgs := []string{"--root", root, "--db", dbPath}
 
@@ -419,7 +419,7 @@ func recordCommandArgs(root string, baseArgs []string) [][]string {
 		}, baseArgs...),
 		append([]string{
 			"record-embedding",
-			"--backend", "sqlite-vec",
+			"--backend", "duckdb-vss",
 			"--collection", "remediations",
 			"--model-id", "code-model",
 			"--record-kind", "remediation",
@@ -497,7 +497,7 @@ func TestSARIFCommands(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 	sarifPath := filepath.Join(root, "policy.sarif")
 
 	payload := `{
@@ -560,7 +560,7 @@ func TestIngestTracesAndHookUsageCommands(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.db")
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 
 	traceDir := filepath.Join(root, ".coding-ethos", "hook-runs", "run-a")
 

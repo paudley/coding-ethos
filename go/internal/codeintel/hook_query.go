@@ -135,7 +135,9 @@ const hookUsageSQL = `WITH filtered AS (
 			AND COALESCE(latest.recorded_at_utc, '') = summary.last_seen_utc
 		GROUP BY summary.provider, summary.tool, summary.operation_kind,
 			summary.target_kind, summary.risk_category, summary.status,
-			summary.policy_id, summary.skill_id
+			summary.policy_id, summary.skill_id, summary.event_count,
+			summary.decision_count, summary.blocked_count, summary.rewrite_count,
+			summary.avg_runtime_ms, summary.last_seen_utc
 			ORDER BY summary.event_count DESC, summary.blocked_count DESC,
 				summary.last_seen_utc DESC
 			LIMIT ?`

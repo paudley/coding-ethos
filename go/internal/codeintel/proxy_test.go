@@ -20,7 +20,7 @@ func TestRecordProxyEventMaintainsSessionLedger(t *testing.T) {
 
 	ctx := context.Background()
 
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "code-intel.db"))
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "code-intel.duckdb"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestReadFileWithCacheSuppressesRepeatedUnchangedReads(t *testing.T) {
 		t.Fatalf("write app.py: %v", err)
 	}
 
-	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.duckdb"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestReadFileWithCacheMissesAfterContentChanges(t *testing.T) {
 		t.Fatalf("write app.py: %v", err)
 	}
 
-	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.duckdb"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestReadFileWithCacheRejectsSymlinkOutsideRoot(t *testing.T) {
 		t.Fatalf("symlink outside file: %v", err)
 	}
 
-	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.duckdb"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestReadFileWithCacheRecordsOriginalTransformMeasurements(t *testing.T) {
 		t.Fatalf("write app.py: %v", err)
 	}
 
-	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.db"))
+	store, err := Open(ctx, filepath.Join(root, ".coding-ethos", "code-intel.duckdb"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

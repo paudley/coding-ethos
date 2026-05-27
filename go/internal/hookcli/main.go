@@ -5,6 +5,7 @@ package hookcli
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -29,6 +30,11 @@ var (
 	errBundleRequired = apperror.StaticError("--bundle is required")
 	errInvalidBundle  = apperror.StaticError("invalid policy bundle")
 )
+
+type codeIntelStoreOpener func(
+	context.Context,
+	string,
+) (*codeintel.Store, error)
 
 func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("coding-ethos-hook", flag.ExitOnError)
@@ -104,10 +110,18 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			printBlocked(stderr, result)
 		}
 
-		return blockedExitCode
+		return blockedResultExitCode(result, *jsonOutput)
 	}
 
 	return 0
+}
+
+func blockedResultExitCode(result hooks.Result, jsonOutput bool) int {
+	if jsonOutput && result.Provider != "" {
+		return 0
+	}
+
+	return blockedExitCode
 }
 
 func persistHookResult(event hooks.Event, result hooks.Result) error {
@@ -116,10 +130,10 @@ func persistHookResult(event hooks.Event, result hooks.Result) error {
 		return fmt.Errorf("write agent hook trace: %w", err)
 	}
 
-	return writeProxyEvents(result)
+	return writeProxyEvents(result, codeintel.Open)
 }
 
-func writeProxyEvents(result hooks.Result) error {
+func writeProxyEvents(result hooks.Result, openStore codeIntelStoreOpener) error {
 	eventsByRoot := map[string][]agentproxy.ProviderEvent{}
 
 	for _, event := range result.ProxyEvents {
@@ -131,26 +145,105 @@ func writeProxyEvents(result hooks.Result) error {
 	}
 
 	for root, events := range eventsByRoot {
-		store, err := codeintel.Open(
-			context.Background(),
-			codeintel.DefaultDBPath(root),
-		)
-		if err != nil {
-			return fmt.Errorf("open proxy output ledger: %w", err)
-		}
-
-		err = recordProxyEvents(store, events)
-		closeErr := store.Close()
-
+		err := writeProxyEventsForRoot(root, events, openStore)
 		if err != nil {
 			return err
 		}
+	}
 
-		if closeErr != nil {
-			return fmt.Errorf("close proxy output ledger: %w", closeErr)
+	return nil
+}
+
+func writeProxyEventsForRoot(
+	root string,
+	events []agentproxy.ProviderEvent,
+	openStore codeIntelStoreOpener,
+) error {
+	err := appendProxyEventLog(root, events)
+	if err != nil {
+		return err
+	}
+
+	err = tryWriteProxyEventsForRoot(root, events, openStore)
+	if err == nil {
+		autoPruneCodeIntelDB(root)
+
+		return nil
+	}
+
+	if codeintel.IsStoreLockError(err) {
+		return nil
+	}
+
+	return err
+}
+
+func appendProxyEventLog(root string, events []agentproxy.ProviderEvent) error {
+	records := make([]codeintel.EventRecord, 0, len(events))
+	for _, event := range events {
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("encode proxy output event: %w", err)
 		}
 
-		autoPruneCodeIntelDB(root)
+		records = append(records, codeintel.EventRecord{
+			Kind:        "proxy_event",
+			SourceRunID: event.SessionID,
+			TraceID:     event.TraceID,
+			Provider:    event.Provider,
+			Tool:        event.Tool,
+			PolicyID:    event.PolicyID,
+			Path:        event.TargetPath,
+			Payload:     payload,
+		})
+	}
+
+	err := codeintel.NewEventLog(
+		codeintel.DefaultEventLogDir(root),
+	).Append(proxyEventLogRunID(events), records)
+	if err != nil {
+		return fmt.Errorf("append proxy output event log: %w", err)
+	}
+
+	return nil
+}
+
+func proxyEventLogRunID(events []agentproxy.ProviderEvent) string {
+	for _, event := range events {
+		if event.ID != "" {
+			return event.ID
+		}
+
+		if event.SessionID != "" {
+			return event.SessionID
+		}
+	}
+
+	return "proxy-event"
+}
+
+func tryWriteProxyEventsForRoot(
+	root string,
+	events []agentproxy.ProviderEvent,
+	openStore codeIntelStoreOpener,
+) error {
+	store, err := openStore(
+		context.Background(),
+		codeintel.DefaultDBPath(root),
+	)
+	if err != nil {
+		return fmt.Errorf("open proxy output ledger: %w", err)
+	}
+
+	err = recordProxyEvents(store, events)
+	closeErr := store.Close()
+
+	if err != nil {
+		return err
+	}
+
+	if closeErr != nil {
+		return fmt.Errorf("close proxy output ledger: %w", closeErr)
 	}
 
 	return nil

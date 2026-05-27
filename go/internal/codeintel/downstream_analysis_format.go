@@ -21,7 +21,7 @@ func FormatDownstreamAnalysisTOON(analysis DownstreamAnalysis) string {
 		fmt.Sprintf("traces: %d", analysis.Stats.Traces),
 		fmt.Sprintf("hook_runs: %d", analysis.LogSignals.HookRunCount),
 		fmt.Sprintf("lint_runs: %d", analysis.LogSignals.LintRunCount),
-		fmt.Sprintf("sqlite_busy_logs: %d", analysis.LogSignals.SQLiteBusyCount),
+		fmt.Sprintf("storage_busy_logs: %d", analysis.LogSignals.StorageBusyCount),
 		fmt.Sprintf(
 			"toolchain_failure_logs: %d",
 			analysis.LogSignals.ToolchainFailureCount,
@@ -55,11 +55,11 @@ func FormatDownstreamAnalysisHuman(analysis DownstreamAnalysis) string {
 			analysis.StorageHealth.Recommendation,
 		),
 		fmt.Sprintf(
-			"Signals: %d hook runs, %d lint runs, %d SQLite busy logs, "+
+			"Signals: %d hook runs, %d lint runs, %d storage busy logs, "+
 				"%d toolchain failure logs",
 			analysis.LogSignals.HookRunCount,
 			analysis.LogSignals.LintRunCount,
-			analysis.LogSignals.SQLiteBusyCount,
+			analysis.LogSignals.StorageBusyCount,
 			analysis.LogSignals.ToolchainFailureCount,
 		),
 	}

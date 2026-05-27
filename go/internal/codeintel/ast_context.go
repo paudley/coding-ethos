@@ -209,8 +209,8 @@ func (store *DuckDBStore) codeFileContentMetadataByPath(
 ) (map[string]codeFileContentMetadata, error) {
 	results := make(map[string]codeFileContentMetadata, len(paths))
 
-	for offset := 0; offset < len(paths); offset += sqliteBatchSize {
-		end := min(offset+sqliteBatchSize, len(paths))
+	for offset := 0; offset < len(paths); offset += sqlParameterBatchSize {
+		end := min(offset+sqlParameterBatchSize, len(paths))
 
 		err := store.codeFileContentMetadataBatch(ctx, paths[offset:end], results)
 		if err != nil {
@@ -297,8 +297,8 @@ func (store *Store) codeFileContentMetadataByPath(
 ) (map[string]codeFileContentMetadata, error) {
 	results := make(map[string]codeFileContentMetadata, len(paths))
 
-	for offset := 0; offset < len(paths); offset += sqliteBatchSize {
-		end := min(offset+sqliteBatchSize, len(paths))
+	for offset := 0; offset < len(paths); offset += sqlParameterBatchSize {
+		end := min(offset+sqlParameterBatchSize, len(paths))
 
 		err := store.codeFileContentMetadataBatch(ctx, paths[offset:end], results)
 		if err != nil {
@@ -314,7 +314,7 @@ func (store *Store) codeFileContentMetadataBatch(
 	paths []string,
 	results map[string]codeFileContentMetadata,
 ) error {
-	return codeFileContentMetadataBatch(ctx, store.database, paths, results, "SQLite")
+	return codeFileContentMetadataBatch(ctx, store.database, paths, results, "DuckDB")
 }
 
 func codeFileContentMetadataBatch(

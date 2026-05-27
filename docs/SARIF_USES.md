@@ -37,8 +37,8 @@ guidance, and replayable trace context.
 
 SARIF results are ingested into the repo-local code-intelligence store so
 agents can search prior violations, remediation advice, outcome records, and
-Tree-sitter-linked source chunks without reparsing every trace. SQLite remains
-the canonical ledger, FTS5 provides exact search, and sqlite-vec provides
+Tree-sitter-linked source chunks without reparsing every trace. DuckDB remains
+the canonical ledger, FTS5 provides exact search, and duckdb-vss provides
 derived vector retrieval for records that have approved embeddings. SARIF
 therefore becomes a durable input to MCP retrieval, not just a transient CI
 upload.

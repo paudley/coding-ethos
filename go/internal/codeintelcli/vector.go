@@ -42,7 +42,7 @@ func upsertVector(ctx context.Context, args []string) error {
 		return err
 	}
 
-	index, err := openSQLiteVectorIndex(ctx, options.root, options.uri)
+	index, err := openDuckDBVectorIndex(ctx, options.root, options.uri)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func parseUpsertVectorOptions(args []string) (upsertVectorOptions, error) {
 	}, nil
 }
 
-func openSQLiteVectorIndex(
+func openDuckDBVectorIndex(
 	ctx context.Context,
 	root string,
 	uri string,
@@ -118,11 +118,11 @@ func openSQLiteVectorIndex(
 	}
 
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
-		Backend: "sqlite-vec",
+		Backend: codeintel.VectorBackendDuckDBVSS,
 		URI:     uri,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite vector index: %w", err)
+		return nil, fmt.Errorf("open DuckDB vector index: %w", err)
 	}
 
 	return index, nil
@@ -172,7 +172,7 @@ func recordVectorEmbedding(
 	defer store.Close()
 
 	err = store.UpsertEmbeddingRecord(ctx, codeintel.EmbeddingRecord{
-		Backend:      "sqlite-vec",
+		Backend:      codeintel.VectorBackendDuckDBVSS,
 		Collection:   options.collection,
 		ModelID:      options.modelID,
 		InputKind:    "text",

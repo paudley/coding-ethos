@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/duckdb/duckdb-go/v2"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
@@ -61,14 +61,14 @@ func loadSimilarityFactsFromDB(
 		return nil
 	}
 
-	dbPath := filepath.Join(cwd, ".coding-ethos", "code-intel.db")
+	dbPath := filepath.Join(cwd, ".coding-ethos", "code-intel.duckdb")
 
 	_, statErr := os.Stat(dbPath)
 	if statErr != nil {
 		return nil
 	}
 
-	database, err := sql.Open("sqlite", dbPath+"?mode=ro")
+	database, err := sql.Open("duckdb", dbPath+"?access_mode=READ_ONLY")
 	if err != nil {
 		return nil
 	}
