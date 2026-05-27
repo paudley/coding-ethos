@@ -22,7 +22,8 @@ const (
 )
 
 type DuckDBVectorIndex struct {
-	database *sql.DB
+	database  *sql.DB
+	vssLoaded bool
 }
 
 func NewDuckDBVectorIndex(
@@ -296,10 +297,12 @@ func (index *DuckDBVectorIndex) Rebuild(ctx context.Context, collection string) 
 }
 
 func (index *DuckDBVectorIndex) migrate(ctx context.Context) error {
-	err := loadDuckDBVSSExtension(ctx, index.database)
+	vssLoaded, err := loadDuckDBVSSExtension(ctx, index.database)
 	if err != nil {
 		return err
 	}
+
+	index.vssLoaded = vssLoaded
 
 	_, err = index.database.ExecContext(
 		ctx,
@@ -331,17 +334,29 @@ func (index *DuckDBVectorIndex) migrate(ctx context.Context) error {
 	return nil
 }
 
-func loadDuckDBVSSExtension(ctx context.Context, database *sql.DB) error {
+func loadDuckDBVSSExtension(ctx context.Context, database *sql.DB) (bool, error) {
 	_, err := database.ExecContext(ctx, "LOAD vss")
-	if err == nil {
-		return setDuckDBVSSPersistence(ctx, database)
+	if err != nil {
+		if duckDBVSSExtensionUnavailable(err) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("load DuckDB VSS extension: %w", err)
 	}
 
-	return fmt.Errorf(
-		"load DuckDB VSS extension: %w; "+
-			"install the extension in the managed DuckDB runtime before using vector search",
-		err,
-	)
+	err = setDuckDBVSSPersistence(ctx, database)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func duckDBVSSExtensionUnavailable(err error) bool {
+	message := strings.ToLower(err.Error())
+
+	return strings.Contains(message, "extension") &&
+		strings.Contains(message, "install it first")
 }
 
 func setDuckDBVSSPersistence(ctx context.Context, database *sql.DB) error {
@@ -378,6 +393,10 @@ func (index *DuckDBVectorIndex) ensureDimensionTable(
 	)
 	if err != nil {
 		return fmt.Errorf("create DuckDB VSS table for dimension %d: %w", dimension, err)
+	}
+
+	if !index.vssLoaded {
+		return nil
 	}
 
 	_, err = index.database.ExecContext(
