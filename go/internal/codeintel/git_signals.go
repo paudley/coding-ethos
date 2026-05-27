@@ -19,6 +19,7 @@ const (
 	defaultGitSignalCoChangeLimit  = 5
 	defaultGitSignalCommitLimit    = 500
 	defaultGitSignalReviewerLimit  = 5
+	gitSignalCoChangePathLimit     = 100
 	gitHotspotChurnWeight          = 5
 	gitHotspotCommitWeight         = 10
 	gitHotspotMultiAuthorWeight    = 3
@@ -34,6 +35,7 @@ const (
 	gitSignalHeaderFieldCount      = 4
 	gitSignalHoursPerDay           = 24
 	gitSignalOwnershipPercentScale = 100
+	gitSignalRenamePartCount       = 2
 	gitSignalScoreScale            = 10
 )
 
@@ -486,6 +488,32 @@ func insertGitSignalFiles(
 	transaction *sql.Tx,
 	files map[string]*gitFileAccumulator,
 ) error {
+	signalStmt, err := transaction.PrepareContext(
+		ctx,
+		`INSERT INTO git_file_signals(
+			path, commit_count, churn, additions, deletions, author_count,
+			primary_author_name, primary_author_email,
+			primary_author_commits, first_seen_utc, last_seen_utc,
+			hotspot_score
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	)
+	if err != nil {
+		return fmt.Errorf("prepare git file signal statement: %w", err)
+	}
+	defer signalStmt.Close()
+
+	authorStmt, err := transaction.PrepareContext(
+		ctx,
+		`INSERT INTO git_file_authors(
+			path, author_email, author_name, commit_count,
+			additions, deletions, last_seen_utc
+		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	)
+	if err != nil {
+		return fmt.Errorf("prepare git file author statement: %w", err)
+	}
+	defer authorStmt.Close()
+
 	paths := sortedGitSignalKeys(files)
 	for _, path := range paths {
 		file := files[path]
@@ -499,14 +527,8 @@ func insertGitSignalFiles(
 		churn := file.additions + file.deletions
 		hotspotScore := gitHotspotScore(commitCount, churn, len(file.authors))
 
-		_, err := transaction.ExecContext(
+		_, err = signalStmt.ExecContext(
 			ctx,
-			`INSERT INTO git_file_signals(
-				path, commit_count, churn, additions, deletions, author_count,
-				primary_author_name, primary_author_email,
-				primary_author_commits, first_seen_utc, last_seen_utc,
-				hotspot_score
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			file.path,
 			commitCount,
 			churn,
@@ -525,12 +547,8 @@ func insertGitSignalFiles(
 		}
 
 		for _, author := range authors {
-			_, err = transaction.ExecContext(
+			_, err = authorStmt.ExecContext(
 				ctx,
-				`INSERT INTO git_file_authors(
-					path, author_email, author_name, commit_count,
-					additions, deletions, last_seen_utc
-				) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 				file.path,
 				author.email,
 				author.name,
@@ -553,12 +571,35 @@ func insertGitSignalCoChanges(
 	transaction *sql.Tx,
 	cochanges map[string]*gitCoChangeAccumulator,
 ) error {
+	edgeStmt, err := transaction.PrepareContext(
+		ctx,
+		`SELECT COUNT(*)
+		FROM code_edges
+		WHERE (path = ? AND target_path = ?)
+			OR (path = ? AND target_path = ?)`,
+	)
+	if err != nil {
+		return fmt.Errorf("prepare git co-change edge query: %w", err)
+	}
+	defer edgeStmt.Close()
+
+	cochangeStmt, err := transaction.PrepareContext(
+		ctx,
+		`INSERT INTO git_cochanges(
+			path, related_path, cochange_count, last_seen_utc, hidden_coupling
+		) VALUES (?, ?, ?, ?, ?)`,
+	)
+	if err != nil {
+		return fmt.Errorf("prepare git co-change statement: %w", err)
+	}
+	defer cochangeStmt.Close()
+
 	keys := sortedGitCoChangeKeys(cochanges)
 	for _, key := range keys {
 		cochange := cochanges[key]
 		hidden, err := gitCoChangeHiddenCoupling(
 			ctx,
-			transaction,
+			edgeStmt,
 			cochange.path,
 			cochange.relatedPath,
 		)
@@ -566,11 +607,8 @@ func insertGitSignalCoChanges(
 			return err
 		}
 
-		_, err = transaction.ExecContext(
+		_, err = cochangeStmt.ExecContext(
 			ctx,
-			`INSERT INTO git_cochanges(
-				path, related_path, cochange_count, last_seen_utc, hidden_coupling
-			) VALUES (?, ?, ?, ?, ?)`,
 			cochange.path,
 			cochange.relatedPath,
 			cochange.count,
@@ -654,17 +692,13 @@ func (store *Store) gitSignalMetadata(ctx context.Context) (map[string]string, e
 
 func gitCoChangeHiddenCoupling(
 	ctx context.Context,
-	transaction *sql.Tx,
+	statement *sql.Stmt,
 	path string,
 	relatedPath string,
 ) (bool, error) {
 	var count int
-	err := transaction.QueryRowContext(
+	err := statement.QueryRowContext(
 		ctx,
-		`SELECT COUNT(*)
-		FROM code_edges
-		WHERE (path = ? AND target_path = ?)
-			OR (path = ? AND target_path = ?)`,
 		path,
 		relatedPath,
 		relatedPath,

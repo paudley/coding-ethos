@@ -26,6 +26,7 @@ import (
 
 const (
 	codeIntelDefaultTaskLimit  = 5
+	codeIntelAuthorRiskCount   = 3
 	codeIntelHotspotThreshold  = 25
 	codeIntelMaxTaskLimit      = 25
 	codeIntelMediumRiskReason  = 1
@@ -1372,7 +1373,7 @@ func changeRiskReasons(
 		reasons = append(reasons, "target is a git-history hotspot")
 	}
 
-	if len(gitSignals) != 0 && gitSignals[0].AuthorCount > codeIntelMediumRiskReason {
+	if len(gitSignals) != 0 && gitSignals[0].AuthorCount >= codeIntelAuthorRiskCount {
 		reasons = append(reasons, "target has multi-author ownership risk")
 	}
 

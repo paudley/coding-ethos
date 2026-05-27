@@ -5,7 +5,6 @@
 package codeintel
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -93,10 +92,8 @@ func gitOutput(
 func parseGitSignalLog(output string) ([]gitCommitSignal, error) {
 	commits := []gitCommitSignal{}
 	current := (*gitCommitSignal)(nil)
-	scanner := bufio.NewScanner(strings.NewReader(output))
 
-	for scanner.Scan() {
-		rawLine := scanner.Text()
+	for rawLine := range strings.Lines(output) {
 		line := strings.TrimSpace(rawLine)
 		if line == "" {
 			continue
@@ -119,10 +116,6 @@ func parseGitSignalLog(output string) ([]gitCommitSignal, error) {
 		if ok {
 			current.Changes = append(current.Changes, change)
 		}
-	}
-	err := scanner.Err()
-	if err != nil {
-		return nil, fmt.Errorf("scan git signal log: %w", err)
 	}
 
 	return commits, nil
@@ -172,13 +165,29 @@ func parseGitSignalNumstat(line string) (gitCommitChange, bool) {
 func normalizeGitSignalPath(path string) string {
 	path = strings.TrimSpace(path)
 	if strings.Contains(path, " => ") {
-		path = strings.TrimSuffix(path[strings.LastIndex(path, " => ")+4:], "}")
-		if open := strings.LastIndex(path, "{"); open >= 0 {
-			path = path[open+1:]
-		}
+		path = normalizeGitSignalRenamePath(path)
 	}
 
 	return filepath.ToSlash(strings.Trim(path, "{}"))
+}
+
+func normalizeGitSignalRenamePath(path string) string {
+	open := strings.Index(path, "{")
+	closeIndex := strings.Index(path, "}")
+	if open >= 0 && closeIndex > open {
+		inside := path[open+1 : closeIndex]
+		parts := strings.Split(inside, " => ")
+		if len(parts) == gitSignalRenamePartCount {
+			return path[:open] + parts[1] + path[closeIndex+1:]
+		}
+	}
+
+	parts := strings.Split(path, " => ")
+	if len(parts) == gitSignalRenamePartCount {
+		return parts[1]
+	}
+
+	return path
 }
 
 func normalizeGitSignalTimestamp(value string) string {
@@ -213,7 +222,9 @@ func buildGitSignalAggregates(
 			author.lastSeen = maxNonEmptyTime(author.lastSeen, commit.WhenUTC)
 		}
 
-		recordGitCoChanges(cochanges, changedPaths, commit.WhenUTC)
+		if len(changedPaths) <= gitSignalCoChangePathLimit {
+			recordGitCoChanges(cochanges, changedPaths, commit.WhenUTC)
+		}
 	}
 
 	return files, cochanges

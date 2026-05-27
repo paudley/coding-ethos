@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -184,6 +185,53 @@ func TestStoreRefreshesGitSignalsFromRealHistory(t *testing.T) {
 	}
 	if !stale.Stale || stale.HeadCommit != summary.HeadCommit {
 		t.Fatalf("unexpected stale summary: %#v", stale)
+	}
+}
+
+func TestNormalizeGitSignalPathKeepsRenameContext(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		input string
+		want  string
+	}{
+		{input: "pkg/{old.go => new.go}", want: "pkg/new.go"},
+		{input: "{pkg => src/pkg}/app.go", want: "src/pkg/app.go"},
+		{input: "dir/{old => new}/file.go", want: "dir/new/file.go"},
+		{input: "old.go => new.go", want: "new.go"},
+	} {
+		got := normalizeGitSignalPath(test.input)
+		if got != test.want {
+			t.Fatalf("normalizeGitSignalPath(%q) = %q, want %q", test.input, got, test.want)
+		}
+	}
+}
+
+func TestBuildGitSignalAggregatesSkipsOversizedCoChanges(t *testing.T) {
+	t.Parallel()
+
+	changes := make([]gitCommitChange, gitSignalCoChangePathLimit+1)
+	for index := range changes {
+		changes[index] = gitCommitChange{
+			Path:      "pkg/file-" + strconv.Itoa(index) + ".go",
+			Additions: 1,
+		}
+	}
+
+	files, cochanges := buildGitSignalAggregates([]gitCommitSignal{
+		{
+			Hash:        "commit-1",
+			AuthorName:  "Bulk",
+			AuthorEmail: "bulk@example.invalid",
+			WhenUTC:     "2026-05-27T12:00:00Z",
+			Changes:     changes,
+		},
+	})
+	if len(files) != len(changes) {
+		t.Fatalf("files = %d, want %d", len(files), len(changes))
+	}
+	if len(cochanges) != 0 {
+		t.Fatalf("cochanges = %d, want 0 for oversized commit", len(cochanges))
 	}
 }
 
