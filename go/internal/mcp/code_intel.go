@@ -1391,13 +1391,18 @@ func changeRiskTarget(
 		return codeIntelRiskTarget{}, err
 	}
 
-	health, err := store.CodeHealth(ctx, codeintel.CodeHealthQuery{
+	health, foundHealth, err := store.StoredCodeHealth(ctx, codeintel.CodeHealthQuery{
 		Root:  root,
 		Path:  path,
 		Limit: 1,
 	})
 	if err != nil {
 		return codeIntelRiskTarget{}, fmt.Errorf("query health score for %s: %w", path, err)
+	}
+
+	healthTargets := []codeintel.CodeHealthTarget{}
+	if foundHealth {
+		healthTargets = health.Targets
 	}
 
 	reasons := changeRiskReasons(
@@ -1416,7 +1421,7 @@ func changeRiskTarget(
 		Chunks:             chunks,
 		GitSignalFreshness: &gitFreshness,
 		GitSignals:         gitSignals,
-		Health:             health.Targets,
+		Health:             healthTargets,
 		Reviewers:          gitReviewerSuggestions(reviewers),
 		RepeatedFailures:   failures,
 		RiskLevel:          riskLevelForReasons(reasons),

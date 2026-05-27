@@ -783,6 +783,47 @@ func TestServerCodeIntelToolsUseStoredCodeAndRemediationData(t *testing.T) {
 	}
 }
 
+func TestServerChangeRiskDoesNotRefreshMissingHealthSnapshot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	seedCodeIntelToolData(t, root)
+	runtime := mcp.Runtime{ConsumerRoot: root, InvocationCwd: root}
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":56,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_change_risk",
+			"arguments":{"path":"pkg/app.py","limit":5}
+		}
+	}`), runtime)
+	if !strings.Contains(output, `"code_intel_change_risk"`) ||
+		!strings.Contains(output, `"health":[]`) {
+		t.Fatalf("change risk output missing empty stored-health result:\n%s", output)
+	}
+
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	defer store.Close()
+
+	_, found, err := store.StoredCodeHealth(ctx, codeintel.CodeHealthQuery{
+		Root:  root,
+		Path:  "pkg/app.py",
+		Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("read stored health: %v", err)
+	}
+	if found {
+		t.Fatalf("change risk unexpectedly refreshed health snapshot")
+	}
+}
+
 func TestServerSemanticSearchReturnsCodeChunks(t *testing.T) {
 	t.Parallel()
 
