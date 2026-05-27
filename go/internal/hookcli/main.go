@@ -5,6 +5,7 @@ package hookcli
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -23,11 +24,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-const (
-	blockedExitCode          = hooks.AgentHookBlockedExitCode
-	proxyLedgerLockWait      = 20 * time.Second
-	proxyLedgerRetryInterval = 100 * time.Millisecond
-)
+const blockedExitCode = hooks.AgentHookBlockedExitCode
 
 var (
 	errBundleRequired = apperror.StaticError("--bundle is required")
@@ -109,18 +106,22 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	if result.Blocked() {
-		if *jsonOutput && result.Provider != "" {
-			return 0
-		}
-
 		if !*jsonOutput {
 			printBlocked(stderr, result)
 		}
 
-		return blockedExitCode
+		return blockedResultExitCode(result, *jsonOutput)
 	}
 
 	return 0
+}
+
+func blockedResultExitCode(result hooks.Result, jsonOutput bool) int {
+	if jsonOutput && result.Provider != "" {
+		return 0
+	}
+
+	return blockedExitCode
 }
 
 func persistHookResult(event hooks.Event, result hooks.Result) error {
@@ -158,22 +159,67 @@ func writeProxyEventsForRoot(
 	events []agentproxy.ProviderEvent,
 	openStore codeIntelStoreOpener,
 ) error {
-	deadline := time.Now().Add(proxyLedgerLockWait)
-
-	for {
-		err := tryWriteProxyEventsForRoot(root, events, openStore)
-		if err == nil {
-			autoPruneCodeIntelDB(root)
-
-			return nil
-		}
-
-		if !codeintel.IsStoreLockError(err) || time.Now().After(deadline) {
-			return err
-		}
-
-		time.Sleep(proxyLedgerRetryInterval)
+	err := appendProxyEventLog(root, events)
+	if err != nil {
+		return err
 	}
+
+	err = tryWriteProxyEventsForRoot(root, events, openStore)
+	if err == nil {
+		autoPruneCodeIntelDB(root)
+
+		return nil
+	}
+
+	if codeintel.IsStoreLockError(err) {
+		return nil
+	}
+
+	return err
+}
+
+func appendProxyEventLog(root string, events []agentproxy.ProviderEvent) error {
+	records := make([]codeintel.EventRecord, 0, len(events))
+	for _, event := range events {
+		payload, err := json.Marshal(event)
+		if err != nil {
+			return fmt.Errorf("encode proxy output event: %w", err)
+		}
+
+		records = append(records, codeintel.EventRecord{
+			Kind:        "proxy_event",
+			SourceRunID: event.SessionID,
+			TraceID:     event.TraceID,
+			Provider:    event.Provider,
+			Tool:        event.Tool,
+			PolicyID:    event.PolicyID,
+			Path:        event.TargetPath,
+			Payload:     payload,
+		})
+	}
+
+	err := codeintel.NewEventLog(
+		codeintel.DefaultEventLogDir(root),
+	).Append(proxyEventLogRunID(events), records)
+	if err != nil {
+		return fmt.Errorf("append proxy output event log: %w", err)
+	}
+
+	return nil
+}
+
+func proxyEventLogRunID(events []agentproxy.ProviderEvent) string {
+	for _, event := range events {
+		if event.ID != "" {
+			return event.ID
+		}
+
+		if event.SessionID != "" {
+			return event.SessionID
+		}
+	}
+
+	return "proxy-event"
 }
 
 func tryWriteProxyEventsForRoot(

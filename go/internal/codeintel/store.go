@@ -20,7 +20,7 @@ const (
 	sourcePathQueryArgFactor       = 4
 	schemaVersion                  = 1
 	storeDirMode                   = 0o700
-	storeLockWait                  = 20 * time.Second
+	storeLockWait                  = 2 * time.Second
 	storeLockRetryInterval         = 100 * time.Millisecond
 )
 

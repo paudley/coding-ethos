@@ -318,7 +318,7 @@ func agentShellProvider() string {
 		return provider
 	}
 
-	return "coding-ethos"
+	return parentCheckoutCodingEthos
 }
 
 func shellCommand(args []string) string {

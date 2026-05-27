@@ -24,6 +24,7 @@ const (
 	downstreamStateDir       = ".coding-ethos"
 	downstreamHookRunsDir    = "hook-runs"
 	downstreamLintRunsDir    = "lint-runs"
+	downstreamEventJSONFile  = "event.json"
 	downstreamRebuildIndex   = "rebuild_index"
 	downstreamHealthy        = "healthy"
 	downstreamAppendOnlyHint = "observed SQLITE_BUSY; consider append-only " +
@@ -1289,7 +1290,7 @@ func recordDownstreamRunFile(
 	name string,
 	signals *DownstreamLogSignals,
 ) {
-	if name == "event.json" {
+	if name == downstreamEventJSONFile {
 		signals.EventJSONCount++
 	}
 

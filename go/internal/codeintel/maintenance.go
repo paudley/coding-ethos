@@ -190,6 +190,10 @@ func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 
 	store, err := Open(ctx, DefaultDBPath(root))
 	if err != nil {
+		if IsStoreLockError(err) {
+			return nil
+		}
+
 		return err
 	}
 	defer store.Close()
@@ -201,7 +205,7 @@ func hookTraceEventRunID(resolvedTracePath string) string {
 	fileName := filepath.Base(resolvedTracePath)
 	runID := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 
-	if fileName != "event.json" {
+	if fileName != downstreamEventJSONFile {
 		return runID
 	}
 
@@ -245,6 +249,10 @@ func IngestLintTraceFile(ctx context.Context, root, tracePath string) error {
 
 	store, err := Open(ctx, DefaultDBPath(root))
 	if err != nil {
+		if IsStoreLockError(err) {
+			return nil
+		}
+
 		return err
 	}
 	defer store.Close()

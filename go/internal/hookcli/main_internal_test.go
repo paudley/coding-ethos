@@ -263,7 +263,7 @@ func TestRunWithIOPersistsProxyOutputTransforms(t *testing.T) {
 	}
 }
 
-func TestRunWithIOWaitsForProxyOutputLedgerLock(t *testing.T) {
+func TestWriteProxyEventsKeepsDurableEventLogWhenLedgerLocked(t *testing.T) {
 	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS", "30")
 	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS", "10")
 	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS", "10")
@@ -276,18 +276,15 @@ func TestRunWithIOWaitsForProxyOutputLedgerLock(t *testing.T) {
 
 	attempts := 0
 	openStore := func(
-		ctx context.Context,
-		path string,
+		context.Context,
+		string,
 	) (*codeintel.Store, error) {
 		attempts++
-		if attempts == 1 {
-			return nil, fmt.Errorf(
-				"open code intelligence store: database/sql/driver: " +
-					"could not connect to database: IO Error: Could not set lock",
-			)
-		}
 
-		return codeintel.Open(ctx, path)
+		return nil, fmt.Errorf(
+			"open code intelligence store: database/sql/driver: " +
+				"could not connect to database: IO Error: Could not set lock",
+		)
 	}
 
 	result := hooks.Result{
@@ -307,25 +304,20 @@ func TestRunWithIOWaitsForProxyOutputLedgerLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("write proxy events: %v", err)
 	}
-	if attempts < 2 {
-		t.Fatalf("proxy ledger open attempts = %d, want retry", attempts)
+	if attempts != 1 {
+		t.Fatalf("proxy ledger open attempts = %d, want one bounded attempt", attempts)
 	}
 
-	store, err := codeintel.Open(context.Background(), codeintel.DefaultDBPath(repo))
+	records, err := codeintel.NewEventLog(
+		codeintel.DefaultEventLogDir(repo),
+	).ReadAll()
 	if err != nil {
-		t.Fatalf("open code-intel: %v", err)
+		t.Fatalf("read proxy event log: %v", err)
 	}
-	defer store.Close()
-
-	events, err := store.ProxyEvents(
-		context.Background(),
-		codeintel.ProxyEventQuery{SessionID: "session-proxy-output-lock-wait"},
-	)
-	if err != nil {
-		t.Fatalf("query proxy events: %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("proxy events = %#v", events)
+	if len(records) != 1 ||
+		records[0].Kind != "proxy_event" ||
+		records[0].SourceRunID != "session-proxy-output-lock-wait" {
+		t.Fatalf("proxy event log records = %#v", records)
 	}
 }
 
