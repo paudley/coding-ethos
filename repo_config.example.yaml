@@ -160,6 +160,7 @@ filesystem:
   required_ignores:
     enabled: true
     paths:
+      - .claude/settings.local.json
       - .coding-ethos/cache/
       - .coding-ethos/code-intel.duckdb
       - .coding-ethos/code-intel.duckdb.wal
@@ -168,6 +169,8 @@ filesystem:
       - .coding-ethos/lint-runs/
       - .coding-ethos/prune-runs/
       - .coding-ethos/state/
+      - .gemini/settings.json
+      - .mcp.json
   pii_scrubber:
     enabled: true
     patterns:

@@ -192,6 +192,31 @@ func TestEvaluateCELExpressionBlocksAgentBrandedCommand(t *testing.T) {
 	}
 }
 
+func TestEvaluateCELExpressionBlocksCodexBrandingInAnyCommand(t *testing.T) {
+	t.Parallel()
+
+	policyDef := compiledRepoPolicy(t, "agent.self_promotion_pr_mutation")
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Command:          `printf '%s\n' "[codex] generated output"`,
+			Provider:         "codex",
+			Tool:             "Bash",
+			EventName:        "PreToolUse",
+			Scope:            "PreToolUse",
+			EvaluatorOptions: policyDef.Evaluators[0].Options,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+}
+
 func TestEvaluateCELExpressionBlocksAgentBrandedPRTitle(t *testing.T) {
 	t.Parallel()
 

@@ -2025,6 +2025,34 @@ func TestRunBlocksAgentBrandedCommandEverywhere(t *testing.T) {
 	}
 }
 
+func TestRunBlocksCodexBrandingInAnyCLICommand(t *testing.T) {
+	t.Parallel()
+
+	bundle := bundleWithSelfPromotionPRPolicy()
+
+	result, err := Run(bundle, Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ProviderHint:  "codex",
+			ToolInput: map[string]any{
+				"command": `printf '%s\n' "[codex] generated output"`,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.Status != statusBlocked {
+		t.Fatalf("status mismatch: got %q, decisions %#v", result.Status, result.Decisions)
+	}
+
+	if !hasDecision(result.Decisions, "agent.self_promotion_pr_mutation") {
+		t.Fatalf("missing self-promotion decision: %#v", result.Decisions)
+	}
+}
+
 func TestRunAllowsParentAgentPathReferences(t *testing.T) {
 	t.Parallel()
 

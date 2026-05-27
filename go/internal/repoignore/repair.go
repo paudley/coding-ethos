@@ -22,6 +22,7 @@ const (
 // ignored while keeping .coding-ethos/memories trackable.
 func RuntimePaths() []string {
 	return []string{
+		".claude/settings.local.json",
 		".coding-ethos/cache/",
 		".coding-ethos/code-intel.duckdb",
 		".coding-ethos/code-intel.duckdb.wal",
@@ -30,6 +31,8 @@ func RuntimePaths() []string {
 		".coding-ethos/lint-runs/",
 		".coding-ethos/prune-runs/",
 		".coding-ethos/state/",
+		".gemini/settings.json",
+		".mcp.json",
 	}
 }
 
