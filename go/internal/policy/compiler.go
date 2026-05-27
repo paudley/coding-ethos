@@ -21,6 +21,7 @@ import (
 var (
 	errNoCompiledPrinciples = apperror.StaticError("no principles found")
 	errNoCompiledPolicies   = apperror.StaticError("no enabled policies found")
+	errRemovedConfigPath    = apperror.StaticError("removed config path")
 )
 
 const (
@@ -173,6 +174,11 @@ func compileInputs(options CompileOptions) (compileInputPayloads, error) {
 		return compileInputPayloads{}, err
 	}
 
+	err = validateRemovedCriticalEnforcementConfigPaths(options.Config, configPayload)
+	if err != nil {
+		return compileInputPayloads{}, err
+	}
+
 	sourceHashes := map[string]string{
 		options.Primary: primaryHash,
 		options.Config:  configHash,
@@ -254,6 +260,14 @@ func mergeRepoConfigInput(
 		return nil, err
 	}
 
+	err = validateRemovedCriticalEnforcementConfigPaths(
+		options.RepoConfig,
+		repoConfigPayload,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	sourceHashes[options.RepoConfig] = repoConfigHash
 
 	source, found, err := expressionPolicySourceFromConfig(
@@ -269,6 +283,44 @@ func mergeRepoConfigInput(
 	}
 
 	return repoConfigPayload, nil
+}
+
+func validateRemovedCriticalEnforcementConfigPaths(
+	file string,
+	values map[string]any,
+) error {
+	for _, path := range removedCriticalEnforcementConfigPaths() {
+		if _, found := valueAt(values, path...); found {
+			return fmt.Errorf(
+				"%w %q in %s: critical enforcement cannot be enabled or disabled by config",
+				errRemovedConfigPath,
+				strings.Join(path, "."),
+				file,
+			)
+		}
+	}
+
+	return nil
+}
+
+func removedCriticalEnforcementConfigPaths() [][]string {
+	return [][]string{
+		{"git", "change_dir_flag", "enabled"},
+		{"git", "checkout_protected_branch", "enabled"},
+		{"git", "commit_head_advanced", "enabled"},
+		{"git", "destructive_command", "enabled"},
+		{"git", "destructive_worktree", "enabled"},
+		{"git", "force_push_protected_branch", "enabled"},
+		{"git", "history_rewrite_prevention", "enabled"},
+		{"git", "hook_bypass", "enabled"},
+		{"git", "merge_strategy_shortcut", "enabled"},
+		{"git", "protected_submodule_update", "enabled"},
+		{"git", "signed_operations", "enabled"},
+		{"git", "staged_admin_files", "enabled"},
+		{"git", "stash_blocked", "enabled"},
+		{"git", "wrapper_required", "enabled"},
+		{"repo", "protected_branch_work", "enabled"},
+	}
 }
 
 func loadYAMLFile(path string) (map[string]any, string, error) {

@@ -21,7 +21,6 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
-	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
@@ -432,9 +431,10 @@ func TestSyncParentPolicyBundleUsesParentRepoConfig(t *testing.T) {
 	repoConfig := filepath.Join(parentRepo, "repo_config.yaml")
 
 	err := os.WriteFile(repoConfig, []byte(`
-repo:
-  protected_branch_work:
-    enabled: false
+filesystem:
+  protected_branch_write:
+    branches:
+      - main
 `), 0o600)
 	if err != nil {
 		t.Fatalf("write repo config: %v", err)
@@ -498,7 +498,7 @@ repo:
 	}
 }
 
-func TestParentRuntimeBundleKeepsProtectedBranchHookPolicy(t *testing.T) {
+func TestParentRuntimeBundleRejectsRemovedProtectedBranchWorkConfig(t *testing.T) {
 	t.Parallel()
 
 	sourceRoot := findRunnerRepoRoot(t)
@@ -534,33 +534,9 @@ repo:
 		RepoEthos:  filepath.Join(sourceRoot, "repo_ethos.yml"),
 		RepoConfig: repoConfig,
 	})
-	if err != nil {
-		t.Fatalf("sync parent policy bundle: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "repo.protected_branch_work.enabled") {
+		t.Fatalf("sync parent policy bundle error = %v", err)
 	}
-
-	parentBundle := parentPolicyBundlePath(paths, parentWorkflowOptions{Repo: parentRepo})
-	assertProtectedBranchWorkPoliciesPresent(t, parentBundle)
-
-	bundle := readPolicyBundleForTest(t, parentBundle)
-	assertParentHookAllowsUnrelatedProtectedBranchEvent(t, bundle, parentRepo, hooks.Event{
-		HookEventName: "PreToolUse",
-		ProviderHint:  "codex",
-		ToolName:      "Bash",
-		Cwd:           parentRepo,
-		ToolInput: map[string]any{
-			"command": "printf '%s\n' ready",
-		},
-	})
-	assertParentHookBlocksProtectedBranchWriteEvent(t, bundle, parentRepo, hooks.Event{
-		HookEventName: "PreToolUse",
-		ProviderHint:  "codex",
-		ToolName:      "Write",
-		Cwd:           parentRepo,
-		ToolInput: map[string]any{
-			"file_path": "shared/podcasts.go",
-			"content":   "package shared\n",
-		},
-	})
 }
 
 func TestRebuildParentGoToolsBuildsRepoLocalBinaries(t *testing.T) {
@@ -3120,52 +3096,6 @@ func writePolicyBundleForTest(t *testing.T, bundlePath string) {
 	if err != nil {
 		t.Fatalf("encode policy bundle %s: %v", bundlePath, err)
 	}
-}
-
-func assertParentHookAllowsUnrelatedProtectedBranchEvent(
-	t *testing.T,
-	bundle policy.Bundle,
-	parentRepo string,
-	event hooks.Event,
-) {
-	t.Helper()
-
-	result, err := hooks.Run(bundle, hooks.Options{Event: event})
-	if err != nil {
-		t.Fatalf("run parent hook event: %v", err)
-	}
-
-	for _, decision := range result.Decisions {
-		if decision.PolicyID == "filesystem.protected_branch_write" {
-			t.Fatalf("protected branch policy dispatched for unrelated event: %#v", result)
-		}
-	}
-
-	if result.Status != "allowed" {
-		t.Fatalf("parent hook status for %s = %#v", parentRepo, result)
-	}
-}
-
-func assertParentHookBlocksProtectedBranchWriteEvent(
-	t *testing.T,
-	bundle policy.Bundle,
-	parentRepo string,
-	event hooks.Event,
-) {
-	t.Helper()
-
-	result, err := hooks.Run(bundle, hooks.Options{Event: event})
-	if err != nil {
-		t.Fatalf("run parent hook event: %v", err)
-	}
-
-	for _, decision := range result.Decisions {
-		if decision.PolicyID == "filesystem.protected_branch_write" {
-			return
-		}
-	}
-
-	t.Fatalf("protected branch write should be blocked for %s: %#v", parentRepo, result)
 }
 
 func runRunnerTestGit(t *testing.T, dir string, args ...string) {
