@@ -163,7 +163,7 @@ func rootedTracePath(root, tracePath string) (string, error) {
 
 // IngestHookTraceFile records a single hook event trace that was just written
 // by the hook runtime. The append-only event log is the durable telemetry path;
-// the legacy SQLite store is still updated as a compatibility query index.
+// the DuckDB store is updated as the query index.
 func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 	resolvedTracePath, err := rootedTracePath(root, tracePath)
 	if err != nil {

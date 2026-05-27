@@ -61,8 +61,6 @@ func TestDefaultSettingsContinuouslyMaintainCodeIntelSurfaces(t *testing.T) {
 	for _, surfaceID := range []string{
 		codeIntelDuckDBID,
 		codeIntelDuckDBWALID,
-		codeIntelSQLiteWALID,
-		codeIntelSQLiteSHMID,
 		codeIntelEventsID,
 		codeIntelLockID,
 	} {

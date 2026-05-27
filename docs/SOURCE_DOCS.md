@@ -43,7 +43,7 @@
 - `docs/AGENT_REMEDIATION.md`: normalized `agent_remediation` payload shape,
   MCP remediation flow, provider examples, and trace-summary contract.
 - `docs/CODE_INTEL.md`: Tree-sitter AST code intelligence plan and current
-  implementation, SQLite canonical storage, sqlite-vec vector search, hybrid
+  implementation, DuckDB canonical storage, duckdb-vss vector search, hybrid
   retrieval, and MCP search tools.
 - `docs/AGENT_PROXY.md`: Agent Proxy trust boundary, operator model,
   provider-neutral event envelope, code-intel ledger, CEL facts, SARIF

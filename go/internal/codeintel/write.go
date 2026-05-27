@@ -19,11 +19,11 @@ import (
 )
 
 const (
-	unknownCELPolicyID   = ""
-	unknownCELExpression = ""
-	unknownPolicySource  = ""
-	lshBandColumnCount   = 5
-	sqliteBatchSize      = 900
+	unknownCELPolicyID    = ""
+	unknownCELExpression  = ""
+	unknownPolicySource   = ""
+	lshBandColumnCount    = 5
+	sqlParameterBatchSize = 900
 )
 
 func deleteTraceRows(ctx context.Context, transaction *sql.Tx, traceID string) error {
@@ -667,7 +667,7 @@ func storeLSHBandRows(
 		// #nosec G202 -- placeholders are generated from a fixed batch shape.
 		_, err := transaction.ExecContext(
 			ctx,
-			`INSERT OR IGNORE INTO lsh_bands(
+			`INSERT INTO lsh_bands(
 				band_hash, band_index, chunk_id, path, symbol_name
 			) VALUES `+strings.Join(placeholders, ", "),
 			args...,
@@ -855,8 +855,8 @@ func embeddingIDsForCodeChunks(
 
 	embeddingIDs := []any{}
 
-	for offset := 0; offset < len(chunkIDs); offset += sqliteBatchSize {
-		end := min(offset+sqliteBatchSize, len(chunkIDs))
+	for offset := 0; offset < len(chunkIDs); offset += sqlParameterBatchSize {
+		end := min(offset+sqlParameterBatchSize, len(chunkIDs))
 		batch := chunkIDs[offset:end]
 
 		batchIDs, err := embeddingIDsForCodeChunkBatch(ctx, transaction, batch)
@@ -959,9 +959,8 @@ func batchDeleteEntities(
 	ids []any,
 	extraWhere ...string,
 ) error {
-	// SQLite has a limit of 999 parameters.
-	for offset := 0; offset < len(ids); offset += sqliteBatchSize {
-		end := min(offset+sqliteBatchSize, len(ids))
+	for offset := 0; offset < len(ids); offset += sqlParameterBatchSize {
+		end := min(offset+sqlParameterBatchSize, len(ids))
 		batch := ids[offset:end]
 
 		placeholders := make([]string, len(batch))

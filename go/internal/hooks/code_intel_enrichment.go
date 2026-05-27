@@ -28,7 +28,7 @@ const (
 	defaultCodeIntelEnrichmentMaxFailures    = 4
 	defaultCodeIntelEnrichmentMaxOutputPaths = 12
 	codeIntelEnrichmentRefreshCommand        = "coding-ethos-code-intel rebuild-index"
-	codeIntelTimestampSQLiteLayout           = "2006-01-02 15:04:05"
+	codeIntelTimestampSQLLayout              = "2006-01-02 15:04:05"
 	codeIntelFreshnessUnknownHead            = "unknown"
 	codeIntelFreshnessStateDirMode           = 0o700
 	codeIntelFreshnessStateFileMode          = 0o600
@@ -774,7 +774,7 @@ func parseCodeIntelTime(value string) (time.Time, error) {
 		return parsed, nil
 	}
 
-	parsed, err = time.Parse(codeIntelTimestampSQLiteLayout, value)
+	parsed, err = time.Parse(codeIntelTimestampSQLLayout, value)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("parse code-intel timestamp: %w", err)
 	}

@@ -172,9 +172,9 @@ func TestPolicyToolLintArgsDoNotExposeSandboxMode(t *testing.T) {
 func TestCodeIntelArgsInsertRootAfterSubcommand(t *testing.T) {
 	t.Parallel()
 
-	args := codeIntelArgs("/repo", []string{"stats", "--db", "/tmp/code-intel.db"})
+	args := codeIntelArgs("/repo", []string{"stats", "--db", "/tmp/code-intel.duckdb"})
 
-	want := []string{"stats", "--root", "/repo", "--db", "/tmp/code-intel.db"}
+	want := []string{"stats", "--root", "/repo", "--db", "/tmp/code-intel.duckdb"}
 	if !slices.Equal(args, want) {
 		t.Fatalf("codeIntelArgs() = %#v, want %#v", args, want)
 	}
@@ -1765,7 +1765,7 @@ func TestAgentShellBlockResultFormatsSARIFRemediation(t *testing.T) {
 	}
 }
 
-func TestAgentShellCheckRecordsCodeIntelExecution(t *testing.T) {
+func TestAgentShellCheckRecordsEventLogWithoutDuckDB(t *testing.T) {
 	testlock.ProcessState(t, "coding-ethos-run-agent-shell-check")
 
 	paths := runtimeTestPaths(t)
@@ -1792,18 +1792,21 @@ func TestAgentShellCheckRecordsCodeIntelExecution(t *testing.T) {
 		t.Fatalf("check output = %s", output)
 	}
 
-	store, err := codeintel.Open(context.Background(), codeintel.DefaultDBPath(paths.Root))
+	records, err := codeintel.NewEventLog(
+		codeintel.DefaultEventLogDir(paths.Root),
+	).ReadAll()
 	if err != nil {
-		t.Fatalf("open code-intel store: %v", err)
+		t.Fatalf("read code-intel event log: %v", err)
 	}
-	defer store.Close()
+	if len(records) != 1 ||
+		records[0].Kind != "proxy_event" ||
+		records[0].Tool != "cerun" ||
+		records[0].Provider != "coding-ethos" {
+		t.Fatalf("event records = %#v", records)
+	}
 
-	stats, err := store.Stats(context.Background())
-	if err != nil {
-		t.Fatalf("code-intel stats: %v", err)
-	}
-	if stats.ProxyEvents != 1 || stats.ProxySessions != 1 {
-		t.Fatalf("stats = %#v", stats)
+	if _, err := os.Stat(codeintel.DefaultDBPath(paths.Root)); !os.IsNotExist(err) {
+		t.Fatalf("agent-shell check must not create DuckDB store: %v", err)
 	}
 
 	if len(calls) > 0 {

@@ -12,6 +12,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
+const VectorBackendDuckDBVSS = "duckdb-vss"
+
 type VectorBackendConfig struct {
 	Backend string
 	URI     string
@@ -23,12 +25,12 @@ func NewVectorIndex(
 ) (evidence.VectorIndex, error) {
 	backend := strings.TrimSpace(config.Backend)
 	if backend == "" {
-		backend = "sqlite-vec"
+		backend = VectorBackendDuckDBVSS
 	}
 
 	switch backend {
-	case "sqlite", "sqlite-vec":
-		return NewSQLiteVectorIndex(ctx, config.URI)
+	case "duckdb", VectorBackendDuckDBVSS:
+		return NewDuckDBVectorIndex(ctx, config.URI)
 	default:
 		return nil, apperror.Wrapf(
 			apperror.StaticError("unsupported vector backend %q"),
@@ -39,5 +41,5 @@ func NewVectorIndex(
 }
 
 func DefaultVectorPath(root string) string {
-	return filepath.Join(root, ".coding-ethos", "code-intel-vectors.db")
+	return filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 }

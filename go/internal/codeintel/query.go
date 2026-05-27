@@ -219,11 +219,11 @@ func (store *Store) Search(
 			FROM code_intel_fts
 			LEFT JOIN code_files ON code_intel_fts.kind = 'code_chunk'
 				AND code_files.path = code_intel_fts.path
-			WHERE code_intel_fts MATCH ?
+			WHERE lower(code_intel_fts.search_text) LIKE '%' || lower(?) || '%'
 				AND (? = '' OR code_intel_fts.kind = ?)
 				AND (code_intel_fts.kind != 'code_chunk'
 					OR COALESCE(code_files.deleted_at_utc, '') = '')
-			ORDER BY rank
+			ORDER BY code_intel_fts.kind, record_id
 			LIMIT ?`,
 		query.Text,
 		query.RecordKind,

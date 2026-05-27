@@ -432,8 +432,7 @@ func TestAutoPruneCodeIntelDBMaintainsSidecarsAndEvents(t *testing.T) {
 	root := t.TempDir()
 	oldTime := time.Now().UTC().Add(-120 * 24 * time.Hour)
 	for _, path := range []string{
-		filepath.Join(root, ".coding-ethos", "code-intel.db-wal"),
-		filepath.Join(root, ".coding-ethos", "code-intel.db-shm"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb.wal"),
 		filepath.Join(root, ".coding-ethos", "events", "old.jsonl"),
 	} {
 		writePruneFixture(t, path, "old\n")
@@ -447,8 +446,7 @@ func TestAutoPruneCodeIntelDBMaintainsSidecarsAndEvents(t *testing.T) {
 	}
 
 	for _, path := range []string{
-		filepath.Join(root, ".coding-ethos", "code-intel.db-wal"),
-		filepath.Join(root, ".coding-ethos", "code-intel.db-shm"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb.wal"),
 		filepath.Join(root, ".coding-ethos", "events", "old.jsonl"),
 	} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {

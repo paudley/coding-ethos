@@ -682,7 +682,7 @@ used by hooks.
   evidence. Foundation for #55, #57, and #58.
 - [ ] Add code-intel query APIs for compact AST anatomy maps, repo maps,
   semantic chunk pagination, exported symbol summaries, approximate token
-  sizes, and nearby related symbols. Reuse SQLite/FTS/sqlite-vec storage rather
+  sizes, and nearby related symbols. Reuse DuckDB/FTS/duckdb-vss storage rather
   than reparsing in the proxy. Foundation for #54, #58, #59, and #61.
 - [ ] Add semantic-search and grep-augmentation contracts that combine exact
   search, AST filters, FTS, vector search, path constraints, and result
@@ -1156,8 +1156,8 @@ Acceptance criteria:
   code fact store, vector index, and trace ingestor interfaces.
 - [x] Add per-run remediation summaries to hook and lint traces so later
   storage can measure repeated policy failures without parsing provider text.
-- [x] Add an initial SQLite code-intelligence store under
-  `.coding-ethos/code-intel.db` that ingests retained hook/lint traces,
+- [x] Add an initial DuckDB code-intelligence store under
+  `.coding-ethos/code-intel.duckdb` that ingests retained hook/lint traces,
   normalized findings, remediation payloads, and remediation events.
 - [x] Add repeated-failure and FTS search commands over imported trace data.
 - [x] Add hook-usage intelligence storage for allow/block/rewrite events:
@@ -1176,18 +1176,18 @@ Acceptance criteria:
   full-text plus embedding search over remediation IDs, policy IDs, skills,
   command/file context, outcomes, and follow-up attempts.
 - [x] Complete the `remediation_outcomes_1` storage foundation:
-  normalized SQLite tables for SARIF runs/results, remediation outcomes,
+  normalized DuckDB tables for SARIF runs/results, remediation outcomes,
   CEL/evaluator provenance, embedding metadata, and vector-backend row
   references.
 - [x] Add code-intelligence CLI/query surfaces for SARIF result references,
   remediation outcomes, remediation effectiveness, and vector metadata status.
-- [x] Add embedding candidate, sqlite-vec upsert, hybrid search, and index
+- [x] Add embedding candidate, duckdb-vss upsert, hybrid search, and index
   status surfaces so agents can retrieve prior fixes before broad file reads.
-- [x] Implement sqlite-vec as the active SQLite vector backend fed from
-  canonical SQLite records; do not let vector rows become the only copy of
+- [x] Implement duckdb-vss as the active DuckDB vector backend fed from
+  canonical DuckDB records; do not let vector rows become the only copy of
   policy, SARIF, CEL, or remediation evidence.
 - [x] Add Tree-sitter AST indexing for Go, Python, JavaScript/TypeScript,
-  shell, and YAML into the canonical SQLite store with stable `code_chunk`
+  shell, and YAML into the canonical DuckDB store with stable `code_chunk`
   records, FTS rows, and embedding-candidate export.
 - [x] Refactor Tree-sitter extraction toward a resolver-style AST service
   inspired by `~/Active/pyqa_lint`: parser reuse, shared traversal helpers,
@@ -1345,7 +1345,7 @@ Acceptance criteria:
   lint, CLI, MCP, and CI/SARIF paths so AST-backed policy cannot drift between
   enforcement surfaces.
 - [x] Build the code intelligence roadmap in `docs/CODE_INTEL.md`: Tree-sitter
-  AST chunking, SQLite canonical storage, sqlite-vec vector search, hybrid
+  AST chunking, DuckDB canonical storage, duckdb-vss vector search, hybrid
   retrieval, and MCP code/remediation search tools.
 
 Acceptance criteria:

@@ -211,7 +211,7 @@ func TestRunIngestsHookTraceIntoCodeIntel(t *testing.T) {
 
 	store, err := codeintel.Open(
 		t.Context(),
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 	if err != nil {
 		t.Fatalf("open code-intel store: %v", err)
@@ -268,7 +268,7 @@ func TestRunForcesCodeIntelRefreshForPreCommit(t *testing.T) {
 
 	store, err := codeintel.Open(
 		t.Context(),
-		filepath.Join(root, ".coding-ethos", "code-intel.db"),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
 	)
 	if err != nil {
 		t.Fatalf("open code-intel store: %v", err)

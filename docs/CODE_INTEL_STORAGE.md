@@ -5,25 +5,23 @@
 
 ## Decision
 
-`coding-ethos` replaces SQLite as the primary code-intel diagnostics store with
-DuckDB plus append-only event files.
+`coding-ethos` uses append-only event files as durable telemetry and DuckDB as
+the only local analytical code-intel store.
 
 - `.coding-ethos/events/*.jsonl` is the durable live telemetry surface.
 - `.coding-ethos/code-intel.duckdb` is the local analytical query index.
-- `.coding-ethos/code-intel.db` is a legacy SQLite import source that is
-  removed after a successful DuckDB rebuild.
 
 Hook, lint, proxy, SARIF, remediation, and embedding entrypoints write a
-structured event before they update the legacy SQLite compatibility index. The
-DuckDB index is rebuilt from event files, legacy traces/logs, and legacy SQLite
-rows. Runtime paths do not use DuckDB as a shared multi-process write target.
+structured event before they update the DuckDB query index. The DuckDB index is
+rebuildable from event files and retained trace logs. Runtime paths do not use
+DuckDB as a shared multi-process write target.
 
 ## Rationale
 
 Downstream analysis is analytical and evidence-heavy: blocked policies, affected
 commands, large-file pressure, remediation loops, toolchain health, and
-log/index discrepancies. SQLite was acting as both live telemetry sink and query
-store, which made missing ingestion and lock evidence difficult to interpret.
+log/index discrepancies. A single live database write path makes missing
+ingestion and lock evidence difficult to interpret.
 
 DuckDB is a better local query engine for support analysis, but it is not the
 right live multi-process hook write path. Append-only JSONL files keep hook
@@ -33,15 +31,12 @@ rebuildable analytical surface.
 ## Operational Contract
 
 - `code-intel rebuild-index` creates or refreshes `code-intel.duckdb` and
-  removes legacy SQLite files after successful import.
-- `code-intel downstream-analysis` prefers DuckDB, then falls back to legacy
-  SQLite/log analysis. Its default `json` output is stable for automation;
-  `--format toon` provides the compact operator handoff, and `--format human`
-  provides a short readable summary.
-- Existing SQLite DBs remain readable and importable until the upgrade removes
-  them.
-- SessionStart performs the same storage upgrade check so old repo-local stores
-  are converted before agents rely on startup code-intel context.
+  removes obsolete pre-DuckDB store artifacts without importing them.
+- `code-intel downstream-analysis` reads DuckDB and retained logs. Its default
+  `json` output is stable for automation; `--format toon` provides the compact
+  operator handoff, and `--format human` provides a short readable summary.
+- SessionStart performs the same obsolete-artifact cleanup before agents rely on
+  startup code-intel context.
 - No external database, daemon, service, or network dependency is required.
 - A missing or stale DuckDB index is repairable by rebuilding; it is not source
   evidence loss.

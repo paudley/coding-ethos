@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,10 +22,9 @@ import (
 )
 
 const (
-	duckDBStoreMode                  = 0o700
-	duckDBLockFileMode               = 0o600
-	duckDBStaleLockAge               = 30 * time.Minute
-	maxLegacySQLiteImportBytes int64 = 1 << 30
+	duckDBStoreMode    = 0o700
+	duckDBLockFileMode = 0o600
+	duckDBStaleLockAge = 30 * time.Minute
 )
 
 // DuckDBStore is the code-intel analytical query store.
@@ -35,16 +35,12 @@ type DuckDBStore struct {
 
 // RebuildIndexSummary reports a DuckDB rebuild/import run.
 type RebuildIndexSummary struct {
-	Backend                string `json:"backend"`
-	Path                   string `json:"path"`
-	LegacySQLitePath       string `json:"legacy_sqlite_path,omitempty"`
-	LegacySQLiteSkipReason string `json:"legacy_sqlite_skip_reason,omitempty"`
-	EventCount             int    `json:"event_count"`
-	ImportedEventCount     int    `json:"imported_event_count"`
-	ImportedLegacySQLite   bool   `json:"imported_legacy_sqlite"`
-	SkippedLegacySQLite    bool   `json:"skipped_legacy_sqlite"`
-	RemovedLegacySQLite    bool   `json:"removed_legacy_sqlite"`
-	Stats                  Stats  `json:"stats"`
+	Backend                  string   `json:"backend"`
+	Path                     string   `json:"path"`
+	RemovedObsoleteArtifacts []string `json:"removed_obsolete_artifacts,omitempty"`
+	EventCount               int      `json:"event_count"`
+	ImportedEventCount       int      `json:"imported_event_count"`
+	Stats                    Stats    `json:"stats"`
 }
 
 // RebuildLockMaintenance reports inspection and optional cleanup of the
@@ -59,18 +55,12 @@ type RebuildLockMaintenance struct {
 	Removed    bool   `json:"removed"`
 }
 
-type legacySQLiteImportResult struct {
-	skipReason string
-	imported   bool
-	skipped    bool
-}
-
 type StorageUpgradeSummary struct {
-	LegacyPath     string              `json:"legacy_path,omitempty"`
-	DuckDBPath     string              `json:"duckdb_path,omitempty"`
-	RebuildSummary RebuildIndexSummary `json:"rebuild_summary,omitzero"`
-	Needed         bool                `json:"needed"`
-	Completed      bool                `json:"completed"`
+	ObsoleteArtifactPaths []string            `json:"obsolete_artifact_paths,omitempty"`
+	DuckDBPath            string              `json:"duckdb_path,omitempty"`
+	RebuildSummary        RebuildIndexSummary `json:"rebuild_summary,omitzero"`
+	Needed                bool                `json:"needed"`
+	Completed             bool                `json:"completed"`
 }
 
 func DefaultDuckDBPath(root string) string {
@@ -168,37 +158,14 @@ func (store *DuckDBStore) Compact(ctx context.Context) error {
 	return nil
 }
 
-func (store *DuckDBStore) RebuildFromLegacySQLite(
-	ctx context.Context,
-	legacy *Store,
-) error {
-	err := clearDuckDBTables(ctx, store.database)
-	if err != nil {
-		return err
-	}
-
-	for _, table := range legacyImportTables() {
-		err := copyTableRows(ctx, legacy.database, store.database, table)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func RebuildDuckDBIndex(
 	ctx context.Context,
 	root string,
 	duckDBPath string,
-	legacySQLitePath string,
+	_ string,
 ) (RebuildIndexSummary, error) {
 	if strings.TrimSpace(duckDBPath) == "" {
 		duckDBPath = DefaultDuckDBPath(root)
-	}
-
-	if strings.TrimSpace(legacySQLitePath) == "" {
-		legacySQLitePath = DefaultDBPath(root)
 	}
 
 	release, err := acquireDuckDBRebuildLock(root)
@@ -226,7 +193,7 @@ func RebuildDuckDBIndex(
 		return RebuildIndexSummary{}, err
 	}
 
-	legacyImport, err := importLegacySQLiteIntoDuckDB(ctx, store, legacySQLitePath)
+	removedObsolete, err := RemoveObsoleteCodeIntelArtifacts(root)
 	if err != nil {
 		return RebuildIndexSummary{}, err
 	}
@@ -236,25 +203,13 @@ func RebuildDuckDBIndex(
 		return RebuildIndexSummary{}, err
 	}
 
-	removedLegacy := false
-	if legacyImport.imported {
-		removedLegacy, err = RemoveLegacySQLiteStore(legacySQLitePath)
-		if err != nil {
-			return RebuildIndexSummary{}, err
-		}
-	}
-
 	return RebuildIndexSummary{
-		Backend:                "duckdb",
-		Path:                   duckDBPath,
-		LegacySQLitePath:       legacySQLitePath,
-		LegacySQLiteSkipReason: legacyImport.skipReason,
-		EventCount:             eventCount,
-		ImportedEventCount:     importedEventCount,
-		ImportedLegacySQLite:   legacyImport.imported,
-		SkippedLegacySQLite:    legacyImport.skipped,
-		RemovedLegacySQLite:    removedLegacy,
-		Stats:                  stats,
+		Backend:                  "duckdb",
+		Path:                     duckDBPath,
+		RemovedObsoleteArtifacts: removedObsolete,
+		EventCount:               eventCount,
+		ImportedEventCount:       importedEventCount,
+		Stats:                    stats,
 	}, nil
 }
 
@@ -467,66 +422,25 @@ func duckDBRebuildLockPIDStale(pid int) (bool, error) {
 	return false, fmt.Errorf("inspect code-intel rebuild lock pid %d: %w", pid, err)
 }
 
-func importLegacySQLiteIntoDuckDB(
-	ctx context.Context,
-	store *DuckDBStore,
-	legacySQLitePath string,
-) (legacySQLiteImportResult, error) {
-	info, err := os.Stat(legacySQLitePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return legacySQLiteImportResult{}, nil
-		}
+func ObsoleteCodeIntelArtifactPaths(root string) []string {
+	path := filepath.Join(root, downstreamStateDir, "code-intel."+"db")
 
-		return legacySQLiteImportResult{},
-			errors.Join(apperror.StaticError("stat legacy SQLite store"), err)
-	}
-
-	if info.Size() > maxLegacySQLiteImportBytes {
-		return legacySQLiteImportResult{
-			skipped: true,
-			skipReason: "legacy SQLite store is " +
-				strconv.FormatInt(info.Size(), 10) +
-				" bytes; maximum automatic import is " +
-				strconv.FormatInt(maxLegacySQLiteImportBytes, 10) +
-				" bytes",
-		}, nil
-	}
-
-	legacy, err := OpenReadOnly(ctx, legacySQLitePath)
-	if err != nil {
-		return legacySQLiteImportResult{},
-			errors.Join(apperror.StaticError("open legacy SQLite for import"), err)
-	}
-
-	err = store.RebuildFromLegacySQLite(ctx, legacy)
-	if err != nil {
-		_ = legacy.Close()
-
-		return legacySQLiteImportResult{}, err
-	}
-
-	err = legacy.Close()
-	if err != nil {
-		return legacySQLiteImportResult{}, err
-	}
-
-	return legacySQLiteImportResult{imported: true}, nil
+	return []string{path, path + "-wal", path + "-shm"}
 }
 
-func RemoveLegacySQLiteStore(path string) (bool, error) {
-	removed := false
+func RemoveObsoleteCodeIntelArtifacts(root string) ([]string, error) {
+	removed := make([]string, 0, len(ObsoleteCodeIntelArtifactPaths(root)))
 
-	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+	for _, candidate := range ObsoleteCodeIntelArtifactPaths(root) {
 		err := os.Remove(filepath.Clean(candidate))
 		if err == nil {
-			removed = true
+			removed = append(removed, candidate)
 
 			continue
 		}
 
 		if !os.IsNotExist(err) {
-			return false, fmt.Errorf("remove legacy SQLite store %q: %w", candidate, err)
+			return nil, fmt.Errorf("remove obsolete code-intel artifact %q: %w", candidate, err)
 		}
 	}
 
@@ -537,34 +451,45 @@ func UpgradeStorageIfNeeded(
 	ctx context.Context,
 	root string,
 ) (StorageUpgradeSummary, error) {
-	legacyPath := DefaultDBPath(root)
 	duckDBPath := DefaultDuckDBPath(root)
+	obsoletePaths := ObsoleteCodeIntelArtifactPaths(root)
+	needed := false
 
-	_, err := os.Stat(legacyPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return StorageUpgradeSummary{
-				Needed:     false,
-				Completed:  true,
-				LegacyPath: legacyPath,
-				DuckDBPath: duckDBPath,
-			}, nil
+	for _, path := range obsoletePaths {
+		_, err := os.Stat(path)
+		if err == nil {
+			needed = true
+
+			break
 		}
 
-		return StorageUpgradeSummary{}, fmt.Errorf("stat legacy SQLite store: %w", err)
+		if !os.IsNotExist(err) {
+			return StorageUpgradeSummary{}, fmt.Errorf(
+				"stat obsolete code-intel artifact: %w",
+				err,
+			)
+		}
 	}
 
-	rebuild, err := RebuildDuckDBIndex(ctx, root, duckDBPath, legacyPath)
+	if !needed {
+		return StorageUpgradeSummary{
+			Needed:     false,
+			Completed:  true,
+			DuckDBPath: duckDBPath,
+		}, nil
+	}
+
+	rebuild, err := RebuildDuckDBIndex(ctx, root, duckDBPath, "")
 	if err != nil {
 		return StorageUpgradeSummary{}, err
 	}
 
 	return StorageUpgradeSummary{
-		Needed:         true,
-		Completed:      rebuild.RemovedLegacySQLite,
-		LegacyPath:     legacyPath,
-		DuckDBPath:     duckDBPath,
-		RebuildSummary: rebuild,
+		Needed:                true,
+		Completed:             len(rebuild.RemovedObsoleteArtifacts) > 0,
+		ObsoleteArtifactPaths: obsoletePaths,
+		DuckDBPath:            duckDBPath,
+		RebuildSummary:        rebuild,
 	}, nil
 }
 
@@ -661,6 +586,10 @@ func (store *DuckDBStore) ping(ctx context.Context) error {
 
 //nolint:gochecknoglobals // Fixed DuckDB schema metadata is static process data.
 var duckDBSchemaStatementList = []string{
+	`CREATE TABLE IF NOT EXISTS schema_metadata (
+			key VARCHAR PRIMARY KEY,
+			value VARCHAR
+		)`,
 	`CREATE TABLE IF NOT EXISTS code_intel_events (
 			event_id VARCHAR PRIMARY KEY,
 			event_kind VARCHAR NOT NULL,
@@ -1068,254 +997,53 @@ var duckDBSchemaStatementList = []string{
 			record_id VARCHAR,
 			trace_id VARCHAR
 		)`,
+	`CREATE TABLE IF NOT EXISTS code_intel_fts (
+			kind VARCHAR,
+			policy_id VARCHAR,
+			skill_id VARCHAR,
+			path VARCHAR,
+			message VARCHAR,
+			search_text VARCHAR,
+			record_id VARCHAR,
+			trace_id VARCHAR
+		)`,
 }
 
 func duckDBSchemaStatements() []string {
-	return duckDBSchemaStatementList
-}
+	baseStatements := schemaStatements()
+	statements := make([]string, 0, len(baseStatements)+1)
+	statements = append(statements, duckDBEventSchemaStatement)
 
-//nolint:gochecknoglobals // Fixed table-copy metadata is static process data.
-var legacyImportTableSpecs = []tableCopySpec{
-	{name: "traces", columns: []string{
-		"trace_id", "trace_kind", "recorded_at_utc", "repo_root", "cwd",
-		"provider", "event", "tool", "status", "source_path", "raw_json",
-	}},
-	{name: "hook_events", columns: []string{
-		"trace_id", "tracking_id", "session_id", "provider", "event", "tool",
-		"status", "operation_kind", "target_kind", "risk_category",
-		"command_sha256", "command_shape_sha256", "target_set_sha256", "cwd",
-		"source", "matcher", "transcript_path", "runtime_ms", "decision_count",
-		"blocked", "rewritten", "additional_context",
-	}},
-	{name: "hook_decisions", columns: []string{
-		"trace_id", "ordinal", "tracking_id", "policy_id", "decision",
-		"severity", "skill_id", "implementation", "principle_ids",
-		"diagnostic_count", "message_hash", "suggestion_hash", "message",
-		"suggestion",
-	}},
-	{name: "hook_targets", columns: []string{
-		"trace_id", "ordinal", "target_path", "target_kind",
-	}},
-	{name: "hook_reviews", columns: []string{
-		"review_id", "trace_id", "tracking_id", "disposition", "reviewer",
-		"notes", "recorded_at_utc",
-	}},
-	{name: "proxy_sessions", columns: []string{
-		"session_id", "provider", "model", "repo_root", "started_at_utc",
-		"last_seen_utc", "request_count", "tool_call_count",
-		"file_read_count", "file_listing_count", "edit_count",
-		"cache_hit_count", "injection_count", "truncation_count",
-		"denial_count", "transform_count", "input_tokens", "output_tokens",
-		"total_tokens", "raw_json",
-	}},
-	{name: "proxy_events", columns: []string{
-		"event_id", "session_id", "event_kind", "provider", "tool", "model",
-		"recorded_at_utc", "trace_id", "tracking_id", "repo_root", "cwd",
-		"target_path", "direction", "payload_kind", "cache_key", "input_hash",
-		"output_hash", "payload_bytes", "policy_id", "decision",
-		"input_tokens", "output_tokens", "total_tokens", "policy_evidence_json",
-		"dlp_json", "metadata_json", "raw_json",
-	}},
-	{name: "proxy_transforms", columns: []string{
-		"event_id", "ordinal", "name", "reason", "input_hash", "output_hash",
-		"policy_id", "decision", "evidence_path", "input_tokens",
-		"output_tokens", "bytes_removed", "findings_count",
-	}},
-	{name: "findings", columns: []string{
-		"finding_id", "rule_id", "tool", "code", "message", "severity",
-		"policy_id", "skill_id", "evaluator_kind", "cel_policy_id",
-		"cel_expression", "policy_source", "path", "language", "symbol_kind",
-		"symbol_name", "search_text", "raw_json",
-	}},
-	{name: "finding_occurrences", columns: []string{
-		"trace_id", "ordinal", "finding_id", "policy_id", "skill_id", "path",
-		"recorded_at_utc",
-	}},
-	{name: "code_files", columns: []string{
-		"path", "language", "content_hash", "parser_name", "parser_version",
-		"source_mtime_utc", "deleted_at_utc", "size_bytes", "line_count",
-		"indexed_at_utc", "stale_reason",
-	}},
-	{name: "code_delete_intents", columns: []string{
-		"intent_id", "path", "intent_kind", "trace_id", "recorded_at_utc",
-		"provider", "event", "tool", "status", "cwd", "command_sha256",
-		"command_preview", "raw_json",
-	}},
-	{name: "code_chunks", columns: []string{
-		"chunk_id", "path", "language", "node_kind", "symbol_kind",
-		"symbol_name", "symbol_path", "parent_symbol_path", "parent_chunk_id",
-		"start_byte", "end_byte", "start_line", "end_line", "content_hash",
-		"normalized_hash", "minhash_sig", "search_text", "raw_text",
-	}},
-	{name: "code_edges", columns: []string{
-		"edge_id", "edge_kind", "path", "source_chunk_id", "target_path",
-		"target_chunk_id", "target_symbol_path", "target_name", "raw_text",
-	}},
-	{name: "diff_edit_patterns", columns: []string{
-		"pattern_hash", "diff_source", "first_git_head", "last_git_head",
-		"target_path", "hunk_header", "removed_sha256", "added_sha256",
-		"old_start", "old_lines", "new_start", "new_lines", "ast_chunk_id",
-		"ast_language", "ast_node_kind", "ast_symbol_kind", "ast_symbol_name",
-		"ast_symbol_path", "first_seen_utc", "last_seen_utc", "seen_count",
-	}},
-	{name: "ast_finding_links", columns: []string{
-		"link_id", "finding_kind", "finding_id", "chunk_id", "path",
-		"policy_id", "skill_id", "symbol_path", "content_hash", "stale",
-	}},
-	{name: "lsh_bands", columns: []string{
-		"band_hash", "band_index", "chunk_id", "path", "symbol_name",
-	}},
-	{name: "sarif_runs", columns: []string{
-		"sarif_run_id", "trace_id", "source_path", "category", "tool_name",
-		"automation_id", "run_guid", "baseline_guid", "produced_at_utc",
-		"raw_json",
-	}},
-	{name: "sarif_results", columns: []string{
-		"sarif_result_id", "sarif_run_id", "ordinal", "rule_id", "level",
-		"message", "fingerprint", "proxy_event_id", "proxy_session_id",
-		"proxy_event_kind", "proxy_direction", "proxy_payload_kind",
-		"proxy_trace_id", "proxy_tracking_id", "proxy_transform",
-		"finding_id", "remediation_id", "policy_id", "skill_id",
-		"principle_ids", "path", "ast_language", "ast_node_kind",
-		"ast_symbol_kind", "ast_symbol_name", "ast_symbol_path",
-		"linked_chunk_id", "start_line", "start_column", "evaluator_kind",
-		"cel_policy_id", "cel_expression", "policy_source", "search_text",
-		"raw_json",
-	}},
-	{name: "remediations", columns: []string{
-		"remediation_id", "policy_id", "skill_id", "file", "path", "message",
-		"advice", "search_text", "raw_json",
-	}},
-	{name: "remediation_occurrences", columns: []string{
-		"trace_id", "ordinal", "remediation_id", "policy_id", "skill_id",
-		"file", "path", "line", "recorded_at_utc",
-	}},
-	{name: "remediation_events", columns: []string{
-		"event_id", "trace_id", "remediation_id", "finding_id", "event",
-		"policy_id", "skill_id", "search_text", "raw_json",
-	}},
-	{name: "remediation_outcomes", columns: []string{
-		"outcome_id", "remediation_id", "finding_id", "source_trace_id",
-		"followup_trace_id", "policy_id", "skill_id", "file", "path",
-		"provider", "tool", "outcome", "attempt_ordinal", "recorded_at_utc",
-		"search_text", "raw_json",
-	}},
-	{name: "embedding_records", columns: []string{
-		"embedding_id", "backend", "collection", "model_id", "dimension",
-		"input_kind", "record_kind", "record_id", "trace_id", "policy_id",
-		"skill_id", "path", "content_hash", "provider", "backend_row_id",
-		"created_at_utc", "raw_json",
-	}},
-	{
-		name:        "code_intel_fts",
-		destination: "code_intel_search",
-		columns: []string{
-			"kind", "policy_id", "skill_id", "path", "message", "search_text",
-			"record_id", "trace_id",
-		},
-	},
-}
-
-func legacyImportTables() []tableCopySpec {
-	return legacyImportTableSpecs
-}
-
-type tableCopySpec struct {
-	name        string
-	destination string
-	columns     []string
-}
-
-func clearDuckDBTables(ctx context.Context, database *sql.DB) error {
-	tables := legacyImportTables()
-	for index := len(tables) - 1; index >= 0; index-- {
-		destination := tables[index].target()
-		// #nosec G202 -- destination comes from fixed tableCopySpec values.
-		_, err := database.ExecContext(ctx, "DELETE FROM "+destination)
-		if err != nil {
-			return fmt.Errorf("clear DuckDB table %s: %w", destination, err)
-		}
+	for _, statement := range baseStatements {
+		statements = append(
+			statements,
+			duckDBSchemaStatement(statement),
+		)
 	}
 
-	return nil
+	return statements
 }
 
-func copyTableRows(
-	ctx context.Context,
-	source *sql.DB,
-	destination *sql.DB,
-	table tableCopySpec,
-) error {
-	// #nosec G202 -- table metadata is fixed in legacyImportTableSpecs.
-	query := "SELECT " + strings.Join(table.columns, ", ") + " FROM " + table.name
-
-	rows, err := source.QueryContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("query legacy SQLite table %s: %w", table.name, err)
-	}
-	defer rows.Close()
-
-	destinationTable := table.target()
-
-	transaction, err := destination.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin DuckDB table %s transaction: %w", destinationTable, err)
-	}
-
-	defer rollbackUnlessCommitted(transaction)
-
-	// #nosec G202 -- table metadata is fixed in legacyImportTableSpecs.
-	insert := "INSERT INTO " + destinationTable + " (" +
-		strings.Join(table.columns, ", ") + ") VALUES (" +
-		placeholders(len(table.columns)) + ")"
-	for rows.Next() {
-		values := make([]any, len(table.columns))
-
-		targets := make([]any, len(table.columns))
-		for index := range values {
-			targets[index] = &values[index]
-		}
-
-		err = rows.Scan(targets...)
-		if err != nil {
-			return fmt.Errorf("scan legacy SQLite table %s: %w", table.name, err)
-		}
-
-		_, err = transaction.ExecContext(ctx, insert, values...)
-		if err != nil {
-			return fmt.Errorf("insert DuckDB table %s: %w", destinationTable, err)
-		}
-	}
-
-	err = rows.Err()
-	if err != nil {
-		return fmt.Errorf("iterate legacy SQLite table %s: %w", table.name, err)
-	}
-
-	err = transaction.Commit()
-	if err != nil {
-		return fmt.Errorf("commit DuckDB table %s transaction: %w", destinationTable, err)
-	}
-
-	return nil
+func duckDBSchemaStatement(statement string) string {
+	return duckDBForeignKeyLinePattern.ReplaceAllString(statement, "")
 }
 
-func (table tableCopySpec) target() string {
-	if table.destination != "" {
-		return table.destination
-	}
+var duckDBForeignKeyLinePattern = regexp.MustCompile(`(?m),?\n\s*FOREIGN KEY\([^\n]+`)
 
-	return table.name
-}
-
-func placeholders(count int) string {
-	values := make([]string, count)
-	for index := range values {
-		values[index] = "?"
-	}
-
-	return strings.Join(values, ", ")
-}
+const duckDBEventSchemaStatement = `CREATE TABLE IF NOT EXISTS code_intel_events (
+	event_id TEXT PRIMARY KEY,
+	event_kind TEXT NOT NULL,
+	recorded_at_utc TEXT NOT NULL,
+	source_run_id TEXT,
+	trace_id TEXT,
+	provider TEXT,
+	tool TEXT,
+	command_shape_sha256 TEXT,
+	policy_id TEXT,
+	skill_id TEXT,
+	path TEXT,
+	payload_json TEXT
+)`
 
 func duckDBStatsQueries(stats *Stats) []statCountQuery {
 	queries := duckDBCoreStatsQueries(stats)
@@ -1414,8 +1142,8 @@ func duckDBExtendedStatsQueries(stats *Stats) []statCountQuery {
 			target: &stats.EmbeddingRecords,
 		},
 		{
-			name:   "code_intel_search",
-			query:  "SELECT COUNT(*) FROM code_intel_search",
+			name:   "code_intel_fts",
+			query:  "SELECT COUNT(*) FROM code_intel_fts",
 			target: &stats.FtsRows,
 		},
 	}

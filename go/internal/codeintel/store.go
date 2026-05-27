@@ -12,14 +12,13 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/duckdb/duckdb-go/v2"
 )
 
 const (
 	sourcePathClauseCapacityFactor = 2
 	sourcePathQueryArgFactor       = 4
 	schemaVersion                  = 1
-	sqliteImmediateTxParam         = "_txlock=immediate"
 	storeDirMode                   = 0o700
 )
 
@@ -64,7 +63,7 @@ type SourcePathIngestRequest struct {
 }
 
 func DefaultDBPath(root string) string {
-	return filepath.Join(root, ".coding-ethos", "code-intel.db")
+	return DefaultDuckDBPath(root)
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -73,7 +72,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("create code intelligence store dir: %w", inlineErr0)
 	}
 
-	database, err := sql.Open("sqlite", sqliteStoreDSN(path))
+	database, err := sql.Open("duckdb", path)
 	if err != nil {
 		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
@@ -98,12 +97,12 @@ func Open(ctx context.Context, path string) (*Store, error) {
 }
 
 func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
-	_, err := os.Stat(sqliteStoreStatPath(path))
+	_, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("stat code intelligence store: %w", err)
 	}
 
-	database, err := sql.Open("sqlite", sqliteReadOnlyStoreDSN(path))
+	database, err := sql.Open("duckdb", path+"?access_mode=READ_ONLY")
 	if err != nil {
 		return nil, fmt.Errorf("open read-only code intelligence store: %w", err)
 	}
@@ -120,47 +119,6 @@ func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
 	}
 
 	return store, nil
-}
-
-func sqliteStoreDSN(path string) string {
-	if strings.Contains(path, sqliteImmediateTxParam) {
-		return path
-	}
-
-	separator := "?"
-	if strings.Contains(path, "?") {
-		separator = "&"
-	}
-
-	return path + separator + sqliteImmediateTxParam
-}
-
-func sqliteReadOnlyStoreDSN(path string) string {
-	prefix := "file:"
-	if strings.HasPrefix(path, prefix) {
-		prefix = ""
-	}
-
-	separator := "?"
-	if strings.Contains(path, "?") {
-		separator = "&"
-	}
-
-	return prefix + filepath.ToSlash(path) + separator +
-		"mode=ro&_pragma=busy_timeout(30000)"
-}
-
-func sqliteStoreStatPath(path string) string {
-	result := strings.TrimPrefix(path, "file:")
-	if before, _, found := strings.Cut(result, "?"); found {
-		result = before
-	}
-
-	if before, _, found := strings.Cut(result, "#"); found {
-		result = before
-	}
-
-	return filepath.FromSlash(result)
 }
 
 func configureConnectionPool(database *sql.DB) {
@@ -485,52 +443,23 @@ func traceIDsOlderThan(
 }
 
 func configureStore(ctx context.Context, database *sql.DB) error {
-	for _, statement := range []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA synchronous = NORMAL",
-		"PRAGMA busy_timeout = 30000",
-	} {
-		_, inlineErrA := database.ExecContext(ctx, statement)
-		if inlineErrA != nil {
-			return fmt.Errorf("configure code intelligence store: %w", inlineErrA)
-		}
-	}
-
-	return nil
+	return configureReadOnlyStore(ctx, database)
 }
 
 func configureReadOnlyStore(ctx context.Context, database *sql.DB) error {
-	for _, statement := range []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA busy_timeout = 30000",
-	} {
-		_, inlineErrA := database.ExecContext(ctx, statement)
-		if inlineErrA != nil {
-			return fmt.Errorf(
-				"configure read-only code intelligence store: %w",
-				inlineErrA,
-			)
-		}
+	err := database.PingContext(ctx)
+	if err != nil {
+		return fmt.Errorf("configure DuckDB code intelligence store: %w", err)
 	}
 
 	return nil
 }
 
 func migrateStore(ctx context.Context, database *sql.DB) error {
-	for _, statement := range schemaStatements() {
+	for _, statement := range duckDBSchemaStatements() {
 		_, inlineErrB := database.ExecContext(ctx, statement)
 		if inlineErrB != nil {
 			return fmt.Errorf("migrate code intelligence store: %w", inlineErrB)
-		}
-	}
-
-	for table, columns := range migrationColumns() {
-		for _, column := range columns {
-			err := ensureColumn(ctx, database, table, column)
-			if err != nil {
-				return err
-			}
 		}
 	}
 

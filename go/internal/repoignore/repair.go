@@ -23,9 +23,6 @@ const (
 func RuntimePaths() []string {
 	return []string{
 		".coding-ethos/cache/",
-		".coding-ethos/code-intel.db",
-		".coding-ethos/code-intel.db-shm",
-		".coding-ethos/code-intel.db-wal",
 		".coding-ethos/code-intel.duckdb",
 		".coding-ethos/code-intel.duckdb.wal",
 		".coding-ethos/events/",

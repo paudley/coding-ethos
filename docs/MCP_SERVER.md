@@ -50,13 +50,13 @@ skill metadata used by those enforcement paths.
   ranked files, freshness metadata, evidence counts, and exact follow-up MCP
   calls.
 - `code_intel_search`: query stored SARIF, remediation, and embedding evidence
-  with FTS plus sqlite-vec when a query vector is supplied.
+  with FTS plus duckdb-vss when a query vector is supplied.
 - `code_intel_answer`: retrieve cited code-intel evidence for a repository
   question while reporting retrieval quality separately from confidence.
 - `semantic_search`: query indexed repository code and return exact code chunks
   with path and line metadata before agents fall back to broad grep.
 - `code_intel_index_status`: report code-intelligence store freshness,
-  embedding metadata counts, and sqlite-vec row counts.
+  embedding metadata counts, and duckdb-vss row counts.
 - `code_similarity_check`: compare proposed code against indexed repository
   symbols using normalized hashes and MinHash LSH before an agent writes a
   duplicate implementation.

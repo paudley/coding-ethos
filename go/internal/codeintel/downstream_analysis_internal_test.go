@@ -62,13 +62,13 @@ func TestAnalyzeDownstreamSummarizesFrictionAndLogs(t *testing.T) {
 		t.Fatalf("analyze downstream: %v", err)
 	}
 
-	if !analysis.SQLiteStrategy.StoreAvailable ||
-		!analysis.SQLiteStrategy.ReadOnlyAnalysis ||
-		!analysis.SQLiteStrategy.SingleConnectionPool {
-		t.Fatalf("SQLite strategy missing read-only posture: %#v", analysis.SQLiteStrategy)
+	if !analysis.StorageStrategy.StoreAvailable ||
+		!analysis.StorageStrategy.ReadOnlyAnalysis ||
+		!analysis.StorageStrategy.SingleConnectionPool {
+		t.Fatalf("storage strategy missing read-only posture: %#v", analysis.StorageStrategy)
 	}
 
-	if analysis.LogSignals.SQLiteBusyCount != 1 ||
+	if analysis.LogSignals.StorageBusyCount != 1 ||
 		analysis.LogSignals.StaleRepoMapCount != 1 ||
 		analysis.LogSignals.SandboxMissingCount != 1 ||
 		analysis.LogSignals.LintRunCount != 1 ||
@@ -119,8 +119,8 @@ func TestAnalyzeDownstreamWithoutStoreStillSummarizesLogs(t *testing.T) {
 		t.Fatalf("analyze downstream without store: %v", err)
 	}
 
-	if analysis.SQLiteStrategy.StoreAvailable {
-		t.Fatalf("store should be unavailable: %#v", analysis.SQLiteStrategy)
+	if analysis.StorageStrategy.StoreAvailable {
+		t.Fatalf("store should be unavailable: %#v", analysis.StorageStrategy)
 	}
 
 	if analysis.LogSignals.ProtectedBranchCount != 1 ||
@@ -134,7 +134,7 @@ func TestDownstreamQueriesGroupByDisplayedValues(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store, err := Open(ctx, filepath.Join(t.TempDir(), "code-intel.db"))
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "code-intel.duckdb"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestFormatDownstreamAnalysisHumanEmitsStableSummary(t *testing.T) {
 	for _, want := range []string{
 		"Downstream coding-ethos analysis",
 		"Storage: duckdb backed by event_log (healthy)",
-		"Signals: 9 hook runs, 2 lint runs, 0 SQLite busy logs, 1 toolchain failure logs",
+		"Signals: 9 hook runs, 2 lint runs, 0 storage busy logs, 1 toolchain failure logs",
 		"Next actions (1):",
 		"Policy blockers (2):",
 		"- git.wrapper_required: 4 (Bash git_status repo_state bypass blocked)",

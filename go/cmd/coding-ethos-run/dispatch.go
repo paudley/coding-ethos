@@ -4,9 +4,9 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,7 +29,6 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
-	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
@@ -610,33 +609,16 @@ func recordAgentShellExecution(
 	exitCode int,
 	result hooks.Result,
 ) {
-	store, err := codeintel.Open(context.Background(), codeintel.DefaultDBPath(paths.Root))
-	if err != nil {
-		debuglog.Debug(
-			"agent-shell.audit.failed",
-			zap.String("phase", "open"),
-			zap.Error(err),
-		)
-
-		return
-	}
-
 	event := agentShellAuditEvent(paths, request, status, exitCode, result)
 
-	err = store.RecordProxyEvent(context.Background(), event)
+	err := appendAgentShellAuditEvent(paths.Root, event)
 	if err != nil {
 		debuglog.Debug(
 			"agent-shell.audit.failed",
-			zap.String("phase", "record"),
+			zap.String("phase", "append_event_log"),
 			zap.Error(err),
 		)
 	}
-
-	if !closeAgentShellAuditStore(store) {
-		return
-	}
-
-	autoPruneAgentShellCodeIntel(paths.Root)
 }
 
 func agentShellAuditEvent(
@@ -713,32 +695,35 @@ func agentShellAuditMetadata(
 	return metadata
 }
 
-func closeAgentShellAuditStore(store *codeintel.Store) bool {
-	err := store.Close()
-	if err == nil {
-		return true
+func appendAgentShellAuditEvent(root string, event agentproxy.ProviderEvent) error {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("marshal agent-shell audit event: %w", err)
 	}
 
-	debuglog.Debug(
-		"agent-shell.audit.failed",
-		zap.String("phase", "close"),
-		zap.Error(err),
+	err = codeintel.NewEventLog(codeintel.DefaultEventLogDir(root)).Append(
+		event.ID,
+		[]codeintel.EventRecord{
+			{
+				ID:            event.ID,
+				Kind:          "proxy_event",
+				RecordedAtUTC: event.RecordedAtUTC.UTC().Format(time.RFC3339Nano),
+				SourceRunID:   event.ID,
+				TraceID:       event.TraceID,
+				Provider:      event.Provider,
+				Tool:          event.Tool,
+				CommandShape:  event.InputHash,
+				PolicyID:      event.PolicyID,
+				Path:          event.TargetPath,
+				Payload:       payload,
+			},
+		},
 	)
-
-	return false
-}
-
-func autoPruneAgentShellCodeIntel(root string) {
-	err := outputsurface.AutoPruneCodeIntelDB(context.Background(), root)
-	if err == nil {
-		return
+	if err != nil {
+		return fmt.Errorf("append agent-shell audit event: %w", err)
 	}
 
-	debuglog.Debug(
-		"agent-shell.audit.auto_prune.warn",
-		zap.String("root", root),
-		zap.Error(err),
-	)
+	return nil
 }
 
 func agentShellStrategicIntent() string {

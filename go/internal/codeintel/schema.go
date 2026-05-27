@@ -463,15 +463,15 @@ func remediationSchemaStatements() []string {
 
 func searchSchemaStatements() []string {
 	return []string{
-		`CREATE VIRTUAL TABLE IF NOT EXISTS code_intel_fts USING fts5(
-		kind,
-		policy_id,
-		skill_id,
-		path,
-		message,
-		search_text,
-		record_id UNINDEXED,
-		trace_id UNINDEXED
+		`CREATE TABLE IF NOT EXISTS code_intel_fts (
+		kind TEXT,
+		policy_id TEXT,
+		skill_id TEXT,
+		path TEXT,
+		message TEXT,
+		search_text TEXT,
+		record_id TEXT,
+		trace_id TEXT
 	)`,
 	}
 }

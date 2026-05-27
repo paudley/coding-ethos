@@ -188,7 +188,7 @@ func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 
 	return map[string]any{
 		"kind":    "code_intel_search",
-		"backend": "sqlite-vec",
+		"backend": codeintel.VectorBackendDuckDBVSS,
 		"results": results,
 	}, nil
 }
@@ -383,7 +383,7 @@ func (server Server) semanticSearch(args json.RawMessage) (any, error) {
 
 	return map[string]any{
 		"kind":    "semantic_search",
-		"backend": "sqlite-vec",
+		"backend": codeintel.VectorBackendDuckDBVSS,
 		"query":   text,
 		"results": results,
 	}, nil
@@ -414,7 +414,7 @@ func (server Server) codeIntelIndexStatus(args json.RawMessage) (any, error) {
 	}
 
 	status, err := store.IndexStatus(ctx, vectorStats, codeintel.EmbeddingRecordQuery{
-		Backend:    "sqlite-vec",
+		Backend:    codeintel.VectorBackendDuckDBVSS,
 		Collection: firstNonEmpty(input.Collection, "remediations"),
 		ModelID:    input.ModelID,
 	})
@@ -907,7 +907,7 @@ func (server Server) codeIntelTaskMeta(
 	}
 
 	status, err := store.IndexStatus(ctx, vectorStats, codeintel.EmbeddingRecordQuery{
-		Backend:    "sqlite-vec",
+		Backend:    codeintel.VectorBackendDuckDBVSS,
 		Collection: "code_chunks",
 	})
 	if err != nil {
@@ -1430,7 +1430,7 @@ func (server Server) openCodeIntel() (
 	ctx := argsContext()
 
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
-		Backend: "sqlite-vec",
+		Backend: codeintel.VectorBackendDuckDBVSS,
 		URI:     codeintel.DefaultVectorPath(server.codeIntelRoot()),
 	})
 	if err != nil {

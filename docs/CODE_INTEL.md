@@ -13,16 +13,16 @@ before they run broad shell commands or repeat failed edits.
 
 Use one repo-local storage substrate with separate logical responsibilities:
 
-- **SQLite is the canonical fact store.** It owns traces, policy decisions,
+- **DuckDB is the canonical fact store.** It owns traces, policy decisions,
   remediations, outcomes, code symbols, AST graph edges, file metadata, and
   full-text search.
-- **sqlite-vec is the active vector backend.** It keeps embeddings, metadata
-  filters, and similarity search inside repo-local SQLite files through the
-  pure-Go `modernc.org/sqlite/vec` integration, with no native sidecar, daemon,
+- **duckdb-vss is the active vector backend.** It keeps embeddings, metadata
+  filters, and similarity search inside repo-local DuckDB files through the
+  pure-Go `github.com/duckdb/duckdb-go/v2` integration, with no native sidecar, daemon,
   hosted service, or conditional build path.
 
 Vector indexes are derived artifacts. They must be rebuildable from the
-canonical SQLite store and the checked-out repository contents.
+canonical DuckDB store and the checked-out repository contents.
 
 ## Goals
 
@@ -57,7 +57,7 @@ repository
       v
 Tree-sitter AST extraction
       |
-      +--> SQLite canonical store
+      +--> DuckDB canonical store
       |      files
       |      symbols
       |      AST nodes
@@ -67,10 +67,10 @@ Tree-sitter AST extraction
       |      attempts
       |      FTS5 indexes
       |
-      +--> sqlite-vec vector backend
+      +--> duckdb-vss vector backend
              code/remediation vectors
              metadata-filtered similarity search
-             pure-Go modernc.org/sqlite/vec
+	     pure-Go github.com/duckdb/duckdb-go/v2
 ```
 
 ## Foundation Already In Place
@@ -135,17 +135,17 @@ to use `functools`, `operator`, or `itertools` helpers instead of ad-hoc
 closures.
 
 The storage layer lives in `go/internal/codeintel`. It creates the canonical
-`.coding-ethos/code-intel.db` SQLite store, ingests retained lint and hook
+`.coding-ethos/code-intel.duckdb` DuckDB store, ingests retained lint and hook
 traces, stores normalized findings/remediations/remediation events, indexes
 Tree-sitter chunks, records SARIF-to-AST links, and builds FTS5 search tables
 over policy IDs, skill IDs, paths, messages, code chunks, and remediation text.
-sqlite-vec is active for derived vector rows, but SQLite facts remain the
+duckdb-vss is active for derived vector rows, but DuckDB facts remain the
 auditable source of truth.
 
 Automatic output pruning applies the configured `code_intel_db` row-retention
 policy after high-volume code-intel writes. The default keeps 90 days of trace
 and proxy-event rows, leaves current AST/code chunks to the index refresh path,
-and does not run SQLite `VACUUM` automatically. Use explicit output-prune
+and does not run DuckDB `VACUUM` automatically. Use explicit output-prune
 maintenance when database compaction is needed.
 
 Hook traces are also normalized into analytics tables. Each hook event stores
@@ -170,9 +170,9 @@ is the storage substrate for future context-economy controls; it is not a
 separate shadow database. The trust boundary and event contract are documented
 in [AGENT_PROXY.md](AGENT_PROXY.md).
 
-## Canonical SQLite Store
+## Canonical DuckDB Store
 
-The first implementation should create `.coding-ethos/code-intel.db` with
+The first implementation should create `.coding-ethos/code-intel.duckdb` with
 tables for:
 
 - repositories and worktrees
@@ -226,14 +226,14 @@ bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
 bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports
 bin/coding-ethos-run code-intel embedding-candidates --record-kind remediation_outcome
 bin/coding-ethos-run code-intel upsert-vector --id rem-1 --model-id voyage-code-3 --vector '0.1,0.2,0.3'
-bin/coding-ethos-run code-intel embedding-records --backend sqlite-vec
+bin/coding-ethos-run code-intel embedding-records --backend duckdb-vss
 bin/coding-ethos-run code-intel hybrid-search --text 'unused import' --model-id voyage-code-3 --vector '0.1,0.2,0.3'
 bin/coding-ethos-run code-intel index-status --model-id voyage-code-3
 bin/coding-ethos-run code-intel search --text 'unused import'
 ```
 
 These commands read retained `.coding-ethos` traces and write only the
-repo-local `.coding-ethos/code-intel.db` store.
+repo-local `.coding-ethos/code-intel.duckdb` store.
 
 `anatomy-map` is inspired by Aider's repo map, which gives agents a compact
 symbol-level view before they spend context on full file reads. coding-ethos
@@ -274,7 +274,7 @@ The local store is the durable evidence ledger for CEL, SARIF, AST facts, hook
 analytics, remediation advice, vector metadata, and remediation outcomes. The
 target is a complete storage foundation, not a minimal placeholder.
 
-SQLite remains canonical and should gain:
+DuckDB remains canonical and should gain:
 
 - SARIF run records keyed by stable run ID, trace ID, source path, tool,
   automation/category metadata, baseline/run GUIDs, and raw payload.
@@ -286,7 +286,7 @@ SQLite remains canonical and should gain:
   follow-up trace, policy ID, skill ID, file/path, provider/tool, attempt
   ordinal, and outcome (`suggested`, `attempted`, `fixed`, `repeated`,
   `superseded`, or `unknown`).
-- Embedding metadata records for sqlite-vec rows: backend,
+- Embedding metadata records for duckdb-vss rows: backend,
   model ID, dimension, input kind, record kind, record ID, content hash,
   provider, policy ID, skill ID, path, and backend row ID.
 - FTS rows for SARIF results, remediation outcomes, and vector-ready source
@@ -305,17 +305,17 @@ The first query/CLI surface should answer:
 - which policies/skills produce repeated findings after advice was issued;
 - which records are ready for embedding and which vector backend metadata rows
   already exist.
-- which prior fixes are most relevant through hybrid FTS + sqlite-vec search,
+- which prior fixes are most relevant through hybrid FTS + duckdb-vss search,
   with fixed outcomes boosted and repeated/superseded outcomes downranked.
 - which source files and symbols should be injected into compact agent context
   through `repo-map`, `code-chunks`, and `compact-context` without reparsing.
 - which proxy sessions repeatedly read the same files, exceed token budgets,
   trigger payload truncation, or receive policy injections.
 
-Vector work uses always-built sqlite-vec tables. Metadata stays in normal
-SQLite tables for auditability and filtering, while vectors live in
+Vector work uses always-built duckdb-vss tables. Metadata stays in normal
+DuckDB tables for auditability and filtering, while vectors live in
 dimension-specific `vec0` virtual tables. This preserves the ETHOS one-path
-build contract and keeps vector indexes rebuildable from SQLite facts.
+build contract and keeps vector indexes rebuildable from DuckDB facts.
 
 ## Vector Backends
 
@@ -329,7 +329,7 @@ Define a narrow vector backend interface before binding to any implementation:
 
 The initial backend priority:
 
-1. sqlite-vec search for AST-aware code and remediation vectors.
+1. duckdb-vss search for AST-aware code and remediation vectors.
 2. Future service backends only if team-scale deployment needs them and they
    can be kept outside local enforcement.
 
@@ -373,11 +373,11 @@ changes.
 
 The active implementation indexes Go, Python, JavaScript/TypeScript, shell,
 and YAML through Tree-sitter. Each indexed file is written to the canonical
-SQLite store with a content hash, line count, parser metadata, and index
+DuckDB store with a content hash, line count, parser metadata, and index
 timestamp. Each extracted symbol or configuration entry is written as a stable
 `code_chunk`, mirrored into FTS5, and exposed as an embedding candidate with
 `record_kind=code_chunk`. Parent chunk IDs, containment edges, import edges,
-and same-file reference edges are stored in SQLite. SARIF/CEL results that
+and same-file reference edges are stored in DuckDB. SARIF/CEL results that
 carry AST identity are linked back to matching chunks through
 `ast_finding_links`. Markdown remains planned until the selected parser exposes
 a maintained Go binding or the project adds a first-class adapter for its split
@@ -465,7 +465,7 @@ All tools are advisory. They must not bypass hooks or edit files.
 
 ### Phase 1 - Schema and Trace Ingestion
 
-- [x] Create the SQLite store and migrations.
+- [x] Create the DuckDB store.
 - [x] Persist hook/lint trace summaries into normalized tables.
 - [x] Persist hook usage analytics for allow/block/rewrite events with
   operation kind, target kind, risk category, tracking ID, runtime, command and
@@ -479,7 +479,7 @@ All tools are advisory. They must not bypass hooks or edit files.
 - [x] Persist SARIF result references into normalized tables.
 - [x] Track remediation outcomes after follow-up attempts.
 - [x] Store CEL/evaluator provenance beside findings and SARIF results.
-- [x] Store vector-backend metadata records for sqlite-vec
+- [x] Store vector-backend metadata records for duckdb-vss
   derived indexes.
 - [x] Expose embedding candidates for SARIF/remediation records.
 
@@ -493,8 +493,8 @@ Acceptance criteria:
   or attempted again."
 - [x] Search can answer "which hook operation/target/risk groups are blocked,
   rewritten, or repeatedly advised."
-- [x] SQLite can identify records that are ready for embedding and the
-  repo-local sqlite-vec backend can search stored embeddings.
+- [x] DuckDB can identify records that are ready for embedding and the
+  repo-local duckdb-vss backend can search stored embeddings.
 
 ### Phase 2 - AST Indexing
 
@@ -502,13 +502,13 @@ Acceptance criteria:
   shell, JavaScript/TypeScript.
 - [x] Add JSON and TOML config-entry extraction to the AST resolver.
 - [x] Store AST chunks, symbol metadata, byte ranges, line ranges, content
-  hashes, and search text in SQLite.
+  hashes, and search text in DuckDB.
 - [x] Expose AST chunks through FTS, embedding candidates, CLI, and MCP.
 - [x] Expose line-to-nearest-symbol/config lookup through CLI and MCP code
   context.
 - [x] Expose AST-backed proposed symbol changes to CEL edit preflight.
 - [x] Store parser metadata, parent chunk IDs, graph edges, and AST finding
-  links in SQLite.
+  links in DuckDB.
 - [x] Expose focused code context with parent, children, graph edges, and
   linked findings through CLI and MCP.
 - [x] Add Markdown support using Goldmark for robust documentation chunking.
@@ -524,10 +524,10 @@ Acceptance criteria:
 - [x] Structurally similar code across files is detected at write time and
   reported as a CEL policy warning with SARIF relatedLocations.
 
-### Phase 3 - sqlite-vec Vector Backend
+### Phase 3 - duckdb-vss Vector Backend
 
 - [x] Add the vector backend interface.
-- [x] Implement sqlite-vec storage for remediation embeddings.
+- [x] Implement duckdb-vss storage for remediation embeddings.
 - [x] Record model ID, dimension, provider, and input kind for every vector.
 - [x] Add rebuild and index-status reporting.
 - [x] Keep the vector backend in the normal `make build` and `make check`
@@ -535,20 +535,20 @@ Acceptance criteria:
 
 Acceptance criteria:
 
-- [x] Code and remediation vectors can be rebuilt from SQLite plus repo
+- [x] Code and remediation vectors can be rebuilt from DuckDB plus repo
   contents.
 - [x] Hybrid search can filter by path/language/policy before ranking.
 
 ### Phase 4 - Hybrid Retrieval Hardening
 
-- Tune FTS + sqlite-vec ranking once AST chunks and remediation embeddings are
+- Tune FTS + duckdb-vss ranking once AST chunks and remediation embeddings are
   populated.
 - Add stale-index reporting for changed files and changed remediation records.
 - Document capability and ranking differences from FTS-only search.
 
 Acceptance criteria:
 
-- Users can run code intelligence with the default sqlite-vec backend.
+- Users can run code intelligence with the default duckdb-vss backend.
 - Index status reports backend, model, stale row counts, and rebuild needs.
 
 ### Phase 5 - MCP Search Tools
@@ -669,7 +669,7 @@ similarity:
 
 - Which code embedding model should be the initial default for local/offline
   users?
-- When does sqlite-vec search become too slow for repo-local remediation and
+- When does duckdb-vss search become too slow for repo-local remediation and
   AST retrieval?
 - How much graph detail is useful before it becomes expensive to maintain?
 - Should code intelligence be enabled by default, or only after explicit

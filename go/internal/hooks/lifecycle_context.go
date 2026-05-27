@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -142,12 +141,11 @@ func sessionStartStorageUpgradeContext(cwd string) string {
 	return feedback.MustRender(feedback.Message{
 		Scalars: []feedback.Scalar{
 			feedback.S("storage", "code-intel"),
-			feedback.S("status", "upgraded"),
-			feedback.S("from", "sqlite"),
+			feedback.S("status", "obsolete_artifacts_removed"),
 			feedback.S("to", "duckdb"),
 			feedback.S(
-				"legacy_removed",
-				strconv.FormatBool(summary.RebuildSummary.RemovedLegacySQLite),
+				"removed",
+				strings.Join(summary.RebuildSummary.RemovedObsoleteArtifacts, ","),
 			),
 		},
 	}, feedback.FormatTOON)

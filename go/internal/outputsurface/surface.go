@@ -30,8 +30,6 @@ const (
 	codeIntelDuckDBWALID = "code_intel_duckdb_wal"
 	codeIntelEventsID    = "code_intel_events"
 	codeIntelLockID      = "code_intel_rebuild_lock"
-	codeIntelSQLiteWALID = "code_intel_sqlite_wal"
-	codeIntelSQLiteSHMID = "code_intel_sqlite_shm"
 
 	// DefaultTempEvidenceMaxAge is the retention age for proxy temp evidence.
 	DefaultTempEvidenceMaxAge = 24 * time.Hour
@@ -39,7 +37,7 @@ const (
 	// derived code-intelligence trace and proxy-event records.
 	DefaultCodeIntelRowRetentionDays = 90
 	otherRepoAuditDefinitionCount    = 10
-	codeIntelSurfaceDefinitionCount  = 7
+	codeIntelSurfaceDefinitionCount  = 5
 	toonReportStaticLines            = 5
 	humanReportStaticLines           = 3
 	humanSurfaceLineEstimate         = 3
@@ -252,8 +250,8 @@ func codeIntelStoreSurfaceDefinitions() []Definition {
 	return []Definition{
 		repoFile(
 			codeIntelDBSurfaceID,
-			".coding-ethos/code-intel.db",
-			"Repo-local code intelligence SQLite store.",
+			".coding-ethos/code-intel.duckdb",
+			"Repo-local code intelligence DuckDB row-retention surface.",
 			"go/internal/codeintel",
 			"code-intel CLI and MCP",
 			"high",
@@ -285,30 +283,6 @@ func codeIntelSidecarSurfaceDefinitions() []Definition {
 			"Repo-local code intelligence DuckDB write-ahead log.",
 			"go/internal/codeintel",
 			"code-intel CLI and downstream-analysis",
-			"medium",
-			"derived_index",
-			true,
-			true,
-			false,
-		),
-		repoFile(
-			codeIntelSQLiteWALID,
-			".coding-ethos/code-intel.db-wal",
-			"Legacy SQLite code-intelligence write-ahead log.",
-			"go/internal/codeintel",
-			"legacy code-intel readers during migration",
-			"medium",
-			"derived_index",
-			true,
-			true,
-			false,
-		),
-		repoFile(
-			codeIntelSQLiteSHMID,
-			".coding-ethos/code-intel.db-shm",
-			"Legacy SQLite code-intelligence shared-memory sidecar.",
-			"go/internal/codeintel",
-			"legacy code-intel readers during migration",
 			"medium",
 			"derived_index",
 			true,

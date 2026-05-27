@@ -22,7 +22,6 @@ const (
 	defaultCodeIntelDBMaxBytes   = 2 * defaultGiB
 	defaultDuckDBMaxBytes        = 4 * defaultGiB
 	defaultCodeIntelEventsBudget = 2 * defaultGiB
-	defaultSQLiteSHMBudget       = defaultGiB / 4
 	defaultCodeIntelKeepLast     = 20000
 	hoursPerDay                  = 24
 	kibibyte                     = 1024
@@ -153,19 +152,11 @@ func DefaultSettings() Settings {
 			settings.Prune.Surfaces[definition.ID] = policy
 		}
 
-		if definition.ID == codeIntelDuckDBWALID ||
-			definition.ID == codeIntelSQLiteWALID ||
-			definition.ID == codeIntelSQLiteSHMID {
+		if definition.ID == codeIntelDuckDBWALID {
 			policy := settings.Prune.Surfaces[definition.ID]
 			policy.MaxAge = defaultSidecarMaxAge
 			policy.MaxAgeText = durationText(policy.MaxAge)
-
-			if definition.ID == codeIntelSQLiteSHMID {
-				policy.MaxBytes = defaultSQLiteSHMBudget
-			} else {
-				policy.MaxBytes = defaultGiB
-			}
-
+			policy.MaxBytes = defaultGiB
 			policy.MaxBytesText = bytesText(policy.MaxBytes)
 			settings.Prune.Surfaces[definition.ID] = policy
 		}

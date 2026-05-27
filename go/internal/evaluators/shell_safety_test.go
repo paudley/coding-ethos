@@ -108,7 +108,7 @@ func TestEvaluateShellInlineEnvBlocksCommandAssignments(t *testing.T) {
 	decisions, err := EvaluateCELExpression(
 		policyDef,
 		Context{
-			Command:          "DATABASE_URL=sqlite:// pytest",
+			Command:          "DATABASE_URL=postgres://localhost/db pytest",
 			EvaluatorOptions: policyDef.Evaluators[0].Options,
 			Tool:             "Bash",
 		},

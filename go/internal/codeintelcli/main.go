@@ -112,7 +112,7 @@ type policySkillFlags struct {
 func addStoreFlags(flags *flag.FlagSet, rootUsage string) storeFlags {
 	return storeFlags{
 		root:   flags.String("root", ".", rootUsage),
-		dbPath: flags.String("db", "", "SQLite code intelligence database path"),
+		dbPath: flags.String("db", "", "DuckDB code intelligence database path"),
 	}
 }
 
@@ -174,7 +174,7 @@ func ingestTraces(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("ingest-traces", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos traces")
 
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	dbPath := flags.String("db", "", "DuckDB code intelligence database path")
 
 	err := parseCommandFlags(flags, args, "ingest-traces")
 	if err != nil {
@@ -198,7 +198,7 @@ func ingestTraces(ctx context.Context, args []string) error {
 func ingestSARIF(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("ingest-sarif", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	dbPath := flags.String("db", "", "DuckDB code intelligence database path")
 
 	file := flags.String("file", "", "SARIF file to ingest")
 
@@ -247,7 +247,7 @@ func ingestSARIF(ctx context.Context, args []string) error {
 func recordOutcome(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("record-outcome", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	dbPath := flags.String("db", "", "DuckDB code intelligence database path")
 	remediationID := flags.String("remediation-id", "", "Remediation ID")
 	findingID := flags.String("finding-id", "", "Finding ID")
 	sourceTraceID := flags.String(
@@ -340,7 +340,7 @@ func appendRemediationOutcomeEvent(
 func recordEmbedding(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("record-embedding", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	dbPath := flags.String("db", "", "DuckDB code intelligence database path")
 	backend := flags.String("backend", "", "Vector backend")
 	collection := flags.String("collection", "", "Vector collection")
 	modelID := flags.String("model-id", "", "Embedding model ID")
@@ -410,7 +410,7 @@ func printStats(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("stats", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
 
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	dbPath := flags.String("db", "", "DuckDB code intelligence database path")
 
 	err := parseCommandFlags(flags, args, "stats")
 	if err != nil {
@@ -434,7 +434,7 @@ func printStats(ctx context.Context, args []string) error {
 func printDownstreamAnalysis(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("downstream-analysis", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "Legacy SQLite code intelligence database path")
+	dbPath := flags.String("db", "", "Legacy DuckDB code intelligence database path")
 	duckDBPath := flags.String("duckdb", "", "DuckDB code intelligence database path")
 	format := flags.String("format", "json", "Output format: json, toon, or human")
 	limit := addResultLimit(flags)
@@ -538,7 +538,7 @@ func legacyDownstreamAnalysis(
 			)
 		}
 
-		analysis.SQLiteStrategy.OpenError = openErr.Error()
+		analysis.StorageStrategy.OpenError = openErr.Error()
 		analysis.StorageHealth.OpenError = duckOpenErr.Error()
 
 		return analysis, nil
@@ -559,7 +559,7 @@ func legacyDownstreamAnalysis(
 func rebuildIndex(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("rebuild-index", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "Legacy SQLite code intelligence database path")
+	dbPath := flags.String("db", "", "Legacy DuckDB code intelligence database path")
 	duckDBPath := flags.String("duckdb", "", "DuckDB code intelligence database path")
 
 	err := parseCommandFlags(flags, args, "rebuild-index")
@@ -682,7 +682,7 @@ func printRemediationEffectiveness(ctx context.Context, args []string) error {
 func printVectorStats(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("vector-stats", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	backend := flags.String("backend", "sqlite-vec", "Vector backend")
+	backend := flags.String("backend", codeintel.VectorBackendDuckDBVSS, "Vector backend")
 
 	uri := flags.String("uri", "", "Vector backend URI")
 
@@ -772,7 +772,7 @@ func printEmbeddingCandidates(ctx context.Context, args []string) error {
 func hybridSearch(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("hybrid-search", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	dbPath := flags.String("db", "", "DuckDB code intelligence database path")
 	uri := flags.String("uri", "", "Vector backend URI")
 	text := flags.String("text", "", "FTS query text")
 	vectorText := flags.String("vector", "", "Comma-separated float32 query embedding")
@@ -809,7 +809,7 @@ func hybridSearch(ctx context.Context, args []string) error {
 	}
 
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
-		Backend: "sqlite-vec",
+		Backend: codeintel.VectorBackendDuckDBVSS,
 		URI:     *uri,
 	})
 	if err != nil {
@@ -840,7 +840,7 @@ func hybridSearch(ctx context.Context, args []string) error {
 func printIndexStatus(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("index-status", flag.ExitOnError)
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "SQLite code intelligence database path")
+	dbPath := flags.String("db", "", "DuckDB code intelligence database path")
 	uri := flags.String("uri", "", "Vector backend URI")
 	collection := flags.String("collection", "remediations", "Vector collection")
 
@@ -862,7 +862,7 @@ func printIndexStatus(ctx context.Context, args []string) error {
 	}
 
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
-		Backend: "sqlite-vec",
+		Backend: codeintel.VectorBackendDuckDBVSS,
 		URI:     *uri,
 	})
 	if err != nil {
@@ -879,7 +879,7 @@ func printIndexStatus(ctx context.Context, args []string) error {
 	}
 
 	status, err := store.IndexStatus(ctx, vectorStats, codeintel.EmbeddingRecordQuery{
-		Backend:    "sqlite-vec",
+		Backend:    codeintel.VectorBackendDuckDBVSS,
 		Collection: *collection,
 		ModelID:    *modelID,
 	})

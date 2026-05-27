@@ -55,18 +55,6 @@ auto = true
 max_age = "7d"
 max_bytes = "1GiB"
 
-[outputs.prune.surfaces.code_intel_sqlite_wal]
-enabled = true
-auto = true
-max_age = "7d"
-max_bytes = "1GiB"
-
-[outputs.prune.surfaces.code_intel_sqlite_shm]
-enabled = true
-auto = true
-max_age = "7d"
-max_bytes = "256MiB"
-
 [outputs.prune.surfaces.code_intel_rebuild_lock]
 enabled = true
 auto = true

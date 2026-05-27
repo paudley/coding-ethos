@@ -644,10 +644,9 @@ func TestCutoverVerifyPassesAllSurfaces(t *testing.T) {
 	err := os.WriteFile(
 		filepath.Join(root, ".gitignore"),
 		[]byte(".coding-ethos/cache/\n"+
-			".coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n"+
-			".coding-ethos/code-intel.db-shm\n.coding-ethos/code-intel.db-wal\n"+
 			".coding-ethos/code-intel.duckdb\n.coding-ethos/code-intel.duckdb.wal\n"+
 			".coding-ethos/events/\n"+
+			".coding-ethos/hook-runs/\n"+
 			".coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n"+
 			".coding-ethos/state/\n"),
 		privateFileMode,
@@ -1191,17 +1190,16 @@ func TestRepoIgnoreFixItemLines(t *testing.T) {
 		t.Fatalf("repo ignore fix items before ignore: %v", err)
 	}
 
-	if len(items) != 11 {
+	if len(items) != 8 {
 		t.Fatalf("items before ignore = %#v", items)
 	}
 
 	inlineErr8 := os.WriteFile(
 		filepath.Join(repo, ".gitignore"),
 		[]byte(".coding-ethos/cache/\n"+
-			".coding-ethos/code-intel.db\n.coding-ethos/hook-runs/\n"+
-			".coding-ethos/code-intel.db-shm\n.coding-ethos/code-intel.db-wal\n"+
 			".coding-ethos/code-intel.duckdb\n.coding-ethos/code-intel.duckdb.wal\n"+
 			".coding-ethos/events/\n"+
+			".coding-ethos/hook-runs/\n"+
 			".coding-ethos/lint-runs/\n.coding-ethos/prune-runs/\n"+
 			".coding-ethos/state/\n"),
 		privateFileMode,
