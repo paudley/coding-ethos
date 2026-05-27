@@ -192,6 +192,56 @@ func TestIngestHookTraceFilePreservesSourcePath(t *testing.T) {
 	}
 }
 
+func TestIngestHookTraceFileUsesHookRunDirectoryForEventRunID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	firstTracePath := filepath.Join(
+		root,
+		".coding-ethos",
+		"hook-runs",
+		"run-a",
+		"event.json",
+	)
+	secondTracePath := filepath.Join(
+		root,
+		".coding-ethos",
+		"hook-runs",
+		"run-b",
+		"event.json",
+	)
+
+	writeFile(t, firstTracePath, hookTracePayload(t))
+	writeFile(
+		t,
+		secondTracePath,
+		hookTracePayloadWithIDs(t, "trace-b", "decision-b", "2026-01-01T00:03:00Z"),
+	)
+
+	if err := IngestHookTraceFile(ctx, root, firstTracePath); err != nil {
+		t.Fatalf("ingest first hook trace file: %v", err)
+	}
+	if err := IngestHookTraceFile(ctx, root, secondTracePath); err != nil {
+		t.Fatalf("ingest second hook trace file: %v", err)
+	}
+
+	records, err := NewEventLog(DefaultEventLogDir(root)).ReadAll()
+	if err != nil {
+		t.Fatalf("read hook trace event records: %v", err)
+	}
+
+	sourceRunIDs := make([]string, 0, len(records))
+	for _, record := range records {
+		sourceRunIDs = append(sourceRunIDs, record.SourceRunID)
+	}
+	slices.Sort(sourceRunIDs)
+
+	if !slices.Equal(sourceRunIDs, []string{"run-a", "run-b"}) {
+		t.Fatalf("source run IDs = %#v, want run-a and run-b", sourceRunIDs)
+	}
+}
+
 func TestSourcePathsIngestedChecksExactAndChildPathsInOneCall(t *testing.T) {
 	t.Parallel()
 

@@ -20,11 +20,15 @@ const (
 	sourcePathQueryArgFactor       = 4
 	schemaVersion                  = 1
 	storeDirMode                   = 0o700
+	storeLockWait                  = 20 * time.Second
+	storeLockRetryInterval         = 100 * time.Millisecond
 )
 
 type Store struct {
 	database *sql.DB
 }
+
+type storeOpenFunc func(context.Context, string) (*Store, error)
 
 type Stats struct {
 	Traces              int `json:"traces"`
@@ -80,6 +84,51 @@ func IsStoreLockError(err error) bool {
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
+	return openWithStoreLockWait(
+		ctx,
+		path,
+		storeLockWait,
+		storeLockRetryInterval,
+		openStoreOnce,
+	)
+}
+
+func openWithStoreLockWait(
+	ctx context.Context,
+	path string,
+	wait time.Duration,
+	retryInterval time.Duration,
+	openStore storeOpenFunc,
+) (*Store, error) {
+	deadline := time.Now().Add(wait)
+
+	for {
+		store, err := openStore(ctx, path)
+		if err == nil {
+			return store, nil
+		}
+
+		if !IsStoreLockError(err) || time.Now().After(deadline) {
+			return nil, err
+		}
+
+		timer := time.NewTimer(retryInterval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+
+			return nil, fmt.Errorf("wait for code intelligence store lock: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
+}
+
+func openStoreOnce(ctx context.Context, path string) (*Store, error) {
 	inlineErr0 := os.MkdirAll(filepath.Dir(path), storeDirMode)
 	if inlineErr0 != nil {
 		return nil, fmt.Errorf("create code intelligence store dir: %w", inlineErr0)

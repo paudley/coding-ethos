@@ -175,10 +175,7 @@ func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 		return fmt.Errorf("read hook trace for code-intel ingest: %w", err)
 	}
 
-	runID := strings.TrimSuffix(
-		filepath.Base(resolvedTracePath),
-		filepath.Ext(resolvedTracePath),
-	)
+	runID := hookTraceEventRunID(resolvedTracePath)
 
 	err = NewEventLog(DefaultEventLogDir(root)).Append(runID, []EventRecord{
 		{
@@ -198,6 +195,24 @@ func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 	defer store.Close()
 
 	return NewTraceIngester(store).IngestHookTraceSource(ctx, resolvedTracePath, payload)
+}
+
+func hookTraceEventRunID(resolvedTracePath string) string {
+	fileName := filepath.Base(resolvedTracePath)
+	runID := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+
+	if fileName != "event.json" {
+		return runID
+	}
+
+	parentRunID := filepath.Base(filepath.Dir(resolvedTracePath))
+	if strings.TrimSpace(parentRunID) == "" ||
+		parentRunID == "." ||
+		parentRunID == string(filepath.Separator) {
+		return runID
+	}
+
+	return parentRunID
 }
 
 // IngestLintTraceFile records a single lint trace that was just written.

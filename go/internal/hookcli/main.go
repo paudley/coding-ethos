@@ -109,6 +109,10 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	if result.Blocked() {
+		if *jsonOutput && result.Provider != "" {
+			return 0
+		}
+
 		if !*jsonOutput {
 			printBlocked(stderr, result)
 		}
