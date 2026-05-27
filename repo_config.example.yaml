@@ -83,6 +83,33 @@ code_intel:
   # output directories.
   exclude_paths:
     - "**/dist/**"
+  health:
+    # Biomarkers are deterministic scoring inputs persisted into
+    # code_health_evidence. Reweight only to encode repo-specific facts, such as
+    # legacy code scheduled for deletion or generated files already excluded
+    # from direct editing.
+    biomarkers:
+      large_function:
+        enabled: true
+        weight: 1.0
+      complex_function:
+        enabled: true
+        weight: 1.0
+      structural_clone:
+        enabled: true
+        weight: 1.0
+    path_overrides:
+      - glob: "**/vendor/**"
+        disabled_biomarkers:
+          - large_file
+          - large_function
+          - complex_function
+          - structural_clone
+      - glob: "**/legacy/**"
+        weights:
+          large_function: 0.5
+          complex_function: 0.5
+          brain_method_candidate: 0.5
 
 proxy:
   code_intel_enrichment:

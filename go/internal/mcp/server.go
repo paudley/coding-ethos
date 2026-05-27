@@ -220,6 +220,7 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "code_intel_code_context", Handler: server.codeIntelCodeContext},
 		{Name: "code_intel_context_card", Handler: server.codeIntelContextCard},
 		{Name: "code_intel_change_risk", Handler: server.codeIntelChangeRisk},
+		{Name: "code_intel_health", Handler: server.codeIntelHealth},
 		{Name: "skill_recommend", Handler: server.recommendSkills},
 	}
 }

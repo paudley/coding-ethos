@@ -18,6 +18,7 @@ import (
 
 const (
 	defaultGitSignalCommitLimit = 500
+	defaultHealthTrendLimit     = 20
 	defaultResultLimit          = 20
 	defaultSearchLimit          = 10
 )
@@ -67,6 +68,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"embedding-records":         printEmbeddingRecords,
 		"enrich-listing":            enrichDirectoryListing,
 		"git-signals":               gitSignals,
+		"health":                    printHealth,
 		"hook-reviews":              printHookReviews,
 		"hook-usage":                printHookUsage,
 		"repeated-edits":            printRepeatedEdits,
@@ -93,6 +95,50 @@ func commandHandlers() map[string]codeIntelCommand {
 		"upsert-vector":             upsertVector,
 		"vector-stats":              printVectorStats,
 	}
+}
+
+func printHealth(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("health", flag.ExitOnError)
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
+	path := flags.String("path", "", "Filter by source path or directory")
+	limit := addResultLimit(flags)
+	trend := flags.Int(
+		"trend",
+		defaultHealthTrendLimit,
+		"Maximum trend snapshots to return",
+	)
+	refresh := flags.Bool("refresh", false, "Recompute and persist a health snapshot")
+	gitHead := flags.String("git-head", "", "Git commit associated with the snapshot")
+	lcovPath := flags.String("lcov", "", "LCOV file to import before scoring")
+
+	err := parseCommandFlags(flags, args, "health")
+	if err != nil {
+		return err
+	}
+
+	store, err := openStore(ctx, *storeFlags.root, *storeFlags.dbPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	health, err := store.CodeHealth(ctx, codeintel.CodeHealthQuery{
+		Root:     *storeFlags.root,
+		Path:     *path,
+		Limit:    *limit,
+		Refresh:  *refresh || *lcovPath != "",
+		Trend:    *trend,
+		GitHead:  *gitHead,
+		LCOVPath: *lcovPath,
+	})
+	if err != nil {
+		return fmt.Errorf("query code health: %w", err)
+	}
+
+	return encodeJSON(os.Stdout, map[string]any{
+		"kind":   "code_intel_health",
+		"health": health,
+	})
 }
 
 type storeFlags struct {

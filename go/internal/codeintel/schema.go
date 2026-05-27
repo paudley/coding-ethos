@@ -10,6 +10,7 @@ func schemaStatements() []string {
 	statements = append(statements, proxySchemaStatements()...)
 	statements = append(statements, codeSchemaStatements()...)
 	statements = append(statements, gitSignalSchemaStatements()...)
+	statements = append(statements, healthSchemaStatements()...)
 	statements = append(statements, sarifSchemaStatements()...)
 	statements = append(statements, remediationSchemaStatements()...)
 	statements = append(statements, searchSchemaStatements()...)
@@ -17,7 +18,7 @@ func schemaStatements() []string {
 	return statements
 }
 
-const schemaStatementCapacity = 45
+const schemaStatementCapacity = 52
 
 func traceSchemaStatements() []string {
 	return []string{
@@ -367,6 +368,54 @@ func gitSignalSchemaStatements() []string {
 		last_seen_utc TEXT,
 		hidden_coupling INTEGER NOT NULL,
 		PRIMARY KEY(path, related_path)
+	)`,
+	}
+}
+
+func healthSchemaStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS code_health_snapshots (
+		snapshot_id TEXT PRIMARY KEY,
+		repo_root TEXT NOT NULL,
+		git_head TEXT,
+		indexed_at_utc TEXT NOT NULL,
+		total_health_score DOUBLE NOT NULL,
+		target_count INTEGER NOT NULL,
+		raw_json TEXT NOT NULL
+	)`,
+		`CREATE TABLE IF NOT EXISTS code_health_targets (
+		snapshot_id TEXT NOT NULL,
+		path TEXT NOT NULL,
+		language TEXT,
+		health_score DOUBLE NOT NULL,
+		impact_score DOUBLE NOT NULL,
+		effort_score DOUBLE NOT NULL,
+		priority_score DOUBLE NOT NULL,
+		rank INTEGER NOT NULL,
+		evidence_count INTEGER NOT NULL,
+		raw_json TEXT NOT NULL,
+		PRIMARY KEY(snapshot_id, path)
+	)`,
+		`CREATE TABLE IF NOT EXISTS code_health_evidence (
+		snapshot_id TEXT NOT NULL,
+		path TEXT NOT NULL,
+		ordinal INTEGER NOT NULL,
+		biomarker TEXT NOT NULL,
+		severity TEXT NOT NULL,
+		score_delta DOUBLE NOT NULL,
+		message TEXT NOT NULL,
+		evidence_id TEXT,
+		line INTEGER NOT NULL DEFAULT 0,
+		raw_json TEXT NOT NULL,
+		PRIMARY KEY(snapshot_id, path, ordinal)
+	)`,
+		`CREATE TABLE IF NOT EXISTS code_health_coverage (
+		path TEXT PRIMARY KEY,
+		source_path TEXT NOT NULL,
+		imported_at_utc TEXT NOT NULL,
+		found_lines INTEGER NOT NULL,
+		covered_lines INTEGER NOT NULL,
+		line_coverage_percent DOUBLE NOT NULL
 	)`,
 	}
 }

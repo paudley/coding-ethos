@@ -45,6 +45,9 @@ type Stats struct {
 	CodeEdges           int `json:"code_edges"`
 	GitFileSignals      int `json:"git_file_signals"`
 	GitCoChanges        int `json:"git_cochanges"`
+	CodeHealthSnapshots int `json:"code_health_snapshots"`
+	CodeHealthTargets   int `json:"code_health_targets"`
+	CodeHealthCoverage  int `json:"code_health_coverage"`
 	ASTFindingLinks     int `json:"ast_finding_links"`
 	Remediations        int `json:"remediations"`
 	RemediationEvents   int `json:"remediation_events"`
@@ -624,6 +627,21 @@ func statCountQueries(stats *Stats) []statCountQuery {
 			name:   "git_cochanges",
 			query:  "SELECT COUNT(*) FROM git_cochanges",
 			target: &stats.GitCoChanges,
+		},
+		{
+			name:   "code_health_snapshots",
+			query:  "SELECT COUNT(*) FROM code_health_snapshots",
+			target: &stats.CodeHealthSnapshots,
+		},
+		{
+			name:   "code_health_targets",
+			query:  "SELECT COUNT(*) FROM code_health_targets",
+			target: &stats.CodeHealthTargets,
+		},
+		{
+			name:   "code_health_coverage",
+			query:  "SELECT COUNT(*) FROM code_health_coverage",
+			target: &stats.CodeHealthCoverage,
 		},
 		{
 			name:   "ast_finding_links",
