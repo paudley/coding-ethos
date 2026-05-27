@@ -1281,11 +1281,14 @@ type ftsRow struct {
 }
 
 func insertFTS(ctx context.Context, transaction *sql.Tx, row ftsRow) error {
+	rowID := ftsRowID(row)
+
 	_, err := transaction.ExecContext(
 		ctx,
 		`INSERT INTO code_intel_fts(
-			kind, record_id, trace_id, policy_id, skill_id, path, message, search_text
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			fts_id, kind, record_id, trace_id, policy_id, skill_id, path, message, search_text
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rowID,
 		row.Kind,
 		row.RecordID,
 		row.TraceID,
@@ -1297,6 +1300,31 @@ func insertFTS(ctx context.Context, transaction *sql.Tx, row ftsRow) error {
 	)
 	if err != nil {
 		return fmt.Errorf("insert code intelligence FTS row: %w", err)
+	}
+
+	return insertSearchTerms(ctx, transaction, rowID, row.SearchText)
+}
+
+func ftsRowID(row ftsRow) string {
+	return strings.Join([]string{row.Kind, row.RecordID, row.TraceID}, ":")
+}
+
+func insertSearchTerms(
+	ctx context.Context,
+	transaction *sql.Tx,
+	rowID string,
+	text string,
+) error {
+	for _, term := range searchTerms(text) {
+		_, err := transaction.ExecContext(
+			ctx,
+			`INSERT INTO code_intel_search_terms(term, fts_id) VALUES (?, ?)`,
+			term,
+			rowID,
+		)
+		if err != nil {
+			return fmt.Errorf("insert code intelligence search term: %w", err)
+		}
 	}
 
 	return nil

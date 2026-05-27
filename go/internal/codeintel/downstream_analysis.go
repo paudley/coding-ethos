@@ -243,7 +243,7 @@ func AnalyzeDownstreamDuckDB(
 			Backend:                 "duckdb",
 			SourceOfTruth:           "event_log",
 			Path:                    downstreamDuckDBStorePath(root, store),
-			ObsoleteStorePath:       DefaultDBPath(root),
+			ObsoleteStorePath:       downstreamObsoleteStorePath(root),
 			EventCount:              downstreamEventCount(root),
 			ImportedEventCount:      downstreamImportedEventCount(ctx, store),
 			StoreAvailable:          store != nil,
@@ -319,8 +319,8 @@ func downstreamStorageHealth(
 	return DownstreamStorageHealth{
 		Backend:                 "obsolete_store",
 		SourceOfTruth:           "obsolete_store",
-		Path:                    DefaultDBPath(root),
-		ObsoleteStorePath:       DefaultDBPath(root),
+		Path:                    downstreamObsoleteStorePath(root),
+		ObsoleteStorePath:       downstreamObsoleteStorePath(root),
 		Recommendation:          downstreamStorageRecommendation(store != nil, logSignals),
 		EventCount:              downstreamEventCount(root),
 		ImportedEventCount:      0,
@@ -330,6 +330,15 @@ func downstreamStorageHealth(
 		LogOnlyStorageBusyCount: logSignals.StorageBusyCount,
 		LogOnlyToolchainSignals: logSignals.ToolchainFailureCount,
 	}
+}
+
+func downstreamObsoleteStorePath(root string) string {
+	paths := ObsoleteCodeIntelArtifactPaths(root)
+	if len(paths) == 0 {
+		return ""
+	}
+
+	return paths[0]
 }
 
 func downstreamStorageRecommendation(

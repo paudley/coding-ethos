@@ -139,13 +139,6 @@ func DefaultSettings() Settings {
 		if definition.ID == codeIntelDBSurfaceID {
 			policy := settings.Prune.Surfaces[definition.ID]
 			policy.RowRetentionDays = DefaultCodeIntelRowRetentionDays
-			policy.MaxBytes = defaultCodeIntelDBMaxBytes
-			policy.MaxBytesText = bytesText(policy.MaxBytes)
-			settings.Prune.Surfaces[definition.ID] = policy
-		}
-
-		if definition.ID == codeIntelDuckDBID {
-			policy := settings.Prune.Surfaces[definition.ID]
 			policy.MaxBytes = defaultDuckDBMaxBytes
 			policy.MaxBytesText = bytesText(policy.MaxBytes)
 			policy.VacuumAfterPrune = true

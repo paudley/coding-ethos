@@ -212,26 +212,87 @@ func (store *Store) Search(
 		limit = 10
 	}
 
-	rows, err := store.database.QueryContext(
+	terms := searchTerms(query.Text)
+	if len(terms) == 0 {
+		return []SearchResult{}, nil
+	}
+
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin code intelligence search query: %w", err)
+	}
+
+	defer rollbackSearchTransaction(transaction)
+
+	err = prepareSearchTerms(ctx, transaction, terms)
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := querySearchResults(ctx, transaction, query, len(terms), limit)
+	if err != nil {
+		return nil, err
+	}
+
+	err = transaction.Commit()
+	if err != nil {
+		return nil, fmt.Errorf("commit code intelligence search query: %w", err)
+	}
+
+	return results, nil
+}
+
+func prepareSearchTerms(
+	ctx context.Context,
+	transaction *sql.Tx,
+	terms []string,
+) error {
+	_, err := transaction.ExecContext(
 		ctx,
-		`SELECT code_intel_fts.kind, record_id, trace_id, policy_id, skill_id,
-			code_intel_fts.path, message
-			FROM code_intel_fts
-			LEFT JOIN code_files ON code_intel_fts.kind = 'code_chunk'
-				AND code_files.path = code_intel_fts.path
-			WHERE lower(code_intel_fts.search_text) LIKE '%' || lower(?) || '%'
-				AND (? = '' OR code_intel_fts.kind = ?)
-				AND (code_intel_fts.kind != 'code_chunk'
-					OR COALESCE(code_files.deleted_at_utc, '') = '')
-			ORDER BY code_intel_fts.kind, record_id
-			LIMIT ?`,
-		query.Text,
+		`CREATE TEMPORARY TABLE IF NOT EXISTS code_intel_search_query_terms (
+			term TEXT NOT NULL
+		)`,
+	)
+	if err != nil {
+		return fmt.Errorf("create code intelligence search query terms: %w", err)
+	}
+
+	_, err = transaction.ExecContext(ctx, `DELETE FROM code_intel_search_query_terms`)
+	if err != nil {
+		return fmt.Errorf("clear code intelligence search query terms: %w", err)
+	}
+
+	for _, term := range terms {
+		_, err = transaction.ExecContext(
+			ctx,
+			`INSERT INTO code_intel_search_query_terms(term) VALUES (?)`,
+			term,
+		)
+		if err != nil {
+			return fmt.Errorf("insert code intelligence search query term: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func querySearchResults(
+	ctx context.Context,
+	transaction *sql.Tx,
+	query SearchQuery,
+	termCount int,
+	limit int,
+) ([]SearchResult, error) {
+	rows, err := transaction.QueryContext(
+		ctx,
+		searchResultsSQL,
+		termCount,
 		query.RecordKind,
 		query.RecordKind,
 		limit,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("search code intelligence FTS: %w", err)
+		return nil, fmt.Errorf("search code intelligence term index: %w", err)
 	}
 	defer rows.Close()
 
@@ -263,6 +324,32 @@ func (store *Store) Search(
 
 	return results, nil
 }
+
+func rollbackSearchTransaction(transaction *sql.Tx) {
+	err := transaction.Rollback()
+	if err != nil && !errors.Is(err, sql.ErrTxDone) {
+		return
+	}
+}
+
+const searchResultsSQL = `SELECT
+				code_intel_fts.kind, record_id, trace_id, policy_id, skill_id,
+				code_intel_fts.path, message
+				FROM code_intel_fts
+			JOIN (
+				SELECT fts_id, COUNT(DISTINCT term) AS matched_terms
+				FROM code_intel_search_terms
+				WHERE term IN (SELECT term FROM code_intel_search_query_terms)
+				GROUP BY fts_id
+			) search_match ON search_match.fts_id = code_intel_fts.fts_id
+			LEFT JOIN code_files ON code_intel_fts.kind = 'code_chunk'
+				AND code_files.path = code_intel_fts.path
+			WHERE search_match.matched_terms = ?
+				AND (? = '' OR code_intel_fts.kind = ?)
+				AND (code_intel_fts.kind != 'code_chunk'
+					OR COALESCE(code_files.deleted_at_utc, '') = '')
+			ORDER BY search_match.matched_terms DESC, code_intel_fts.kind, record_id
+			LIMIT ?`
 
 func (store *Store) SARIFResults(
 	ctx context.Context,

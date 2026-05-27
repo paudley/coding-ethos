@@ -39,19 +39,13 @@ max_bytes = "512MiB"
 [outputs.prune.surfaces.code_intel_db]
 enabled = true
 auto = true
-vacuum_after_prune = false
-max_bytes = "2GiB"
-row_retention_days = 90
-
-[outputs.prune.surfaces.code_intel_duckdb]
-enabled = true
-auto = true
-max_bytes = "4GiB"
 vacuum_after_prune = true
+max_bytes = "4GiB"
+row_retention_days = 90
 
 [outputs.prune.surfaces.code_intel_duckdb_wal]
 enabled = true
-auto = true
+auto = false
 max_age = "7d"
 max_bytes = "1GiB"
 

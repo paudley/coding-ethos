@@ -464,6 +464,7 @@ func remediationSchemaStatements() []string {
 func searchSchemaStatements() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS code_intel_fts (
+		fts_id TEXT,
 		kind TEXT,
 		policy_id TEXT,
 		skill_id TEXT,
@@ -472,6 +473,14 @@ func searchSchemaStatements() []string {
 		search_text TEXT,
 		record_id TEXT,
 		trace_id TEXT
+	)`,
+		`ALTER TABLE code_intel_fts ADD COLUMN IF NOT EXISTS fts_id TEXT`,
+		`UPDATE code_intel_fts
+		SET fts_id = kind || ':' || record_id || ':' || trace_id
+		WHERE fts_id IS NULL OR fts_id = ''`,
+		`CREATE TABLE IF NOT EXISTS code_intel_search_terms (
+		term TEXT NOT NULL,
+		fts_id TEXT NOT NULL
 	)`,
 	}
 }
@@ -524,5 +533,9 @@ func indexSchemaStatements() []string {
 		ON code_chunks(normalized_hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_lsh_bands_lookup
 		ON lsh_bands(band_hash, band_index)`,
+		`CREATE INDEX IF NOT EXISTS idx_code_intel_search_terms_term
+		ON code_intel_search_terms(term, fts_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_code_intel_search_terms_fts_id
+		ON code_intel_search_terms(fts_id)`,
 	}
 }

@@ -256,8 +256,43 @@ func appendDBMaintenance(
 	}
 
 	if hasMaintenance {
-		report.DBMaintenance = append(report.DBMaintenance, maintenance)
+		appendOrMergeDBMaintenance(report, maintenance)
 	}
+}
+
+func appendOrMergeDBMaintenance(report *PruneReport, maintenance DBMaintenance) {
+	for index := range report.DBMaintenance {
+		if report.DBMaintenance[index].SurfaceID != maintenance.SurfaceID {
+			continue
+		}
+
+		mergeDBMaintenance(&report.DBMaintenance[index], maintenance)
+
+		return
+	}
+
+	report.DBMaintenance = append(report.DBMaintenance, maintenance)
+}
+
+func mergeDBMaintenance(target *DBMaintenance, source DBMaintenance) {
+	target.DeletedTraces += source.DeletedTraces
+	target.DeletedProxyEvents += source.DeletedProxyEvents
+
+	if target.CutoffUTC == "" {
+		target.CutoffUTC = source.CutoffUTC
+	}
+
+	if source.SizeBeforeBytes > 0 {
+		target.SizeBeforeBytes = source.SizeBeforeBytes
+	}
+
+	if source.SizeAfterBytes > 0 {
+		target.SizeAfterBytes = source.SizeAfterBytes
+	}
+
+	target.Checkpointed = target.Checkpointed || source.Checkpointed
+	target.Compacted = target.Compacted || source.Compacted
+	target.Vacuumed = target.Vacuumed || source.Vacuumed
 }
 
 func shouldRunDBMaintenance(
@@ -295,7 +330,7 @@ func appendDuckDBMaintenance(
 	}
 
 	if hasMaintenance {
-		report.DBMaintenance = append(report.DBMaintenance, maintenance)
+		appendOrMergeDBMaintenance(report, maintenance)
 	}
 }
 
@@ -304,7 +339,7 @@ func shouldRunDuckDBMaintenance(
 	options PruneOptions,
 	scopes map[string]bool,
 ) bool {
-	if len(scopes) > 0 && !scopes[codeIntelDuckDBID] && !scopes[codeIntelDuckDBWALID] {
+	if len(scopes) > 0 && !scopes[codeIntelDBSurfaceID] && !scopes[codeIntelDuckDBWALID] {
 		return false
 	}
 
@@ -312,17 +347,34 @@ func shouldRunDuckDBMaintenance(
 		return false
 	}
 
-	duckDBDefinition, found := definitionByID(codeIntelDuckDBID)
+	dbDefinition, found := definitionByID(codeIntelDBSurfaceID)
 	if !found {
 		return false
 	}
 
-	policy := retentionPolicy(settings, duckDBDefinition)
+	if duckDBMaintenanceEnabled(settings, dbDefinition, options) {
+		return options.Apply
+	}
+
+	walDefinition, found := definitionByID(codeIntelDuckDBWALID)
+	if !found || !duckDBMaintenanceEnabled(settings, walDefinition, options) {
+		return false
+	}
+
+	return options.Apply
+}
+
+func duckDBMaintenanceEnabled(
+	settings Settings,
+	definition Definition,
+	options PruneOptions,
+) bool {
+	policy := retentionPolicy(settings, definition)
 	if !policy.Enabled && !options.All && !options.Vacuum {
 		return false
 	}
 
-	return options.Apply && (!options.Automatic || policy.Auto)
+	return !options.Automatic || policy.Auto
 }
 
 func runDuckDBMaintenance(
@@ -370,7 +422,7 @@ func runDuckDBMaintenance(
 	}
 
 	return DBMaintenance{
-		SurfaceID:       codeIntelDuckDBID,
+		SurfaceID:       codeIntelDBSurfaceID,
 		SizeBeforeBytes: info.Size(),
 		SizeAfterBytes:  after.Size(),
 		Checkpointed:    true,
@@ -383,7 +435,7 @@ func shouldCompactDuckDB(settings Settings, options PruneOptions) bool {
 		return true
 	}
 
-	duckDBDefinition, found := definitionByID(codeIntelDuckDBID)
+	duckDBDefinition, found := definitionByID(codeIntelDBSurfaceID)
 	if !found {
 		return false
 	}

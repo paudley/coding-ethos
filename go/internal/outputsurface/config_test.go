@@ -41,7 +41,7 @@ max_age = "12h"
 	}
 }
 
-func TestDefaultSettingsAvoidAutomaticCodeIntelVacuum(t *testing.T) {
+func TestDefaultSettingsMaintainCodeIntelDuckDB(t *testing.T) {
 	t.Parallel()
 
 	settings := DefaultSettings()
@@ -49,8 +49,8 @@ func TestDefaultSettingsAvoidAutomaticCodeIntelVacuum(t *testing.T) {
 	if !policy.Auto || policy.RowRetentionDays != DefaultCodeIntelRowRetentionDays {
 		t.Fatalf("code-intel auto retention defaults = %#v", policy)
 	}
-	if policy.VacuumAfterPrune {
-		t.Fatalf("code-intel auto pruning should not vacuum by default: %#v", policy)
+	if !policy.VacuumAfterPrune {
+		t.Fatalf("code-intel DuckDB should compact after maintenance: %#v", policy)
 	}
 }
 
@@ -59,8 +59,7 @@ func TestDefaultSettingsContinuouslyMaintainCodeIntelSurfaces(t *testing.T) {
 
 	settings := DefaultSettings()
 	for _, surfaceID := range []string{
-		codeIntelDuckDBID,
-		codeIntelDuckDBWALID,
+		codeIntelDBSurfaceID,
 		codeIntelEventsID,
 		codeIntelLockID,
 	} {
@@ -70,9 +69,14 @@ func TestDefaultSettingsContinuouslyMaintainCodeIntelSurfaces(t *testing.T) {
 		}
 	}
 
-	if !settings.Prune.Surfaces[codeIntelDuckDBID].VacuumAfterPrune {
+	if settings.Prune.Surfaces[codeIntelDuckDBWALID].Auto {
+		t.Fatalf("DuckDB WAL must be checkpoint-maintained, not auto-deleted: %#v",
+			settings.Prune.Surfaces[codeIntelDuckDBWALID])
+	}
+
+	if !settings.Prune.Surfaces[codeIntelDBSurfaceID].VacuumAfterPrune {
 		t.Fatalf("DuckDB default should compact automatically: %#v",
-			settings.Prune.Surfaces[codeIntelDuckDBID])
+			settings.Prune.Surfaces[codeIntelDBSurfaceID])
 	}
 	if settings.Prune.Surfaces[codeIntelEventsID].KeepLast != 20000 ||
 		settings.Prune.Surfaces[codeIntelEventsID].MaxAge == 0 ||

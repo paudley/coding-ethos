@@ -12,7 +12,10 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
-const VectorBackendDuckDBVSS = "duckdb-vss"
+const (
+	vectorBackendDuckDB    = "duckdb"
+	VectorBackendDuckDBVSS = "duckdb-vss"
+)
 
 type VectorBackendConfig struct {
 	Backend string
@@ -29,7 +32,7 @@ func NewVectorIndex(
 	}
 
 	switch backend {
-	case "duckdb", VectorBackendDuckDBVSS:
+	case vectorBackendDuckDB, VectorBackendDuckDBVSS:
 		return NewDuckDBVectorIndex(ctx, config.URI)
 	default:
 		return nil, apperror.Wrapf(

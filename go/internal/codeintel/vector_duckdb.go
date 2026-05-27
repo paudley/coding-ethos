@@ -337,17 +337,11 @@ func loadDuckDBVSSExtension(ctx context.Context, database *sql.DB) error {
 		return setDuckDBVSSPersistence(ctx, database)
 	}
 
-	_, installErr := database.ExecContext(ctx, "INSTALL vss")
-	if installErr != nil {
-		return fmt.Errorf("install DuckDB VSS extension: %w", installErr)
-	}
-
-	_, err = database.ExecContext(ctx, "LOAD vss")
-	if err != nil {
-		return fmt.Errorf("load DuckDB VSS extension: %w", err)
-	}
-
-	return setDuckDBVSSPersistence(ctx, database)
+	return fmt.Errorf(
+		"load DuckDB VSS extension: %w; "+
+			"install the extension in the managed DuckDB runtime before using vector search",
+		err,
+	)
 }
 
 func setDuckDBVSSPersistence(ctx context.Context, database *sql.DB) error {

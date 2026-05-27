@@ -79,8 +79,7 @@ func IsStoreLockError(err error) bool {
 
 	return strings.Contains(message, "could not set lock") ||
 		strings.Contains(message, "conflicting lock") ||
-		strings.Contains(message, "database is locked") ||
-		strings.Contains(message, "sqlite_busy")
+		strings.Contains(message, "database is locked")
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -532,7 +531,12 @@ func migrateStore(ctx context.Context, database *sql.DB) error {
 		}
 	}
 
-	_, err := database.ExecContext(
+	err := backfillSearchTerms(ctx, database)
+	if err != nil {
+		return err
+	}
+
+	_, err = database.ExecContext(
 		ctx,
 		"INSERT OR REPLACE INTO schema_metadata(key, value) VALUES('schema_version', ?)",
 		schemaVersion,

@@ -6,14 +6,12 @@ package codeintel
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	_ "github.com/duckdb/duckdb-go/v2"
@@ -407,19 +405,6 @@ func parseDuckDBRebuildLockPID(pidText string) (int, bool) {
 	pid, err := strconv.Atoi(pidText)
 
 	return pid, err != nil || pid <= 0
-}
-
-func duckDBRebuildLockPIDStale(pid int) (bool, error) {
-	err := syscall.Kill(pid, 0)
-	if err == nil || errors.Is(err, syscall.EPERM) {
-		return false, nil
-	}
-
-	if errors.Is(err, syscall.ESRCH) {
-		return true, nil
-	}
-
-	return false, fmt.Errorf("inspect code-intel rebuild lock pid %d: %w", pid, err)
 }
 
 func ObsoleteCodeIntelArtifactPaths(root string) []string {

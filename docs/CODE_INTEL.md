@@ -65,7 +65,7 @@ Tree-sitter AST extraction
       |      decisions
       |      remediations
       |      attempts
-      |      FTS5 indexes
+      |      DuckDB term indexes
       |
       +--> duckdb-vss vector backend
              code/remediation vectors
@@ -137,16 +137,18 @@ closures.
 The storage layer lives in `go/internal/codeintel`. It creates the canonical
 `.coding-ethos/code-intel.duckdb` DuckDB store, ingests retained lint and hook
 traces, stores normalized findings/remediations/remediation events, indexes
-Tree-sitter chunks, records SARIF-to-AST links, and builds FTS5 search tables
-over policy IDs, skill IDs, paths, messages, code chunks, and remediation text.
+Tree-sitter chunks, records SARIF-to-AST links, and builds DuckDB search-term
+tables over policy IDs, skill IDs, paths, messages, code chunks, and
+remediation text.
 duckdb-vss is active for derived vector rows, but DuckDB facts remain the
 auditable source of truth.
 
 Automatic output pruning applies the configured `code_intel_db` row-retention
 policy after high-volume code-intel writes. The default keeps 90 days of trace
 and proxy-event rows, leaves current AST/code chunks to the index refresh path,
-and does not run DuckDB `VACUUM` automatically. Use explicit output-prune
-maintenance when database compaction is needed.
+checkpoints the DuckDB store, and leaves DuckDB WAL files to checkpoint-managed
+cleanup instead of retention deletion. Use explicit output-prune maintenance
+with `--vacuum` when database compaction is needed.
 
 Hook traces are also normalized into analytics tables. Each hook event stores
 provider, tool, status, tracking ID, operation kind, target kind, risk category,
@@ -198,8 +200,9 @@ tables for:
 - embedding metadata: model, provider, dimension, input kind, chunk hash, and
   vector backend row ID
 
-Use FTS5 for text, symbol, file path, policy, skill, command, and advice
-search. FTS is not a fallback; it is part of hybrid retrieval.
+Use the DuckDB term index for text, symbol, file path, policy, skill, command,
+and advice search. Text search is not a fallback; it is part of hybrid
+retrieval.
 
 Initial command surface:
 
@@ -289,8 +292,8 @@ DuckDB remains canonical and should gain:
 - Embedding metadata records for duckdb-vss rows: backend,
   model ID, dimension, input kind, record kind, record ID, content hash,
   provider, policy ID, skill ID, path, and backend row ID.
-- FTS rows for SARIF results, remediation outcomes, and vector-ready source
-  text so exact search works before embeddings exist.
+- Search-term rows for SARIF results, remediation outcomes, and vector-ready
+  source text so exact search works before embeddings exist.
 - Embedding candidate rows for SARIF results, emitted remediation packets, and
   remediation outcomes so an approved embedding producer can write vectors back
   without reading raw trace JSON.
@@ -305,8 +308,9 @@ The first query/CLI surface should answer:
 - which policies/skills produce repeated findings after advice was issued;
 - which records are ready for embedding and which vector backend metadata rows
   already exist.
-- which prior fixes are most relevant through hybrid FTS + duckdb-vss search,
-  with fixed outcomes boosted and repeated/superseded outcomes downranked.
+- which prior fixes are most relevant through hybrid term-index + duckdb-vss
+  search, with fixed outcomes boosted and repeated/superseded outcomes
+  downranked.
 - which source files and symbols should be injected into compact agent context
   through `repo-map`, `code-chunks`, and `compact-context` without reparsing.
 - which proxy sessions repeatedly read the same files, exceed token budgets,
@@ -375,9 +379,9 @@ The active implementation indexes Go, Python, JavaScript/TypeScript, shell,
 and YAML through Tree-sitter. Each indexed file is written to the canonical
 DuckDB store with a content hash, line count, parser metadata, and index
 timestamp. Each extracted symbol or configuration entry is written as a stable
-`code_chunk`, mirrored into FTS5, and exposed as an embedding candidate with
-`record_kind=code_chunk`. Parent chunk IDs, containment edges, import edges,
-and same-file reference edges are stored in DuckDB. SARIF/CEL results that
+`code_chunk`, mirrored into the term index, and exposed as an embedding
+candidate with `record_kind=code_chunk`. Parent chunk IDs, containment edges,
+import edges, and same-file reference edges are stored in DuckDB. SARIF/CEL results that
 carry AST identity are linked back to matching chunks through
 `ast_finding_links`. Markdown remains planned until the selected parser exposes
 a maintained Go binding or the project adds a first-class adapter for its split
@@ -412,11 +416,11 @@ model IDs or dimensions.
 
 ## Hybrid Retrieval
 
-Search should combine exact filters, FTS, vectors, and reranking:
+Search should combine exact filters, the term index, vectors, and reranking:
 
 1. Apply hard filters: repo, path prefix, language, policy, skill, symbol kind,
    provider, or time range.
-2. Retrieve candidates from FTS5.
+2. Retrieve candidates from the DuckDB term index.
 3. Retrieve candidates from the vector backend.
 4. Fuse ranks with reciprocal rank fusion.
 5. Boost exact symbol/path/policy matches.
@@ -429,7 +433,7 @@ agent path.
 
 Add tools only after the store has a stable schema:
 
-- `code_intel_search`: hybrid semantic/FTS search over stored SARIF,
+- `code_intel_search`: hybrid semantic/text search over stored SARIF,
   remediation, and AST chunk memory.
 - `semantic_search`: code-focused hybrid search that returns exact indexed code
   chunks with path, symbol, raw text, and line metadata.
@@ -457,7 +461,7 @@ Add tools only after the store has a stable schema:
 - `code_intel_hook_usage`: summarize normalized hook usage by provider,
   operation, target, risk, status, policy, and skill.
 - `code_intel_explain_result`: explain why a search result was returned,
-  including FTS score, vector score, filters, and policy links.
+  including term-index score, vector score, filters, and policy links.
 
 All tools are advisory. They must not bypass hooks or edit files.
 
@@ -474,8 +478,8 @@ All tools are advisory. They must not bypass hooks or edit files.
   positives, unclear messages, over-broad policies, and missing allow-list
   cases without changing raw traces.
 - [x] Index `agent_remediation` payloads and remediation events.
-- [x] Add FTS5 over policies, skills, messages, advice, commands, files, and tool
-  output summaries.
+- [x] Add a DuckDB term index over policies, skills, messages, advice,
+  commands, files, and tool output summaries.
 - [x] Persist SARIF result references into normalized tables.
 - [x] Track remediation outcomes after follow-up attempts.
 - [x] Store CEL/evaluator provenance beside findings and SARIF results.
@@ -503,7 +507,8 @@ Acceptance criteria:
 - [x] Add JSON and TOML config-entry extraction to the AST resolver.
 - [x] Store AST chunks, symbol metadata, byte ranges, line ranges, content
   hashes, and search text in DuckDB.
-- [x] Expose AST chunks through FTS, embedding candidates, CLI, and MCP.
+- [x] Expose AST chunks through the term index, embedding candidates, CLI, and
+  MCP.
 - [x] Expose line-to-nearest-symbol/config lookup through CLI and MCP code
   context.
 - [x] Expose AST-backed proposed symbol changes to CEL edit preflight.
@@ -541,10 +546,10 @@ Acceptance criteria:
 
 ### Phase 4 - Hybrid Retrieval Hardening
 
-- Tune FTS + duckdb-vss ranking once AST chunks and remediation embeddings are
-  populated.
+- Tune term-index + duckdb-vss ranking once AST chunks and remediation
+  embeddings are populated.
 - Add stale-index reporting for changed files and changed remediation records.
-- Document capability and ranking differences from FTS-only search.
+- Document capability and ranking differences from term-only search.
 
 Acceptance criteria:
 

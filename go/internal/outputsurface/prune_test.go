@@ -372,7 +372,7 @@ func TestPruneReportsOversizedCodeIntelDBWithoutAutomaticFileDelete(t *testing.T
 	}
 }
 
-func TestPruneReportsOversizedDuckDBCandidate(t *testing.T) {
+func TestPruneReportsOversizedDuckDBCandidateAsReportOnly(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -380,22 +380,54 @@ func TestPruneReportsOversizedDuckDBCandidate(t *testing.T) {
 	writePruneFixture(t, duckDBPath, "oversized")
 
 	settings := DefaultSettings()
-	policy := settings.Prune.Surfaces["code_intel_duckdb"]
+	policy := settings.Prune.Surfaces[codeIntelDBSurfaceID]
 	policy.MaxBytes = 1
 	policy.MaxBytesText = "1B"
-	settings.Prune.Surfaces["code_intel_duckdb"] = policy
+	settings.Prune.Surfaces[codeIntelDBSurfaceID] = policy
 
 	report, err := Prune(context.Background(), PruneOptions{
 		Root:     root,
 		Settings: settings,
-		Scopes:   []string{"code_intel_duckdb"},
+		Scopes:   []string{codeIntelDBSurfaceID},
 	})
 	if err != nil {
 		t.Fatalf("Prune returned error: %v", err)
 	}
 	if len(report.Candidates) != 1 ||
-		report.Candidates[0].SurfaceID != "code_intel_duckdb" {
+		report.Candidates[0].SurfaceID != codeIntelDBSurfaceID ||
+		!report.Candidates[0].Skipped {
 		t.Fatalf("DuckDB prune candidate missing: %#v", report)
+	}
+}
+
+func TestPruneNeverDeletesDuckDBWAL(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	walPath := codeintel.DefaultDuckDBPath(root) + ".wal"
+	writePruneFixture(t, walPath, "wal")
+
+	settings := DefaultSettings()
+	policy := settings.Prune.Surfaces[codeIntelDuckDBWALID]
+	policy.MaxBytes = 1
+	policy.MaxBytesText = "1B"
+	policy.Enabled = true
+	settings.Prune.Surfaces[codeIntelDuckDBWALID] = policy
+
+	report, err := Prune(context.Background(), PruneOptions{
+		Root:     root,
+		Settings: settings,
+		Scopes:   []string{codeIntelDuckDBWALID},
+		Apply:    true,
+	})
+	if err != nil {
+		t.Fatalf("Prune returned error: %v", err)
+	}
+	if _, err := os.Stat(walPath); err != nil {
+		t.Fatalf("WAL was removed: %v", err)
+	}
+	if len(report.Candidates) != 1 || !report.Candidates[0].Skipped {
+		t.Fatalf("WAL should be report-only: %#v", report.Candidates)
 	}
 }
 
@@ -445,13 +477,18 @@ func TestAutoPruneCodeIntelDBMaintainsSidecarsAndEvents(t *testing.T) {
 		t.Fatalf("AutoPruneCodeIntelDB returned error: %v", err)
 	}
 
-	for _, path := range []string{
+	if _, err := os.Stat(
 		filepath.Join(root, ".coding-ethos", "code-intel.duckdb.wal"),
+	); err != nil {
+		t.Fatalf("DuckDB WAL should remain for checkpoint-managed cleanup: %v", err)
+	}
+
+	if _, err := os.Stat(
 		filepath.Join(root, ".coding-ethos", "events", "old.jsonl"),
-	} {
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Fatalf("auto-maintained file still exists %s: %v", path, err)
-		}
+	); !os.IsNotExist(
+		err,
+	) {
+		t.Fatalf("auto-maintained event log still exists: %v", err)
 	}
 }
 
@@ -469,16 +506,16 @@ func TestPruneDuckDBMaintenanceCheckpointsAndCompacts(t *testing.T) {
 	}
 
 	settings := DefaultSettings()
-	policy := settings.Prune.Surfaces[codeIntelDuckDBID]
+	policy := settings.Prune.Surfaces[codeIntelDBSurfaceID]
 	policy.Enabled = true
 	policy.Auto = true
 	policy.VacuumAfterPrune = true
-	settings.Prune.Surfaces[codeIntelDuckDBID] = policy
+	settings.Prune.Surfaces[codeIntelDBSurfaceID] = policy
 
 	report, err := Prune(ctx, PruneOptions{
 		Root:      root,
 		Settings:  settings,
-		Scopes:    []string{codeIntelDuckDBID},
+		Scopes:    []string{codeIntelDBSurfaceID},
 		Apply:     true,
 		Automatic: true,
 	})
@@ -488,7 +525,7 @@ func TestPruneDuckDBMaintenanceCheckpointsAndCompacts(t *testing.T) {
 
 	var maintenance DBMaintenance
 	for _, candidate := range report.DBMaintenance {
-		if candidate.SurfaceID == codeIntelDuckDBID {
+		if candidate.SurfaceID == codeIntelDBSurfaceID {
 			maintenance = candidate
 		}
 	}
@@ -497,6 +534,42 @@ func TestPruneDuckDBMaintenanceCheckpointsAndCompacts(t *testing.T) {
 	}
 	if maintenance.SizeBeforeBytes == 0 || maintenance.SizeAfterBytes == 0 {
 		t.Fatalf("DuckDB maintenance missing sizes: %#v", maintenance)
+	}
+}
+
+func TestPruneWALScopeRunsCheckpointWhenDBPolicyDisabled(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store, err := codeintel.OpenDuckDB(ctx, codeintel.DefaultDuckDBPath(root))
+	if err != nil {
+		t.Fatalf("open DuckDB: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close DuckDB: %v", err)
+	}
+
+	settings := DefaultSettings()
+	dbPolicy := settings.Prune.Surfaces[codeIntelDBSurfaceID]
+	dbPolicy.Enabled = false
+	settings.Prune.Surfaces[codeIntelDBSurfaceID] = dbPolicy
+	walPolicy := settings.Prune.Surfaces[codeIntelDuckDBWALID]
+	walPolicy.Enabled = true
+	settings.Prune.Surfaces[codeIntelDuckDBWALID] = walPolicy
+
+	report, err := Prune(ctx, PruneOptions{
+		Root:     root,
+		Settings: settings,
+		Scopes:   []string{codeIntelDuckDBWALID},
+		Apply:    true,
+	})
+	if err != nil {
+		t.Fatalf("Prune returned error: %v", err)
+	}
+
+	if len(report.DBMaintenance) != 1 || !report.DBMaintenance[0].Checkpointed {
+		t.Fatalf("WAL scope did not checkpoint DuckDB: %#v", report.DBMaintenance)
 	}
 }
 

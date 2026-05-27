@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,7 +27,6 @@ const (
 	rootRepo             = "repo"
 	rootTemp             = "temp"
 	codeIntelDBSurfaceID = "code_intel_db"
-	codeIntelDuckDBID    = "code_intel_duckdb"
 	codeIntelDuckDBWALID = "code_intel_duckdb_wal"
 	codeIntelEventsID    = "code_intel_events"
 	codeIntelLockID      = "code_intel_rebuild_lock"
@@ -37,10 +37,11 @@ const (
 	// derived code-intelligence trace and proxy-event records.
 	DefaultCodeIntelRowRetentionDays = 90
 	otherRepoAuditDefinitionCount    = 10
-	codeIntelSurfaceDefinitionCount  = 5
+	codeIntelSurfaceDefinitionCount  = 4
 	toonReportStaticLines            = 5
 	humanReportStaticLines           = 3
 	humanSurfaceLineEstimate         = 3
+	pruneTOONDBMaintenanceFieldCount = 9
 )
 
 // Definition describes one known coding-ethos disk output surface.
@@ -251,26 +252,14 @@ func codeIntelStoreSurfaceDefinitions() []Definition {
 		repoFile(
 			codeIntelDBSurfaceID,
 			".coding-ethos/code-intel.duckdb",
-			"Repo-local code intelligence DuckDB row-retention surface.",
+			"Repo-local code intelligence DuckDB query index and row-retention surface.",
 			"go/internal/codeintel",
-			"code-intel CLI and MCP",
+			"code-intel CLI, MCP, and downstream-analysis",
 			"high",
 			"derived_index",
 			false,
 			true,
 			true,
-		),
-		repoFile(
-			codeIntelDuckDBID,
-			".coding-ethos/code-intel.duckdb",
-			"Repo-local code intelligence DuckDB query index.",
-			"go/internal/codeintel",
-			"code-intel CLI and downstream-analysis",
-			"high",
-			"derived_index",
-			false,
-			true,
-			false,
 		),
 	}
 }
@@ -285,8 +274,8 @@ func codeIntelSidecarSurfaceDefinitions() []Definition {
 			"code-intel CLI and downstream-analysis",
 			"medium",
 			"derived_index",
-			true,
-			true,
+			false,
+			false,
 			false,
 		),
 		repoFile(
@@ -911,27 +900,7 @@ func FormatPruneTOON(report PruneReport) string {
 		lines = append(lines, "trace_path: "+toonCell(report.TracePath))
 	}
 
-	if len(report.DBMaintenance) > 0 {
-		lines = append(lines, fmt.Sprintf(
-			"db_maintenance[%d]{surface,deleted_traces,deleted_proxy_events,"+
-				"vacuumed,checkpointed,compacted,size_before,size_after,cutoff}:",
-			len(report.DBMaintenance),
-		))
-		for _, maintenance := range report.DBMaintenance {
-			lines = append(lines, fmt.Sprintf(
-				"  %s,%d,%d,%t,%t,%t,%d,%d,%s",
-				toonCell(maintenance.SurfaceID),
-				maintenance.DeletedTraces,
-				maintenance.DeletedProxyEvents,
-				maintenance.Vacuumed,
-				maintenance.Checkpointed,
-				maintenance.Compacted,
-				maintenance.SizeBeforeBytes,
-				maintenance.SizeAfterBytes,
-				toonCell(maintenance.CutoffUTC),
-			))
-		}
-	}
+	appendPruneTOONDBMaintenance(&lines, report.DBMaintenance)
 
 	if len(report.LockMaintenance) > 0 {
 		lines = append(lines, fmt.Sprintf(
@@ -992,22 +961,7 @@ func FormatPruneHuman(report PruneReport) string {
 		lines = append(lines, "trace_path: "+report.TracePath)
 	}
 
-	for _, maintenance := range report.DBMaintenance {
-		lines = append(lines, fmt.Sprintf(
-			"- %s db: deleted_traces=%d deleted_proxy_events=%d "+
-				"vacuumed=%t checkpointed=%t compacted=%t "+
-				"size_before=%d size_after=%d cutoff=%s",
-			maintenance.SurfaceID,
-			maintenance.DeletedTraces,
-			maintenance.DeletedProxyEvents,
-			maintenance.Vacuumed,
-			maintenance.Checkpointed,
-			maintenance.Compacted,
-			maintenance.SizeBeforeBytes,
-			maintenance.SizeAfterBytes,
-			maintenance.CutoffUTC,
-		))
-	}
+	appendPruneHumanDBMaintenance(&lines, report.DBMaintenance)
 
 	for _, maintenance := range report.LockMaintenance {
 		action := "retained"
@@ -1042,6 +996,76 @@ func pruneSummaryLine(report PruneReport) string {
 		report.DeletedBytes,
 		report.Skipped,
 	)
+}
+
+func appendPruneTOONDBMaintenance(lines *[]string, maintenances []DBMaintenance) {
+	if len(maintenances) == 0 {
+		return
+	}
+
+	*lines = append(*lines, fmt.Sprintf(
+		"db_maintenance[%d]{surface,deleted_traces,deleted_proxy_events,"+
+			"vacuumed,checkpointed,compacted,cutoff,size_before,size_after}:",
+		len(maintenances),
+	))
+	for _, maintenance := range maintenances {
+		*lines = append(*lines, pruneTOONDBMaintenanceLine(maintenance))
+	}
+}
+
+func pruneTOONDBMaintenanceLine(maintenance DBMaintenance) string {
+	values := make([]string, 0, pruneTOONDBMaintenanceFieldCount)
+	values = append(values,
+		toonCell(maintenance.SurfaceID),
+		strconv.Itoa(maintenance.DeletedTraces),
+		strconv.Itoa(maintenance.DeletedProxyEvents),
+		strconv.FormatBool(maintenance.Vacuumed),
+		strconv.FormatBool(maintenance.Checkpointed),
+		strconv.FormatBool(maintenance.Compacted),
+		toonCell(maintenance.CutoffUTC),
+	)
+
+	sizeBefore := ""
+	sizeAfter := ""
+
+	if maintenance.SizeBeforeBytes > 0 {
+		sizeBefore = strconv.FormatInt(maintenance.SizeBeforeBytes, 10)
+	}
+
+	if maintenance.SizeAfterBytes > 0 {
+		sizeAfter = strconv.FormatInt(maintenance.SizeAfterBytes, 10)
+	}
+
+	values = append(values, sizeBefore, sizeAfter)
+
+	return "  " + strings.Join(values, ",")
+}
+
+func appendPruneHumanDBMaintenance(lines *[]string, maintenances []DBMaintenance) {
+	for _, maintenance := range maintenances {
+		parts := []string{
+			fmt.Sprintf("- %s db:", maintenance.SurfaceID),
+			"deleted_traces=" + strconv.Itoa(maintenance.DeletedTraces),
+			"deleted_proxy_events=" + strconv.Itoa(maintenance.DeletedProxyEvents),
+			"vacuumed=" + strconv.FormatBool(maintenance.Vacuumed),
+			"checkpointed=" + strconv.FormatBool(maintenance.Checkpointed),
+			"compacted=" + strconv.FormatBool(maintenance.Compacted),
+		}
+
+		if maintenance.SizeBeforeBytes > 0 || maintenance.SizeAfterBytes > 0 {
+			parts = append(
+				parts,
+				"size_before="+strconv.FormatInt(maintenance.SizeBeforeBytes, 10),
+				"size_after="+strconv.FormatInt(maintenance.SizeAfterBytes, 10),
+			)
+		}
+
+		if maintenance.CutoffUTC != "" {
+			parts = append(parts, "cutoff="+maintenance.CutoffUTC)
+		}
+
+		*lines = append(*lines, strings.Join(parts, " "))
+	}
 }
 
 func toonCell(value string) string {

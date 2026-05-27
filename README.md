@@ -253,9 +253,10 @@ remediation outcomes, hook usage analytics, Tree-sitter chunks, graph edges,
 AST-to-finding links, and duckdb-vss metadata. Append-only
 `.coding-ethos/events/*.jsonl` files are the durable live telemetry surface,
 and `.coding-ethos/code-intel.duckdb` is the rebuildable analytical query index
-used by downstream support analysis. FTS5 provides exact search, while
-duckdb-vss stores derived embedding rows for hybrid retrieval without a daemon
-or hosted vector service. MCP tools expose search, code indexing, focused chunk
+used by downstream support analysis. A DuckDB-resident term index provides
+exact search, while duckdb-vss stores derived embedding rows for hybrid
+retrieval without a daemon or hosted vector service. MCP tools expose search,
+code indexing, focused chunk
 lookup, embedding candidates, and index status so relevant context is available
 before broad file reads or repeated failed repairs. See
 [docs/CODE_INTEL.md](docs/CODE_INTEL.md) and
@@ -337,7 +338,7 @@ The first tools are intentionally narrow and auditable:
   ranked files, freshness metadata, evidence counts, and exact follow-up MCP
   calls.
 - `code_intel_search`: retrieve stored SARIF/remediation/code-chunk evidence
-  with FTS and duckdb-vss vector search.
+  with the DuckDB term index and duckdb-vss vector search.
 - `code_intel_answer`: retrieve cited code-intel evidence for a repository
   question with `retrieval_quality` separate from answer `confidence`.
 - `semantic_search`: retrieve exact indexed repository code chunks by semantic
@@ -468,7 +469,6 @@ bin/coding-ethos-run output prune --dry-run --all
 bin/coding-ethos-run output prune --scope proxy_temp_evidence --older-than 24h --include-temp
 bin/coding-ethos-run output prune --scope lint_traces --older-than 30d --apply
 bin/coding-ethos-run output prune --scope code_intel_db --older-than 90d --apply --vacuum
-bin/coding-ethos-run output prune --scope code_intel_duckdb --apply --vacuum
 ```
 
 The report is non-destructive. It inventories retained hook runs and component
@@ -1020,18 +1020,18 @@ Per-surface retention keys are `enabled`, `auto`, `max_age`, `keep_last`,
 `max_bytes`, `require_code_intel_ingest`, `row_retention_days`, and
 `vacuum_after_prune`. Automatic pruning covers repo-local runtime outputs:
 proxy temp evidence is pruned before new evidence files are written,
-`code_intel_db` rows are pruned after code-intel writes, `code_intel_duckdb` is
-checkpointed and compacted, DuckDB sidecars are pruned by
-age/size policy, `.coding-ethos/events` is bounded by age/count/size policy,
-lint traces are pruned after managed lint trace writes, hook run directories
-prune after hook maintenance, stale `code_intel_rebuild_lock` files are removed
-after owner process validation, and cache surfaces prune according to their
-per-surface retention. Code-intel DB file-size budgets are reported during
-manual prune runs, while automatic code-intel maintenance preserves live
-database files and acts through row retention, checkpoint/compaction, sidecar
-cleanup, and event-log retention. Use manual `output prune --scope code_intel_db
---apply --vacuum` or `output prune --scope code_intel_duckdb --apply --vacuum`
-for explicit operator-requested database compaction.
+`code_intel_db` rows are pruned after code-intel writes and the DuckDB store is
+checkpointed and compacted, DuckDB WAL files are report-only and cleaned up by
+checkpointing rather than deletion, `.coding-ethos/events` is bounded by
+age/count/size policy, lint traces are pruned after managed lint trace writes,
+hook run directories prune after hook maintenance, stale
+`code_intel_rebuild_lock` files are removed after owner process validation, and
+cache surfaces prune according to their per-surface retention. Code-intel DB
+file-size budgets are reported during manual prune runs, while automatic
+code-intel maintenance preserves live database files and acts through row
+retention, checkpoint/compaction, sidecar reporting, and event-log retention.
+Use manual `output prune --scope code_intel_db --apply --vacuum` for explicit
+operator-requested database compaction.
 
 See [repo_config.example.toml](repo_config.example.toml).
 
