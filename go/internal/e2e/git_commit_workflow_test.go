@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/e2e"
+	"blackcat.ca/coding-ethos/go/internal/repoignore"
 )
 
 func TestManagedGitCommitWorkflowPreservesUserFacingFailures(t *testing.T) {
@@ -211,23 +212,7 @@ func preparedParentRuntimeRepo(t *testing.T) parentRuntimeFixture {
 		t,
 		parentRepo,
 		".gitignore",
-		strings.Join(
-			[]string{
-				".coding-ethos/cache/",
-				".coding-ethos/code-intel.duckdb",
-				".coding-ethos/code-intel.duckdb.shm",
-				".coding-ethos/code-intel.duckdb.wal",
-				".coding-ethos/code-intel.duckdb",
-				".coding-ethos/code-intel.duckdb.wal",
-				".coding-ethos/events/",
-				".coding-ethos/hook-runs/",
-				".coding-ethos/lint-runs/",
-				".coding-ethos/prune-runs/",
-				".coding-ethos/state/",
-				"",
-			},
-			"\n",
-		),
+		strings.Join(repoignore.RuntimePaths(), "\n")+"\n",
 	)
 	writeParentRuntimeFile(t, parentRepo, "README.md", "# parent runtime e2e\n")
 	e2e.Run(t, parentRepo, realGitPath(t), "add", ".gitignore", "README.md", "repo_config.yaml").

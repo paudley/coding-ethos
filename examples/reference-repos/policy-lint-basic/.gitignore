@@ -1,3 +1,4 @@
+.claude/settings.local.json
 .code-ethos/cache/
 .coding-ethos/cache/
 .coding-ethos/code-intel.db
@@ -10,6 +11,8 @@
 .coding-ethos/lint-runs/
 .coding-ethos/prune-runs/
 .coding-ethos/state/
+.gemini/settings.json
+.mcp.json
 .mypy_cache/
 .ruff_cache/
 .uv-cache/
