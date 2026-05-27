@@ -17,7 +17,7 @@ func schemaStatements() []string {
 	return statements
 }
 
-const schemaStatementCapacity = 44
+const schemaStatementCapacity = 45
 
 func traceSchemaStatements() []string {
 	return []string{
@@ -331,6 +331,10 @@ func gitSignalSchemaStatements() []string {
 		`CREATE TABLE IF NOT EXISTS git_signal_metadata (
 		key TEXT PRIMARY KEY,
 		value TEXT NOT NULL
+	)`,
+		`CREATE TABLE IF NOT EXISTS git_signal_commits (
+		commit_hash TEXT PRIMARY KEY,
+		indexed_at_utc TEXT NOT NULL
 	)`,
 		`CREATE TABLE IF NOT EXISTS git_file_signals (
 		path TEXT PRIMARY KEY,

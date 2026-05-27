@@ -73,6 +73,85 @@ func loadGitSignalCommits(
 	return commits, nil
 }
 
+func loadGitSignalCommitsAfter(
+	ctx context.Context,
+	root string,
+	indexedHead string,
+) ([]gitCommitSignal, error) {
+	gitPath, err := realgit.Resolve(ctx, "git")
+	if err != nil {
+		return nil, fmt.Errorf("resolve git for git signals: %w", err)
+	}
+
+	args := gitSignalLogArgs(indexedHead + "..HEAD")
+	output, err := gitOutput(ctx, root, gitPath, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	commits, err := parseGitSignalLog(output)
+	if err != nil {
+		return nil, err
+	}
+
+	return commits, nil
+}
+
+func gitSignalHeadIsAncestor(
+	ctx context.Context,
+	root string,
+	ancestorHead string,
+) (bool, error) {
+	gitPath, err := realgit.Resolve(ctx, "git")
+	if err != nil {
+		return false, fmt.Errorf("resolve git for git signals: %w", err)
+	}
+
+	command := exec.CommandContext(
+		ctx,
+		gitPath,
+		"merge-base",
+		"--is-ancestor",
+		ancestorHead,
+		"HEAD",
+	)
+	command.Dir = root
+
+	output, err := command.CombinedOutput()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+
+	return false, fmt.Errorf(
+		"git merge-base --is-ancestor %s HEAD: %w\n%s",
+		ancestorHead,
+		err,
+		output,
+	)
+}
+
+func gitSignalLogArgs(revision string) []string {
+	args := []string{
+		"log",
+		"--date=iso-strict",
+		"--numstat",
+		"--format=format:" + gitSignalCommitPrefix +
+			"%H" + gitSignalFieldSeparator +
+			"%aN" + gitSignalFieldSeparator +
+			"%aE" + gitSignalFieldSeparator +
+			"%aI",
+	}
+	if revision != "" {
+		args = append(args, revision)
+	}
+
+	return args
+}
+
 func gitOutput(
 	ctx context.Context,
 	root, gitPath string,

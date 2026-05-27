@@ -186,6 +186,38 @@ func TestStoreRefreshesGitSignalsFromRealHistory(t *testing.T) {
 	if !stale.Stale || stale.HeadCommit != summary.HeadCommit {
 		t.Fatalf("unexpected stale summary: %#v", stale)
 	}
+
+	incremental, err := store.RefreshGitSignals(ctx, repo, GitSignalRefreshOptions{
+		CommitLimit: 1,
+		Now:         time.Date(2026, 5, 27, 12, 10, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("incremental git signal refresh: %v", err)
+	}
+	if incremental.Stale || !incremental.Refreshed || incremental.Commits != 1 ||
+		incremental.Files != 3 {
+		t.Fatalf("unexpected incremental summary: %#v", incremental)
+	}
+
+	incrementalSignals, err := store.GitSignals(
+		ctx,
+		GitSignalQuery{Path: "pkg/a.go", Limit: 1},
+	)
+	if err != nil {
+		t.Fatalf("query incrementally retained git signals: %v", err)
+	}
+	if len(incrementalSignals) != 1 || incrementalSignals[0].CommitCount != 3 {
+		t.Fatalf("incremental refresh dropped existing history: %#v", incrementalSignals)
+	}
+
+	newSignals, err := store.GitSignals(ctx, GitSignalQuery{Path: "pkg/c.go", Limit: 1})
+	if err != nil {
+		t.Fatalf("query incremental git signals: %v", err)
+	}
+	if len(newSignals) != 1 || newSignals[0].CommitCount != 1 ||
+		newSignals[0].PrimaryAuthorEmail != "carol@example.invalid" {
+		t.Fatalf("incremental refresh missed new history: %#v", newSignals)
+	}
 }
 
 func TestNormalizeGitSignalPathKeepsRenameContext(t *testing.T) {

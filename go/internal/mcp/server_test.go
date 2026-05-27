@@ -2105,6 +2105,7 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 	}`), runtime)
 	if !strings.Contains(riskOutput, `"code_intel_change_risk"`) ||
 		!strings.Contains(riskOutput, `"risk_level"`) ||
+		!strings.Contains(riskOutput, `"git_signal_freshness"`) ||
 		!strings.Contains(riskOutput, `"recommended_checks"`) {
 		t.Fatalf("change risk output missing task-shaped fields:\n%s", riskOutput)
 	}

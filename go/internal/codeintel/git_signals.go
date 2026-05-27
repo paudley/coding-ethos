@@ -173,11 +173,16 @@ func (store *Store) RefreshGitSignals(
 	}
 
 	if !options.Force {
-		current, metadataErr := store.gitSignalSummaryForHead(ctx, headCommit)
-		if metadataErr != nil {
-			return GitSignalSummary{}, metadataErr
+		current, currentErr := store.cachedOrIncrementalGitSignalRefresh(
+			ctx,
+			root,
+			headCommit,
+			options.Now,
+		)
+		if currentErr != nil {
+			return GitSignalSummary{}, currentErr
 		}
-		if current.HeadCommit == headCommit && !current.Stale {
+		if current.HeadCommit == headCommit {
 			return current, nil
 		}
 	}
@@ -188,7 +193,7 @@ func (store *Store) RefreshGitSignals(
 	}
 
 	files, cochanges := buildGitSignalAggregates(commits)
-	err = store.replaceGitSignals(ctx, files, cochanges, headCommit, options.Now)
+	err = store.replaceGitSignals(ctx, files, cochanges, commits, headCommit, options.Now)
 	if err != nil {
 		return GitSignalSummary{}, err
 	}
@@ -201,6 +206,81 @@ func (store *Store) RefreshGitSignals(
 		Files:        len(files),
 		CoChanges:    len(cochanges),
 	}, nil
+}
+
+func (store *Store) cachedOrIncrementalGitSignalRefresh(
+	ctx context.Context,
+	root string,
+	headCommit string,
+	now time.Time,
+) (GitSignalSummary, error) {
+	current, err := store.gitSignalSummaryForHead(ctx, headCommit)
+	if err != nil {
+		return GitSignalSummary{}, err
+	}
+	if current.HeadCommit == headCommit && !current.Stale {
+		return current, nil
+	}
+	if current.HeadCommit == "" {
+		return current, nil
+	}
+
+	incremental, err := store.refreshGitSignalsIncremental(
+		ctx,
+		root,
+		current.HeadCommit,
+		headCommit,
+		now,
+	)
+	if err != nil {
+		return GitSignalSummary{}, err
+	}
+	if incremental.Refreshed {
+		return incremental, nil
+	}
+
+	return current, nil
+}
+
+func (store *Store) refreshGitSignalsIncremental(
+	ctx context.Context,
+	root string,
+	indexedHead string,
+	headCommit string,
+	now time.Time,
+) (GitSignalSummary, error) {
+	linear, err := gitSignalHeadIsAncestor(ctx, root, indexedHead)
+	if err != nil {
+		return GitSignalSummary{}, err
+	}
+	if !linear {
+		return GitSignalSummary{}, nil
+	}
+
+	commits, err := loadGitSignalCommitsAfter(ctx, root, indexedHead)
+	if err != nil {
+		return GitSignalSummary{}, err
+	}
+
+	commits, err = store.unindexedGitSignalCommits(ctx, commits)
+	if err != nil {
+		return GitSignalSummary{}, err
+	}
+
+	files, cochanges := buildGitSignalAggregates(commits)
+	err = store.mergeGitSignals(ctx, files, cochanges, commits, headCommit, now)
+	if err != nil {
+		return GitSignalSummary{}, err
+	}
+
+	summary, err := store.gitSignalSummaryForHead(ctx, headCommit)
+	if err != nil {
+		return GitSignalSummary{}, err
+	}
+	summary.Refreshed = true
+	summary.Commits = len(commits)
+
+	return summary, nil
 }
 
 func (store *Store) GitSignalSummary(
@@ -429,6 +509,7 @@ func (store *Store) replaceGitSignals(
 	ctx context.Context,
 	files map[string]*gitFileAccumulator,
 	cochanges map[string]*gitCoChangeAccumulator,
+	commits []gitCommitSignal,
 	headCommit string,
 	now time.Time,
 ) error {
@@ -440,6 +521,7 @@ func (store *Store) replaceGitSignals(
 
 	for _, statement := range []string{
 		"DELETE FROM git_signal_metadata",
+		"DELETE FROM git_signal_commits",
 		"DELETE FROM git_cochanges",
 		"DELETE FROM git_file_authors",
 		"DELETE FROM git_file_signals",
@@ -460,24 +542,61 @@ func (store *Store) replaceGitSignals(
 		return err
 	}
 
-	for key, value := range map[string]string{
-		"head_commit":    headCommit,
-		"indexed_at_utc": formatGitSignalTime(now),
-	} {
-		_, execErr := transaction.ExecContext(
-			ctx,
-			"INSERT INTO git_signal_metadata(key, value) VALUES(?, ?)",
-			key,
-			value,
-		)
-		if execErr != nil {
-			return fmt.Errorf("insert git signal metadata: %w", execErr)
-		}
+	err = insertGitSignalCommitLedger(ctx, transaction, commits, now)
+	if err != nil {
+		return err
+	}
+
+	err = updateGitSignalMetadata(ctx, transaction, headCommit, now)
+	if err != nil {
+		return err
 	}
 
 	err = transaction.Commit()
 	if err != nil {
 		return fmt.Errorf("commit git signal refresh: %w", err)
+	}
+
+	return nil
+}
+
+func (store *Store) mergeGitSignals(
+	ctx context.Context,
+	files map[string]*gitFileAccumulator,
+	cochanges map[string]*gitCoChangeAccumulator,
+	commits []gitCommitSignal,
+	headCommit string,
+	now time.Time,
+) error {
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin incremental git signal refresh: %w", err)
+	}
+	defer rollbackUnlessCommitted(transaction)
+
+	err = upsertGitSignalFiles(ctx, transaction, files)
+	if err != nil {
+		return err
+	}
+
+	err = upsertGitSignalCoChanges(ctx, transaction, cochanges)
+	if err != nil {
+		return err
+	}
+
+	err = insertGitSignalCommitLedger(ctx, transaction, commits, now)
+	if err != nil {
+		return err
+	}
+
+	err = updateGitSignalMetadata(ctx, transaction, headCommit, now)
+	if err != nil {
+		return err
+	}
+
+	err = transaction.Commit()
+	if err != nil {
+		return fmt.Errorf("commit incremental git signal refresh: %w", err)
 	}
 
 	return nil
@@ -566,23 +685,157 @@ func insertGitSignalFiles(
 	return nil
 }
 
+func upsertGitSignalFiles(
+	ctx context.Context,
+	transaction *sql.Tx,
+	files map[string]*gitFileAccumulator,
+) error {
+	signalStmt, err := prepareIncrementalGitFileSignalStmt(ctx, transaction)
+	if err != nil {
+		return err
+	}
+	defer signalStmt.Close()
+
+	authorStmt, err := prepareIncrementalGitAuthorStmt(ctx, transaction)
+	if err != nil {
+		return err
+	}
+	defer authorStmt.Close()
+
+	paths := sortedGitSignalKeys(files)
+	for _, path := range paths {
+		file := files[path]
+		commitCount := len(file.commits)
+		churn := file.additions + file.deletions
+		hotspotScore := gitHotspotScore(commitCount, churn, len(file.authors))
+
+		_, err = signalStmt.ExecContext(
+			ctx,
+			file.path,
+			commitCount,
+			churn,
+			file.additions,
+			file.deletions,
+			len(file.authors),
+			"",
+			"",
+			0,
+			file.firstSeen,
+			file.lastSeen,
+			hotspotScore,
+		)
+		if err != nil {
+			return fmt.Errorf("upsert git file signal %q: %w", file.path, err)
+		}
+
+		for _, author := range sortedAuthorAccumulators(file.authors) {
+			_, err = authorStmt.ExecContext(
+				ctx,
+				file.path,
+				author.email,
+				author.name,
+				author.commits,
+				author.additions,
+				author.deletions,
+				author.lastSeen,
+			)
+			if err != nil {
+				return fmt.Errorf("upsert git file author %q: %w", file.path, err)
+			}
+		}
+
+		err = refreshGitFileSignalSummary(ctx, transaction, file.path)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func prepareIncrementalGitFileSignalStmt(
+	ctx context.Context,
+	transaction *sql.Tx,
+) (*sql.Stmt, error) {
+	statement, err := transaction.PrepareContext(
+		ctx,
+		`INSERT INTO git_file_signals(
+			path, commit_count, churn, additions, deletions, author_count,
+			primary_author_name, primary_author_email,
+			primary_author_commits, first_seen_utc, last_seen_utc,
+			hotspot_score
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET
+			commit_count = git_file_signals.commit_count + excluded.commit_count,
+			churn = git_file_signals.churn + excluded.churn,
+			additions = git_file_signals.additions + excluded.additions,
+			deletions = git_file_signals.deletions + excluded.deletions,
+			first_seen_utc = CASE
+				WHEN COALESCE(git_file_signals.first_seen_utc, '') = ''
+					THEN excluded.first_seen_utc
+				WHEN COALESCE(excluded.first_seen_utc, '') = ''
+					THEN git_file_signals.first_seen_utc
+				WHEN excluded.first_seen_utc < git_file_signals.first_seen_utc
+					THEN excluded.first_seen_utc
+				ELSE git_file_signals.first_seen_utc
+			END,
+			last_seen_utc = CASE
+				WHEN COALESCE(git_file_signals.last_seen_utc, '') = ''
+					THEN excluded.last_seen_utc
+				WHEN COALESCE(excluded.last_seen_utc, '') = ''
+					THEN git_file_signals.last_seen_utc
+				WHEN excluded.last_seen_utc > git_file_signals.last_seen_utc
+					THEN excluded.last_seen_utc
+				ELSE git_file_signals.last_seen_utc
+			END`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("prepare incremental git file signal statement: %w", err)
+	}
+
+	return statement, nil
+}
+
+func prepareIncrementalGitAuthorStmt(
+	ctx context.Context,
+	transaction *sql.Tx,
+) (*sql.Stmt, error) {
+	statement, err := transaction.PrepareContext(
+		ctx,
+		`INSERT INTO git_file_authors(
+			path, author_email, author_name, commit_count,
+			additions, deletions, last_seen_utc
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(path, author_email) DO UPDATE SET
+			author_name = CASE
+				WHEN excluded.author_name = '' THEN git_file_authors.author_name
+				ELSE excluded.author_name
+			END,
+			commit_count = git_file_authors.commit_count + excluded.commit_count,
+			additions = git_file_authors.additions + excluded.additions,
+			deletions = git_file_authors.deletions + excluded.deletions,
+			last_seen_utc = CASE
+				WHEN COALESCE(git_file_authors.last_seen_utc, '') = ''
+					THEN excluded.last_seen_utc
+				WHEN COALESCE(excluded.last_seen_utc, '') = ''
+					THEN git_file_authors.last_seen_utc
+				WHEN excluded.last_seen_utc > git_file_authors.last_seen_utc
+					THEN excluded.last_seen_utc
+				ELSE git_file_authors.last_seen_utc
+			END`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("prepare incremental git author statement: %w", err)
+	}
+
+	return statement, nil
+}
+
 func insertGitSignalCoChanges(
 	ctx context.Context,
 	transaction *sql.Tx,
 	cochanges map[string]*gitCoChangeAccumulator,
 ) error {
-	edgeStmt, err := transaction.PrepareContext(
-		ctx,
-		`SELECT COUNT(*)
-		FROM code_edges
-		WHERE (path = ? AND target_path = ?)
-			OR (path = ? AND target_path = ?)`,
-	)
-	if err != nil {
-		return fmt.Errorf("prepare git co-change edge query: %w", err)
-	}
-	defer edgeStmt.Close()
-
 	cochangeStmt, err := transaction.PrepareContext(
 		ctx,
 		`INSERT INTO git_cochanges(
@@ -593,6 +846,51 @@ func insertGitSignalCoChanges(
 		return fmt.Errorf("prepare git co-change statement: %w", err)
 	}
 	defer cochangeStmt.Close()
+
+	return writeGitSignalCoChanges(ctx, transaction, cochangeStmt, cochanges, "insert")
+}
+
+func upsertGitSignalCoChanges(
+	ctx context.Context,
+	transaction *sql.Tx,
+	cochanges map[string]*gitCoChangeAccumulator,
+) error {
+	cochangeStmt, err := transaction.PrepareContext(
+		ctx,
+		`INSERT INTO git_cochanges(
+			path, related_path, cochange_count, last_seen_utc, hidden_coupling
+		) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(path, related_path) DO UPDATE SET
+			cochange_count = git_cochanges.cochange_count + excluded.cochange_count,
+			last_seen_utc = CASE
+				WHEN COALESCE(git_cochanges.last_seen_utc, '') = '' THEN excluded.last_seen_utc
+				WHEN COALESCE(excluded.last_seen_utc, '') = '' THEN git_cochanges.last_seen_utc
+				WHEN excluded.last_seen_utc > git_cochanges.last_seen_utc
+					THEN excluded.last_seen_utc
+				ELSE git_cochanges.last_seen_utc
+			END,
+			hidden_coupling = excluded.hidden_coupling`,
+	)
+	if err != nil {
+		return fmt.Errorf("prepare incremental git co-change statement: %w", err)
+	}
+	defer cochangeStmt.Close()
+
+	return writeGitSignalCoChanges(ctx, transaction, cochangeStmt, cochanges, "upsert")
+}
+
+func writeGitSignalCoChanges(
+	ctx context.Context,
+	transaction *sql.Tx,
+	cochangeStmt *sql.Stmt,
+	cochanges map[string]*gitCoChangeAccumulator,
+	operation string,
+) error {
+	edgeStmt, err := prepareGitCoChangeEdgeStmt(ctx, transaction)
+	if err != nil {
+		return err
+	}
+	defer edgeStmt.Close()
 
 	keys := sortedGitCoChangeKeys(cochanges)
 	for _, key := range keys {
@@ -616,11 +914,162 @@ func insertGitSignalCoChanges(
 			boolToInt(hidden),
 		)
 		if err != nil {
-			return fmt.Errorf("insert git co-change %q: %w", key, err)
+			return fmt.Errorf("%s git co-change %q: %w", operation, key, err)
 		}
 	}
 
 	return nil
+}
+
+func prepareGitCoChangeEdgeStmt(
+	ctx context.Context,
+	transaction *sql.Tx,
+) (*sql.Stmt, error) {
+	statement, err := transaction.PrepareContext(
+		ctx,
+		`SELECT COUNT(*)
+		FROM code_edges
+		WHERE (path = ? AND target_path = ?)
+			OR (path = ? AND target_path = ?)`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("prepare git co-change edge query: %w", err)
+	}
+
+	return statement, nil
+}
+
+func refreshGitFileSignalSummary(
+	ctx context.Context,
+	transaction *sql.Tx,
+	path string,
+) error {
+	var primary gitAuthorAccumulator
+	err := transaction.QueryRowContext(
+		ctx,
+		`SELECT author_name, author_email, commit_count
+		FROM git_file_authors
+		WHERE path = ?
+		ORDER BY commit_count DESC, additions + deletions DESC, last_seen_utc DESC
+		LIMIT 1`,
+		path,
+	).Scan(&primary.name, &primary.email, &primary.commits)
+	if err != nil {
+		return fmt.Errorf("query primary git author for %q: %w", path, err)
+	}
+
+	var commitCount, churn, authorCount int
+	err = transaction.QueryRowContext(
+		ctx,
+		`SELECT commit_count, churn,
+			(SELECT COUNT(*) FROM git_file_authors WHERE path = git_file_signals.path)
+		FROM git_file_signals
+		WHERE path = ?`,
+		path,
+	).Scan(&commitCount, &churn, &authorCount)
+	if err != nil {
+		return fmt.Errorf("query git file summary for %q: %w", path, err)
+	}
+
+	_, err = transaction.ExecContext(
+		ctx,
+		`UPDATE git_file_signals
+		SET author_count = ?,
+			primary_author_name = ?,
+			primary_author_email = ?,
+			primary_author_commits = ?,
+			hotspot_score = ?
+		WHERE path = ?`,
+		authorCount,
+		primary.name,
+		primary.email,
+		primary.commits,
+		gitHotspotScore(commitCount, churn, authorCount),
+		path,
+	)
+	if err != nil {
+		return fmt.Errorf("update git file summary for %q: %w", path, err)
+	}
+
+	return nil
+}
+
+func insertGitSignalCommitLedger(
+	ctx context.Context,
+	transaction *sql.Tx,
+	commits []gitCommitSignal,
+	now time.Time,
+) error {
+	statement, err := transaction.PrepareContext(
+		ctx,
+		"INSERT OR IGNORE INTO git_signal_commits(commit_hash, indexed_at_utc) VALUES(?, ?)",
+	)
+	if err != nil {
+		return fmt.Errorf("prepare git signal commit ledger statement: %w", err)
+	}
+	defer statement.Close()
+
+	indexedAtUTC := formatGitSignalTime(now)
+	for _, commit := range commits {
+		_, err = statement.ExecContext(ctx, commit.Hash, indexedAtUTC)
+		if err != nil {
+			return fmt.Errorf("insert git signal commit ledger %q: %w", commit.Hash, err)
+		}
+	}
+
+	return nil
+}
+
+func updateGitSignalMetadata(
+	ctx context.Context,
+	transaction *sql.Tx,
+	headCommit string,
+	now time.Time,
+) error {
+	for key, value := range map[string]string{
+		"head_commit":    headCommit,
+		"indexed_at_utc": formatGitSignalTime(now),
+	} {
+		_, execErr := transaction.ExecContext(
+			ctx,
+			"INSERT OR REPLACE INTO git_signal_metadata(key, value) VALUES(?, ?)",
+			key,
+			value,
+		)
+		if execErr != nil {
+			return fmt.Errorf("update git signal metadata: %w", execErr)
+		}
+	}
+
+	return nil
+}
+
+func (store *Store) unindexedGitSignalCommits(
+	ctx context.Context,
+	commits []gitCommitSignal,
+) ([]gitCommitSignal, error) {
+	statement, err := store.database.PrepareContext(
+		ctx,
+		"SELECT COUNT(*) FROM git_signal_commits WHERE commit_hash = ?",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("prepare git signal commit lookup: %w", err)
+	}
+	defer statement.Close()
+
+	unindexed := make([]gitCommitSignal, 0, len(commits))
+	for _, commit := range commits {
+		var count int
+		err = statement.QueryRowContext(ctx, commit.Hash).Scan(&count)
+		if err != nil {
+			return nil, fmt.Errorf("query git signal commit ledger %q: %w", commit.Hash, err)
+		}
+		if count == 0 {
+			unindexed = append(unindexed, commit)
+		}
+	}
+
+	return unindexed, nil
 }
 
 func (store *Store) gitSignalSummaryForHead(
