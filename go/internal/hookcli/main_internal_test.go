@@ -7,11 +7,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -258,6 +260,72 @@ func TestRunWithIOPersistsProxyOutputTransforms(t *testing.T) {
 		events[0].Transforms[2].Decision != "truncate" ||
 		events[0].Transforms[2].EvidencePath == "" {
 		t.Fatalf("proxy transforms = %#v", events[0].Transforms)
+	}
+}
+
+func TestRunWithIOWaitsForProxyOutputLedgerLock(t *testing.T) {
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS", "30")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS", "10")
+	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_TAIL_TOKENS", "10")
+
+	repo := t.TempDir()
+	err := os.Mkdir(filepath.Join(repo, ".git"), 0o700)
+	if err != nil {
+		t.Fatalf("create git marker: %v", err)
+	}
+
+	attempts := 0
+	openStore := func(
+		ctx context.Context,
+		path string,
+	) (*codeintel.Store, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, fmt.Errorf(
+				"open code intelligence store: database/sql/driver: " +
+					"could not connect to database: IO Error: Could not set lock",
+			)
+		}
+
+		return codeintel.Open(ctx, path)
+	}
+
+	result := hooks.Result{
+		ProxyEvents: []agentproxy.ProviderEvent{
+			{
+				ID:        "event-proxy-output-lock-wait",
+				Kind:      agentproxy.EventToolOutput,
+				RepoRoot:  repo,
+				SessionID: "session-proxy-output-lock-wait",
+				Tool:      "Bash",
+				Decision:  "allow",
+			},
+		},
+	}
+
+	err = writeProxyEvents(result, openStore)
+	if err != nil {
+		t.Fatalf("write proxy events: %v", err)
+	}
+	if attempts < 2 {
+		t.Fatalf("proxy ledger open attempts = %d, want retry", attempts)
+	}
+
+	store, err := codeintel.Open(context.Background(), codeintel.DefaultDBPath(repo))
+	if err != nil {
+		t.Fatalf("open code-intel: %v", err)
+	}
+	defer store.Close()
+
+	events, err := store.ProxyEvents(
+		context.Background(),
+		codeintel.ProxyEventQuery{SessionID: "session-proxy-output-lock-wait"},
+	)
+	if err != nil {
+		t.Fatalf("query proxy events: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("proxy events = %#v", events)
 	}
 }
 

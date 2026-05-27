@@ -66,6 +66,19 @@ func DefaultDBPath(root string) string {
 	return DefaultDuckDBPath(root)
 }
 
+func IsStoreLockError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+
+	return strings.Contains(message, "could not set lock") ||
+		strings.Contains(message, "conflicting lock") ||
+		strings.Contains(message, "database is locked") ||
+		strings.Contains(message, "sqlite_busy")
+}
+
 func Open(ctx context.Context, path string) (*Store, error) {
 	inlineErr0 := os.MkdirAll(filepath.Dir(path), storeDirMode)
 	if inlineErr0 != nil {

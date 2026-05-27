@@ -23,12 +23,21 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-const blockedExitCode = hooks.AgentHookBlockedExitCode
+const (
+	blockedExitCode          = hooks.AgentHookBlockedExitCode
+	proxyLedgerLockWait      = 20 * time.Second
+	proxyLedgerRetryInterval = 100 * time.Millisecond
+)
 
 var (
 	errBundleRequired = apperror.StaticError("--bundle is required")
 	errInvalidBundle  = apperror.StaticError("invalid policy bundle")
 )
+
+type codeIntelStoreOpener func(
+	context.Context,
+	string,
+) (*codeintel.Store, error)
 
 func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("coding-ethos-hook", flag.ExitOnError)
@@ -116,10 +125,10 @@ func persistHookResult(event hooks.Event, result hooks.Result) error {
 		return fmt.Errorf("write agent hook trace: %w", err)
 	}
 
-	return writeProxyEvents(result)
+	return writeProxyEvents(result, codeintel.Open)
 }
 
-func writeProxyEvents(result hooks.Result) error {
+func writeProxyEvents(result hooks.Result, openStore codeIntelStoreOpener) error {
 	eventsByRoot := map[string][]agentproxy.ProviderEvent{}
 
 	for _, event := range result.ProxyEvents {
@@ -131,26 +140,60 @@ func writeProxyEvents(result hooks.Result) error {
 	}
 
 	for root, events := range eventsByRoot {
-		store, err := codeintel.Open(
-			context.Background(),
-			codeintel.DefaultDBPath(root),
-		)
-		if err != nil {
-			return fmt.Errorf("open proxy output ledger: %w", err)
-		}
-
-		err = recordProxyEvents(store, events)
-		closeErr := store.Close()
-
+		err := writeProxyEventsForRoot(root, events, openStore)
 		if err != nil {
 			return err
 		}
+	}
 
-		if closeErr != nil {
-			return fmt.Errorf("close proxy output ledger: %w", closeErr)
+	return nil
+}
+
+func writeProxyEventsForRoot(
+	root string,
+	events []agentproxy.ProviderEvent,
+	openStore codeIntelStoreOpener,
+) error {
+	deadline := time.Now().Add(proxyLedgerLockWait)
+
+	for {
+		err := tryWriteProxyEventsForRoot(root, events, openStore)
+		if err == nil {
+			autoPruneCodeIntelDB(root)
+
+			return nil
 		}
 
-		autoPruneCodeIntelDB(root)
+		if !codeintel.IsStoreLockError(err) || time.Now().After(deadline) {
+			return err
+		}
+
+		time.Sleep(proxyLedgerRetryInterval)
+	}
+}
+
+func tryWriteProxyEventsForRoot(
+	root string,
+	events []agentproxy.ProviderEvent,
+	openStore codeIntelStoreOpener,
+) error {
+	store, err := openStore(
+		context.Background(),
+		codeintel.DefaultDBPath(root),
+	)
+	if err != nil {
+		return fmt.Errorf("open proxy output ledger: %w", err)
+	}
+
+	err = recordProxyEvents(store, events)
+	closeErr := store.Close()
+
+	if err != nil {
+		return err
+	}
+
+	if closeErr != nil {
+		return fmt.Errorf("close proxy output ledger: %w", closeErr)
 	}
 
 	return nil
