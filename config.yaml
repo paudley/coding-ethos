@@ -679,7 +679,6 @@ filesystem:
       - ruff.toml
       - tombi.toml
   protected_branch_write:
-    enabled: true
     branches:
       - main
       - master

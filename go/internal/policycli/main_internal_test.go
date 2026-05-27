@@ -321,12 +321,13 @@ func TestValidateRepoConfigSectionsRejectsInvariantGitPolicyToggles(t *testing.T
 	t.Parallel()
 
 	tests := map[string]string{
-		"hook bypass":          "git:\n  hook_bypass:\n    enabled: false\n",
-		"history rewrite":      "git:\n  history_rewrite_prevention:\n    enabled: false\n",
-		"stash blocked":        "git:\n  stash_blocked:\n    enabled: false\n",
-		"protected submodule":  "git:\n  protected_submodule_update:\n    enabled: false\n",
-		"signed operations":    "git:\n  signed_operations:\n    enabled: false\n",
-		"protected work guard": "repo:\n  protected_branch_work:\n    enabled: false\n",
+		"hook bypass":            "git:\n  hook_bypass:\n    enabled: false\n",
+		"history rewrite":        "git:\n  history_rewrite_prevention:\n    enabled: false\n",
+		"stash blocked":          "git:\n  stash_blocked:\n    enabled: false\n",
+		"protected submodule":    "git:\n  protected_submodule_update:\n    enabled: false\n",
+		"signed operations":      "git:\n  signed_operations:\n    enabled: false\n",
+		"protected work guard":   "repo:\n  protected_branch_work:\n    enabled: false\n",
+		"protected branch write": "filesystem:\n  protected_branch_write:\n    enabled: false\n",
 	}
 
 	for name, payload := range tests {
@@ -342,8 +343,9 @@ func TestValidateRepoConfigSectionsRejectsInvariantGitPolicyToggles(t *testing.T
 			}
 
 			_, err := validateRepoConfigSections(repoConfigPath, map[string]any{
-				"git":  map[string]any{},
-				"repo": map[string]any{},
+				"filesystem": map[string]any{},
+				"git":        map[string]any{},
+				"repo":       map[string]any{},
 			})
 			if err == nil {
 				t.Fatal("expected invariant git policy toggle rejection")

@@ -151,7 +151,6 @@ filesystem:
     paths:
       - path/to/protected/generated-hook
   protected_branch_write:
-    enabled: true
     branches:
       - main
       - release

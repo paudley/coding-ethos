@@ -1946,6 +1946,14 @@ git:
 `,
 			wantPath: "git.staged_admin_files.enabled",
 		},
+		"repo protected branch write": {
+			repoConfig: `
+filesystem:
+  protected_branch_write:
+    enabled: false
+`,
+			wantPath: "filesystem.protected_branch_write.enabled",
+		},
 		"repo expression backed": {
 			repoConfig: `
 git:

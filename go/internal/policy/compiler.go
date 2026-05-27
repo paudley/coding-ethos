@@ -344,6 +344,7 @@ func validateRemovedCriticalEnforcementConfigPaths(
 
 func removedCriticalEnforcementConfigPaths() [][]string {
 	return [][]string{
+		{"filesystem", "protected_branch_write", "enabled"},
 		{"git", "change_dir_flag", "enabled"},
 		{"git", "checkout_protected_branch", "enabled"},
 		{"git", "commit_head_advanced", "enabled"},
