@@ -99,6 +99,7 @@ func runAgentProxyPassthrough(paths runtimePaths, args []string) error {
 	if errors.Is(err, context.Canceled) {
 		return nil
 	}
+
 	if err != nil {
 		return fmt.Errorf("run pass-through agent proxy: %w", err)
 	}
