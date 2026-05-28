@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	. "blackcat.ca/coding-ethos/go/internal/hooklog"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
@@ -391,7 +390,7 @@ func TestRunRejectsInvalidHookLogInputs(t *testing.T) {
 	}
 }
 
-func TestRunRequiresCodingEthosLogsIgnored(t *testing.T) {
+func TestRunRepairsMissingCodingEthosLogsIgnore(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -405,15 +404,20 @@ func TestRunRequiresCodingEthosLogsIgnored(t *testing.T) {
 		BundleRoot: filepath.Join(root, "pre-commit"),
 		Command:    commandThatPrints(t),
 	})
-	if err == nil || !strings.Contains(err.Error(), ".coding-ethos/hook-runs/") {
-		t.Fatalf("Run() error = %v, want missing ignore", err)
+	if err != nil {
+		t.Fatalf("Run() error = %v, want automatic missing ignore repair", err)
 	}
-	if !errors.Is(err, apperror.StaticError("hook runtime output ignore required")) {
-		t.Fatalf("Run() error = %v, want stable hook-log ignore error", err)
+
+	payload, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read repaired gitignore: %v", err)
+	}
+	if !strings.Contains(string(payload), ".coding-ethos/hook-runs/") {
+		t.Fatalf("runtime hook log ignore missing:\n%s", payload)
 	}
 }
 
-func TestRunRejectsBroadCodingEthosIgnore(t *testing.T) {
+func TestRunRepairsBroadCodingEthosIgnore(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -435,11 +439,20 @@ func TestRunRejectsBroadCodingEthosIgnore(t *testing.T) {
 		BundleRoot: filepath.Join(root, "pre-commit"),
 		Command:    commandThatPrints(t),
 	})
-	if err == nil || !strings.Contains(err.Error(), "repo memories remain trackable") {
-		t.Fatalf("Run() error = %v, want broad ignore rejection", err)
+	if err != nil {
+		t.Fatalf("Run() error = %v, want automatic broad ignore repair", err)
 	}
-	if !errors.Is(err, apperror.StaticError("repo memory path must remain trackable")) {
-		t.Fatalf("Run() error = %v, want stable memory ignore error", err)
+
+	payload, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read repaired gitignore: %v", err)
+	}
+	text := string(payload)
+	if strings.Contains(text, ".coding-ethos/**") {
+		t.Fatalf("broad ignore still present:\n%s", text)
+	}
+	if !strings.Contains(text, ".coding-ethos/hook-runs/") {
+		t.Fatalf("runtime hook log ignore missing:\n%s", text)
 	}
 }
 

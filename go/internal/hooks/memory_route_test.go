@@ -47,6 +47,33 @@ func TestRunRewritesClaudeMemoryWriteToCentralStore(t *testing.T) {
 	}
 }
 
+func TestRunRewritesClaudeMemoryWriteWithoutProviderHint(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			Cwd:           root,
+			HookEventName: "PreToolUse",
+			ToolName:      "Write",
+			ToolInput: map[string]any{
+				"file_path": "~/.claude/projects/acme/repo/memory/project.md",
+				"content":   "remember",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if result.Status != "allowed" || result.HookSpecificOutput == nil {
+		t.Fatalf("result = %#v", result)
+	}
+	if result.HookSpecificOutput.UpdatedInput["file_path"] != memories.PrimaryFile {
+		t.Fatalf("updated input = %#v", result.HookSpecificOutput.UpdatedInput)
+	}
+}
+
 func TestRunRewritesMemoryPathListToConfiguredCentralStore(t *testing.T) {
 	t.Parallel()
 

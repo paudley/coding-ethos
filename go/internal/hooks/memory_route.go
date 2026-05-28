@@ -49,7 +49,8 @@ func memoryFileToolRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
-	if !providerSupportsMemoryRewrite(event.Provider()) {
+	if !providerSupportsUpdatedInput(event.Provider()) &&
+		!providerSupportsUpdatedInput(classification.Provider) {
 		return InspectionRoute{
 			Block:         true,
 			BlockPolicyID: memoryPolicyID,
@@ -119,14 +120,5 @@ func stringListValue(value any) ([]string, bool) {
 		return values, true
 	default:
 		return nil, false
-	}
-}
-
-func providerSupportsMemoryRewrite(provider string) bool {
-	switch provider {
-	case providerClaude, providerGemini, providerCodingEthos:
-		return true
-	default:
-		return false
 	}
 }
