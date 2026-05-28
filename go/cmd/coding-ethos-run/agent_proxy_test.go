@@ -47,7 +47,8 @@ func TestRunAgentProxyPassthroughReturnsServeError(t *testing.T) {
 		"--listen",
 		"127.0.0.1:notaport",
 	})
-	if err == nil || !strings.Contains(err.Error(), "run pass-through agent proxy") {
+	if err == nil ||
+		!strings.Contains(err.Error(), "listen for pass-through agent proxy") {
 		t.Fatalf("error = %v, want pass-through serve error", err)
 	}
 }

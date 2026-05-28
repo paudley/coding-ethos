@@ -245,6 +245,7 @@ func (proxy *PassThroughProxy) ListenAndServeOnListener(
 func (proxy *PassThroughProxy) upstreamURL(request *http.Request) *url.URL {
 	target := *proxy.upstream
 	target.Path = joinURLPath(proxy.upstream.Path, request.URL.Path)
+	target.RawPath = joinURLPath(proxy.upstream.EscapedPath(), request.URL.EscapedPath())
 	target.RawQuery = request.URL.RawQuery
 
 	return &target
@@ -275,7 +276,7 @@ func (proxy *PassThroughProxy) record(
 		"upstream_scheme":       upstream.Scheme,
 	}
 	if routeErr != nil {
-		metadata["error"] = routeErr.Error()
+		metadata["error"] = safeRouteError(routeErr)
 	}
 
 	sessionID := strings.TrimSpace(request.Header.Get("X-Coding-Ethos-Session"))
@@ -330,9 +331,21 @@ func defaultPassThroughHTTPClient() *http.Client {
 	transport.DisableCompression = true
 
 	return &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 		Timeout:   passThroughDefaultTimeout,
 		Transport: transport,
 	}
+}
+
+func safeRouteError(routeErr error) string {
+	var urlErr *url.Error
+	if errors.As(routeErr, &urlErr) {
+		return urlErr.Op
+	}
+
+	return "proxy_route_failed"
 }
 
 func copyHeaders(target, source http.Header) {

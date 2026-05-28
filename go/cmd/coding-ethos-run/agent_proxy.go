@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"strings"
@@ -85,17 +86,29 @@ func runAgentProxyPassthrough(paths runtimePaths, args []string) error {
 		return fmt.Errorf("create pass-through agent proxy: %w", err)
 	}
 
-	fmt.Fprintf(
-		os.Stderr,
-		"coding-ethos agent API pass-through proxy listening on %s -> %s\n",
-		*listen,
-		*upstream,
+	var listenConfig net.ListenConfig
+
+	listener, err := listenConfig.Listen(
+		context.Background(),
+		"tcp",
+		strings.TrimSpace(*listen),
 	)
+	if err != nil {
+		return fmt.Errorf("listen for pass-through agent proxy: %w", err)
+	}
+	defer listener.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	err = proxy.ListenAndServe(ctx, *listen)
+	fmt.Fprintf(
+		os.Stderr,
+		"coding-ethos agent API pass-through proxy listening on %s -> %s\n",
+		listener.Addr().String(),
+		*upstream,
+	)
+
+	err = proxy.ListenAndServeOnListener(ctx, listener)
 	if errors.Is(err, context.Canceled) {
 		return nil
 	}

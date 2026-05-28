@@ -210,6 +210,77 @@ func TestNewPassThroughProxyDefaultClientPreservesProxySemantics(t *testing.T) {
 	if !transport.DisableCompression {
 		t.Fatal("default pass-through transport should disable transparent compression")
 	}
+	if proxy.client.CheckRedirect == nil {
+		t.Fatal("default pass-through client should not follow redirects")
+	}
+}
+
+func TestPassThroughProxyPreservesRedirectResponses(t *testing.T) {
+	t.Parallel()
+
+	provider := httptest.NewServer(http.HandlerFunc(
+		func(writer http.ResponseWriter, _ *http.Request) {
+			http.Redirect(
+				writer,
+				httptest.NewRequest(http.MethodGet, "/", nil),
+				"/next",
+				http.StatusFound,
+			)
+		},
+	))
+	defer provider.Close()
+
+	proxy, err := NewPassThroughProxy(PassThroughOptions{Upstream: provider.URL})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	proxy.ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodGet, "http://proxy.local/start", nil),
+	)
+
+	result := response.Result()
+	defer result.Body.Close()
+	if result.StatusCode != http.StatusFound ||
+		result.Header.Get("Location") != "/next" {
+		t.Fatalf(
+			"redirect not preserved: status=%d headers=%#v",
+			result.StatusCode,
+			result.Header,
+		)
+	}
+}
+
+func TestPassThroughProxyPreservesEscapedRequestPath(t *testing.T) {
+	t.Parallel()
+
+	provider := httptest.NewServer(http.HandlerFunc(
+		func(_ http.ResponseWriter, request *http.Request) {
+			if request.RequestURI != "/base/a%2Fb%2Bc?raw=%2F" {
+				t.Fatalf("request URI = %q", request.RequestURI)
+			}
+		},
+	))
+	defer provider.Close()
+
+	proxy, err := NewPassThroughProxy(PassThroughOptions{
+		Upstream: provider.URL + "/base",
+	})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	proxy.ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodGet, "http://proxy.local/a%2Fb%2Bc?raw=%2F", nil),
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d", response.Code)
+	}
 }
 
 func TestPassThroughProxyStripsHopByHopHeaders(t *testing.T) {
@@ -291,7 +362,7 @@ func TestPassThroughProxyRecordsRouteError(t *testing.T) {
 	}
 	if len(recorder.events) != 1 ||
 		recorder.events[0].Decision != passThroughDecisionError ||
-		recorder.events[0].Metadata["error"] == "" {
+		recorder.events[0].Metadata["error"] != "Post" {
 		t.Fatalf("route error event = %#v", recorder.events)
 	}
 }
