@@ -183,6 +183,35 @@ func TestNewPassThroughProxyValidatesUpstream(t *testing.T) {
 	}
 }
 
+func TestNewPassThroughProxyDefaultClientPreservesProxySemantics(t *testing.T) {
+	t.Parallel()
+
+	proxy, err := NewPassThroughProxy(PassThroughOptions{
+		Upstream: "https://provider.example",
+	})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	transport, ok := proxy.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport = %T, want *http.Transport", proxy.client.Transport)
+	}
+	if transport.Proxy != nil {
+		request := httptest.NewRequest(http.MethodGet, "https://provider.example", nil)
+		proxyURL, err := transport.Proxy(request)
+		if err != nil {
+			t.Fatalf("resolve proxy: %v", err)
+		}
+		if proxyURL != nil {
+			t.Fatalf("default pass-through transport uses proxy %v", proxyURL)
+		}
+	}
+	if !transport.DisableCompression {
+		t.Fatal("default pass-through transport should disable transparent compression")
+	}
+}
+
 func TestPassThroughProxyStripsHopByHopHeaders(t *testing.T) {
 	t.Parallel()
 
@@ -257,10 +286,57 @@ func TestPassThroughProxyRecordsRouteError(t *testing.T) {
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadGateway)
 	}
+	if body := response.Body.String(); body != "Bad Gateway\n" {
+		t.Fatalf("body = %q, want generic Bad Gateway", body)
+	}
 	if len(recorder.events) != 1 ||
-		recorder.events[0].Decision != "route_error" ||
+		recorder.events[0].Decision != passThroughDecisionError ||
 		recorder.events[0].Metadata["error"] == "" {
 		t.Fatalf("route error event = %#v", recorder.events)
+	}
+}
+
+type contextCheckingProxyEvents struct {
+	events []ProviderEvent
+	err    error
+}
+
+func (recorder *contextCheckingProxyEvents) RecordProxyEvent(
+	ctx context.Context,
+	event ProviderEvent,
+) error {
+	recorder.err = ctx.Err()
+	recorder.events = append(recorder.events, event)
+
+	return nil
+}
+
+func TestPassThroughProxyRecordsEvidenceAfterRequestCancellation(t *testing.T) {
+	t.Parallel()
+
+	recorder := &contextCheckingProxyEvents{}
+	proxy, err := NewPassThroughProxy(PassThroughOptions{
+		Recorder: recorder,
+		Upstream: "http://127.0.0.1:1",
+	})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	request := httptest.NewRequest(http.MethodPost, "http://proxy.local/canceled", nil)
+	request = request.WithContext(ctx)
+
+	proxy.ServeHTTP(httptest.NewRecorder(), request)
+
+	if recorder.err != nil {
+		t.Fatalf("record context error = %v, want active background context", recorder.err)
+	}
+	if len(recorder.events) != 1 ||
+		recorder.events[0].Decision != passThroughDecisionError {
+		t.Fatalf("events = %#v", recorder.events)
 	}
 }
 

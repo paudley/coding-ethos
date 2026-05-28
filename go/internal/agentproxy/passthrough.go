@@ -23,8 +23,10 @@ import (
 
 const (
 	passThroughDefaultTimeout  = 30 * time.Second
+	passThroughRecordTimeout   = 5 * time.Second
 	passThroughPolicyID        = "proxy.pass_through"
 	passThroughDecisionAllow   = "allow"
+	passThroughDecisionError   = "route_error"
 	responseCopyBufferSize     = 32 * 1024
 	defaultHopByHopHeaderCount = 8
 )
@@ -83,7 +85,7 @@ func NewPassThroughProxy(options PassThroughOptions) (*PassThroughProxy, error) 
 
 	client := options.Client
 	if client == nil {
-		client = &http.Client{Timeout: passThroughDefaultTimeout}
+		client = defaultPassThroughHTTPClient()
 	}
 
 	now := options.Now
@@ -118,8 +120,8 @@ func (proxy *PassThroughProxy) ServeHTTP(
 		request.Body,
 	)
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusBadGateway)
-		proxy.record(request, upstreamURL, startedAt, 0, err)
+		http.Error(writer, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+		proxy.record(request.Context(), request, upstreamURL, startedAt, 0, err)
 
 		return
 	}
@@ -131,8 +133,8 @@ func (proxy *PassThroughProxy) ServeHTTP(
 		upstreamRequest,
 	) // #nosec G107,G704 -- target is constrained to explicit upstream base URL.
 	if err != nil {
-		http.Error(writer, err.Error(), http.StatusBadGateway)
-		proxy.record(request, upstreamURL, startedAt, 0, err)
+		http.Error(writer, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+		proxy.record(request.Context(), request, upstreamURL, startedAt, 0, err)
 
 		return
 	}
@@ -143,12 +145,26 @@ func (proxy *PassThroughProxy) ServeHTTP(
 
 	_, copyErr := copyResponseBody(writer, response.Body)
 	if copyErr != nil {
-		proxy.record(request, upstreamURL, startedAt, response.StatusCode, copyErr)
+		proxy.record(
+			request.Context(),
+			request,
+			upstreamURL,
+			startedAt,
+			response.StatusCode,
+			copyErr,
+		)
 
 		return
 	}
 
-	proxy.record(request, upstreamURL, startedAt, response.StatusCode, nil)
+	proxy.record(
+		request.Context(),
+		request,
+		upstreamURL,
+		startedAt,
+		response.StatusCode,
+		nil,
+	)
 }
 
 // ListenAndServe starts the pass-through proxy until the server exits or the
@@ -235,6 +251,7 @@ func (proxy *PassThroughProxy) upstreamURL(request *http.Request) *url.URL {
 }
 
 func (proxy *PassThroughProxy) record(
+	ctx context.Context,
 	request *http.Request,
 	upstream *url.URL,
 	recordedAt time.Time,
@@ -247,7 +264,7 @@ func (proxy *PassThroughProxy) record(
 
 	decision := passThroughDecisionAllow
 	if routeErr != nil {
-		decision = "route_error"
+		decision = passThroughDecisionError
 	}
 
 	metadata := map[string]string{
@@ -293,9 +310,28 @@ func (proxy *PassThroughProxy) record(
 		},
 	}
 
-	err := proxy.recorder.RecordProxyEvent(request.Context(), event)
+	recordCtx, cancel := passThroughRecordContext(ctx)
+	defer cancel()
+
+	err := proxy.recorder.RecordProxyEvent(recordCtx, event)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		return
+	}
+}
+
+func defaultPassThroughHTTPClient() *http.Client {
+	baseTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		panic("http.DefaultTransport must be *http.Transport")
+	}
+
+	transport := baseTransport.Clone()
+	transport.Proxy = nil
+	transport.DisableCompression = true
+
+	return &http.Client{
+		Timeout:   passThroughDefaultTimeout,
+		Transport: transport,
 	}
 }
 
@@ -393,6 +429,15 @@ func passThroughShutdownContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(
 		context.Background(),
 		passThroughDefaultTimeout,
+	)
+}
+
+func passThroughRecordContext(
+	parent context.Context,
+) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(
+		context.WithoutCancel(parent),
+		passThroughRecordTimeout,
 	)
 }
 
