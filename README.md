@@ -358,6 +358,9 @@ The first tools are intentionally narrow and auditable:
 - `code_intel_health`: rank deterministic refactoring targets from indexed
   structure, structural clones, git signals, LCOV coverage, and repeated
   failure evidence with persisted trend snapshots.
+- `code_intel_session_snapshot`: return the canonical
+  `coding_ethos.session.v1` snapshot derived from hook traces, proxy telemetry,
+  memory activity, and code-intel freshness without broad source reads.
 - `code_intel_index_code`: refresh Tree-sitter chunks for Go, Python,
   JavaScript/TypeScript, shell, YAML, JSON, and TOML paths.
 - `code_intel_code_chunks`: fetch focused symbol/config chunks before broad
@@ -437,6 +440,7 @@ bin/coding-ethos-run code-intel compact-context --path pkg/app.py
 bin/coding-ethos-run code-intel proxy-file-read --session-id sess-1 --path pkg/app.py
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel proxy-events --session-id sess-1
+bin/coding-ethos-run code-intel session-snapshot --session-id sess-1 --format toon
 bin/coding-ethos-run code-intel repeated-edits --path pkg/app.py
 bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
 bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports

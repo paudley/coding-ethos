@@ -848,6 +848,47 @@ func (server Server) codeIntelHealth(args json.RawMessage) (any, error) {
 	}, nil
 }
 
+func (server Server) codeIntelSessionSnapshot(args json.RawMessage) (any, error) {
+	var input codeIntelSessionSnapshotInput
+
+	inlineErr0 := json.Unmarshal(args, &input)
+	if inlineErr0 != nil {
+		return nil, fmt.Errorf(
+			"parse code intelligence session-snapshot arguments: %w",
+			inlineErr0,
+		)
+	}
+
+	store, closeStore, err := server.openCodeIntelStore()
+	if err != nil {
+		return nil, fmt.Errorf("open code intelligence store: %w", err)
+	}
+	defer closeStore()
+
+	root := server.codeIntelRoot()
+
+	snapshot, err := store.SessionSnapshot(argsContext(), codeintel.SessionSnapshotQuery{
+		Root:      root,
+		Worktree:  root,
+		Provider:  input.Provider,
+		SessionID: input.SessionID,
+		Limit:     input.Limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query session snapshot: %w", err)
+	}
+
+	result := map[string]any{
+		"kind":     codeintel.SessionSnapshotKind,
+		"snapshot": snapshot,
+	}
+	if strings.EqualFold(strings.TrimSpace(input.Format), "toon") {
+		result["content"] = codeintel.FormatSessionSnapshotTOON(snapshot)
+	}
+
+	return result, nil
+}
+
 func (server Server) repoMapResource() (any, error) {
 	_, rendered, err := server.loadStoredRepoMap(codeIntelRepoMapInput{})
 	if err != nil {

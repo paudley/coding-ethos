@@ -1052,6 +1052,31 @@ func TestFormatGroupRunsManagedFormattersForMatchingFiles(t *testing.T) {
 	}
 }
 
+func TestGofmtWriteArgsPreserveChangedGoFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	mustWriteTestFile(
+		t,
+		filepath.Join(tempDir, "go", "go.mod"),
+		"module example.test/repo\n",
+	)
+	mustWriteTestFile(t, filepath.Join(tempDir, "go", "main.go"), "package main\n")
+	mustWriteTestFile(t, filepath.Join(tempDir, "go", "extra_test.go"), "package main\n")
+	mustWriteTestFile(t, filepath.Join(tempDir, "README.md"), "docs\n")
+
+	t.Chdir(tempDir)
+
+	got := gofmtWriteArgs([]string{
+		"go/main.go",
+		"README.md",
+		"go/extra_test.go",
+	})
+	want := []string{"go/main.go", "go/extra_test.go"}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("gofmtWriteArgs() = %#v, want %#v", got, want)
+	}
+}
+
 func TestFormatGroupRestageSkipsUnchangedFiles(t *testing.T) {
 	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
 

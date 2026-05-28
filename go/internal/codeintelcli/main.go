@@ -91,9 +91,63 @@ func commandHandlers() map[string]codeIntelCommand {
 		"repeated-failures":         printRepeatedFailures,
 		"sarif-results":             printSARIFResults,
 		"search":                    search,
+		"session-snapshot":          printSessionSnapshot,
 		"stats":                     printStats,
 		"upsert-vector":             upsertVector,
 		"vector-stats":              printVectorStats,
+	}
+}
+
+func printSessionSnapshot(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("session-snapshot", flag.ExitOnError)
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
+	provider := flags.String("provider", "", "Filter by agent provider")
+	sessionID := flags.String("session-id", "", "Filter by agent session ID")
+	format := flags.String("format", outputFormatJSON, "Output format: json or toon")
+	limit := addResultLimit(flags)
+
+	err := parseCommandFlags(flags, args, "session-snapshot")
+	if err != nil {
+		return err
+	}
+
+	store, err := openStore(ctx, *storeFlags.root, *storeFlags.dbPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	snapshot, err := store.SessionSnapshot(ctx, codeintel.SessionSnapshotQuery{
+		Root:      *storeFlags.root,
+		Worktree:  *storeFlags.root,
+		Provider:  *provider,
+		SessionID: *sessionID,
+		Limit:     *limit,
+	})
+	if err != nil {
+		return fmt.Errorf("query session snapshot: %w", err)
+	}
+
+	switch strings.TrimSpace(*format) {
+	case "", outputFormatJSON:
+		return encodeJSON(os.Stdout, snapshot)
+	case outputFormatTOON:
+		err = feedback.WriteRendered(
+			os.Stdout,
+			codeintel.FormatSessionSnapshotTOON(snapshot),
+			feedback.FormatTOON,
+		)
+		if err != nil {
+			return fmt.Errorf("write session snapshot TOON: %w", err)
+		}
+
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: %q",
+			errUnknownDownstreamAnalysisFormat,
+			*format,
+		)
 	}
 }
 
@@ -557,7 +611,11 @@ func printDownstreamAnalysis(ctx context.Context, args []string) error {
 	root := flags.String("root", ".", "Repository root containing .coding-ethos")
 	dbPath := flags.String("db", "", "Legacy DuckDB code intelligence database path")
 	duckDBPath := flags.String("duckdb", "", "DuckDB code intelligence database path")
-	format := flags.String("format", "json", "Output format: json, toon, or human")
+	format := flags.String(
+		"format",
+		outputFormatJSON,
+		"Output format: json, toon, or human",
+	)
 	limit := addResultLimit(flags)
 
 	err := parseCommandFlags(flags, args, "downstream-analysis")
@@ -613,9 +671,9 @@ func printDownstreamAnalysisFormat(
 	format string,
 ) error {
 	switch strings.ToLower(strings.TrimSpace(format)) {
-	case "", "json":
+	case "", outputFormatJSON:
 		return encodeJSON(output, analysis)
-	case "toon":
+	case outputFormatTOON:
 		err := feedback.WriteRendered(
 			output,
 			codeintel.FormatDownstreamAnalysisTOON(analysis),

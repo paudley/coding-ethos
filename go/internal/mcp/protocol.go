@@ -343,6 +343,13 @@ type codeIntelHealthInput struct {
 	Refresh bool   `json:"refresh,omitempty"`
 }
 
+type codeIntelSessionSnapshotInput struct {
+	Provider  string `json:"provider,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	Format    string `json:"format,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
 type codeSimilarityCheckInput struct {
 	Code      string  `json:"code"`
 	Path      string  `json:"path,omitempty"`
@@ -1115,6 +1122,7 @@ func codeIntelCodeToolDefinitions() []map[string]any {
 		codeIntelContextCardToolDefinition(),
 		codeIntelChangeRiskToolDefinition(),
 		codeIntelHealthToolDefinition(),
+		codeIntelSessionSnapshotToolDefinition(),
 		codeIntelIndexCodeToolDefinition(),
 		toolDefinition(
 			"code_intel_code_chunks",
@@ -1196,6 +1204,34 @@ func codeIntelHealthToolDefinition() map[string]any {
 				"implementation work",
 			),
 			TracePersisted: true,
+		},
+	)
+}
+
+func codeIntelSessionSnapshotToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_session_snapshot",
+		toolText(
+			"Return the canonical coding_ethos.session.v1 snapshot derived",
+			"from hook traces, proxy telemetry, memory activity, and",
+			"code-intel freshness without broad source reads.",
+		),
+		map[string]any{
+			"provider":   map[string]any{"type": "string"},
+			"session_id": map[string]any{"type": "string"},
+			"format":     map[string]any{"type": "string"},
+			"limit":      map[string]any{"type": "integer"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    false,
+			PreferredUse: toolText(
+				"orient a new agent or MCP client before inspecting",
+				"individual hook, proxy, or code-intel traces",
+			),
+			TracePersisted: false,
 		},
 	)
 }

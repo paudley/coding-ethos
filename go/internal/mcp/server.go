@@ -221,6 +221,7 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "code_intel_context_card", Handler: server.codeIntelContextCard},
 		{Name: "code_intel_change_risk", Handler: server.codeIntelChangeRisk},
 		{Name: "code_intel_health", Handler: server.codeIntelHealth},
+		{Name: "code_intel_session_snapshot", Handler: server.codeIntelSessionSnapshot},
 		{Name: "skill_recommend", Handler: server.recommendSkills},
 	}
 }

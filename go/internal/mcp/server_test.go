@@ -38,8 +38,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 30 {
-		t.Fatalf("tool count = %d, want 30: %#v", len(tools), tools)
+	if len(tools) != 31 {
+		t.Fatalf("tool count = %d, want 31: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -68,6 +68,7 @@ func TestServerListsTools(t *testing.T) {
 		"code_intel_context_card",
 		"code_intel_change_risk",
 		"code_intel_health",
+		"code_intel_session_snapshot",
 		"code_intel_index_code",
 		"code_intel_embedding_candidates",
 		"code_intel_code_chunks",
@@ -2166,6 +2167,22 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 		!strings.Contains(healthOutput, `"total_health_score"`) ||
 		!strings.Contains(healthOutput, `"trend"`) {
 		t.Fatalf("health output missing snapshot fields:\n%s", healthOutput)
+	}
+
+	sessionOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":46,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_session_snapshot",
+			"arguments":{"format":"toon","limit":5}
+		}
+	}`), runtime)
+	if !strings.Contains(sessionOutput, `"coding_ethos.session.v1"`) ||
+		!strings.Contains(sessionOutput, `"snapshot"`) ||
+		!strings.Contains(sessionOutput, `"content"`) ||
+		!strings.Contains(sessionOutput, "session_source:") {
+		t.Fatalf("session snapshot output missing MCP contract fields:\n%s", sessionOutput)
 	}
 }
 

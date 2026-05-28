@@ -211,6 +211,46 @@ func TestHealthCommandAcceptsDirectoryPathFilter(t *testing.T) {
 	}
 }
 
+func TestSessionSnapshotCommandEmitsJSONAndTOON(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
+
+	var jsonErr error
+	jsonOutput := captureStdout(t, func() {
+		jsonErr = run(context.Background(), []string{
+			"session-snapshot",
+			"--root", root,
+			"--db", dbPath,
+		})
+	})
+	if jsonErr != nil {
+		t.Fatalf("session-snapshot JSON returned error: %v", jsonErr)
+	}
+	if !strings.Contains(jsonOutput, `"kind": "coding_ethos.session.v1"`) ||
+		!strings.Contains(jsonOutput, `"session": {`) {
+		t.Fatalf("session-snapshot JSON missing stable fields:\n%s", jsonOutput)
+	}
+
+	var toonErr error
+	toonOutput := captureStdout(t, func() {
+		toonErr = run(context.Background(), []string{
+			"session-snapshot",
+			"--root", root,
+			"--db", dbPath,
+			"--format", "toon",
+		})
+	})
+	if toonErr != nil {
+		t.Fatalf("session-snapshot TOON returned error: %v", toonErr)
+	}
+	if !strings.Contains(toonOutput, "kind: coding_ethos.session.v1") ||
+		!strings.Contains(toonOutput, "session_source: fallback") {
+		t.Fatalf("session-snapshot TOON missing stable fields:\n%s", toonOutput)
+	}
+}
+
 func TestIndexCodeAndCodeChunksCommands(t *testing.T) {
 	t.Parallel()
 
