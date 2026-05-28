@@ -35,6 +35,11 @@ rebuildable analytical surface.
 - `code-intel downstream-analysis` reads DuckDB and retained logs. Its default
   `json` output is stable for automation; `--format toon` provides the compact
   operator handoff, and `--format human` provides a short readable summary.
+- `coding-ethos-run status` combines runtime artifact readiness,
+  output-surface inventory, code-intel DuckDB stats, recent hook failures,
+  hook-review and false-positive counts, and recommended next actions into a
+  compact operator handoff. `--write status.md` writes the human handoff without
+  changing derived stores.
 - SessionStart performs the same obsolete-artifact cleanup before agents rely on
   startup code-intel context.
 - No external database, daemon, service, or network dependency is required.

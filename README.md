@@ -471,6 +471,9 @@ and retained event logs, then removes obsolete store files after rebuild.
 Inspect the repo-local disk output surface before pruning or deeper analysis:
 
 ```bash
+bin/coding-ethos-run status
+bin/coding-ethos-run status --format json
+bin/coding-ethos-run status --write status.md
 bin/coding-ethos-run output report
 bin/coding-ethos-run output report --format json --include-temp
 bin/coding-ethos-run output prune --dry-run --all
@@ -492,6 +495,14 @@ optional `--vacuum`. Apply runs write `.coding-ethos/prune-runs/*.json` traces
 when they delete files, prune rows, vacuum, or hit errors. Output lifecycle
 defaults live in `config.toml`; consuming repos can override `outputs.*` in
 `repo_config.toml` without changing the existing YAML enforcement config path.
+
+`coding-ethos-run status` is the operator handoff surface. It combines runtime
+artifact readiness, output-surface inventory, code-intel DuckDB stats, recent
+hook failures, hook-review and false-positive counts, stale/prunable surface
+counts, and recommended next actions into TOON, JSON, or human output. Use
+`--write status.md` when handing a repo to another operator or agent; blocker
+exit semantics remain reserved for command execution errors, while degraded
+local state is represented in the report's `status` field.
 Code-intel maintenance treats database files as derived indexes and evidence
 logs as durable audit material. Automatic maintenance prunes old DuckDB rows,
 checkpoints and compacts the DuckDB index, removes stale DuckDB sidecar
@@ -695,6 +706,7 @@ results from the packages that own those concerns.
 | Goal | Command |
 | --- | --- |
 | Show resolved paths and config | `make status` |
+| Summarize coding-ethos operator health and handoff state | `bin/coding-ethos-run status` |
 | Check required local tools | `make doctor` |
 | Refresh generated configs, managed tools, hook entrypoints, and parent runtime | `make build` |
 | Fully upgrade a parent repo coding-ethos submodule and verify the result | `make upgrade` |
