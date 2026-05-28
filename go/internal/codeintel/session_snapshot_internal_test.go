@@ -173,3 +173,155 @@ func TestSessionSnapshotFallbackAndTOONAreStable(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionSnapshotFindsExplicitProxySessionOutsideLimit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store := openTestStore(t, ctx)
+
+	for index := range 12 {
+		sessionID := "session-new"
+		kind := agentproxy.EventToolCall
+		if index == 0 {
+			sessionID = "session-old"
+			kind = agentproxy.EventPayloadTrim
+		}
+
+		err := store.RecordProxyEvent(ctx, agentproxy.ProviderEvent{
+			ID:            sessionID + "-event",
+			SessionID:     sessionID,
+			Kind:          kind,
+			Provider:      "codex",
+			Model:         sessionID + "-model",
+			RecordedAtUTC: time.Date(2026, 5, 28, 0, index, 0, 0, time.UTC),
+			RepoRoot:      root,
+		})
+		if err != nil {
+			t.Fatalf("record proxy event %d: %v", index, err)
+		}
+	}
+
+	snapshot, err := store.SessionSnapshot(ctx, SessionSnapshotQuery{
+		Root:      root,
+		Provider:  "codex",
+		SessionID: "session-old",
+		Limit:     1,
+		Now:       time.Date(2026, 5, 28, 0, 20, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("session snapshot: %v", err)
+	}
+	if snapshot.Session.ID != "session-old" ||
+		snapshot.Session.Model != "session-old-model" {
+		t.Fatalf("explicit session outside limit = %#v", snapshot.Session)
+	}
+	if snapshot.Proxy.Truncations != 1 {
+		t.Fatalf("explicit session proxy summary = %#v", snapshot.Proxy)
+	}
+}
+
+func TestSessionSnapshotScopesHookSignalsToSelectedSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store := openTestStore(t, ctx)
+
+	for _, trace := range []Trace{
+		{
+			ID:            "trace-old",
+			Kind:          "hook",
+			RecordedAtUTC: "2026-05-28T00:00:00Z",
+			RepoRoot:      root,
+			Provider:      "codex",
+			Event:         "PreToolUse",
+			Tool:          "Bash",
+			Status:        "ok",
+			Raw:           []byte(`{"event":"PreToolUse"}`),
+			HookEvent: &HookEventAnalytics{
+				TraceID:   "trace-old",
+				SessionID: "session-old",
+				Provider:  "codex",
+				Event:     "PreToolUse",
+				Tool:      "Bash",
+				Status:    "ok",
+			},
+		},
+		{
+			ID:            "trace-new",
+			Kind:          "hook",
+			RecordedAtUTC: "2026-05-28T00:10:00Z",
+			RepoRoot:      root,
+			Provider:      "codex",
+			Event:         "PreToolUse",
+			Tool:          "Bash",
+			Status:        "ok",
+			Raw:           []byte(`{"event":"PreToolUse"}`),
+			HookEvent: &HookEventAnalytics{
+				TraceID:   "trace-new",
+				SessionID: "session-new",
+				Provider:  "codex",
+				Event:     "PreToolUse",
+				Tool:      "Bash",
+				Status:    "ok",
+			},
+		},
+	} {
+		err := store.IngestTrace(ctx, trace)
+		if err != nil {
+			t.Fatalf("ingest trace %q: %v", trace.ID, err)
+		}
+	}
+
+	for _, review := range []HookReview{
+		{
+			ID:            "review-old",
+			TraceID:       "trace-old",
+			Disposition:   "accepted",
+			Reviewer:      "admin",
+			RecordedAtUTC: "2026-05-28T00:01:00Z",
+		},
+		{
+			ID:            "review-new",
+			TraceID:       "trace-new",
+			Disposition:   "accepted",
+			Reviewer:      "admin",
+			RecordedAtUTC: "2026-05-28T00:11:00Z",
+		},
+	} {
+		err := store.RecordHookReview(ctx, review)
+		if err != nil {
+			t.Fatalf("record hook review %q: %v", review.ID, err)
+		}
+	}
+
+	latest, err := store.SessionSnapshot(ctx, SessionSnapshotQuery{
+		Root:     root,
+		Provider: "codex",
+		Now:      time.Date(2026, 5, 28, 0, 20, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("latest session snapshot: %v", err)
+	}
+	if latest.Session.ID != "session-new" {
+		t.Fatalf("latest hook session = %#v", latest.Session)
+	}
+
+	scoped, err := store.SessionSnapshot(ctx, SessionSnapshotQuery{
+		Root:      root,
+		Provider:  "codex",
+		SessionID: "session-old",
+		Now:       time.Date(2026, 5, 28, 0, 20, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("scoped session snapshot: %v", err)
+	}
+	if scoped.Hooks.RecentReviewCount != 1 {
+		t.Fatalf("scoped review count = %d", scoped.Hooks.RecentReviewCount)
+	}
+	if len(scoped.LinkedTraceIDs) != 1 || scoped.LinkedTraceIDs[0] != "trace-old" {
+		t.Fatalf("scoped linked traces = %#v", scoped.LinkedTraceIDs)
+	}
+}

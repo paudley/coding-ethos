@@ -196,13 +196,13 @@ func (store *Store) SessionSnapshot(
 	snapshot.CodeIntel.LinkedTraceCount = len(snapshot.LinkedTraceIDs)
 	snapshot.CodeIntel.Freshness = sessionFreshness(stats)
 
-	snapshot.Risk, err = store.sessionRiskSummary(ctx, snapshot)
+	snapshot.Risk, err = store.sessionRiskSummary(ctx, &snapshot)
 	if err != nil {
 		return SessionSnapshot{}, err
 	}
 
-	snapshot.Provider.Adapters = sessionProviderAdapters(snapshot)
-	snapshot.RecommendedChecks = sessionRecommendedChecks(snapshot)
+	snapshot.Provider.Adapters = sessionProviderAdapters(&snapshot)
+	snapshot.RecommendedChecks = sessionRecommendedChecks(&snapshot)
 
 	return snapshot, nil
 }
@@ -297,8 +297,9 @@ func (store *Store) latestProxySession(
 	query SessionSnapshotQuery,
 ) (ProxySession, bool, error) {
 	sessions, err := store.ProxySessions(ctx, ProxySessionQuery{
-		Provider: query.Provider,
-		Limit:    max(query.Limit, 1),
+		SessionID: query.SessionID,
+		Provider:  query.Provider,
+		Limit:     max(query.Limit, 1),
 	})
 	if err != nil {
 		return ProxySession{}, false, err
@@ -319,11 +320,12 @@ func (store *Store) latestHookSession(
 ) (HookEventAnalytics, bool, error) {
 	row := store.database.QueryRowContext(
 		ctx,
-		`SELECT trace_id, COALESCE(session_id, ''), COALESCE(provider, '')
-		FROM hook_events
-		WHERE (? = '' OR provider = ?)
-			AND (? = '' OR session_id = ?)
-		ORDER BY trace_id DESC
+		`SELECT event.trace_id, COALESCE(event.session_id, ''), COALESCE(event.provider, '')
+		FROM hook_events event
+		JOIN traces trace ON trace.trace_id = event.trace_id
+		WHERE (? = '' OR event.provider = ?)
+			AND (? = '' OR event.session_id = ?)
+		ORDER BY trace.recorded_at_utc DESC, event.trace_id DESC
 		LIMIT 1`,
 		query.Provider,
 		query.Provider,
@@ -383,14 +385,41 @@ func (store *Store) sessionHookSummary(
 
 	summary.RecentBlockCount = len(recentBlocks)
 
-	reviews, err := store.HookReviews(ctx, HookReviewQuery{Limit: query.Limit})
+	reviewCount, err := store.sessionHookReviewCount(ctx, query)
 	if err != nil {
 		return SessionHookSummary{}, err
 	}
 
-	summary.RecentReviewCount = len(reviews)
+	summary.RecentReviewCount = reviewCount
 
 	return summary, nil
+}
+
+func (store *Store) sessionHookReviewCount(
+	ctx context.Context,
+	query SessionSnapshotQuery,
+) (int, error) {
+	row := store.database.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		FROM hook_reviews review
+		JOIN hook_events event ON event.trace_id = review.trace_id
+		WHERE (? = '' OR event.provider = ?)
+			AND (? = '' OR event.session_id = ?)`,
+		query.Provider,
+		query.Provider,
+		query.SessionID,
+		query.SessionID,
+	)
+
+	var count int
+
+	err := row.Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("query hook review count: %w", err)
+	}
+
+	return count, nil
 }
 
 func (store *Store) sessionMemorySummary(
@@ -404,12 +433,16 @@ func (store *Store) sessionMemorySummary(
 	row := store.database.QueryRowContext(
 		ctx,
 		`SELECT COUNT(*),
-			COALESCE(SUM(CASE WHEN lower(raw_json) LIKE '%import%' THEN 1 ELSE 0 END), 0),
-			COALESCE(SUM(CASE WHEN lower(raw_json) LIKE '%export%' THEN 1 ELSE 0 END), 0),
+			COALESCE(SUM(CASE
+				WHEN lower(COALESCE(raw_json, '')) LIKE '%import%' THEN 1 ELSE 0
+			END), 0),
+			COALESCE(SUM(CASE
+				WHEN lower(COALESCE(raw_json, '')) LIKE '%export%' THEN 1 ELSE 0
+			END), 0),
 			COALESCE(MAX(recorded_at_utc), '')
 		FROM traces
 		WHERE lower(COALESCE(event, '') || ' ' || COALESCE(tool, '') || ' ' ||
-			COALESCE(source_path, '') || ' ' || raw_json) LIKE '%memory%'`,
+			COALESCE(source_path, '') || ' ' || COALESCE(raw_json, '')) LIKE '%memory%'`,
 	)
 
 	err := row.Scan(
@@ -443,8 +476,9 @@ func (store *Store) sessionProxySummary(
 	}
 
 	sessions, err := store.ProxySessions(ctx, ProxySessionQuery{
-		Provider: query.Provider,
-		Limit:    query.Limit,
+		SessionID: query.SessionID,
+		Provider:  query.Provider,
+		Limit:     query.Limit,
 	})
 	if err != nil {
 		return SessionProxySummary{}, err
@@ -612,13 +646,29 @@ func (store *Store) sessionLinkedTraceIDs(
 ) ([]string, error) {
 	rows, err := store.database.QueryContext(
 		ctx,
-		`SELECT trace_id
-		FROM traces
-		WHERE (? = '' OR provider = ?)
-		ORDER BY recorded_at_utc DESC, trace_id DESC
+		`SELECT trace.trace_id
+		FROM traces trace
+		WHERE (? = '' OR trace.provider = ?)
+			AND (
+				? = ''
+				OR EXISTS (
+					SELECT 1 FROM hook_events event
+					WHERE event.trace_id = trace.trace_id
+						AND event.session_id = ?
+				)
+				OR EXISTS (
+					SELECT 1 FROM proxy_events event
+					WHERE event.trace_id = trace.trace_id
+						AND event.session_id = ?
+				)
+			)
+		ORDER BY trace.recorded_at_utc DESC, trace.trace_id DESC
 		LIMIT ?`,
 		query.Provider,
 		query.Provider,
+		query.SessionID,
+		query.SessionID,
+		query.SessionID,
 		query.Limit,
 	)
 	if err != nil {
@@ -649,7 +699,7 @@ func (store *Store) sessionLinkedTraceIDs(
 
 func (store *Store) sessionRiskSummary(
 	ctx context.Context,
-	snapshot SessionSnapshot,
+	snapshot *SessionSnapshot,
 ) (SessionRiskSummary, error) {
 	repeated, err := store.RepeatedFailures(ctx, RepeatedFailureQuery{
 		Limit: defaultSessionDecisionLimit,
@@ -685,6 +735,10 @@ func sessionGitIdentity(ctx context.Context, root string) (string, string) {
 	defer cancel()
 
 	branch := sessionGitOutput(gitCtx, root, "rev-parse", "--abbrev-ref", "HEAD")
+	if branch == "" {
+		return "", ""
+	}
+
 	head := sessionGitOutput(gitCtx, root, "rev-parse", "--verify", "HEAD")
 
 	return branch, head
@@ -713,7 +767,7 @@ func sessionFreshness(stats Stats) string {
 	return "ready"
 }
 
-func sessionProviderAdapters(snapshot SessionSnapshot) map[string]any {
+func sessionProviderAdapters(snapshot *SessionSnapshot) map[string]any {
 	adapters := map[string]any{
 		"hook_traces": map[string]any{
 			"events":           snapshot.Hooks.Events,
@@ -741,7 +795,7 @@ func sessionProviderAdapters(snapshot SessionSnapshot) map[string]any {
 	return adapters
 }
 
-func sessionRecommendedChecks(snapshot SessionSnapshot) []string {
+func sessionRecommendedChecks(snapshot *SessionSnapshot) []string {
 	checks := []string{}
 	if len(snapshot.CurrentBlockers) > 0 {
 		checks = append(checks, "Review current_blockers before editing.")
