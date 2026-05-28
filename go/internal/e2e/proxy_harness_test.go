@@ -78,16 +78,14 @@ func TestAgentProxyHarnessRecordsProviderAndFileReadEvidence(t *testing.T) {
 		t.Fatalf("record proxy event: %v", err)
 	}
 
-	events, err := store.ProxyEvents(
-		context.Background(),
+	events := waitForProxyEvents(
+		t,
+		store,
 		codeintel.ProxyEventQuery{
 			Kind:      string(agentproxy.EventProviderCall),
 			SessionID: "proxy-session-1",
 		},
 	)
-	if err != nil {
-		t.Fatalf("query proxy events: %v", err)
-	}
 
 	if len(events) != 1 ||
 		events[0].Kind != string(agentproxy.EventProviderCall) ||
@@ -111,4 +109,30 @@ func TestAgentProxyHarnessRecordsProviderAndFileReadEvidence(t *testing.T) {
 		len(events[0].Transforms) != 1 {
 		t.Fatalf("events = %#v", events)
 	}
+}
+
+func waitForProxyEvents(
+	t *testing.T,
+	store *codeintel.Store,
+	query codeintel.ProxyEventQuery,
+) []codeintel.ProxyEvent {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	var events []codeintel.ProxyEvent
+
+	for time.Now().Before(deadline) {
+		var err error
+		events, err = store.ProxyEvents(context.Background(), query)
+		if err != nil {
+			t.Fatalf("query proxy events: %v", err)
+		}
+		if len(events) > 0 {
+			return events
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	return events
 }
