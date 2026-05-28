@@ -109,6 +109,13 @@ end_of_record
 	if err != nil {
 		t.Fatalf("refresh health with LCOV: %v", err)
 	}
+	settings, err := LoadCodeHealthSettings(root)
+	if err != nil {
+		t.Fatalf("load health settings: %v", err)
+	}
+	if len(settings.PathOverrides) != 1 || settings.PathOverrides[0].globPattern == nil {
+		t.Fatalf("path override glob was not precompiled: %#v", settings.PathOverrides)
+	}
 
 	if len(snapshot.Targets) != 1 {
 		t.Fatalf("health target count = %d, want 1", len(snapshot.Targets))
@@ -362,13 +369,13 @@ func TestCodeHealthPathRefreshPersistsRepoWideSnapshot(t *testing.T) {
 		Root:    root,
 		Path:    "pkg",
 		GitHead: "filtered-refresh",
-		Limit:   10,
+		Limit:   1,
 	})
 	if err != nil {
 		t.Fatalf("refresh filtered health: %v", err)
 	}
-	if len(filtered.Targets) != 2 {
-		t.Fatalf("filtered target count = %d, want 2", len(filtered.Targets))
+	if len(filtered.Targets) != 1 {
+		t.Fatalf("filtered target count = %d, want 1", len(filtered.Targets))
 	}
 
 	unfiltered, err := store.CodeHealth(ctx, CodeHealthQuery{
@@ -382,6 +389,41 @@ func TestCodeHealthPathRefreshPersistsRepoWideSnapshot(t *testing.T) {
 	if len(unfiltered.Targets) <= len(filtered.Targets) {
 		t.Fatalf("path refresh poisoned repo snapshot: filtered=%d unfiltered=%d",
 			len(filtered.Targets), len(unfiltered.Targets))
+	}
+}
+
+func TestCodeHealthStoredReadDoesNotRefresh(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store := openHealthTestStore(t, root)
+	defer store.Close()
+
+	indexHealthFixture(t, ctx, store)
+
+	_, found, err := store.StoredCodeHealth(ctx, CodeHealthQuery{
+		Root:    root,
+		GitHead: "missing",
+		Limit:   5,
+	})
+	if err != nil {
+		t.Fatalf("read stored health: %v", err)
+	}
+	if found {
+		t.Fatalf("stored health unexpectedly found a snapshot")
+	}
+
+	refreshed, err := store.CodeHealth(ctx, CodeHealthQuery{
+		Root:    root,
+		GitHead: "missing",
+		Limit:   5,
+	})
+	if err != nil {
+		t.Fatalf("auto-refresh health: %v", err)
+	}
+	if refreshed.ID == "" {
+		t.Fatalf("auto-refresh did not create snapshot: %#v", refreshed)
 	}
 }
 

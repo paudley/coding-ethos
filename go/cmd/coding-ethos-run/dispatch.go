@@ -97,6 +97,7 @@ func runCommandEntries() []runCommandEntry {
 		{Command: "policy", Handler: runPolicyHandler},
 		{Command: "code-intel", Handler: runCodeIntelHandler},
 		{Command: "output", Handler: runOutputHandler},
+		{Command: "status", Handler: runStatusHandler},
 		{Command: "policy-tool", Handler: runPolicyTool},
 		{Command: "policy-tool-group", Handler: runPolicyToolGroup},
 		{Command: "policy-git", Handler: runPolicyGitHandler},
@@ -143,6 +144,7 @@ func runHelpMessage() feedback.Message {
 					{"bin/lint --staged", "Short wrapper for managed lint."},
 					{"agent-shell -- <command>", "Run shell through policy rewrite."},
 					{"output report", "Report managed output surfaces."},
+					{"status", "Summarize operator health and write handoff reports."},
 				},
 			),
 			feedback.T(

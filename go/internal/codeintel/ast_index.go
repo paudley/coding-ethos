@@ -40,8 +40,82 @@ type IndexOptions struct {
 	ExcludePatterns []string
 }
 
+// SourceIndexGate applies the AST indexer's non-persistent source-file gates.
+type SourceIndexGate struct {
+	root          string
+	options       IndexOptions
+	ignoreMatcher gitIgnoreMatcher
+}
+
 func NewASTIndexer(store *Store) ASTIndexer {
 	return ASTIndexer{store: store}
+}
+
+// NewSourceIndexGate builds a reusable gate for source files that should match
+// the AST indexer's ignore, exclude, symlink, language, and size decisions.
+func NewSourceIndexGate(
+	ctx context.Context,
+	root string,
+	options IndexOptions,
+) (SourceIndexGate, error) {
+	options, err := validateIndexOptions(options)
+	if err != nil {
+		return SourceIndexGate{}, err
+	}
+
+	root = strings.TrimSpace(root)
+	if root == "" {
+		root = "."
+	}
+
+	return SourceIndexGate{
+		root:          root,
+		options:       options,
+		ignoreMatcher: newGitIgnoreMatcher(ctx, root),
+	}, nil
+}
+
+// AllowsDir reports whether recursive direct source scans should enter path.
+func (gate SourceIndexGate) AllowsDir(ctx context.Context, path string) bool {
+	relativePath, err := filepath.Rel(gate.root, path)
+	if err != nil {
+		return false
+	}
+
+	relativePath = filepath.ToSlash(relativePath)
+
+	return !gate.ignoreMatcher.ignoredDir(ctx, path) &&
+		!pathHasSkippedDir(relativePath) &&
+		!excludedByConfig(relativePath, gate.options.ExcludePatterns)
+}
+
+// AllowsFile reports the repo-relative path and whether path should be read as
+// source, matching the AST indexer's skip gates without mutating the index.
+func (gate SourceIndexGate) AllowsFile(
+	ctx context.Context,
+	path string,
+	info os.FileInfo,
+) (string, bool, error) {
+	_, languageSupported := astfacts.LanguageForPath(path)
+	if !languageSupported {
+		return "", false, nil
+	}
+
+	relativePath, err := filepath.Rel(gate.root, path)
+	if err != nil {
+		return "", false, fmt.Errorf("relativize source index file %q: %w", path, err)
+	}
+
+	relativePath = filepath.ToSlash(relativePath)
+	if info.Mode()&os.ModeSymlink != 0 ||
+		gate.ignoreMatcher.ignoredFile(ctx, path) ||
+		pathHasSkippedDir(relativePath) ||
+		excludedByConfig(relativePath, gate.options.ExcludePatterns) ||
+		info.Size() > maxIndexedSourceBytes {
+		return relativePath, false, nil
+	}
+
+	return relativePath, true, nil
 }
 
 func LoadIndexOptions(root string) (IndexOptions, error) {

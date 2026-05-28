@@ -141,8 +141,9 @@ type CodeHealthBiomarkerSetting struct {
 
 type CodeHealthPathSetting struct {
 	Weights            map[string]float64 `json:"weights,omitempty"`
-	Glob               string             `json:"glob"`
-	DisabledBiomarkers []string           `json:"disabled_biomarkers,omitempty"`
+	globPattern        *regexp.Regexp
+	Glob               string   `json:"glob"`
+	DisabledBiomarkers []string `json:"disabled_biomarkers,omitempty"`
 }
 
 type healthFacts struct {
@@ -174,6 +175,15 @@ func (store *Store) CodeHealth(
 	}
 
 	return store.RefreshCodeHealth(ctx, query)
+}
+
+func (store *Store) StoredCodeHealth(
+	ctx context.Context,
+	query CodeHealthQuery,
+) (CodeHealthSnapshot, bool, error) {
+	query.GitHead = codeHealthGitHead(ctx, query.Root, query.GitHead)
+
+	return store.latestCodeHealth(ctx, query)
 }
 
 func codeHealthGitHead(ctx context.Context, root, explicit string) string {
@@ -214,6 +224,7 @@ func (store *Store) RefreshCodeHealth(
 
 	snapshotQuery := query
 	snapshotQuery.Path = ""
+	snapshotQuery.Limit = 0
 
 	snapshot := buildCodeHealthSnapshot(snapshotQuery, facts, settings, time.Now().UTC())
 
@@ -547,7 +558,8 @@ func buildCodeHealthSnapshot(
 	totalFiles := 0
 	totalScore := 0.0
 
-	for path, file := range facts.files {
+	for _, path := range sortedCodeFilePaths(facts.files) {
+		file := facts.files[path]
 		if file.DeletedAtUTC != "" || !healthPathMatches(path, query.Path) {
 			continue
 		}
@@ -600,6 +612,17 @@ func buildCodeHealthSnapshot(
 		TargetCount:      targetCount,
 		Targets:          targets,
 	}
+}
+
+func sortedCodeFilePaths(files map[string]CodeFile) []string {
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, path)
+	}
+
+	slices.Sort(paths)
+
+	return paths
 }
 
 func scoreHealthTarget(
@@ -1384,11 +1407,14 @@ func applyCodeHealthConfig(settings *CodeHealthSettings, config configdata.Map) 
 			continue
 		}
 
-		settings.PathOverrides = append(settings.PathOverrides, CodeHealthPathSetting{
+		setting := CodeHealthPathSetting{
 			Glob:               glob,
 			DisabledBiomarkers: configdata.StringList(override["disabled_biomarkers"]),
 			Weights:            floatMap(configdata.MapValue(override["weights"])),
-		})
+		}
+		setting.globPattern = compileHealthGlob(glob)
+
+		settings.PathOverrides = append(settings.PathOverrides, setting)
 	}
 }
 
@@ -1408,7 +1434,7 @@ func weightedHealthEvidence(
 	}
 
 	for _, override := range settings.PathOverrides {
-		if !healthGlobMatches(override.Glob, path) {
+		if !override.matches(path) {
 			continue
 		}
 
@@ -1430,12 +1456,33 @@ func weightedHealthEvidence(
 }
 
 func healthGlobMatches(pattern, path string) bool {
+	compiled := compileHealthGlob(pattern)
+	if compiled == nil {
+		return false
+	}
+
+	return compiled.MatchString(filepath.ToSlash(path))
+}
+
+func compileHealthGlob(pattern string) *regexp.Regexp {
 	expression := regexp.QuoteMeta(filepath.ToSlash(pattern))
 	expression = strings.ReplaceAll(expression, `\*\*`, `.*`)
 	expression = strings.ReplaceAll(expression, `\*`, `[^/]*`)
-	matched, err := regexp.MatchString(`^`+expression+`$`, filepath.ToSlash(path))
 
-	return err == nil && matched
+	compiled, err := regexp.Compile(`^` + expression + `$`)
+	if err != nil {
+		return nil
+	}
+
+	return compiled
+}
+
+func (setting CodeHealthPathSetting) matches(path string) bool {
+	if setting.globPattern != nil {
+		return setting.globPattern.MatchString(filepath.ToSlash(path))
+	}
+
+	return healthGlobMatches(setting.Glob, path)
 }
 
 func floatMap(values configdata.Map) map[string]float64 {
