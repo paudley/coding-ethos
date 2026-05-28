@@ -82,6 +82,42 @@ func TestRunStatusReportsBlockersAsJSON(t *testing.T) {
 	}
 }
 
+func TestRunStatusReturnsFlagParseErrors(t *testing.T) {
+	paths := operatorStatusTestPaths(t, true)
+
+	err := runStatusHandler(paths, []string{"--not-a-real-status-flag"})
+	if err == nil ||
+		!strings.Contains(err.Error(), "parse status flags") {
+		t.Fatalf("expected returned flag parse error, got %v", err)
+	}
+}
+
+func TestOperatorStatusTOONEscapesCommaCells(t *testing.T) {
+	report := operatorStatusReport{
+		Kind:           operatorStatusKind,
+		Status:         operatorStatusWarn,
+		GeneratedAtUTC: "2026-05-28T00:00:00Z",
+		Root:           "/repo/with,comma",
+		Summary:        "WARN: needs, operator review",
+		Checks: []operatorStatusCheck{{
+			Name:   "code_intel_db",
+			Status: operatorStatusWarn,
+			Detail: "contains,comma",
+		}},
+	}
+
+	output := formatOperatorStatusTOON(report)
+	for _, want := range []string{
+		`root: /repo/with\,comma`,
+		`summary: WARN: needs\, operator review`,
+		`code_intel_db,WARN,contains\,comma`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing escaped cell %q:\n%s", want, output)
+		}
+	}
+}
+
 func operatorStatusTestPaths(t *testing.T, createArtifacts bool) runtimePaths {
 	t.Helper()
 

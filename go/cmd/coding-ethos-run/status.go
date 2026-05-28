@@ -7,6 +7,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -60,7 +61,8 @@ type operatorStatusCheck struct {
 }
 
 func runStatusHandler(paths runtimePaths, rest []string) error {
-	flags := flag.NewFlagSet("status", flag.ExitOnError)
+	flags := flag.NewFlagSet("status", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
 	format := flags.String("format", "toon", "Output format: toon, human, or json")
 	writePath := flags.String("write", "", "Write a portable human handoff report")
 	includeTemp := flags.Bool("include-temp", false, "Include OS temp output surfaces")
@@ -441,13 +443,13 @@ func hookRunExitCode(path string) (int, bool) {
 		return 0, false
 	}
 
-	for line := range strings.SplitSeq(string(content), "\n") {
+	for line := range strings.Lines(string(content)) {
 		value, found := strings.CutPrefix(line, "exit_code=")
 		if !found {
 			continue
 		}
 
-		parsed, err := strconv.Atoi(strings.Trim(value, "'\""))
+		parsed, err := strconv.Atoi(strings.Trim(strings.TrimSpace(value), "'\""))
 		if err != nil {
 			return 0, false
 		}
@@ -591,13 +593,5 @@ func formatOperatorStatusHuman(report operatorStatusReport) string {
 }
 
 func toonCell(value string) string {
-	if value == "" {
-		return `""`
-	}
-
-	if strings.ContainsAny(value, ",\n\r") {
-		return strconv.Quote(value)
-	}
-
-	return value
+	return feedback.Cell(value)
 }

@@ -40,6 +40,7 @@ const (
 	defaultHookOutputDiagnostics = 12
 	defaultAnatomyMapSymbols     = 6
 	defaultAnatomyMapTimeout     = 5 * time.Second
+	maxDirectAnatomyFiles        = 100
 	defaultFileReadPageLines     = 100
 	defaultFileReadSemanticSlack = 50
 	semanticBackupTargetDivisor  = 2
@@ -170,6 +171,11 @@ func semanticFileReadPageEnd(root, targetPath, output string) int {
 		return pageEnd
 	}
 
+	chunks, found, err := directSemanticChunks(targetPath, output)
+	if err == nil && found {
+		return semanticPageEnd(pageEnd, totalLines, chunks)
+	}
+
 	ctx, cancel := context.WithTimeout(
 		context.Background(),
 		defaultAnatomyMapTimeout,
@@ -212,6 +218,31 @@ func semanticFileReadPageEnd(root, targetPath, output string) int {
 	}
 
 	return semanticPageEnd(pageEnd, totalLines, chunks)
+}
+
+func directSemanticChunks(
+	targetPath string,
+	output string,
+) ([]codeintel.CodeChunk, bool, error) {
+	facts, analyzed, err := astfacts.Analyze(targetPath, []byte(output))
+	if err != nil {
+		return nil, false, fmt.Errorf("analyze direct semantic chunks: %w", err)
+	}
+
+	if !analyzed || len(facts.Symbols) == 0 {
+		return nil, false, nil
+	}
+
+	chunks := make([]codeintel.CodeChunk, 0, len(facts.Symbols))
+	for _, symbol := range facts.Symbols {
+		chunks = append(chunks, codeintel.CodeChunk{
+			SymbolPath: symbol.SymbolPath,
+			StartLine:  symbol.StartLine,
+			EndLine:    symbol.EndLine,
+		})
+	}
+
+	return chunks, true, nil
 }
 
 func cachedSemanticChunks(
@@ -457,8 +488,24 @@ func directDirectoryAnatomyFiles(
 	invocation agentproxy.DirectoryListingInvocation,
 ) ([]codeintel.DirectoryAnatomyFile, error) {
 	absoluteTarget := filepath.Join(root, filepath.FromSlash(targetPath))
+
+	options, err := codeintel.LoadIndexOptions(root)
+	if err != nil {
+		return nil, fmt.Errorf("load direct directory anatomy index options: %w", err)
+	}
+
+	gate, err := codeintel.NewSourceIndexGate(ctx, root, options)
+	if err != nil {
+		return nil, fmt.Errorf("build direct directory anatomy source gate: %w", err)
+	}
+
 	if invocation.Recursive {
-		return directDirectoryTreeAnatomyFiles(ctx, root, absoluteTarget, invocation.MaxDepth)
+		return directDirectoryTreeAnatomyFiles(
+			ctx,
+			absoluteTarget,
+			invocation.MaxDepth,
+			gate,
+		)
 	}
 
 	entries, err := os.ReadDir(absoluteTarget)
@@ -469,13 +516,22 @@ func directDirectoryAnatomyFiles(
 	files := []codeintel.DirectoryAnatomyFile{}
 
 	for _, entry := range entries {
+		if len(files) >= maxDirectAnatomyFiles {
+			break
+		}
+
 		if entry.IsDir() {
 			continue
 		}
 
 		path := filepath.Join(absoluteTarget, entry.Name())
 
-		file, analyzed, fileErr := directDirectoryAnatomyFile(ctx, root, path)
+		file, analyzed, fileErr := directDirectoryAnatomyFile(
+			ctx,
+			path,
+			gate,
+			entry,
+		)
 		if fileErr != nil {
 			return nil, fileErr
 		}
@@ -492,9 +548,9 @@ func directDirectoryAnatomyFiles(
 
 func directDirectoryTreeAnatomyFiles(
 	ctx context.Context,
-	root string,
 	absoluteTarget string,
 	maxDepth int,
+	gate codeintel.SourceIndexGate,
 ) ([]codeintel.DirectoryAnatomyFile, error) {
 	if maxDepth <= 0 {
 		maxDepth = 1
@@ -507,9 +563,9 @@ func directDirectoryTreeAnatomyFiles(
 		func(path string, entry os.DirEntry, walkErr error) error {
 			return appendDirectDirectoryTreeFile(
 				ctx,
-				root,
 				absoluteTarget,
 				maxDepth,
+				gate,
 				&files,
 				path,
 				entry,
@@ -528,9 +584,9 @@ func directDirectoryTreeAnatomyFiles(
 
 func appendDirectDirectoryTreeFile(
 	ctx context.Context,
-	root string,
 	absoluteTarget string,
 	maxDepth int,
+	gate codeintel.SourceIndexGate,
 	files *[]codeintel.DirectoryAnatomyFile,
 	path string,
 	entry os.DirEntry,
@@ -545,6 +601,10 @@ func appendDirectDirectoryTreeFile(
 		return fmt.Errorf("check directory anatomy context: %w", ctxErr)
 	}
 
+	if len(*files) >= maxDirectAnatomyFiles {
+		return filepath.SkipAll
+	}
+
 	depth, err := directoryWalkDepth(absoluteTarget, path)
 	if err != nil {
 		return err
@@ -555,10 +615,10 @@ func appendDirectDirectoryTreeFile(
 	}
 
 	if entry.IsDir() {
-		return skipInternalDirectory(entry)
+		return skipDirectDirectory(ctx, gate, path, entry)
 	}
 
-	file, analyzed, err := directDirectoryAnatomyFile(ctx, root, path)
+	file, analyzed, err := directDirectoryAnatomyFile(ctx, path, gate, entry)
 	if err != nil {
 		return err
 	}
@@ -570,16 +630,25 @@ func appendDirectDirectoryTreeFile(
 	return nil
 }
 
-func skipDirectoryEntry(entry os.DirEntry) error {
-	if entry.IsDir() {
+func skipDirectDirectory(
+	ctx context.Context,
+	gate codeintel.SourceIndexGate,
+	path string,
+	entry os.DirEntry,
+) error {
+	if entry.Name() == ".git" || entry.Name() == ".coding-ethos" {
+		return filepath.SkipDir
+	}
+
+	if !gate.AllowsDir(ctx, path) {
 		return filepath.SkipDir
 	}
 
 	return nil
 }
 
-func skipInternalDirectory(entry os.DirEntry) error {
-	if entry.Name() == ".git" || entry.Name() == ".coding-ethos" {
+func skipDirectoryEntry(entry os.DirEntry) error {
+	if entry.IsDir() {
 		return filepath.SkipDir
 	}
 
@@ -601,8 +670,9 @@ func directoryWalkDepth(root, path string) (int, error) {
 
 func directDirectoryAnatomyFile(
 	ctx context.Context,
-	root string,
 	path string,
+	gate codeintel.SourceIndexGate,
+	entry os.DirEntry,
 ) (codeintel.DirectoryAnatomyFile, bool, error) {
 	ctxErr := ctx.Err()
 	if ctxErr != nil {
@@ -612,6 +682,26 @@ func directDirectoryAnatomyFile(
 		)
 	}
 
+	info, err := entry.Info()
+	if err != nil {
+		return codeintel.DirectoryAnatomyFile{}, false, fmt.Errorf(
+			"stat listed source file: %w",
+			err,
+		)
+	}
+
+	relative, allowed, err := gate.AllowsFile(ctx, path, info)
+	if err != nil {
+		return codeintel.DirectoryAnatomyFile{}, false, fmt.Errorf(
+			"check listed source file gate: %w",
+			err,
+		)
+	}
+
+	if !allowed {
+		return codeintel.DirectoryAnatomyFile{}, false, nil
+	}
+
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return codeintel.DirectoryAnatomyFile{}, false, fmt.Errorf(
@@ -619,16 +709,6 @@ func directDirectoryAnatomyFile(
 			err,
 		)
 	}
-
-	relative, err := filepath.Rel(root, path)
-	if err != nil {
-		return codeintel.DirectoryAnatomyFile{}, false, fmt.Errorf(
-			"relativize listed source file: %w",
-			err,
-		)
-	}
-
-	relative = filepath.ToSlash(relative)
 
 	facts, analyzed, err := astfacts.Analyze(relative, content)
 	if err != nil {

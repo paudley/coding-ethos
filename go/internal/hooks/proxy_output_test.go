@@ -4,6 +4,7 @@
 package hooks
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 )
+
+const directAnatomyLargeFixtureBytes = 2 * 1024 * 1024
 
 func TestProxyToolOutputPolicyIDPrefersDirectoryAnatomy(t *testing.T) {
 	t.Parallel()
@@ -35,6 +38,96 @@ func TestProxyToolOutputPolicyIDPrefersDirectoryAnatomy(t *testing.T) {
 
 	if got := proxyToolOutputDecision(records); got != proxyDecisionTruncate {
 		t.Fatalf("decision mismatch: got %q, want %q", got, proxyDecisionTruncate)
+	}
+}
+
+func TestDirectDirectoryAnatomySkipsIgnoredLargeAndSymlinkFiles(t *testing.T) {
+	repo := initProxyOutputRepo(t)
+	pkgDir := filepath.Join(repo, "pkg")
+	if err := os.MkdirAll(pkgDir, 0o700); err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+
+	writeProxyOutputFile(t, filepath.Join(repo, ".gitignore"), "pkg/ignored.go\n")
+	writeProxyOutputFile(
+		t,
+		filepath.Join(pkgDir, "safe.go"),
+		"package pkg\n\nfunc Safe() {}\n",
+	)
+	writeProxyOutputFile(
+		t,
+		filepath.Join(pkgDir, "ignored.go"),
+		"package pkg\n\nfunc Ignored() {}\n",
+	)
+	writeLargeProxyOutputFile(t, filepath.Join(pkgDir, "large.go"))
+
+	outside := filepath.Join(t.TempDir(), "outside.go")
+	writeProxyOutputFile(t, outside, "package outside\n\nfunc Outside() {}\n")
+	if err := os.Symlink(outside, filepath.Join(pkgDir, "link.go")); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+
+	files, err := directDirectoryAnatomyFiles(
+		context.Background(),
+		repo,
+		"pkg",
+		agentproxy.DirectoryListingInvocation{},
+	)
+	if err != nil {
+		t.Fatalf("build direct anatomy: %v", err)
+	}
+
+	if len(files) != 1 || files[0].Path != "pkg/safe.go" {
+		t.Fatalf("unexpected direct anatomy files: %#v", files)
+	}
+}
+
+func TestDirectDirectoryTreeAnatomyLimitsFilesAndSkipsSymlinks(t *testing.T) {
+	repo := initProxyOutputRepo(t)
+	pkgDir := filepath.Join(repo, "pkg")
+	if err := os.MkdirAll(pkgDir, 0o700); err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.go")
+	writeProxyOutputFile(t, outside, "package outside\n\nfunc Outside() {}\n")
+	if err := os.Symlink(outside, filepath.Join(pkgDir, "link.go")); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+
+	for index := range maxDirectAnatomyFiles + 5 {
+		writeProxyOutputFile(
+			t,
+			filepath.Join(pkgDir, fmt.Sprintf("file_%03d.go", index)),
+			fmt.Sprintf("package pkg\n\nfunc File%d() {}\n", index),
+		)
+	}
+
+	files, err := directDirectoryAnatomyFiles(
+		context.Background(),
+		repo,
+		"pkg",
+		agentproxy.DirectoryListingInvocation{
+			Recursive: true,
+			MaxDepth:  2,
+		},
+	)
+	if err != nil {
+		t.Fatalf("build recursive direct anatomy: %v", err)
+	}
+
+	if len(files) != maxDirectAnatomyFiles {
+		t.Fatalf(
+			"recursive direct anatomy file count = %d, want %d",
+			len(files),
+			maxDirectAnatomyFiles,
+		)
+	}
+
+	for _, file := range files {
+		if file.Path == "pkg/link.go" {
+			t.Fatalf("recursive direct anatomy included symlink: %#v", files)
+		}
 	}
 }
 
@@ -520,4 +613,26 @@ func initProxyOutputRepo(t *testing.T) string {
 	}
 
 	return repo
+}
+
+func writeProxyOutputFile(t *testing.T, path, content string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("create parent dir for %s: %v", path, err)
+	}
+
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func writeLargeProxyOutputFile(t *testing.T, path string) {
+	t.Helper()
+
+	writeProxyOutputFile(t, path, "package pkg\n\nfunc Large() {}\n")
+
+	if err := os.Truncate(path, directAnatomyLargeFixtureBytes); err != nil {
+		t.Fatalf("grow large fixture %s: %v", path, err)
+	}
 }
