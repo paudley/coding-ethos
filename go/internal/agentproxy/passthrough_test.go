@@ -151,6 +151,38 @@ func TestPassThroughProxyPreservesUpstreamFailureStatus(t *testing.T) {
 	}
 }
 
+func TestNewPassThroughProxyValidatesUpstream(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name    string
+		value   string
+		wantErr error
+	}{
+		{
+			name:    "scheme",
+			value:   "ftp://provider.example",
+			wantErr: errPassThroughUpstreamScheme,
+		},
+		{
+			name:    "host",
+			value:   "https:///v1/messages",
+			wantErr: errPassThroughUpstreamHost,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := NewPassThroughProxy(PassThroughOptions{
+				Upstream: testCase.value,
+			})
+			if !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("error = %v, want %v", err, testCase.wantErr)
+			}
+		})
+	}
+}
+
 func TestPassThroughProxyStripsHopByHopHeaders(t *testing.T) {
 	t.Parallel()
 
@@ -265,6 +297,51 @@ func TestPassThroughProxyListenAndServeOnListenerStopsOnContextCancel(t *testing
 	}
 }
 
+func TestPassThroughProxyListenAndServeReturnsListenError(t *testing.T) {
+	t.Parallel()
+
+	proxy, err := NewPassThroughProxy(PassThroughOptions{
+		Upstream: "http://127.0.0.1:1",
+	})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	err = proxy.ListenAndServe(context.Background(), "127.0.0.1:notaport")
+	if err == nil || !strings.Contains(err.Error(), "serve pass-through proxy") {
+		t.Fatalf("error = %v, want serve error", err)
+	}
+}
+
+func TestPassThroughProxyListenAndServeStopsOnContextCancel(t *testing.T) {
+	t.Parallel()
+
+	proxy, err := NewPassThroughProxy(PassThroughOptions{
+		Upstream: "http://127.0.0.1:1",
+	})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- proxy.ListenAndServe(ctx, "127.0.0.1:0")
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("serve error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not stop after context cancellation")
+	}
+}
+
 type flushingResponseWriter struct {
 	header  http.Header
 	body    strings.Builder
@@ -311,4 +388,86 @@ func TestCopyResponseBodyFlushesStreamedWrites(t *testing.T) {
 			writer.flushes,
 		)
 	}
+}
+
+func TestCopyResponseBodySupportsNonFlushingWriters(t *testing.T) {
+	t.Parallel()
+
+	response := newNonFlushingResponseWriter()
+
+	written, err := copyResponseBody(
+		response,
+		strings.NewReader("plain body"),
+	)
+	if err != nil {
+		t.Fatalf("copy response body: %v", err)
+	}
+	if written != int64(len("plain body")) || response.body.String() != "plain body" {
+		t.Fatalf("copy result written=%d body=%q", written, response.body.String())
+	}
+}
+
+func TestJoinURLPath(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name string
+		base string
+		path string
+		want string
+	}{
+		{name: "empty base and path", base: "", path: "", want: "/"},
+		{name: "empty path", base: "/v1", path: "", want: "/v1"},
+		{name: "trim duplicate slash", base: "/v1/", path: "/messages", want: "/v1/messages"},
+		{name: "add missing slash", base: "/v1", path: "messages", want: "/v1/messages"},
+		{name: "preserve single slash", base: "/v1", path: "/messages", want: "/v1/messages"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := joinURLPath(testCase.base, testCase.path)
+			if got != testCase.want {
+				t.Fatalf("joinURLPath(%q, %q) = %q, want %q",
+					testCase.base,
+					testCase.path,
+					got,
+					testCase.want,
+				)
+			}
+		})
+	}
+}
+
+func TestContentLengthBytes(t *testing.T) {
+	t.Parallel()
+
+	if contentLengthBytes(-1) != 0 {
+		t.Fatal("negative content length should report zero retained bytes")
+	}
+
+	if contentLengthBytes(42) != 42 {
+		t.Fatal("positive content length should be preserved")
+	}
+}
+
+type nonFlushingResponseWriter struct {
+	header http.Header
+	body   strings.Builder
+	status int
+}
+
+func newNonFlushingResponseWriter() *nonFlushingResponseWriter {
+	return &nonFlushingResponseWriter{header: http.Header{}}
+}
+
+func (writer *nonFlushingResponseWriter) Header() http.Header {
+	return writer.header
+}
+
+func (writer *nonFlushingResponseWriter) Write(content []byte) (int, error) {
+	return writer.body.Write(content)
+}
+
+func (writer *nonFlushingResponseWriter) WriteHeader(status int) {
+	writer.status = status
 }

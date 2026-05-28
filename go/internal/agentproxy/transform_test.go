@@ -180,6 +180,34 @@ func TestSavedOutputNoticeTransformOnlyTrimsSentencePeriod(t *testing.T) {
 	}
 }
 
+func TestSavedOutputNoticeRecognitionAndAllowPath(t *testing.T) {
+	t.Parallel()
+
+	notice := strings.Join([]string{
+		"Error: result exceeds maximum allowed tokens.",
+		"Output has been saved to /tmp/coding-ethos-output.log.",
+	}, " ")
+	if !agentproxy.IsSavedOutputNotice(notice) {
+		t.Fatalf("notice was not recognized: %s", notice)
+	}
+
+	output, err := agentproxy.SavedOutputNoticeTransform{}.Apply(
+		context.Background(),
+		agentproxy.TransformInput{
+			Metadata: map[string]string{"session": "one"},
+			Text:     "ordinary output",
+		},
+	)
+	if err != nil {
+		t.Fatalf("apply saved-output transform: %v", err)
+	}
+	if output.Text != "ordinary output" ||
+		output.Metadata["session"] != "one" ||
+		output.Record.Decision != "allow" {
+		t.Fatalf("output = %#v", output)
+	}
+}
+
 func TestToolOutputCompressionPreservesHeadTailAndRecordsSavings(t *testing.T) {
 	t.Parallel()
 
@@ -240,6 +268,35 @@ func TestToolOutputCompressionPreservesHeadTailAndRecordsSavings(t *testing.T) {
 	}
 
 	assertEvidenceFileContains(t, output.Record.EvidencePath, input)
+}
+
+func TestToolOutputCompressionNormalizesTinyBudgets(t *testing.T) {
+	t.Parallel()
+
+	output, err := agentproxy.ToolOutputCompressionTransform{
+		MaxLines: 1,
+		Head:     100,
+		Tail:     100,
+	}.Apply(
+		context.Background(),
+		agentproxy.TransformInput{
+			Text: strings.Join([]string{
+				"start",
+				"middle one",
+				"middle two",
+				"end",
+			}, "\n"),
+		},
+	)
+	if err != nil {
+		t.Fatalf("apply compression: %v", err)
+	}
+	if !strings.Contains(output.Text, "2 of 4 lines omitted") ||
+		!strings.Contains(output.Text, "start") ||
+		!strings.Contains(output.Text, "end") ||
+		output.Record.Decision != "truncate" {
+		t.Fatalf("normalized compression output = %#v", output)
+	}
 }
 
 func TestToolOutputDiagnosticSummaryCondensesParsedDiagnostics(t *testing.T) {

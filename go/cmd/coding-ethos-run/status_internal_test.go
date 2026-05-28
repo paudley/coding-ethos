@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 )
 
 func TestRunStatusReportsHealthyAndWritesHandoff(t *testing.T) {
@@ -145,6 +146,61 @@ func TestOperatorStatusTOONEscapesCommaCells(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing escaped cell %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestOutputSurfaceChecksReportMissingAndUnavailableCodeIntelStats(t *testing.T) {
+	t.Parallel()
+
+	checks := outputSurfaceChecks(outputsurface.Report{})
+	if len(checks) != 2 ||
+		checks[0].Name != "output_surfaces" ||
+		checks[0].Status != operatorStatusPass ||
+		checks[1].Name != "code_intel_db" ||
+		checks[1].Status != operatorStatusWarn ||
+		!strings.Contains(checks[1].Detail, "DuckDB store is missing") {
+		t.Fatalf("missing code-intel checks = %#v", checks)
+	}
+
+	checks = outputSurfaceChecks(outputsurface.Report{
+		Surfaces: []outputsurface.Inventory{{
+			Definition: outputsurface.Definition{ID: "code_intel_db"},
+			Exists:     true,
+		}},
+	})
+	if len(checks) != 2 ||
+		checks[1].Name != "code_intel_db" ||
+		checks[1].Status != operatorStatusWarn ||
+		!strings.Contains(checks[1].Detail, "stats were unavailable") {
+		t.Fatalf("unavailable stats checks = %#v", checks)
+	}
+}
+
+func TestOutputSurfaceChecksReportStaleAndErrorCounts(t *testing.T) {
+	t.Parallel()
+
+	checks := outputSurfaceChecks(outputsurface.Report{
+		Surfaces: []outputsurface.Inventory{
+			{
+				Definition: outputsurface.Definition{ID: "hook_runs"},
+				Exists:     true,
+				StaleCount: 2,
+			},
+			{
+				Definition: outputsurface.Definition{ID: "code_intel_db"},
+				Exists:     true,
+				DBStats:    &codeintel.Stats{Files: 3, CodeChunks: 4},
+				Errors:     []string{"permission denied"},
+			},
+		},
+	})
+	if len(checks) != 2 ||
+		checks[0].Name != "output_surfaces" ||
+		checks[0].Status != operatorStatusWarn ||
+		!strings.Contains(checks[0].Detail, "surfaces=2 stale=2 errors=1") ||
+		checks[1].Status != operatorStatusPass ||
+		!strings.Contains(checks[1].Detail, "files=3 chunks=4") {
+		t.Fatalf("surface checks = %#v", checks)
 	}
 }
 
