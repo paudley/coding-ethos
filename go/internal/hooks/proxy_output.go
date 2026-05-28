@@ -12,6 +12,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,7 @@ const (
 	proxyPolicyDirectoryAnatomy  = "proxy.directory_anatomy"
 	proxyPolicyFilePagination    = agentproxy.FileReadPaginationPolicyID
 	proxyPolicyTokenBudget       = "proxy.token_budget"
+	directSourceTokenBytes       = 4
 )
 
 type proxiedToolOutput struct {
@@ -366,6 +368,20 @@ func enrichDirectoryListingToolOutput(
 	)
 	defer cancel()
 
+	directOutput, err := directDirectoryListingAnatomy(
+		ctx,
+		root,
+		targetPath,
+		invocation,
+		proxied.Text,
+	)
+	if err == nil && directOutput.Record.Decision == proxyDecisionInject {
+		proxied.Text = directOutput.Text
+		proxied.Records = append(proxied.Records, directOutput.Record)
+
+		return proxied
+	}
+
 	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
 	if err != nil {
 		return proxied
@@ -401,6 +417,268 @@ func enrichDirectoryListingToolOutput(
 	}
 
 	return proxied
+}
+
+func directDirectoryListingAnatomy(
+	ctx context.Context,
+	root string,
+	targetPath string,
+	invocation agentproxy.DirectoryListingInvocation,
+	listing string,
+) (agentproxy.TransformOutput, error) {
+	files, err := directDirectoryAnatomyFiles(ctx, root, targetPath, invocation)
+	if err != nil {
+		return agentproxy.TransformOutput{}, err
+	}
+
+	output, err := agentproxy.NewPipeline(
+		nil,
+		codeintel.DirectoryAnatomyTransform{
+			Anatomy: codeintel.DirectoryAnatomy{
+				Path:  targetPath,
+				Files: files,
+			},
+		},
+	).Apply(ctx, agentproxy.TransformInput{Text: listing})
+	if err != nil {
+		return agentproxy.TransformOutput{}, fmt.Errorf(
+			"apply direct directory anatomy transform: %w",
+			err,
+		)
+	}
+
+	return output, nil
+}
+
+func directDirectoryAnatomyFiles(
+	ctx context.Context,
+	root string,
+	targetPath string,
+	invocation agentproxy.DirectoryListingInvocation,
+) ([]codeintel.DirectoryAnatomyFile, error) {
+	absoluteTarget := filepath.Join(root, filepath.FromSlash(targetPath))
+	if invocation.Recursive {
+		return directDirectoryTreeAnatomyFiles(ctx, root, absoluteTarget, invocation.MaxDepth)
+	}
+
+	entries, err := os.ReadDir(absoluteTarget)
+	if err != nil {
+		return nil, fmt.Errorf("read listed directory: %w", err)
+	}
+
+	files := []codeintel.DirectoryAnatomyFile{}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		path := filepath.Join(absoluteTarget, entry.Name())
+
+		file, analyzed, fileErr := directDirectoryAnatomyFile(ctx, root, path)
+		if fileErr != nil {
+			return nil, fileErr
+		}
+
+		if analyzed {
+			files = append(files, file)
+		}
+	}
+
+	slices.SortFunc(files, compareDirectoryAnatomyFiles)
+
+	return files, nil
+}
+
+func directDirectoryTreeAnatomyFiles(
+	ctx context.Context,
+	root string,
+	absoluteTarget string,
+	maxDepth int,
+) ([]codeintel.DirectoryAnatomyFile, error) {
+	if maxDepth <= 0 {
+		maxDepth = 1
+	}
+
+	files := []codeintel.DirectoryAnatomyFile{}
+
+	err := filepath.WalkDir(
+		absoluteTarget,
+		func(path string, entry os.DirEntry, walkErr error) error {
+			return appendDirectDirectoryTreeFile(
+				ctx,
+				root,
+				absoluteTarget,
+				maxDepth,
+				&files,
+				path,
+				entry,
+				walkErr,
+			)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("walk listed directory tree: %w", err)
+	}
+
+	slices.SortFunc(files, compareDirectoryAnatomyFiles)
+
+	return files, nil
+}
+
+func appendDirectDirectoryTreeFile(
+	ctx context.Context,
+	root string,
+	absoluteTarget string,
+	maxDepth int,
+	files *[]codeintel.DirectoryAnatomyFile,
+	path string,
+	entry os.DirEntry,
+	walkErr error,
+) error {
+	if walkErr != nil {
+		return fmt.Errorf("visit listed directory tree path: %w", walkErr)
+	}
+
+	ctxErr := ctx.Err()
+	if ctxErr != nil {
+		return fmt.Errorf("check directory anatomy context: %w", ctxErr)
+	}
+
+	depth, err := directoryWalkDepth(absoluteTarget, path)
+	if err != nil {
+		return err
+	}
+
+	if depth > maxDepth {
+		return skipDirectoryEntry(entry)
+	}
+
+	if entry.IsDir() {
+		return skipInternalDirectory(entry)
+	}
+
+	file, analyzed, err := directDirectoryAnatomyFile(ctx, root, path)
+	if err != nil {
+		return err
+	}
+
+	if analyzed {
+		*files = append(*files, file)
+	}
+
+	return nil
+}
+
+func skipDirectoryEntry(entry os.DirEntry) error {
+	if entry.IsDir() {
+		return filepath.SkipDir
+	}
+
+	return nil
+}
+
+func skipInternalDirectory(entry os.DirEntry) error {
+	if entry.Name() == ".git" || entry.Name() == ".coding-ethos" {
+		return filepath.SkipDir
+	}
+
+	return nil
+}
+
+func directoryWalkDepth(root, path string) (int, error) {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return 0, fmt.Errorf("calculate listed path depth: %w", err)
+	}
+
+	if relative == "." {
+		return 0, nil
+	}
+
+	return len(strings.Split(filepath.ToSlash(relative), "/")), nil
+}
+
+func directDirectoryAnatomyFile(
+	ctx context.Context,
+	root string,
+	path string,
+) (codeintel.DirectoryAnatomyFile, bool, error) {
+	ctxErr := ctx.Err()
+	if ctxErr != nil {
+		return codeintel.DirectoryAnatomyFile{}, false, fmt.Errorf(
+			"check directory anatomy context: %w",
+			ctxErr,
+		)
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return codeintel.DirectoryAnatomyFile{}, false, fmt.Errorf(
+			"read listed source file: %w",
+			err,
+		)
+	}
+
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return codeintel.DirectoryAnatomyFile{}, false, fmt.Errorf(
+			"relativize listed source file: %w",
+			err,
+		)
+	}
+
+	relative = filepath.ToSlash(relative)
+
+	facts, analyzed, err := astfacts.Analyze(relative, content)
+	if err != nil {
+		return codeintel.DirectoryAnatomyFile{}, false, fmt.Errorf(
+			"analyze listed source file: %w",
+			err,
+		)
+	}
+
+	if !analyzed {
+		return codeintel.DirectoryAnatomyFile{}, false, nil
+	}
+
+	symbols := make([]codeintel.DirectoryAnatomySymbol, 0, len(facts.Symbols))
+	for _, symbol := range facts.Symbols {
+		symbols = append(symbols, codeintel.DirectoryAnatomySymbol{
+			Kind:       symbol.SymbolKind,
+			Name:       symbol.SymbolName,
+			SymbolPath: symbol.SymbolPath,
+			StartLine:  symbol.StartLine,
+		})
+		if len(symbols) >= defaultAnatomyMapSymbols {
+			break
+		}
+	}
+
+	return codeintel.DirectoryAnatomyFile{
+		Path:            relative,
+		Language:        facts.Language,
+		Symbols:         symbols,
+		SizeBytes:       len(content),
+		EstimatedTokens: estimateDirectSourceTokens(len(content)),
+		LineCount:       facts.LineCount,
+		SymbolCount:     len(facts.Symbols),
+	}, true, nil
+}
+
+func estimateDirectSourceTokens(sizeBytes int) int {
+	if sizeBytes <= 0 {
+		return 0
+	}
+
+	return max(1, (sizeBytes+directSourceTokenBytes-1)/directSourceTokenBytes)
+}
+
+func compareDirectoryAnatomyFiles(
+	left codeintel.DirectoryAnatomyFile,
+	right codeintel.DirectoryAnatomyFile,
+) int {
+	return strings.Compare(left.Path, right.Path)
 }
 
 func indexListingTarget(
