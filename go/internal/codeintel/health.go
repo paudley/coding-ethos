@@ -140,9 +140,9 @@ type CodeHealthBiomarkerSetting struct {
 }
 
 type CodeHealthPathSetting struct {
+	DisabledBiomarkers []string           `json:"disabled_biomarkers,omitempty"`
 	Weights            map[string]float64 `json:"weights,omitempty"`
 	Glob               string             `json:"glob"`
-	DisabledBiomarkers []string           `json:"disabled_biomarkers,omitempty"`
 	globPattern        *regexp.Regexp
 }
 

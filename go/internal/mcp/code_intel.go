@@ -118,7 +118,7 @@ func (server Server) codeIntelOverview(args json.RawMessage) (any, error) {
 		"embeddings",
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read code intelligence task metadata: %w", err)
 	}
 
 	nextCalls := []map[string]any{
@@ -236,7 +236,7 @@ func (server Server) codeIntelAnswer(args json.RawMessage) (any, error) {
 		"remediation_evidence",
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read code intelligence task metadata: %w", err)
 	}
 
 	citations := citationsFromHybridResults(results, limit)
@@ -1391,18 +1391,9 @@ func changeRiskTarget(
 		return codeIntelRiskTarget{}, err
 	}
 
-	health, foundHealth, err := store.StoredCodeHealth(ctx, codeintel.CodeHealthQuery{
-		Root:  root,
-		Path:  path,
-		Limit: 1,
-	})
+	healthTargets, err := storedHealthTargets(ctx, store, root, path)
 	if err != nil {
 		return codeIntelRiskTarget{}, fmt.Errorf("query health score for %s: %w", path, err)
-	}
-
-	healthTargets := []codeintel.CodeHealthTarget{}
-	if foundHealth {
-		healthTargets = health.Targets
 	}
 
 	reasons := changeRiskReasons(
@@ -1428,6 +1419,28 @@ func changeRiskTarget(
 		Reasons:            reasons,
 		RecommendedChecks:  recommendedChecksForPath(path),
 	}, nil
+}
+
+func storedHealthTargets(
+	ctx context.Context,
+	store *codeintel.Store,
+	root string,
+	path string,
+) ([]codeintel.CodeHealthTarget, error) {
+	health, foundHealth, err := store.StoredCodeHealth(ctx, codeintel.CodeHealthQuery{
+		Root:  root,
+		Path:  path,
+		Limit: 1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read stored code health: %w", err)
+	}
+
+	if !foundHealth {
+		return []codeintel.CodeHealthTarget{}, nil
+	}
+
+	return health.Targets, nil
 }
 
 func changeRiskReasons(
