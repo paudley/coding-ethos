@@ -1085,6 +1085,12 @@ func TestRuntimePathsExportManagedEnvironment(t *testing.T) {
 		"POLICY_METADATA",
 		"MANAGED_TOOLCHAIN_MANIFEST",
 		"CODING_ETHOS_REAL_GIT",
+		"CODE_ETHOS_AGENT_API_PROXY",
+		"CODE_ETHOS_AGENT_API_PROXY_URL",
+		"HTTP_PROXY",
+		"HTTPS_PROXY",
+		"http_proxy",
+		"https_proxy",
 		"PATH",
 	)
 	t.Cleanup(restoreEnv)
@@ -1125,6 +1131,33 @@ func TestRuntimePathsExportManagedEnvironment(t *testing.T) {
 		"/repo/coding-ethos/build/toolchain/go-bin:",
 	) {
 		t.Fatalf("exported PATH = %q", got)
+	}
+}
+
+func TestAgentAPIProxyRoutingEnvRequiresExplicitOptIn(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-run-agent-api-proxy-env")
+
+	restoreEnv := captureRuntimeEnvForTest(
+		"CODE_ETHOS_AGENT_API_PROXY",
+		"CODE_ETHOS_AGENT_API_PROXY_URL",
+		"HTTP_PROXY",
+		"HTTPS_PROXY",
+		"http_proxy",
+		"https_proxy",
+	)
+	t.Cleanup(restoreEnv)
+
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "http://127.0.0.1:8080")
+	if got := agentAPIProxyRoutingEnv(); len(got) != 0 {
+		t.Fatalf("proxy env without opt-in = %#v", got)
+	}
+
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "1")
+	got := agentAPIProxyRoutingEnv()
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"} {
+		if got[key] != "http://127.0.0.1:8080" {
+			t.Fatalf("proxy env %s = %q in %#v", key, got[key], got)
+		}
 	}
 }
 

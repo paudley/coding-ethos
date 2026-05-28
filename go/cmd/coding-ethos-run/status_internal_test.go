@@ -15,6 +15,9 @@ import (
 )
 
 func TestRunStatusReportsHealthyAndWritesHandoff(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "")
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "")
+
 	paths := operatorStatusTestPaths(t, true)
 	writeOperatorStatusHookRun(t, paths.Root, "run-pass", 0)
 	createOperatorStatusCodeIntelDB(t, paths.Root, false)
@@ -36,6 +39,7 @@ func TestRunStatusReportsHealthyAndWritesHandoff(t *testing.T) {
 		"kind: operator_status",
 		"status: PASS",
 		"policy_bundle,PASS",
+		"agent_api_proxy,PASS,routing disabled",
 		"code_intel_db,PASS",
 		"recent_hook_failures: 0",
 		"hook_reviews: 0",
@@ -56,6 +60,9 @@ func TestRunStatusReportsHealthyAndWritesHandoff(t *testing.T) {
 }
 
 func TestRunStatusReportsBlockersAsJSON(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "1")
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "")
+
 	paths := operatorStatusTestPaths(t, false)
 	writeOperatorStatusHookRun(t, paths.Root, "run-fail", 1)
 	createOperatorStatusCodeIntelDB(t, paths.Root, true)
@@ -74,6 +81,7 @@ func TestRunStatusReportsBlockersAsJSON(t *testing.T) {
 		`"hook_reviews": 1`,
 		`"false_positives": 1`,
 		`"name": "policy_bundle"`,
+		`routing enabled without CODE_ETHOS_AGENT_API_PROXY_URL`,
 		`Run make build to regenerate runtime artifacts.`,
 	} {
 		if !strings.Contains(output, want) {

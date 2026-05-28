@@ -545,6 +545,16 @@ session recomputes the file hash and, when it still matches, records a
 `cache_hit` event and returns a short cached-read stub instead of resending the
 file body. This is the reusable core for future transparent read interception.
 
+`bin/coding-ethos-run agent-proxy passthrough --upstream <url> --listen
+127.0.0.1:<port>` starts the baseline Agent API proxy. This mode preserves
+provider requests and responses without payload inspection, mutation, blocking,
+TLS interception, CA installation, or trust-store changes. Agent routing is
+disabled by default; child agent processes only receive proxy variables when
+`CODE_ETHOS_AGENT_API_PROXY=1` and `CODE_ETHOS_AGENT_API_PROXY_URL=<proxy-url>`
+are both set. The status report includes `agent_api_proxy`, and pass-through
+requests record body-free `proxy.pass_through` evidence with
+`payload_body_retained=false`.
+
 Agent search, glob, and read PostToolUse hooks add compact code-intel
 enrichment when the repo-local index is available. The TOON hint includes
 detected repo paths, likely symbols, direct graph edges, repeated-failure

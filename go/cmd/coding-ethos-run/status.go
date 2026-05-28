@@ -120,6 +120,7 @@ func buildOperatorStatus(
 	}
 
 	report.Checks = append(report.Checks, runtimeArtifactChecks(paths)...)
+	report.Checks = append(report.Checks, agentAPIProxyRoutingCheck())
 	report.Checks = append(report.Checks, outputSurfaceChecks(surfaceReport)...)
 	report.Checks = append(
 		report.Checks,
@@ -142,6 +143,33 @@ func runtimeArtifactChecks(paths runtimePaths) []operatorStatusCheck {
 	}
 
 	return checks
+}
+
+func agentAPIProxyRoutingCheck() operatorStatusCheck {
+	enabled := strings.TrimSpace(os.Getenv(envAgentAPIProxyEnabled)) == "1"
+	proxyURL := strings.TrimSpace(os.Getenv(envAgentAPIProxyURL))
+
+	if !enabled {
+		return operatorStatusCheck{
+			Name:   "agent_api_proxy",
+			Status: operatorStatusPass,
+			Detail: "routing disabled",
+		}
+	}
+
+	if proxyURL == "" {
+		return operatorStatusCheck{
+			Name:   "agent_api_proxy",
+			Status: operatorStatusWarn,
+			Detail: "routing enabled without CODE_ETHOS_AGENT_API_PROXY_URL",
+		}
+	}
+
+	return operatorStatusCheck{
+		Name:   "agent_api_proxy",
+		Status: operatorStatusPass,
+		Detail: "routing enabled via explicit proxy URL",
+	}
 }
 
 func outputSurfaceChecks(report outputsurface.Report) []operatorStatusCheck {
