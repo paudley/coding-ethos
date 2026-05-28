@@ -499,7 +499,7 @@ func agentAPIProxyRoutingEnv() map[string]string {
 	}
 
 	proxyURL := strings.TrimSpace(os.Getenv(envAgentAPIProxyURL))
-	if proxyURL == "" {
+	if proxyURL == "" || !validAgentAPIProxyURL(proxyURL) {
 		return nil
 	}
 

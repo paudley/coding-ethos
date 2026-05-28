@@ -1161,6 +1161,35 @@ func TestAgentAPIProxyRoutingEnvRequiresExplicitOptIn(t *testing.T) {
 	}
 }
 
+func TestAgentAPIProxyRoutingEnvRejectsInvalidURL(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-run-agent-api-proxy-invalid-env")
+
+	restoreEnv := captureRuntimeEnvForTest(
+		"CODE_ETHOS_AGENT_API_PROXY",
+		"CODE_ETHOS_AGENT_API_PROXY_URL",
+		"HTTP_PROXY",
+		"HTTPS_PROXY",
+		"http_proxy",
+		"https_proxy",
+	)
+	t.Cleanup(restoreEnv)
+
+	for _, value := range []string{
+		"127.0.0.1:8080",
+		"https:///v1/messages",
+		"ftp://127.0.0.1:8080",
+	} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "1")
+			t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", value)
+
+			if got := agentAPIProxyRoutingEnv(); len(got) != 0 {
+				t.Fatalf("proxy env for invalid URL %q = %#v", value, got)
+			}
+		})
+	}
+}
+
 func captureRuntimeEnvForTest(names ...string) func() {
 	type envValue struct {
 		value string

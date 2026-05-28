@@ -264,6 +264,44 @@ func TestPassThroughProxyRecordsRouteError(t *testing.T) {
 	}
 }
 
+func TestPassThroughProxyEventIDsAreUniqueForSameTimestampAndTarget(t *testing.T) {
+	t.Parallel()
+
+	provider := httptest.NewServer(http.HandlerFunc(
+		func(writer http.ResponseWriter, _ *http.Request) {
+			_, _ = writer.Write([]byte("ok"))
+		},
+	))
+	defer provider.Close()
+
+	recorder := &recordingProxyEvents{}
+	proxy, err := NewPassThroughProxy(PassThroughOptions{
+		Now: func() time.Time {
+			return time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+		},
+		Recorder: recorder,
+		Upstream: provider.URL,
+	})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	for range 2 {
+		response := httptest.NewRecorder()
+		proxy.ServeHTTP(
+			response,
+			httptest.NewRequest(http.MethodPost, "http://proxy.local/same", nil),
+		)
+	}
+
+	if len(recorder.events) != 2 {
+		t.Fatalf("recorded events = %#v", recorder.events)
+	}
+	if recorder.events[0].ID == recorder.events[1].ID {
+		t.Fatalf("duplicate event IDs = %q", recorder.events[0].ID)
+	}
+}
+
 func TestPassThroughProxyListenAndServeOnListenerStopsOnContextCancel(t *testing.T) {
 	t.Parallel()
 

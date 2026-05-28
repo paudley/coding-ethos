@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -95,6 +96,9 @@ func runAgentProxyPassthrough(paths runtimePaths, args []string) error {
 	defer stop()
 
 	err = proxy.ListenAndServe(ctx, *listen)
+	if errors.Is(err, context.Canceled) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("run pass-through agent proxy: %w", err)
 	}

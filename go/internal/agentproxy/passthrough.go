@@ -15,16 +15,18 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
 const (
-	passThroughDefaultTimeout = 30 * time.Second
-	passThroughPolicyID       = "proxy.pass_through"
-	passThroughDecisionAllow  = "allow"
-	responseCopyBufferSize    = 32 * 1024
+	passThroughDefaultTimeout  = 30 * time.Second
+	passThroughPolicyID        = "proxy.pass_through"
+	passThroughDecisionAllow   = "allow"
+	responseCopyBufferSize     = 32 * 1024
+	defaultHopByHopHeaderCount = 8
 )
 
 var (
@@ -60,6 +62,7 @@ type PassThroughProxy struct {
 	upstream *url.URL
 	provider string
 	repoRoot string
+	sequence atomic.Uint64
 }
 
 // NewPassThroughProxy returns a proxy that forwards requests to an upstream
@@ -269,7 +272,12 @@ func (proxy *PassThroughProxy) record(
 	}
 
 	event := ProviderEvent{
-		ID:            passThroughEventID(recordedAt, request.Method, upstream),
+		ID: passThroughEventID(
+			recordedAt,
+			request.Method,
+			upstream,
+			proxy.sequence.Add(1),
+		),
 		SessionID:     sessionID,
 		Kind:          EventProviderCall,
 		Provider:      provider,
@@ -306,7 +314,8 @@ func copyHeaders(target, source http.Header) {
 }
 
 func hopByHopHeaderSet(headers http.Header) map[string]struct{} {
-	excluded := defaultHopByHopHeaderSet()
+	excluded := make(map[string]struct{}, defaultHopByHopHeaderCount)
+	addDefaultHopByHopHeaders(excluded)
 
 	for _, headerValue := range headers.Values("Connection") {
 		for name := range strings.SplitSeq(headerValue, ",") {
@@ -320,17 +329,15 @@ func hopByHopHeaderSet(headers http.Header) map[string]struct{} {
 	return excluded
 }
 
-func defaultHopByHopHeaderSet() map[string]struct{} {
-	return map[string]struct{}{
-		"Connection":          {},
-		"Keep-Alive":          {},
-		"Proxy-Authenticate":  {},
-		"Proxy-Authorization": {},
-		"Te":                  {},
-		"Trailer":             {},
-		"Transfer-Encoding":   {},
-		"Upgrade":             {},
-	}
+func addDefaultHopByHopHeaders(headers map[string]struct{}) {
+	headers["Connection"] = struct{}{}
+	headers["Keep-Alive"] = struct{}{}
+	headers["Proxy-Authenticate"] = struct{}{}
+	headers["Proxy-Authorization"] = struct{}{}
+	headers["Te"] = struct{}{}
+	headers["Trailer"] = struct{}{}
+	headers["Transfer-Encoding"] = struct{}{}
+	headers["Upgrade"] = struct{}{}
 }
 
 func copyResponseBody(writer http.ResponseWriter, body io.Reader) (int64, error) {
@@ -408,10 +415,15 @@ func joinURLPath(base, path string) string {
 	}
 }
 
-func passThroughEventID(recordedAt time.Time, method string, upstream *url.URL) string {
+func passThroughEventID(
+	recordedAt time.Time,
+	method string,
+	upstream *url.URL,
+	sequence uint64,
+) string {
 	hash := sha256.Sum256([]byte(
 		recordedAt.Format(time.RFC3339Nano) + "\n" + method + "\n" +
-			upstream.String(),
+			upstream.String() + "\n" + strconv.FormatUint(sequence, 10),
 	))
 
 	return "agent-api-proxy-" + hex.EncodeToString(hash[:])[:24]
