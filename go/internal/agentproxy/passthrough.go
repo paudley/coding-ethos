@@ -271,10 +271,13 @@ func (proxy *PassThroughProxy) record(
 	metadata := map[string]string{
 		"method":                request.Method,
 		"payload_body_retained": "false",
-		"status_code":           strconv.Itoa(statusCode),
 		"upstream_host":         upstream.Host,
 		"upstream_scheme":       upstream.Scheme,
 	}
+	if statusCode > 0 {
+		metadata["status_code"] = strconv.Itoa(statusCode)
+	}
+
 	if routeErr != nil {
 		metadata["error"] = safeRouteError(routeErr)
 	}
@@ -302,7 +305,6 @@ func (proxy *PassThroughProxy) record(
 		RepoRoot:      proxy.repoRoot,
 		RecordedAtUTC: recordedAt,
 		Direction:     DirectionOutbound,
-		PayloadKind:   PayloadPrompt,
 		PolicyID:      passThroughPolicyID,
 		Decision:      decision,
 		Metadata:      metadata,
@@ -334,7 +336,6 @@ func defaultPassThroughHTTPClient() *http.Client {
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-		Timeout:   passThroughDefaultTimeout,
 		Transport: transport,
 	}
 }

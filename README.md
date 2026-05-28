@@ -545,8 +545,8 @@ session recomputes the file hash and, when it still matches, records a
 `cache_hit` event and returns a short cached-read stub instead of resending the
 file body. This is the reusable core for future transparent read interception.
 
-`bin/coding-ethos-run agent-proxy passthrough --upstream <url> --listen
-127.0.0.1:<port>` starts the baseline Agent API proxy. This mode preserves
+`bin/coding-ethos-run agent-proxy passthrough --upstream <url> --listen 127.0.0.1:<port>`
+starts the baseline Agent API proxy. This mode preserves
 provider requests and responses without payload inspection, mutation, blocking,
 TLS interception, CA installation, or trust-store changes. Agent proxy routing
 is not exported by coding-ethos unless `CODE_ETHOS_AGENT_API_PROXY=1` and

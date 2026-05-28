@@ -210,6 +210,12 @@ func TestNewPassThroughProxyDefaultClientPreservesProxySemantics(t *testing.T) {
 	if !transport.DisableCompression {
 		t.Fatal("default pass-through transport should disable transparent compression")
 	}
+	if proxy.client.Timeout != 0 {
+		t.Fatalf(
+			"default pass-through client timeout = %s, want request-context deadline",
+			proxy.client.Timeout,
+		)
+	}
 	if proxy.client.CheckRedirect == nil {
 		t.Fatal("default pass-through client should not follow redirects")
 	}
@@ -364,6 +370,18 @@ func TestPassThroughProxyRecordsRouteError(t *testing.T) {
 		recorder.events[0].Decision != passThroughDecisionError ||
 		recorder.events[0].Metadata["error"] != "Post" {
 		t.Fatalf("route error event = %#v", recorder.events)
+	}
+	if _, found := recorder.events[0].Metadata["status_code"]; found {
+		t.Fatalf(
+			"route error should not record synthetic status code: %#v",
+			recorder.events[0].Metadata,
+		)
+	}
+	if recorder.events[0].PayloadKind != "" {
+		t.Fatalf(
+			"pass-through event payload kind = %q, want empty baseline classification",
+			recorder.events[0].PayloadKind,
+		)
 	}
 }
 
