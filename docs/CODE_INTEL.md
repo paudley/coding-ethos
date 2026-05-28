@@ -155,6 +155,14 @@ queries cannot replace the repository health baseline. Consumer repos can
 reweight or disable biomarkers by glob under `code_intel.health` in
 `repo_config.yaml` for generated, vendor, legacy, or test paths.
 
+Session snapshots are exposed as `code-intel session-snapshot` and MCP
+`code_intel_session_snapshot`. They derive the stable
+`coding_ethos.session.v1` contract from existing hook traces, proxy
+sessions/events/transforms, memory trace activity, and code-intel freshness
+metadata. Provider-specific details stay nested under `provider.adapters`, so
+agents can inspect current blockers and linked trace IDs without coupling to
+provider-specific event files or doing broad source reads.
+
 Automatic output pruning applies the configured `code_intel_db` row-retention
 policy after high-volume code-intel writes. The default keeps 90 days of trace
 and proxy-event rows, leaves current AST/code chunks to the index refresh path,
@@ -241,6 +249,7 @@ bin/coding-ethos-run code-intel proxy-file-read --session-id sess-1 --path pkg/a
 bin/coding-ethos-run code-intel record-proxy-event --event-id evt-1 --session-id sess-1 --kind file_read --provider codex --target-path pkg/app.go
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel proxy-events --session-id sess-1
+bin/coding-ethos-run code-intel session-snapshot --session-id sess-1 --format toon
 bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
 bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports
 bin/coding-ethos-run code-intel embedding-candidates --record-kind remediation_outcome

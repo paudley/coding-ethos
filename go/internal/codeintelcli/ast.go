@@ -19,7 +19,11 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
-const defaultAnatomyMapSymbolsPerFile = 6
+const (
+	defaultAnatomyMapSymbolsPerFile = 6
+	outputFormatJSON                = "json"
+	outputFormatTOON                = "toon"
+)
 
 var (
 	errUnsupportedAnatomyMapFormat = apperror.StaticError(
@@ -94,7 +98,7 @@ func printAnatomyMap(ctx context.Context, args []string) error {
 	storeFlags := addStoreFlags(flags, "Repository root to inspect")
 	path := flags.String("path", ".", "Directory path to summarize")
 	language := flags.String("language", "", "Filter by language")
-	outputFormat := flags.String("format", "json", "Output format: json or toon")
+	outputFormat := flags.String("format", outputFormatJSON, "Output format: json or toon")
 	symbolsPerFile := flags.Int(
 		"symbols-per-file",
 		defaultAnatomyMapSymbolsPerFile,
@@ -137,9 +141,9 @@ func printAnatomyMap(ctx context.Context, args []string) error {
 	}
 
 	switch strings.ToLower(strings.TrimSpace(*outputFormat)) {
-	case "", "json":
+	case "", outputFormatJSON:
 		return encodeJSON(os.Stdout, anatomy)
-	case "toon":
+	case outputFormatTOON:
 		return printDirectoryAnatomyTOON(anatomy)
 	default:
 		return fmt.Errorf("%w: %s", errUnsupportedAnatomyMapFormat, *outputFormat)

@@ -22,6 +22,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 )
 
+const hookStatusBlocked = "blocked"
+
 type TraceIngester struct {
 	store *Store
 }
@@ -404,7 +406,7 @@ func hookEventAnalytics(record hookTraceRecord) *HookEventAnalytics {
 		TranscriptPath:    record.TranscriptPath,
 		RuntimeMS:         record.RuntimeMS,
 		DecisionCount:     len(record.Decisions),
-		Blocked:           record.OutputShape.Blocked || record.Status == "blocked",
+		Blocked:           record.OutputShape.Blocked || record.Status == hookStatusBlocked,
 		Rewritten:         record.OutputShape.HasUpdatedInput,
 		AdditionalContext: record.OutputShape.HasAdditionalContext,
 	}
@@ -465,7 +467,7 @@ func hookTargetAnalytics(record hookTraceRecord) []HookTargetAnalytics {
 func hookDeleteIntents(record hookTraceRecord) []CodeDeleteIntent {
 	if record.Command == nil ||
 		record.Command.Preview == "" ||
-		record.Status == "blocked" ||
+		record.Status == hookStatusBlocked ||
 		record.OutputShape.Blocked {
 		return nil
 	}

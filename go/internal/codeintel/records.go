@@ -263,8 +263,9 @@ type ProxyTransform struct {
 }
 
 type ProxySessionQuery struct {
-	Provider string
-	Limit    int
+	SessionID string
+	Provider  string
+	Limit     int
 }
 
 type ProxyEventQuery struct {

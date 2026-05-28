@@ -176,17 +176,16 @@ func runRuffAutofix(files []string) int {
 }
 
 func runGofmtWrite(files []string) int {
-	goFiles := goFiles(existingFiles(files))
-	if len(goFiles) == 0 {
+	args := gofmtWriteArgs(files)
+	if len(args) == 0 {
 		return 0
 	}
 
-	worktree, ok := configuredGoWorktreeName()
-	if !ok {
-		return 1
-	}
+	return runManagedPolicyTool("golangci-lint-format", args)
+}
 
-	return runManagedPolicyTool("golangci-lint-format", []string{worktree})
+func gofmtWriteArgs(files []string) []string {
+	return goFiles(existingFiles(files))
 }
 
 func formatPythonFiles(files []string) []string {

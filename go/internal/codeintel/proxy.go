@@ -259,10 +259,13 @@ func (store *Store) ProxySessions(
 			input_tokens, output_tokens, total_tokens
 		FROM proxy_sessions
 		WHERE (? = '' OR provider = ?)
+			AND (? = '' OR session_id = ?)
 		ORDER BY last_seen_utc DESC, session_id
 		LIMIT ?`,
 		query.Provider,
 		query.Provider,
+		query.SessionID,
+		query.SessionID,
 		defaultQueryLimit(query.Limit),
 	)
 	if err != nil {
