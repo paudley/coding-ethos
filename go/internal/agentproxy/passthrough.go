@@ -24,6 +24,7 @@ const (
 	passThroughDefaultTimeout = 30 * time.Second
 	passThroughPolicyID       = "proxy.pass_through"
 	passThroughDecisionAllow  = "allow"
+	responseCopyBufferSize    = 32 * 1024
 )
 
 var (
@@ -137,7 +138,7 @@ func (proxy *PassThroughProxy) ServeHTTP(
 	copyHeaders(writer.Header(), response.Header)
 	writer.WriteHeader(response.StatusCode)
 
-	_, copyErr := io.Copy(writer, response.Body)
+	_, copyErr := copyResponseBody(writer, response.Body)
 	if copyErr != nil {
 		proxy.record(request, upstreamURL, startedAt, response.StatusCode, copyErr)
 
@@ -167,10 +168,10 @@ func (proxy *PassThroughProxy) ListenAndServe(
 
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(ctx, passThroughDefaultTimeout)
+		shutdownCtx, cancel := passThroughShutdownContext()
 		defer cancel()
 
-		err := server.Shutdown(shutdownCtx)
+		err := server.Shutdown(shutdownCtx) //nolint:contextcheck
 		if err != nil {
 			return fmt.Errorf("shutdown pass-through proxy: %w", err)
 		}
@@ -204,10 +205,10 @@ func (proxy *PassThroughProxy) ListenAndServeOnListener(
 
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(ctx, passThroughDefaultTimeout)
+		shutdownCtx, cancel := passThroughShutdownContext()
 		defer cancel()
 
-		err := server.Shutdown(shutdownCtx)
+		err := server.Shutdown(shutdownCtx) //nolint:contextcheck
 		if err != nil {
 			return fmt.Errorf("shutdown pass-through proxy: %w", err)
 		}
@@ -291,11 +292,101 @@ func (proxy *PassThroughProxy) record(
 }
 
 func copyHeaders(target, source http.Header) {
+	excluded := hopByHopHeaderSet(source)
+
 	for name, values := range source {
+		if _, found := excluded[http.CanonicalHeaderKey(name)]; found {
+			continue
+		}
+
 		for _, value := range values {
 			target.Add(name, value)
 		}
 	}
+}
+
+func hopByHopHeaderSet(headers http.Header) map[string]struct{} {
+	excluded := defaultHopByHopHeaderSet()
+
+	for _, headerValue := range headers.Values("Connection") {
+		for name := range strings.SplitSeq(headerValue, ",") {
+			canonical := http.CanonicalHeaderKey(strings.TrimSpace(name))
+			if canonical != "" {
+				excluded[canonical] = struct{}{}
+			}
+		}
+	}
+
+	return excluded
+}
+
+func defaultHopByHopHeaderSet() map[string]struct{} {
+	return map[string]struct{}{
+		"Connection":          {},
+		"Keep-Alive":          {},
+		"Proxy-Authenticate":  {},
+		"Proxy-Authorization": {},
+		"Te":                  {},
+		"Trailer":             {},
+		"Transfer-Encoding":   {},
+		"Upgrade":             {},
+	}
+}
+
+func copyResponseBody(writer http.ResponseWriter, body io.Reader) (int64, error) {
+	flusher, flushes := writer.(http.Flusher)
+	if !flushes {
+		written, err := io.Copy(writer, body)
+		if err != nil {
+			return written, fmt.Errorf("copy proxy response body: %w", err)
+		}
+
+		return written, nil
+	}
+
+	return copyResponseBodyFlushing(writer, body, flusher)
+}
+
+func copyResponseBodyFlushing(
+	writer io.Writer,
+	body io.Reader,
+	flusher http.Flusher,
+) (int64, error) {
+	buffer := make([]byte, responseCopyBufferSize)
+
+	var written int64
+
+	for {
+		count, readErr := body.Read(buffer)
+		if count > 0 {
+			writeCount, writeErr := writer.Write(buffer[:count])
+			written += int64(writeCount)
+
+			flusher.Flush()
+
+			if writeErr != nil {
+				return written, fmt.Errorf("write proxy response body: %w", writeErr)
+			}
+
+			if writeCount != count {
+				return written, io.ErrShortWrite
+			}
+		}
+
+		switch {
+		case errors.Is(readErr, io.EOF):
+			return written, nil
+		case readErr != nil:
+			return written, fmt.Errorf("read proxy response body: %w", readErr)
+		}
+	}
+}
+
+func passThroughShutdownContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(
+		context.Background(),
+		passThroughDefaultTimeout,
+	)
 }
 
 func joinURLPath(base, path string) string {

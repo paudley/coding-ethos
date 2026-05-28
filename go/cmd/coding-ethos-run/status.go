@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -165,11 +166,29 @@ func agentAPIProxyRoutingCheck() operatorStatusCheck {
 		}
 	}
 
+	if !validAgentAPIProxyURL(proxyURL) {
+		return operatorStatusCheck{
+			Name:   "agent_api_proxy",
+			Status: operatorStatusWarn,
+			Detail: "routing enabled with invalid CODE_ETHOS_AGENT_API_PROXY_URL",
+		}
+	}
+
 	return operatorStatusCheck{
 		Name:   "agent_api_proxy",
 		Status: operatorStatusPass,
 		Detail: "routing enabled via explicit proxy URL",
 	}
+}
+
+func validAgentAPIProxyURL(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+
+	return parsed.Host != "" &&
+		(parsed.Scheme == "http" || parsed.Scheme == "https")
 }
 
 func outputSurfaceChecks(report outputsurface.Report) []operatorStatusCheck {

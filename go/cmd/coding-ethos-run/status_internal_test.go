@@ -90,6 +90,28 @@ func TestRunStatusReportsBlockersAsJSON(t *testing.T) {
 	}
 }
 
+func TestAgentAPIProxyRoutingCheckWarnsOnInvalidURL(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "1")
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "127.0.0.1:8080")
+
+	check := agentAPIProxyRoutingCheck()
+	if check.Status != operatorStatusWarn ||
+		!strings.Contains(check.Detail, "invalid CODE_ETHOS_AGENT_API_PROXY_URL") {
+		t.Fatalf("check = %#v", check)
+	}
+}
+
+func TestAgentAPIProxyRoutingCheckPassesValidURL(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "1")
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "http://127.0.0.1:8080")
+
+	check := agentAPIProxyRoutingCheck()
+	if check.Status != operatorStatusPass ||
+		!strings.Contains(check.Detail, "explicit proxy URL") {
+		t.Fatalf("check = %#v", check)
+	}
+}
+
 func TestRunStatusReturnsFlagParseErrors(t *testing.T) {
 	paths := operatorStatusTestPaths(t, true)
 

@@ -5,7 +5,9 @@ package agentproxy
 
 import (
 	"context"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -146,5 +148,167 @@ func TestPassThroughProxyPreservesUpstreamFailureStatus(t *testing.T) {
 		recorder.events[0].Decision != "allow" ||
 		recorder.events[0].Metadata["status_code"] != "418" {
 		t.Fatalf("events = %#v", recorder.events)
+	}
+}
+
+func TestPassThroughProxyStripsHopByHopHeaders(t *testing.T) {
+	t.Parallel()
+
+	provider := httptest.NewServer(http.HandlerFunc(
+		func(writer http.ResponseWriter, request *http.Request) {
+			for _, header := range []string{
+				"Connection",
+				"Keep-Alive",
+				"Proxy-Authorization",
+				"Upgrade",
+				"X-Hop-Request",
+			} {
+				if value := request.Header.Get(header); value != "" {
+					t.Fatalf("hop-by-hop request header %s forwarded as %q", header, value)
+				}
+			}
+
+			writer.Header().Set("Connection", "X-Hop-Response")
+			writer.Header().Set("X-Hop-Response", "drop")
+			writer.Header().Set("X-End-To-End", "keep")
+			_, _ = writer.Write([]byte("ok"))
+		},
+	))
+	defer provider.Close()
+
+	proxy, err := NewPassThroughProxy(PassThroughOptions{Upstream: provider.URL})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "http://proxy.local/headers", nil)
+	request.Header.Set("Connection", "X-Hop-Request")
+	request.Header.Set("Keep-Alive", "timeout=5")
+	request.Header.Set("Proxy-Authorization", "Bearer token")
+	request.Header.Set("Upgrade", "websocket")
+	request.Header.Set("X-Hop-Request", "drop")
+	response := httptest.NewRecorder()
+
+	proxy.ServeHTTP(response, request)
+
+	result := response.Result()
+	defer result.Body.Close()
+
+	if result.Header.Get("X-End-To-End") != "keep" {
+		t.Fatalf("end-to-end response header was not preserved: %#v", result.Header)
+	}
+	for _, header := range []string{"Connection", "X-Hop-Response"} {
+		if value := result.Header.Get(header); value != "" {
+			t.Fatalf("hop-by-hop response header %s forwarded as %q", header, value)
+		}
+	}
+}
+
+func TestPassThroughProxyRecordsRouteError(t *testing.T) {
+	t.Parallel()
+
+	recorder := &recordingProxyEvents{}
+	proxy, err := NewPassThroughProxy(PassThroughOptions{
+		Recorder: recorder,
+		Upstream: "http://127.0.0.1:1",
+	})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	proxy.ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodPost, "http://proxy.local/unreachable", nil),
+	)
+
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadGateway)
+	}
+	if len(recorder.events) != 1 ||
+		recorder.events[0].Decision != "route_error" ||
+		recorder.events[0].Metadata["error"] == "" {
+		t.Fatalf("route error event = %#v", recorder.events)
+	}
+}
+
+func TestPassThroughProxyListenAndServeOnListenerStopsOnContextCancel(t *testing.T) {
+	t.Parallel()
+
+	proxy, err := NewPassThroughProxy(PassThroughOptions{
+		Upstream: "http://127.0.0.1:1",
+	})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- proxy.ListenAndServeOnListener(ctx, listener)
+	}()
+
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("serve error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("serve did not stop after context cancellation")
+	}
+}
+
+type flushingResponseWriter struct {
+	header  http.Header
+	body    strings.Builder
+	flushes int
+	status  int
+}
+
+func newFlushingResponseWriter() *flushingResponseWriter {
+	return &flushingResponseWriter{header: http.Header{}}
+}
+
+func (writer *flushingResponseWriter) Header() http.Header {
+	return writer.header
+}
+
+func (writer *flushingResponseWriter) Write(content []byte) (int, error) {
+	return writer.body.Write(content)
+}
+
+func (writer *flushingResponseWriter) WriteHeader(status int) {
+	writer.status = status
+}
+
+func (writer *flushingResponseWriter) Flush() {
+	writer.flushes++
+}
+
+func TestCopyResponseBodyFlushesStreamedWrites(t *testing.T) {
+	t.Parallel()
+
+	writer := newFlushingResponseWriter()
+
+	written, err := copyResponseBody(writer, strings.NewReader("stream chunk"))
+	if err != nil {
+		t.Fatalf("copy response body: %v", err)
+	}
+	if written != int64(len("stream chunk")) ||
+		writer.body.String() != "stream chunk" ||
+		writer.flushes == 0 {
+		t.Fatalf(
+			"copy result written=%d body=%q flushes=%d",
+			written,
+			writer.body.String(),
+			writer.flushes,
+		)
 	}
 }

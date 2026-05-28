@@ -19,6 +19,9 @@ func (store *Store) RecordProxyEvent(
 	ctx context.Context,
 	event agentproxy.ProviderEvent,
 ) error {
+	store.writeMu.Lock()
+	defer store.writeMu.Unlock()
+
 	if strings.TrimSpace(event.ID) == "" {
 		return apperror.StaticError("proxy event id is required")
 	}

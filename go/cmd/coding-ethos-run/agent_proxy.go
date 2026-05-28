@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
@@ -90,7 +91,10 @@ func runAgentProxyPassthrough(paths runtimePaths, args []string) error {
 		*upstream,
 	)
 
-	err = proxy.ListenAndServe(context.Background(), *listen)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	err = proxy.ListenAndServe(ctx, *listen)
 	if err != nil {
 		return fmt.Errorf("run pass-through agent proxy: %w", err)
 	}

@@ -80,7 +80,10 @@ func TestAgentProxyHarnessRecordsProviderAndFileReadEvidence(t *testing.T) {
 
 	events, err := store.ProxyEvents(
 		context.Background(),
-		codeintel.ProxyEventQuery{Kind: string(agentproxy.EventProviderCall)},
+		codeintel.ProxyEventQuery{
+			Kind:      string(agentproxy.EventProviderCall),
+			SessionID: "proxy-session-1",
+		},
 	)
 	if err != nil {
 		t.Fatalf("query proxy events: %v", err)

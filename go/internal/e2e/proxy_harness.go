@@ -98,6 +98,10 @@ func sendProviderRequest(
 
 	httpRequest.Header.Set("Content-Type", "application/json")
 
+	if request.SessionID != "" {
+		httpRequest.Header.Set("X-Coding-Ethos-Session", request.SessionID)
+	}
+
 	response, err := http.DefaultClient.Do(httpRequest)
 	if err != nil {
 		return agentproxy.ProviderResponse{}, fmt.Errorf("send provider request: %w", err)
