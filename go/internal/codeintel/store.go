@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/duckdb/duckdb-go/v2"
@@ -26,6 +27,7 @@ const (
 
 type Store struct {
 	database *sql.DB
+	writeMu  sync.Mutex
 }
 
 type storeOpenFunc func(context.Context, string) (*Store, error)

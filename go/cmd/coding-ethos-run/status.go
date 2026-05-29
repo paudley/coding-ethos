@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -120,6 +121,7 @@ func buildOperatorStatus(
 	}
 
 	report.Checks = append(report.Checks, runtimeArtifactChecks(paths)...)
+	report.Checks = append(report.Checks, agentAPIProxyRoutingCheck())
 	report.Checks = append(report.Checks, outputSurfaceChecks(surfaceReport)...)
 	report.Checks = append(
 		report.Checks,
@@ -142,6 +144,51 @@ func runtimeArtifactChecks(paths runtimePaths) []operatorStatusCheck {
 	}
 
 	return checks
+}
+
+func agentAPIProxyRoutingCheck() operatorStatusCheck {
+	enabled := strings.TrimSpace(os.Getenv(envAgentAPIProxyEnabled)) == "1"
+	proxyURL := strings.TrimSpace(os.Getenv(envAgentAPIProxyURL))
+
+	if !enabled {
+		return operatorStatusCheck{
+			Name:   "agent_api_proxy",
+			Status: operatorStatusPass,
+			Detail: "routing disabled",
+		}
+	}
+
+	if proxyURL == "" {
+		return operatorStatusCheck{
+			Name:   "agent_api_proxy",
+			Status: operatorStatusWarn,
+			Detail: "routing enabled without CODE_ETHOS_AGENT_API_PROXY_URL",
+		}
+	}
+
+	if !validAgentAPIProxyURL(proxyURL) {
+		return operatorStatusCheck{
+			Name:   "agent_api_proxy",
+			Status: operatorStatusWarn,
+			Detail: "routing enabled with invalid CODE_ETHOS_AGENT_API_PROXY_URL",
+		}
+	}
+
+	return operatorStatusCheck{
+		Name:   "agent_api_proxy",
+		Status: operatorStatusPass,
+		Detail: "routing enabled via explicit proxy URL",
+	}
+}
+
+func validAgentAPIProxyURL(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+
+	return parsed.Host != "" &&
+		(parsed.Scheme == "http" || parsed.Scheme == "https")
 }
 
 func outputSurfaceChecks(report outputsurface.Report) []operatorStatusCheck {

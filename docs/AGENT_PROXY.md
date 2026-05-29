@@ -45,6 +45,33 @@ local process and can fail when providers change protocol behavior. It must
 remain an explicit, documented operator choice and must never be introduced as
 a hidden fallback.
 
+## Baseline Pass-Through Routing
+
+The first live Agent API proxy mode is mechanical pass-through routing. It is
+owned by `coding-ethos-run agent-proxy passthrough`, forwards HTTP provider
+traffic to an explicit upstream, and preserves upstream response status,
+headers, and body. It does not inspect, mutate, block, cache, or retain payload
+bodies.
+
+Routing remains disabled unless both environment variables are set:
+
+```text
+CODE_ETHOS_AGENT_API_PROXY=1
+CODE_ETHOS_AGENT_API_PROXY_URL=http://127.0.0.1:<port>
+```
+
+When those variables are present, `coding-ethos-run` exports `HTTP_PROXY`,
+`HTTPS_PROXY`, `http_proxy`, and `https_proxy` for child agent processes. The
+status command reports `agent_api_proxy` so operators can tell whether routing
+is disabled, correctly enabled, or misconfigured. This baseline intentionally
+does not install a CA, modify trust stores, or force HTTPS interception; those
+belong to the later HTTPS adapter layer.
+
+Pass-through routing records body-free `proxy.pass_through` evidence in the
+code-intel proxy ledger: method, upstream host/scheme, status code, payload byte
+count when known, and `payload_body_retained=false`. That proves routing
+occurred without storing sensitive prompt or response bodies.
+
 ## Event Envelope
 
 All proxy features must emit the same provider-neutral event envelope. The Go

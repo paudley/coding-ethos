@@ -3,7 +3,10 @@
 
 package hooks
 
-import "blackcat.ca/coding-ethos/go/internal/policy"
+import (
+	"blackcat.ca/coding-ethos/go/internal/memories"
+	"blackcat.ca/coding-ethos/go/internal/policy"
+)
 
 const providerRewritePolicyID = "hook.provider_required"
 
@@ -42,12 +45,53 @@ func CollectInspectionContext(
 
 	adminApproved := adminApprovedForCWD(event.Cwd)
 
+	provider := event.Provider()
+	if memoryProvider := eventMemoryProviderForInspection(
+		event,
+	); providerSupportsUpdatedInput(
+		memoryProvider,
+	) {
+		provider = memoryProvider
+	}
+
 	return InspectionContext{
 		Event:              event,
-		Provider:           event.Provider(),
+		Provider:           provider,
 		AdminApproved:      adminApproved,
 		ReadOnlyInspection: readOnlyInspectionEvent(event, adminApproved),
 	}
+}
+
+func eventMemoryProviderForInspection(event Event) string {
+	if event.HookEventName != eventPreToolUse {
+		return ""
+	}
+
+	filePath, _, ok := eventFilePath(event)
+	if !ok {
+		return ""
+	}
+
+	if !memories.MayManagePath(event.Cwd, filePath) {
+		return ""
+	}
+
+	settings, err := memories.LoadSettings(event.Cwd)
+	if err != nil {
+		return ""
+	}
+
+	classification := memories.ClassifyWithSettings(
+		event.Cwd,
+		filePath,
+		"",
+		settings,
+	)
+	if classification.Managed {
+		return classification.Provider
+	}
+
+	return ""
 }
 
 type InspectionDecision struct {

@@ -21,7 +21,9 @@ import (
 )
 
 const (
-	exitMissing = 127
+	envAgentAPIProxyEnabled = "CODE_ETHOS_AGENT_API_PROXY"
+	envAgentAPIProxyURL     = "CODE_ETHOS_AGENT_API_PROXY_URL"
+	exitMissing             = 127
 )
 
 type runtimePaths struct {
@@ -484,6 +486,28 @@ func (paths runtimePaths) export() {
 	}
 	for key, value := range setenv {
 		_ = os.Setenv(key, value)
+	}
+
+	for key, value := range agentAPIProxyRoutingEnv() {
+		_ = os.Setenv(key, value)
+	}
+}
+
+func agentAPIProxyRoutingEnv() map[string]string {
+	if strings.TrimSpace(os.Getenv(envAgentAPIProxyEnabled)) != "1" {
+		return nil
+	}
+
+	proxyURL := strings.TrimSpace(os.Getenv(envAgentAPIProxyURL))
+	if proxyURL == "" || !validAgentAPIProxyURL(proxyURL) {
+		return nil
+	}
+
+	return map[string]string{
+		"HTTP_PROXY":  proxyURL,
+		"HTTPS_PROXY": proxyURL,
+		"http_proxy":  proxyURL,
+		"https_proxy": proxyURL,
 	}
 }
 

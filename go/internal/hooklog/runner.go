@@ -23,6 +23,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
+	"blackcat.ca/coding-ethos/go/internal/repoignore"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
@@ -654,6 +655,11 @@ func normalizedOptions(options Options) (Options, error) {
 }
 
 func requireHookLogIgnores(options Options) error {
+	_, err := repoignore.RepairGitignore(options.Root)
+	if err != nil {
+		return fmt.Errorf("repair hook log runtime ignores: %w", err)
+	}
+
 	if gitPathIgnored(options, hookLogMemoryTestPath) {
 		return apperror.Wrapf(errHookLogMemoryIgnored, "%s", hookLogMemoryIgnoredFeedback())
 	}
@@ -712,7 +718,7 @@ func requireIgnored(options Options, path string) error {
 		return nil
 	}
 
-	if gitignoreContains(options.Root, path) {
+	if repoignore.ContainsPath(options.Root, path) {
 		return nil
 	}
 
@@ -774,27 +780,6 @@ func gitPathIgnored(options Options, path string) bool {
 	err := cmd.Run()
 
 	return err == nil
-}
-
-func gitignoreContains(root, path string) bool {
-	payload, err := os.ReadFile(filepath.Join(root, ".gitignore"))
-	if err != nil {
-		return false
-	}
-
-	normalized := strings.Trim(path, "/")
-	for line := range strings.SplitSeq(string(payload), "\n") {
-		entry := strings.Trim(strings.TrimSpace(line), "/")
-		if entry == "" || strings.HasPrefix(entry, "#") {
-			continue
-		}
-
-		if entry == normalized || strings.HasPrefix(normalized+"/", entry+"/") {
-			return true
-		}
-	}
-
-	return false
 }
 
 type hookRunMetadata struct {

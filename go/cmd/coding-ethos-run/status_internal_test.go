@@ -12,9 +12,13 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 )
 
 func TestRunStatusReportsHealthyAndWritesHandoff(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "")
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "")
+
 	paths := operatorStatusTestPaths(t, true)
 	writeOperatorStatusHookRun(t, paths.Root, "run-pass", 0)
 	createOperatorStatusCodeIntelDB(t, paths.Root, false)
@@ -36,6 +40,7 @@ func TestRunStatusReportsHealthyAndWritesHandoff(t *testing.T) {
 		"kind: operator_status",
 		"status: PASS",
 		"policy_bundle,PASS",
+		"agent_api_proxy,PASS,routing disabled",
 		"code_intel_db,PASS",
 		"recent_hook_failures: 0",
 		"hook_reviews: 0",
@@ -56,6 +61,9 @@ func TestRunStatusReportsHealthyAndWritesHandoff(t *testing.T) {
 }
 
 func TestRunStatusReportsBlockersAsJSON(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "1")
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "")
+
 	paths := operatorStatusTestPaths(t, false)
 	writeOperatorStatusHookRun(t, paths.Root, "run-fail", 1)
 	createOperatorStatusCodeIntelDB(t, paths.Root, true)
@@ -74,11 +82,34 @@ func TestRunStatusReportsBlockersAsJSON(t *testing.T) {
 		`"hook_reviews": 1`,
 		`"false_positives": 1`,
 		`"name": "policy_bundle"`,
+		`routing enabled without CODE_ETHOS_AGENT_API_PROXY_URL`,
 		`Run make build to regenerate runtime artifacts.`,
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("status JSON missing %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestAgentAPIProxyRoutingCheckWarnsOnInvalidURL(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "1")
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "127.0.0.1:8080")
+
+	check := agentAPIProxyRoutingCheck()
+	if check.Status != operatorStatusWarn ||
+		!strings.Contains(check.Detail, "invalid CODE_ETHOS_AGENT_API_PROXY_URL") {
+		t.Fatalf("check = %#v", check)
+	}
+}
+
+func TestAgentAPIProxyRoutingCheckPassesValidURL(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "1")
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "http://127.0.0.1:8080")
+
+	check := agentAPIProxyRoutingCheck()
+	if check.Status != operatorStatusPass ||
+		!strings.Contains(check.Detail, "explicit proxy URL") {
+		t.Fatalf("check = %#v", check)
 	}
 }
 
@@ -115,6 +146,61 @@ func TestOperatorStatusTOONEscapesCommaCells(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("TOON output missing escaped cell %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestOutputSurfaceChecksReportMissingAndUnavailableCodeIntelStats(t *testing.T) {
+	t.Parallel()
+
+	checks := outputSurfaceChecks(outputsurface.Report{})
+	if len(checks) != 2 ||
+		checks[0].Name != "output_surfaces" ||
+		checks[0].Status != operatorStatusPass ||
+		checks[1].Name != "code_intel_db" ||
+		checks[1].Status != operatorStatusWarn ||
+		!strings.Contains(checks[1].Detail, "DuckDB store is missing") {
+		t.Fatalf("missing code-intel checks = %#v", checks)
+	}
+
+	checks = outputSurfaceChecks(outputsurface.Report{
+		Surfaces: []outputsurface.Inventory{{
+			Definition: outputsurface.Definition{ID: "code_intel_db"},
+			Exists:     true,
+		}},
+	})
+	if len(checks) != 2 ||
+		checks[1].Name != "code_intel_db" ||
+		checks[1].Status != operatorStatusWarn ||
+		!strings.Contains(checks[1].Detail, "stats were unavailable") {
+		t.Fatalf("unavailable stats checks = %#v", checks)
+	}
+}
+
+func TestOutputSurfaceChecksReportStaleAndErrorCounts(t *testing.T) {
+	t.Parallel()
+
+	checks := outputSurfaceChecks(outputsurface.Report{
+		Surfaces: []outputsurface.Inventory{
+			{
+				Definition: outputsurface.Definition{ID: "hook_runs"},
+				Exists:     true,
+				StaleCount: 2,
+			},
+			{
+				Definition: outputsurface.Definition{ID: "code_intel_db"},
+				Exists:     true,
+				DBStats:    &codeintel.Stats{Files: 3, CodeChunks: 4},
+				Errors:     []string{"permission denied"},
+			},
+		},
+	})
+	if len(checks) != 2 ||
+		checks[0].Name != "output_surfaces" ||
+		checks[0].Status != operatorStatusWarn ||
+		!strings.Contains(checks[0].Detail, "surfaces=2 stale=2 errors=1") ||
+		checks[1].Status != operatorStatusPass ||
+		!strings.Contains(checks[1].Detail, "files=3 chunks=4") {
+		t.Fatalf("surface checks = %#v", checks)
 	}
 }
 

@@ -4,6 +4,7 @@
 package managedcapture
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -53,6 +54,9 @@ var (
 	)
 	errFormatterTargetLimit = apperror.StaticError(
 		"formatter directory target exceeds language file limit",
+	)
+	errFormatterTargetNotWritable = apperror.StaticError(
+		"formatter target is not writable",
 	)
 )
 
@@ -485,13 +489,13 @@ func formatArgWritePaths(
 }
 
 func formatterWritableTargets(cwd, path string, extensions []string) ([]string, error) {
-	if pathHasExtension(path, extensions) {
-		return []string{path}, nil
-	}
-
 	statPath := path
 	if !filepath.IsAbs(statPath) {
 		statPath = filepath.Join(cwd, path)
+	}
+
+	if pathHasExtension(path, extensions) {
+		return formatterFileWriteTargets(cwd, path, statPath, extensions)
 	}
 
 	info, statErr := os.Stat(statPath)
@@ -510,6 +514,31 @@ func formatterWritableTargets(cwd, path string, extensions []string) ([]string, 
 	return formatterDirectoryWriteTargets(cwd, statPath, extensions)
 }
 
+func formatterFileWriteTargets(
+	cwd, path, statPath string,
+	extensions []string,
+) ([]string, error) {
+	info, statErr := os.Stat(statPath)
+	if os.IsNotExist(statErr) {
+		return []string{path}, nil
+	}
+
+	if statErr != nil {
+		return nil, fmt.Errorf("stat formatter target %s: %w", statPath, statErr)
+	}
+
+	if info.IsDir() {
+		return formatterDirectoryWriteTargets(cwd, statPath, extensions)
+	}
+
+	err := requireFormatterTargetWritable(path, statPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return []string{path}, nil
+}
+
 func formatterDirectoryWriteTargets(
 	cwd string,
 	dir string,
@@ -525,7 +554,14 @@ func formatterDirectoryWriteTargets(
 			return nil
 		}
 
-		targets = append(targets, formatterDirectoryWriteTarget(cwd, path))
+		target := formatterDirectoryWriteTarget(cwd, path)
+
+		err = requireFormatterTargetWritable(target, path)
+		if err != nil {
+			return err
+		}
+
+		targets = append(targets, target)
 		if len(targets) > maxFormatterWritePaths {
 			return fmt.Errorf(
 				"%w: %s exceeds %d language files",
@@ -540,10 +576,32 @@ func formatterDirectoryWriteTargets(
 
 	walkErr := filepath.WalkDir(dir, visitor)
 	if walkErr != nil {
-		return nil, fmt.Errorf("walk formatter directory target %s: %w", dir, walkErr)
+		return nil, fmt.Errorf(
+			"walk formatter directory target %s: %w",
+			dir,
+			walkErr,
+		)
 	}
 
 	return targets, nil
+}
+
+func requireFormatterTargetWritable(displayPath, absolutePath string) error {
+	file, err := os.OpenFile(absolutePath, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		if os.IsPermission(err) || errors.Is(err, os.ErrPermission) {
+			return fmt.Errorf("%w: %s: %w", errFormatterTargetNotWritable, displayPath, err)
+		}
+
+		return fmt.Errorf("open formatter target %s: %w", absolutePath, err)
+	}
+
+	closeErr := file.Close()
+	if closeErr != nil {
+		return fmt.Errorf("close formatter target %s: %w", absolutePath, closeErr)
+	}
+
+	return nil
 }
 
 func formatterDirectoryWriteTarget(cwd, path string) string {

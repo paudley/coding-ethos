@@ -21,6 +21,10 @@ type ProxyProviderServer struct {
 	server *httptest.Server
 }
 
+type ProxyPassThroughServer struct {
+	server *httptest.Server
+}
+
 func NewProxyProviderServer(t *testing.T) *ProxyProviderServer {
 	t.Helper()
 
@@ -35,7 +39,46 @@ func (provider *ProxyProviderServer) URL() string {
 	return provider.server.URL
 }
 
+func NewProxyPassThroughServer(
+	t *testing.T,
+	upstream string,
+	recorder agentproxy.EventRecorder,
+) *ProxyPassThroughServer {
+	t.Helper()
+
+	proxy, err := agentproxy.NewPassThroughProxy(agentproxy.PassThroughOptions{
+		Recorder: recorder,
+		Upstream: upstream,
+		Provider: "fixture",
+	})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	server := &ProxyPassThroughServer{server: httptest.NewServer(proxy)}
+	t.Cleanup(server.server.Close)
+
+	return server
+}
+
+func (server *ProxyPassThroughServer) URL() string {
+	return server.server.URL
+}
+
+func (server *ProxyPassThroughServer) Send(
+	request agentproxy.ProviderRequest,
+) (agentproxy.ProviderResponse, error) {
+	return sendProviderRequest(server.URL(), request)
+}
+
 func (provider *ProxyProviderServer) Send(
+	request agentproxy.ProviderRequest,
+) (agentproxy.ProviderResponse, error) {
+	return sendProviderRequest(provider.URL(), request)
+}
+
+func sendProviderRequest(
+	target string,
 	request agentproxy.ProviderRequest,
 ) (agentproxy.ProviderResponse, error) {
 	payload, err := json.Marshal(request)
@@ -46,7 +89,7 @@ func (provider *ProxyProviderServer) Send(
 	httpRequest, err := http.NewRequestWithContext(
 		context.Background(),
 		http.MethodPost,
-		provider.URL(),
+		target,
 		bytes.NewReader(payload),
 	)
 	if err != nil {
@@ -54,6 +97,10 @@ func (provider *ProxyProviderServer) Send(
 	}
 
 	httpRequest.Header.Set("Content-Type", "application/json")
+
+	if request.SessionID != "" {
+		httpRequest.Header.Set("X-Coding-Ethos-Session", request.SessionID)
+	}
 
 	response, err := http.DefaultClient.Do(httpRequest)
 	if err != nil {

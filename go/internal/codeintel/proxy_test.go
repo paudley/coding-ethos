@@ -97,6 +97,82 @@ func TestRecordProxyEventMaintainsSessionLedger(t *testing.T) {
 	assertProxyEventLedger(t, events)
 }
 
+func TestRecordProxyEventAggregatesSessionCounters(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "code-intel.duckdb"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	kinds := []agentproxy.EventKind{
+		agentproxy.EventProviderCall,
+		agentproxy.EventToolCall,
+		agentproxy.EventFileRead,
+		agentproxy.EventFileListing,
+		agentproxy.EventEditProposal,
+		agentproxy.EventCacheHit,
+		agentproxy.EventPayloadInject,
+		agentproxy.EventPayloadTrim,
+	}
+
+	for index, kind := range kinds {
+		err = store.RecordProxyEvent(ctx, agentproxy.ProviderEvent{
+			ID:        "counter-event-" + string(kind),
+			SessionID: "session-counters",
+			Kind:      kind,
+			Provider:  "codex",
+			Decision:  "allow",
+			TokenUsage: agentproxy.TokenUsage{
+				InputTokens:  index,
+				OutputTokens: 1,
+				TotalTokens:  index + 1,
+			},
+		})
+		if err != nil {
+			t.Fatalf("record %s event: %v", kind, err)
+		}
+	}
+
+	err = store.RecordProxyEvent(ctx, agentproxy.ProviderEvent{
+		ID:        "counter-event-denied",
+		SessionID: "session-counters",
+		Kind:      agentproxy.EventProviderResponse,
+		Provider:  "codex",
+		Decision:  "deny",
+	})
+	if err != nil {
+		t.Fatalf("record denied event: %v", err)
+	}
+
+	sessions, err := store.ProxySessions(
+		ctx,
+		ProxySessionQuery{SessionID: "session-counters"},
+	)
+	if err != nil {
+		t.Fatalf("query proxy sessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("sessions = %#v", sessions)
+	}
+
+	session := sessions[0]
+	if session.RequestCount != 2 ||
+		session.ToolCallCount != 1 ||
+		session.FileReadCount != 1 ||
+		session.FileListingCount != 1 ||
+		session.EditCount != 1 ||
+		session.CacheHitCount != 1 ||
+		session.InjectionCount != 1 ||
+		session.TruncationCount != 1 ||
+		session.DenialCount != 1 {
+		t.Fatalf("session counters = %#v", session)
+	}
+}
+
 func TestReadFileWithCacheSuppressesRepeatedUnchangedReads(t *testing.T) {
 	t.Parallel()
 

@@ -4,6 +4,7 @@
 package managedcapture //nolint:testpackage
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -100,6 +101,47 @@ func TestFormatSandboxWritePathsIncludeDirectoryTargets(t *testing.T) {
 		if slices.Contains(got, unwanted) {
 			t.Fatalf("formatter sandbox write paths included %q: %#v", unwanted, got)
 		}
+	}
+}
+
+func TestFormatSandboxWritePathsRejectNonWritableFileTargets(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("chmod writability fixture is POSIX-specific")
+	}
+
+	consumerRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(consumerRoot, "scripts"), 0o700); err != nil {
+		t.Fatalf("create scripts directory: %v", err)
+	}
+	target := filepath.Join(consumerRoot, "scripts", "phase2_setup.py")
+	if err := os.WriteFile(target, []byte("print('phase2')\n"), 0o400); err != nil {
+		t.Fatalf("create read-only formatter target: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(target, 0o600)
+	})
+
+	tool, found := toolcatalog.HookOwnedTool("ruff-format")
+	if !found {
+		t.Fatal("missing ruff-format tool")
+	}
+
+	_, err := toolSandboxWritePaths(
+		tool,
+		consumerRoot,
+		consumerRoot,
+		[]string{"format", "--config", "ruff.toml", "scripts/phase2_setup.py"},
+	)
+	if err == nil {
+		t.Fatal("toolSandboxWritePaths() error = nil, want non-writable target error")
+	}
+	if !errors.Is(err, errFormatterTargetNotWritable) {
+		t.Fatalf("toolSandboxWritePaths() error = %v, want formatter target writability", err)
+	}
+	if !strings.Contains(err.Error(), "scripts/phase2_setup.py") {
+		t.Fatalf("toolSandboxWritePaths() error missing target path: %v", err)
 	}
 }
 

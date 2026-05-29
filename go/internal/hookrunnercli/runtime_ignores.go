@@ -5,7 +5,6 @@ package hookrunnercli
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
@@ -40,7 +39,7 @@ func checkRuntimeIgnoresCommand(_ Config, _ []string) int {
 func runtimeIgnoreFindings(paths []string) []string {
 	findings := []string{}
 	if runtimePathIgnored(".coding-ethos/memories/MEMORY.md") ||
-		gitignoreContainsPath(repoRoot(), ".coding-ethos/") {
+		repoignore.ContainsPath(repoRoot(), ".coding-ethos/") {
 		findings = append(
 			findings,
 			".coding-ethos/memories/MEMORY.md is ignored; remove broad "+
@@ -96,26 +95,5 @@ func runtimePathIgnored(path string) bool {
 	err := cmd.Run()
 	debuglog.ProcessExit(startedAt, argv, repoRoot(), commandExitCode(err), err)
 
-	return err == nil || gitignoreContainsPath(repoRoot(), path)
-}
-
-func gitignoreContainsPath(root, path string) bool {
-	payload, err := os.ReadFile(filepath.Join(root, ".gitignore"))
-	if err != nil {
-		return false
-	}
-
-	normalized := strings.Trim(path, "/")
-	for line := range strings.SplitSeq(string(payload), "\n") {
-		entry := strings.Trim(strings.TrimSpace(line), "/")
-		if entry == "" || strings.HasPrefix(entry, "#") {
-			continue
-		}
-
-		if entry == normalized || strings.HasPrefix(normalized+"/", entry+"/") {
-			return true
-		}
-	}
-
-	return false
+	return err == nil || repoignore.ContainsPath(repoRoot(), path)
 }

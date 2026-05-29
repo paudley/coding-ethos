@@ -25,13 +25,23 @@ func TestAgentProxyHarnessRecordsProviderAndFileReadEvidence(t *testing.T) {
 	sourceRoot := repoRootFromWorkingDirectory(t)
 	repo := e2e.FromReference(t, sourceRoot, "policy-lint-basic")
 	provider := e2e.NewProxyProviderServer(t)
+	store, err := codeintel.Open(
+		context.Background(),
+		filepath.Join(repo.Root, ".coding-ethos", "code-intel.duckdb"),
+	)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer store.Close()
+
+	proxy := e2e.NewProxyPassThroughServer(t, provider.URL(), store)
 
 	content, err := os.ReadFile(filepath.Join(repo.Root, "pkg", "clean.py"))
 	if err != nil {
 		t.Fatalf("read fixture file: %v", err)
 	}
 
-	response, err := provider.Send(agentproxy.ProviderRequest{
+	response, err := proxy.Send(agentproxy.ProviderRequest{
 		SessionID: "proxy-session-1",
 		Provider:  "codex",
 		Model:     "fixture-model",
@@ -43,15 +53,6 @@ func TestAgentProxyHarnessRecordsProviderAndFileReadEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("send provider request: %v", err)
 	}
-
-	store, err := codeintel.Open(
-		context.Background(),
-		filepath.Join(repo.Root, ".coding-ethos", "code-intel.duckdb"),
-	)
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	defer store.Close()
 
 	err = store.RecordProxyEvent(context.Background(), agentproxy.ProviderEvent{
 		ID:            "proxy-event-1",
@@ -77,18 +78,61 @@ func TestAgentProxyHarnessRecordsProviderAndFileReadEvidence(t *testing.T) {
 		t.Fatalf("record proxy event: %v", err)
 	}
 
-	events, err := store.ProxyEvents(
-		context.Background(),
-		codeintel.ProxyEventQuery{SessionID: "proxy-session-1"},
+	events := waitForProxyEvents(
+		t,
+		store,
+		codeintel.ProxyEventQuery{
+			Kind:      string(agentproxy.EventProviderCall),
+			SessionID: "proxy-session-1",
+		},
 	)
-	if err != nil {
-		t.Fatalf("query proxy events: %v", err)
+
+	if len(events) != 1 ||
+		events[0].Kind != string(agentproxy.EventProviderCall) ||
+		events[0].Metadata["payload_body_retained"] != "false" {
+		t.Fatalf("pass-through event = %#v", events)
 	}
 
+	events, err = store.ProxyEvents(
+		context.Background(),
+		codeintel.ProxyEventQuery{
+			Kind:      string(agentproxy.EventFileRead),
+			SessionID: "proxy-session-1",
+		},
+	)
+	if err != nil {
+		t.Fatalf("query file read proxy events: %v", err)
+	}
 	if len(events) != 1 ||
 		events[0].TargetPath != "pkg/clean.py" ||
 		events[0].InputHash == "" ||
 		len(events[0].Transforms) != 1 {
 		t.Fatalf("events = %#v", events)
 	}
+}
+
+func waitForProxyEvents(
+	t *testing.T,
+	store *codeintel.Store,
+	query codeintel.ProxyEventQuery,
+) []codeintel.ProxyEvent {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	var events []codeintel.ProxyEvent
+
+	for time.Now().Before(deadline) {
+		var err error
+		events, err = store.ProxyEvents(context.Background(), query)
+		if err != nil {
+			t.Fatalf("query proxy events: %v", err)
+		}
+		if len(events) > 0 {
+			return events
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	return events
 }

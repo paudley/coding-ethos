@@ -827,7 +827,7 @@ func capturedFindings(
 	outputExcerpt string,
 	items []diagnostics.Diagnostic,
 ) []lint.Finding {
-	outcome := capturedOutcome(request.Tool, execution.ExitCode, items)
+	outcome := capturedOutcome(request.Tool, execution.ExitCode, outputExcerpt, items)
 	if len(items) == 0 {
 		return capturedOutcomeFindings(request, execution, outputExcerpt, outcome)
 	}
@@ -1745,6 +1745,7 @@ type capturedOutcomeClass struct {
 func capturedOutcome(
 	tool string,
 	exitCode int,
+	outputExcerpt string,
 	items []diagnostics.Diagnostic,
 ) capturedOutcomeClass {
 	if len(items) > 0 {
@@ -1760,6 +1761,13 @@ func capturedOutcome(
 
 	switch exitCode {
 	case capturedConfigurationExitCode:
+		if capturedOutputHasPermissionFailure(outputExcerpt) {
+			return capturedOutcomeClass{
+				Category: "permission_error",
+				Message:  tool + " failed because a target path is not writable",
+			}
+		}
+
 		return capturedOutcomeClass{
 			Category: "configuration_error",
 			Message: fmt.Sprintf(
@@ -1778,6 +1786,13 @@ func capturedOutcome(
 			),
 		}
 	}
+}
+
+func capturedOutputHasPermissionFailure(outputExcerpt string) bool {
+	lowerOutput := strings.ToLower(outputExcerpt)
+
+	return strings.Contains(lowerOutput, "permission denied") ||
+		strings.Contains(lowerOutput, "operation not permitted")
 }
 
 func capturedExitCode(err error) int {

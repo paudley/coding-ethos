@@ -146,3 +146,27 @@ func missingRuntimeIgnores(present map[string]bool) []string {
 
 	return missing
 }
+
+// ContainsPath reports whether .gitignore directly contains an entry that
+// covers path. It is a fallback for hook bootstrap paths where git
+// check-ignore can be unavailable or intentionally mocked.
+func ContainsPath(root, path string) bool {
+	payload, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		return false
+	}
+
+	normalized := strings.Trim(path, "/")
+	for line := range strings.SplitSeq(string(payload), "\n") {
+		entry := strings.Trim(strings.TrimSpace(line), "/")
+		if entry == "" || strings.HasPrefix(entry, "#") {
+			continue
+		}
+
+		if entry == normalized || strings.HasPrefix(normalized+"/", entry+"/") {
+			return true
+		}
+	}
+
+	return false
+}
