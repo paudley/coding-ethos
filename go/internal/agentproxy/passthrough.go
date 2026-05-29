@@ -70,7 +70,12 @@ type PassThroughProxy struct {
 // NewPassThroughProxy returns a proxy that forwards requests to an upstream
 // provider endpoint and records body-free routing evidence.
 func NewPassThroughProxy(options PassThroughOptions) (*PassThroughProxy, error) {
-	upstream, err := url.Parse(strings.TrimSpace(options.Upstream))
+	upstreamValue := strings.TrimSpace(options.Upstream)
+	if upstreamValue == "" {
+		return nil, errPassThroughUpstreamHost
+	}
+
+	upstream, err := url.Parse(upstreamValue)
 	if err != nil {
 		return nil, fmt.Errorf("parse upstream proxy URL: %w", err)
 	}

@@ -531,7 +531,7 @@ func formatterFileWriteTargets(
 		return formatterDirectoryWriteTargets(cwd, statPath, extensions)
 	}
 
-	err := requireFormatterTargetWritable(path, statPath, info)
+	err := requireFormatterTargetWritable(path, statPath)
 	if err != nil {
 		return nil, err
 	}
@@ -554,14 +554,9 @@ func formatterDirectoryWriteTargets(
 			return nil
 		}
 
-		info, infoErr := entry.Info()
-		if infoErr != nil {
-			return fmt.Errorf("read formatter target info %s: %w", path, infoErr)
-		}
-
 		target := formatterDirectoryWriteTarget(cwd, path)
 
-		err = requireFormatterTargetWritable(target, path, info)
+		err = requireFormatterTargetWritable(target, path)
 		if err != nil {
 			return err
 		}
@@ -591,18 +586,7 @@ func formatterDirectoryWriteTargets(
 	return targets, nil
 }
 
-func requireFormatterTargetWritable(
-	displayPath, absolutePath string,
-	info os.FileInfo,
-) error {
-	if info.Mode().Perm()&0o222 == 0 {
-		return fmt.Errorf(
-			"%w: %s: permission denied",
-			errFormatterTargetNotWritable,
-			displayPath,
-		)
-	}
-
+func requireFormatterTargetWritable(displayPath, absolutePath string) error {
 	file, err := os.OpenFile(absolutePath, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		if os.IsPermission(err) || errors.Is(err, os.ErrPermission) {

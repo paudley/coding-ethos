@@ -263,6 +263,11 @@ func TestNewPassThroughProxyValidatesUpstream(t *testing.T) {
 		wantErr error
 	}{
 		{
+			name:    "empty",
+			value:   "",
+			wantErr: errPassThroughUpstreamHost,
+		},
+		{
 			name:    "scheme",
 			value:   "ftp://provider.example",
 			wantErr: errPassThroughUpstreamScheme,
