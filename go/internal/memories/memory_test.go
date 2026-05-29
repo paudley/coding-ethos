@@ -57,6 +57,30 @@ func TestClassifyDoesNotUseProviderHintForOrdinaryMemoryPaths(t *testing.T) {
 	}
 }
 
+func TestMayManagePathIdentifiesProviderMemoryCandidates(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name string
+		path string
+		want bool
+	}{
+		{name: "claude", path: "~/.claude/projects/acme/memory/project.md", want: true},
+		{name: "codex", path: ".codex/memories/project.md", want: true},
+		{name: "ordinary", path: "docs/memories/project.md", want: false},
+		{name: "settings", path: ".claude/settings.local.json", want: false},
+		{name: "central", path: memories.PrimaryFile, want: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := memories.MayManagePath("/repo", testCase.path); got != testCase.want {
+				t.Fatalf("MayManagePath() = %t, want %t", got, testCase.want)
+			}
+		})
+	}
+}
+
 func TestEnsureCreatesSkeleton(t *testing.T) {
 	t.Parallel()
 

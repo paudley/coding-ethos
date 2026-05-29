@@ -72,6 +72,10 @@ func eventMemoryProviderForInspection(event Event) string {
 		return ""
 	}
 
+	if !memories.MayManagePath(event.Cwd, filePath) {
+		return ""
+	}
+
 	settings, err := memories.LoadSettings(event.Cwd)
 	if err != nil {
 		return ""

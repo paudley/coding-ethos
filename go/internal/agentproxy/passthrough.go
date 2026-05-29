@@ -112,9 +112,12 @@ func (proxy *PassThroughProxy) ServeHTTP(
 	startedAt := proxy.now().UTC()
 	upstreamURL := proxy.upstreamURL(request)
 
+	upstreamCtx, cancelUpstream := passThroughUpstreamContext(request.Context())
+	defer cancelUpstream()
+
 	// #nosec G107,G704 -- operator-configured pass-through upstream.
 	upstreamRequest, err := http.NewRequestWithContext(
-		request.Context(),
+		upstreamCtx,
 		request.Method,
 		upstreamURL.String(),
 		request.Body,
@@ -127,6 +130,7 @@ func (proxy *PassThroughProxy) ServeHTTP(
 	}
 
 	copyHeaders(upstreamRequest.Header, request.Header)
+	upstreamRequest.ContentLength = request.ContentLength
 	upstreamRequest.Host = proxy.upstream.Host
 
 	response, err := proxy.client.Do(
@@ -453,6 +457,16 @@ func passThroughRecordContext(
 		context.WithoutCancel(parent),
 		passThroughRecordTimeout,
 	)
+}
+
+func passThroughUpstreamContext(
+	parent context.Context,
+) (context.Context, context.CancelFunc) {
+	if _, hasDeadline := parent.Deadline(); hasDeadline {
+		return parent, func() {}
+	}
+
+	return context.WithTimeout(parent, passThroughDefaultTimeout)
 }
 
 func joinURLPath(base, path string) string {

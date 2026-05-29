@@ -256,6 +256,19 @@ func Classify(root, rawPath, provider string) Classification {
 	return ClassifyWithSettings(root, rawPath, provider, settings)
 }
 
+// MayManagePath reports whether a path is a provider memory candidate before
+// loading repo memory settings.
+func MayManagePath(root, rawPath string) bool {
+	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(rawPath)))
+	if cleanPath == "." || cleanPath == "" {
+		return false
+	}
+
+	normalized := normalizedMemoryPath(root, cleanPath)
+
+	return providerForPath(normalized) != "" && memoryPath(normalized)
+}
+
 // ClassifyWithSettings identifies provider-specific memory paths with known settings.
 func ClassifyWithSettings(root, rawPath, _ string, settings Settings) Classification {
 	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(rawPath)))

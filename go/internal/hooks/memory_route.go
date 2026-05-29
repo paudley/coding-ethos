@@ -30,6 +30,10 @@ func memoryFileToolRouteFor(event Event) InspectionRoute {
 		return InspectionRoute{}
 	}
 
+	if !memories.MayManagePath(event.Cwd, filePath) {
+		return InspectionRoute{}
+	}
+
 	settings, err := memories.LoadSettings(event.Cwd)
 	if err != nil {
 		return InspectionRoute{

@@ -19,6 +19,12 @@ type recordingProxyEvents struct {
 	events []ProviderEvent
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
 func (recorder *recordingProxyEvents) RecordProxyEvent(
 	_ context.Context,
 	event ProviderEvent,
@@ -105,6 +111,103 @@ func TestPassThroughProxyPreservesProviderResponse(t *testing.T) {
 		event.Metadata["status_code"] != "202" {
 		t.Fatalf("event = %#v", event)
 	}
+}
+
+func TestPassThroughProxyPreservesRequestContentLength(t *testing.T) {
+	t.Parallel()
+
+	provider := httptest.NewServer(http.HandlerFunc(
+		func(_ http.ResponseWriter, request *http.Request) {
+			if request.ContentLength != int64(len("fixed body")) {
+				t.Fatalf("content length = %d", request.ContentLength)
+			}
+		},
+	))
+	defer provider.Close()
+
+	proxy, err := NewPassThroughProxy(PassThroughOptions{Upstream: provider.URL})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"http://proxy.local/content-length",
+		strings.NewReader("fixed body"),
+	)
+
+	proxy.ServeHTTP(httptest.NewRecorder(), request)
+}
+
+func TestPassThroughProxyAddsDefaultUpstreamDeadline(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{
+		Transport: roundTripFunc(
+			func(request *http.Request) (*http.Response, error) {
+				if _, ok := request.Context().Deadline(); !ok {
+					t.Fatal("upstream request missing default deadline")
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("ok")),
+					Request:    request,
+				}, nil
+			},
+		),
+	}
+
+	proxy, err := NewPassThroughProxy(PassThroughOptions{
+		Client:   client,
+		Upstream: "https://provider.example",
+	})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	proxy.ServeHTTP(
+		httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodGet, "http://proxy.local/deadline", nil),
+	)
+}
+
+func TestPassThroughProxyPreservesShorterUpstreamDeadline(t *testing.T) {
+	t.Parallel()
+
+	deadline := time.Now().Add(time.Second)
+	client := &http.Client{
+		Transport: roundTripFunc(
+			func(request *http.Request) (*http.Response, error) {
+				got, ok := request.Context().Deadline()
+				if !ok || !got.Equal(deadline) {
+					t.Fatalf("deadline = %v found=%t, want %v", got, ok, deadline)
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("ok")),
+					Request:    request,
+				}, nil
+			},
+		),
+	}
+
+	proxy, err := NewPassThroughProxy(PassThroughOptions{
+		Client:   client,
+		Upstream: "https://provider.example",
+	})
+	if err != nil {
+		t.Fatalf("create pass-through proxy: %v", err)
+	}
+
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+
+	request := httptest.NewRequest(http.MethodGet, "http://proxy.local/deadline", nil)
+	proxy.ServeHTTP(httptest.NewRecorder(), request.WithContext(ctx))
 }
 
 func TestPassThroughProxyPreservesUpstreamFailureStatus(t *testing.T) {
