@@ -1879,6 +1879,31 @@ func TestCapturedFindingsClassifyUnparseableToolFailures(t *testing.T) {
 	}
 }
 
+func TestCapturedFindingsClassifyFormatterPermissionFailures(t *testing.T) {
+	t.Parallel()
+
+	findings := capturedFindings(
+		captureRequest{Tool: "ruff", Args: []string{"format", "scripts/phase2_setup.py"}},
+		captureExecution{
+			RunArgs:  []string{"format", "scripts/phase2_setup.py"},
+			ExitCode: capturedConfigurationExitCode,
+		},
+		"error: Failed to write\nscripts/phase2_setup.py: Permission denied (os error 13)",
+		nil,
+	)
+	if len(findings) != 1 {
+		t.Fatalf("findings = %#v", findings)
+	}
+
+	if findings[0].RawOutcome["category"] != "permission_error" {
+		t.Fatalf("raw outcome = %#v", findings[0].RawOutcome)
+	}
+
+	if !strings.Contains(findings[0].Message, "target path is not writable") {
+		t.Fatalf("message = %q", findings[0].Message)
+	}
+}
+
 func TestCapturedToolResultRecordsCaptureMetadata(t *testing.T) {
 	t.Parallel()
 
