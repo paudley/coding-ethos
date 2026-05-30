@@ -268,6 +268,7 @@ func goTestManagedArgsCase() managedSubcommandConfigPlacementCase {
 			"test",
 			"-json",
 			"-cover",
+			"-p=1",
 			"-buildvcs=false",
 			"-count=1",
 			"-timeout=30s",

@@ -37,6 +37,10 @@ func runGitHookCommand(cfg Config, args []string) int {
 		return 1
 	}
 
+	if exit := rejectInvalidHookSettings(); exit != 0 {
+		return exit
+	}
+
 	switch args[0] {
 	case hookStagePreCommit:
 		return runPreCommitHook(cfg, args[1:])
@@ -59,6 +63,10 @@ func runGitHookCommand(cfg Config, args []string) int {
 }
 
 func runPreCommitHook(cfg Config, args []string) int {
+	if exit := rejectInvalidHookSettings(); exit != 0 {
+		return exit
+	}
+
 	cfg.HookStage = hookStagePreCommit
 	allFiles := slices.Contains(args, "--all-files")
 
@@ -94,6 +102,10 @@ func runPreCommitHook(cfg Config, args []string) int {
 }
 
 func runPrePushHook(cfg Config, input io.Reader) int {
+	if exit := rejectInvalidHookSettings(); exit != 0 {
+		return exit
+	}
+
 	cfg.HookStage = hookStagePrePush
 	restoreRoot := useLocalRootForPrePush()
 
@@ -122,8 +134,7 @@ func runPrePushHook(cfg Config, input io.Reader) int {
 		return exit
 	}
 
-	if slices.Contains(enabledHookGroupNames([]string{"ai"}), "ai") &&
-		runGeminiCheck(cfg, []string{"--full-check"}) != 0 {
+	if runGeminiCheck(cfg, []string{"--full-check"}) != 0 {
 		return 1
 	}
 
@@ -154,10 +165,9 @@ func useLocalRootForPrePush() func() {
 
 func runNamedHookGroups(cfg Config, names, files []string) int {
 	groups := canonicalHookGroups()
-	selectedNames := enabledHookGroupNames(names)
-	selectedGroups := make([]hookGroup, 0, len(selectedNames))
+	selectedGroups := make([]hookGroup, 0, len(names))
 
-	for _, name := range selectedNames {
+	for _, name := range names {
 		group, ok := groups[name]
 		if !ok {
 			writef(os.Stderr, "FATAL: unknown hook group %q\n", name)
@@ -459,27 +469,6 @@ func hookStatusForExitCode(exitCode int) string {
 
 func durationMilliseconds(start time.Time) float64 {
 	return float64(time.Since(start).Milliseconds())
-}
-
-func enabledHookGroupNames(names []string) []string {
-	settings := loadHookSettings()
-	if len(settings.EnabledGroups) == 0 {
-		return names
-	}
-
-	enabled := map[string]bool{}
-	for _, name := range settings.EnabledGroups {
-		enabled[strings.TrimSpace(name)] = true
-	}
-
-	selected := make([]string, 0, len(names))
-	for _, name := range names {
-		if enabled[name] {
-			selected = append(selected, name)
-		}
-	}
-
-	return selected
 }
 
 func hookFilesForPreCommit(allFiles bool) ([]string, error) {

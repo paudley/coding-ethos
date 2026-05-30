@@ -64,20 +64,6 @@ hooks:
   success_output: silent
   parallel_groups: true
   tool_timeout_seconds: 900
-  enabled_groups:
-    - format
-    - syntax
-    - python-policy
-    - python-static
-    - docs
-    - security
-    - shell
-    - docker
-    - workflow
-    - python-quality
-    - go
-    - ai
-    - commit-msg
   fail_severity_levels:
     - error
     - fatal

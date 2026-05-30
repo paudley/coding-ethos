@@ -42,6 +42,10 @@ func (group hookGroup) matchesFiles(files []string) bool {
 }
 
 func runHookGroupCommand(cfg Config, args []string) int {
+	if exit := rejectInvalidHookSettings(); exit != 0 {
+		return exit
+	}
+
 	if len(args) == 0 {
 		writeLine(os.Stderr, "Usage: coding-ethos-hook run-group <group> [files...]")
 
@@ -73,7 +77,6 @@ func runHookGroupCommand(cfg Config, args []string) int {
 
 type hookPlanGroup struct {
 	Name     string   `json:"name"`
-	Enabled  string   `json:"enabled"`
 	Commands []string `json:"commands"`
 }
 
@@ -86,6 +89,10 @@ type hookPlan struct {
 }
 
 func runHookPlanCommand(_ Config, _ []string) int {
+	if exit := rejectInvalidHookSettings(); exit != 0 {
+		return exit
+	}
+
 	settings := loadHookSettings()
 	plan := buildHookPlan(settings)
 
@@ -95,13 +102,7 @@ func runHookPlanCommand(_ Config, _ []string) int {
 }
 
 func buildHookPlan(settings hookSettings) hookPlan {
-	groupNames := defaultHookSettings().EnabledGroups
-
-	enabledNames := map[string]bool{}
-	for _, name := range enabledHookGroupNames(groupNames) {
-		enabledNames[name] = true
-	}
-
+	groupNames := policyHookPlanGroupNames()
 	groups := canonicalHookGroups()
 
 	planGroups := make([]hookPlanGroup, 0, len(groupNames))
@@ -118,7 +119,6 @@ func buildHookPlan(settings hookSettings) hookPlan {
 
 		planGroups = append(planGroups, hookPlanGroup{
 			Name:     name,
-			Enabled:  strconv.FormatBool(enabledNames[name]),
 			Commands: commands,
 		})
 	}
@@ -128,6 +128,23 @@ func buildHookPlan(settings hookSettings) hookPlan {
 		SuccessOutput:  selectedHookSuccessOutput(),
 		ParallelGroups: strconv.FormatBool(settings.ParallelGroups),
 		Groups:         planGroups,
+	}
+}
+
+func policyHookPlanGroupNames() []string {
+	return []string{
+		"format",
+		"syntax",
+		"python-policy",
+		"python-static",
+		"docs",
+		"security",
+		"shell",
+		"docker",
+		"workflow",
+		"python-quality",
+		"go",
+		"ai",
 	}
 }
 
@@ -154,7 +171,6 @@ func hookPlanJSONPayload(plan hookPlan) map[string]any {
 	for _, group := range plan.Groups {
 		groups = append(groups, map[string]any{
 			"name":     group.Name,
-			"enabled":  group.Enabled == hookPlanBoolTrue,
 			"commands": group.Commands,
 		})
 	}
@@ -178,12 +194,7 @@ func formatHookPlanHuman(plan hookPlan) string {
 	}
 
 	for _, group := range plan.Groups {
-		status := "disabled"
-		if group.Enabled == hookPlanBoolTrue {
-			status = "enabled"
-		}
-
-		lines = append(lines, fmt.Sprintf("%s (%s)", group.Name, status))
+		lines = append(lines, group.Name)
 		for _, command := range group.Commands {
 			lines = append(lines, "  - "+command)
 		}
@@ -200,14 +211,13 @@ func formatHookPlanTOON(plan hookPlan) string {
 		"output_format: "+toonCell(plan.OutputFormat),
 		"success_output: "+toonCell(plan.SuccessOutput),
 		"parallel_groups: "+toonCell(plan.ParallelGroups),
-		fmt.Sprintf("groups[%d]{name,enabled,commands}:", len(plan.Groups)),
+		fmt.Sprintf("groups[%d]{name,commands}:", len(plan.Groups)),
 	)
 
 	for _, group := range plan.Groups {
 		lines = append(lines, fmt.Sprintf(
-			"  %s,%t,%s",
+			"  %s,%s",
 			toonCell(group.Name),
-			group.Enabled == hookPlanBoolTrue,
 			toonCell(strings.Join(group.Commands, " ")),
 		))
 	}

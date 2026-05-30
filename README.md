@@ -1297,18 +1297,18 @@ installed toolchain writes `build/toolchain/manifest.tsv`. Hook execution treats
 missing managed binaries as runtime artifact failures instead of falling back to
 host tools.
 
-ESLint is registered as the `javascript` hook group and as a managed capture
-tool, but it is not part of the default pre-commit or pre-push group set until a
-repo opts in and owns an explicit ESLint config boundary.
+ESLint is registered as a managed capture tool, but it is not part of the
+pre-commit or pre-push policy group set until coding-ethos owns a complete
+JavaScript enforcement boundary.
 `tsc` is also registered in the `javascript` hook group. It runs at the
 TypeScript project boundary with `--noEmit --pretty false --project
 <repo>/tsconfig.json`, because TypeScript compiler diagnostics are
 project-level facts rather than safe per-file checks.
-kube-linter is registered as the `kubernetes` hook group and as a managed
-capture tool. It first filters YAML candidates to documents that parse with
-top-level Kubernetes `apiVersion` and `kind` fields, then runs those manifest
-paths with `lint --format json`; the hook group is opt-in so generic YAML files
-are not passed to kube-linter by extension alone.
+kube-linter is registered as a managed capture tool. It first filters YAML
+candidates to documents that parse with top-level Kubernetes `apiVersion` and
+`kind` fields, then runs those manifest paths with `lint --format json` when a
+policy-owned Kubernetes hook surface is added; generic YAML files are not passed
+to kube-linter by extension alone.
 
 Current managed lint and analyzer integrations:
 

@@ -276,7 +276,7 @@ func TestRunGitHookCommandRejectsUnsupportedEntrypoints(t *testing.T) {
 	}
 }
 
-func TestPreCommitAndPrePushHooksRouteThroughConfiguredGroups(t *testing.T) {
+func TestGitHooksRejectRemovedEnabledGroupsConfig(t *testing.T) {
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
 	t.Setenv("CODING_ETHOS_REAL_GIT", "")
@@ -297,38 +297,18 @@ hooks:
 	)
 	t.Setenv(configEnv, overridePath)
 
-	fakeBin := filepath.Join(tempDir, "bin")
-	mustWriteExecutable(
-		t,
-		filepath.Join(fakeBin, "git"),
-		`#!/usr/bin/env sh
-case "$*" in
-  "diff --cached --name-only --diff-filter=ACMR"|"diff --name-only HEAD"|"diff --name-only origin/main...HEAD")
-    exit 0
-    ;;
-  "rev-parse --abbrev-ref --symbolic-full-name @{upstream}")
-    exit 1
-    ;;
-  "check-ignore --quiet "*)
-    exit 0
-    ;;
-esac
-printf 'unexpected git invocation: %s\n' "$*" >&2
-exit 2
-`,
-	)
-	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	if got := runPreCommitHook(Config{}, nil); got != 0 {
-		t.Fatalf("runPreCommitHook() = %d, want 0", got)
-	}
-
-	if got := runPrePushHook(Config{}, strings.NewReader("")); got != 0 {
-		t.Fatalf("runPrePushHook() = %d, want 0", got)
-	}
-
-	if got := validateGoHookRuntime(); got != 0 {
-		t.Fatalf("validateGoHookRuntime() = %d, want 0", got)
+	stderr := captureStderr(t, func() {
+		if got := runPreCommitHook(Config{}, nil); got != 1 {
+			t.Fatalf("runPreCommitHook() = %d, want 1", got)
+		}
+	})
+	for _, want := range []string{
+		"hooks.enabled_groups has been removed",
+		"hook groups are policy-owned",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
 	}
 }
 

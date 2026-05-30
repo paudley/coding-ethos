@@ -36,7 +36,7 @@ const (
 type hookSettings struct {
 	OutputFormat       string   `mapstructure:"output_format"`
 	SuccessOutput      string   `mapstructure:"success_output"`
-	EnabledGroups      []string `mapstructure:"enabled_groups"`
+	ConfigError        string   `mapstructure:"-"`
 	FailSeverityLevels []string `mapstructure:"fail_severity_levels"`
 	WarnSeverityLevels []string `mapstructure:"warn_severity_levels"`
 	ToolTimeoutSeconds int      `mapstructure:"tool_timeout_seconds"`
@@ -235,10 +235,18 @@ func loadHookSettings() hookSettings {
 	}
 
 	settings := defaultHookSettings()
+	if _, ok := rootConfigValue(rootConfig, "hooks.enabled_groups"); ok {
+		settings.ConfigError = "hooks.enabled_groups has been removed; " +
+			"hook groups are policy-owned"
+
+		return settings
+	}
 
 	err = decodeConfigSection(rootConfig, "hooks", &settings)
 	if err != nil {
-		return defaultHookSettings()
+		settings.ConfigError = fmt.Sprintf("parse hooks config: %v", err)
+
+		return settings
 	}
 
 	if settings.OutputFormat == "" {
@@ -264,27 +272,23 @@ func loadHookSettings() hookSettings {
 	return settings
 }
 
+func rejectInvalidHookSettings() int {
+	settings := loadHookSettings()
+	if strings.TrimSpace(settings.ConfigError) == "" {
+		return 0
+	}
+
+	writef(os.Stderr, "FATAL: %s\n", settings.ConfigError)
+
+	return 1
+}
+
 func defaultHookSettings() hookSettings {
 	return hookSettings{
 		OutputFormat:       hookOutputFormatAuto,
 		SuccessOutput:      hookSuccessSilent,
 		ParallelGroups:     true,
 		ToolTimeoutSeconds: defaultToolTimeoutSecs,
-		EnabledGroups: []string{
-			"format",
-			"syntax",
-			"python-policy",
-			"python-static",
-			"docs",
-			"security",
-			"shell",
-			"docker",
-			"workflow",
-			"python-quality",
-			"go",
-			"ai",
-			"commit-msg",
-		},
 		FailSeverityLevels: []string{"error", "fatal", "critical"},
 		WarnSeverityLevels: []string{"warning", "warn"},
 	}
