@@ -1630,6 +1630,12 @@ func TestAgentShellWorktreeWritePathsExcludeProtectedRuntimeDirs(t *testing.T) {
 	); err != nil {
 		t.Fatalf("write root file: %v", err)
 	}
+	if err := os.Symlink(
+		filepath.Join(root, "Makefile"),
+		filepath.Join(root, "Makefile.link"),
+	); err != nil {
+		t.Fatalf("create root symlink: %v", err)
+	}
 
 	got, err := agentShellWorktreeWritePaths(root)
 	if err != nil {
@@ -1648,6 +1654,7 @@ func TestAgentShellWorktreeWritePathsExcludeProtectedRuntimeDirs(t *testing.T) {
 	for _, unwanted := range []string{
 		filepath.Join(root, ".git"),
 		filepath.Join(root, ".coding-ethos"),
+		filepath.Join(root, "Makefile.link"),
 	} {
 		if slices.Contains(got, unwanted) {
 			t.Fatalf("worktree write paths included protected %s: %#v", unwanted, got)

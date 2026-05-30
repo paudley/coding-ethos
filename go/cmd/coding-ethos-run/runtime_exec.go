@@ -407,6 +407,10 @@ func agentShellWorktreeWritePaths(root string) ([]string, error) {
 			continue
 		}
 
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+
 		paths = append(paths, filepath.Join(root, name))
 	}
 
