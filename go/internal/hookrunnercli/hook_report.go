@@ -235,7 +235,7 @@ func loadHookSettings() hookSettings {
 	}
 
 	settings := defaultHookSettings()
-	if _, ok := rootConfigValue(rootConfig, "hooks.enabled_groups"); ok {
+	if rootConfigSectionHasNormalizedKey(rootConfig, "hooks", "enabled_groups") {
 		settings.ConfigError = "hooks.enabled_groups has been removed; " +
 			"hook groups are policy-owned"
 

@@ -407,7 +407,15 @@ func agentShellWorktreeWritePaths(root string) ([]string, error) {
 			continue
 		}
 
-		if entry.Type()&os.ModeSymlink != 0 {
+		symlink, err := agentShellWorktreeEntryIsSymlink(entry)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"classify agent-shell worktree entry %s: %w",
+				filepath.Join(root, name), err,
+			)
+		}
+
+		if symlink {
 			continue
 		}
 
@@ -415,6 +423,32 @@ func agentShellWorktreeWritePaths(root string) ([]string, error) {
 	}
 
 	return paths, nil
+}
+
+// agentShellWorktreeEntryIsSymlink reports whether a worktree directory entry
+// is a symbolic link, excluding such entries from the sandbox write set.
+//
+// It trusts the readdir type bits when they conclusively identify the entry,
+// and otherwise falls back to an lstat. Go reports an unknown d_type as
+// ^FileMode(0) (all bits set), so a bare entry.Type()&os.ModeSymlink check
+// would silently exclude every entry on filesystems that omit d_type. The
+// lstat fallback classifies those entries precisely instead, and a stat
+// failure is surfaced as an error rather than degrading silently.
+func agentShellWorktreeEntryIsSymlink(entry os.DirEntry) (bool, error) {
+	mode := entry.Type()
+
+	// The readdir type bits are conclusive only for these single known types;
+	// an unknown d_type is reported as ^FileMode(0) and falls through to lstat.
+	if mode == 0 || mode == os.ModeDir || mode == os.ModeSymlink {
+		return mode == os.ModeSymlink, nil
+	}
+
+	info, err := entry.Info()
+	if err != nil {
+		return false, fmt.Errorf("stat worktree entry %s: %w", entry.Name(), err)
+	}
+
+	return info.Mode()&os.ModeSymlink != 0, nil
 }
 
 func protectedAgentShellWorktreeEntry(name string) bool {

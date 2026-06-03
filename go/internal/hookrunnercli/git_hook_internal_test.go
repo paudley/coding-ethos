@@ -312,6 +312,36 @@ hooks:
 	}
 }
 
+func TestGitHooksRejectRemovedEnabledGroupsConfigSpellings(t *testing.T) {
+	for _, key := range []string{"enabled-groups", "enabledGroups", "ENABLED_GROUPS"} {
+		t.Run(key, func(t *testing.T) {
+			tempDir := setupGitHookTestRepo(t)
+			t.Chdir(tempDir)
+			t.Setenv("CODING_ETHOS_REAL_GIT", "")
+			t.Setenv(consumerRootEnv, tempDir)
+			bundleRoot := writeTestBundleRoot(t, tempDir)
+			t.Setenv(precommitRootEnv, bundleRoot)
+
+			overridePath := filepath.Join(tempDir, "repo_config.yaml")
+			mustWriteTestFile(
+				t,
+				overridePath,
+				"hooks:\n  "+key+":\n    - security\n",
+			)
+			t.Setenv(configEnv, overridePath)
+
+			stderr := captureStderr(t, func() {
+				if got := runPreCommitHook(Config{}, nil); got != 1 {
+					t.Fatalf("runPreCommitHook() = %d, want 1", got)
+				}
+			})
+			if !strings.Contains(stderr, "hooks.enabled_groups has been removed") {
+				t.Fatalf("stderr missing removal notice for %q:\n%s", key, stderr)
+			}
+		})
+	}
+}
+
 func TestPushedFilesUsesTreeComparisonForNewBranch(t *testing.T) {
 	tempDir := setupGitHookTestRepo(t)
 	t.Chdir(tempDir)
