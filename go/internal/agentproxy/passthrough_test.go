@@ -258,9 +258,9 @@ func TestNewPassThroughProxyValidatesUpstream(t *testing.T) {
 	t.Parallel()
 
 	for _, testCase := range []struct {
+		wantErr error
 		name    string
 		value   string
-		wantErr error
 	}{
 		{
 			name:    "empty",
@@ -494,8 +494,8 @@ func TestPassThroughProxyRecordsRouteError(t *testing.T) {
 }
 
 type contextCheckingProxyEvents struct {
-	events []ProviderEvent
 	err    error
+	events []ProviderEvent
 }
 
 func (recorder *contextCheckingProxyEvents) RecordProxyEvent(

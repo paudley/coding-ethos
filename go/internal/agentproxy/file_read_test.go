@@ -15,8 +15,8 @@ func TestDetectFileReadInvocation(t *testing.T) {
 
 	tests := []struct {
 		name string
-		argv []string
 		path string
+		argv []string
 		ok   bool
 	}{
 		{
