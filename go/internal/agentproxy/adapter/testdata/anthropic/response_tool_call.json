@@ -1,0 +1,21 @@
+{
+  "model": "claude-sonnet-4",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "Let me list the directory."
+    },
+    {
+      "type": "tool_use",
+      "name": "list_dir",
+      "input": {
+        "path": "."
+      }
+    }
+  ],
+  "usage": {
+    "input_tokens": 42,
+    "output_tokens": 9
+  }
+}

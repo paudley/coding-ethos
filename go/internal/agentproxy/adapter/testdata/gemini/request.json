@@ -1,0 +1,38 @@
+{
+  "systemInstruction": {
+    "role": "system",
+    "parts": [
+      {
+        "text": "You are a careful assistant."
+      }
+    ]
+  },
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "List the files in the repo root."
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "functionDeclarations": [
+        {
+          "name": "list_dir",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": ["path"]
+          }
+        }
+      ]
+    }
+  ]
+}

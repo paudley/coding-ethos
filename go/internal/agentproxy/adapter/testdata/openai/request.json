@@ -1,0 +1,32 @@
+{
+  "model": "gpt-4o",
+  "stream": false,
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a careful assistant."
+    },
+    {
+      "role": "user",
+      "content": "List the files in the repo root.",
+      "name": "alice"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "list_dir",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": ["path"]
+        }
+      }
+    }
+  ]
+}

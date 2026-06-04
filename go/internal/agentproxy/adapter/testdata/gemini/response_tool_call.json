@@ -1,0 +1,27 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "Let me list the directory."
+          },
+          {
+            "functionCall": {
+              "name": "list_dir",
+              "args": {
+                "path": "."
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 42,
+    "candidatesTokenCount": 9,
+    "totalTokenCount": 51
+  }
+}

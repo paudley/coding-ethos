@@ -16,10 +16,13 @@ import (
 	"strings"
 	"time"
 
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
+	"blackcat.ca/coding-ethos/go/internal/agentproxy/ca"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/outputsurface"
+	"blackcat.ca/coding-ethos/go/lintcapture"
 )
 
 const (
@@ -122,6 +125,7 @@ func buildOperatorStatus(
 
 	report.Checks = append(report.Checks, runtimeArtifactChecks(paths)...)
 	report.Checks = append(report.Checks, agentAPIProxyRoutingCheck())
+	report.Checks = append(report.Checks, agentAPIProxyInterceptionCheck(paths))
 	report.Checks = append(report.Checks, outputSurfaceChecks(surfaceReport)...)
 	report.Checks = append(
 		report.Checks,
@@ -189,6 +193,67 @@ func validAgentAPIProxyURL(value string) bool {
 
 	return parsed.Host != "" &&
 		(parsed.Scheme == "http" || parsed.Scheme == "https")
+}
+
+const interceptionFingerprintPrefixLen = 12
+
+func agentAPIProxyInterceptionCheck(paths runtimePaths) operatorStatusCheck {
+	mode, approval := resolveProxyInterceptionConfig(paths)
+
+	evidence, err := ca.Evaluate(ca.GateInput{
+		Now:        time.Now().UTC(),
+		Mode:       mode,
+		CAApproval: approval,
+		RepoRoot:   paths.Root,
+		EnvOptIn:   agentAPIProxyInterceptOptIn(),
+	})
+	if err != nil {
+		return operatorStatusCheck{
+			Name:   "agent_api_proxy_interception",
+			Status: operatorStatusWarn,
+			Detail: "interception gate error: " + err.Error(),
+		}
+	}
+
+	return interceptionStatusCheck(evidence)
+}
+
+func interceptionStatusCheck(
+	evidence agentproxy.InterceptionEvidence,
+) operatorStatusCheck {
+	check := operatorStatusCheck{Name: "agent_api_proxy_interception"}
+
+	switch {
+	case evidence.Enabled:
+		check.Status = operatorStatusPass
+		check.Detail = "enabled (ca " +
+			interceptionFingerprintPrefix(evidence.CAFingerprint) + ")"
+	case evidence.Denied:
+		check.Status = operatorStatusWarn
+		check.Detail = "denied: " + evidence.Reason
+	default:
+		check.Status = operatorStatusPass
+		check.Detail = "disabled"
+	}
+
+	return check
+}
+
+func interceptionFingerprintPrefix(fingerprint string) string {
+	if len(fingerprint) <= interceptionFingerprintPrefixLen {
+		return fingerprint
+	}
+
+	return fingerprint[:interceptionFingerprintPrefixLen]
+}
+
+func resolveProxyInterceptionConfig(paths runtimePaths) (string, string) {
+	config, err := lintcapture.LoadRuntimeConfig(paths.EthosRoot, paths.Root)
+	if err != nil {
+		return agentproxy.InterceptionModeOff, ""
+	}
+
+	return config.ProxyInterceptionMode(), config.ProxyInterceptionCAApproval()
 }
 
 func outputSurfaceChecks(report outputsurface.Report) []operatorStatusCheck {

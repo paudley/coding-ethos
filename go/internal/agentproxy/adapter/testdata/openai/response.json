@@ -1,0 +1,16 @@
+{
+  "model": "gpt-4o",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "The repo root contains README.md and go.mod."
+      }
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 42,
+    "completion_tokens": 11,
+    "total_tokens": 53
+  }
+}
