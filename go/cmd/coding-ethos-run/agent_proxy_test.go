@@ -53,6 +53,34 @@ func TestRunAgentProxyCAStatusReportsDisabled(t *testing.T) {
 	}
 }
 
+func TestRunAgentProxyInterceptRefusesWhenDisabledFailClosed(t *testing.T) {
+	t.Setenv(envAgentAPIProxyIntercept, "")
+
+	paths := runtimePaths{EthosRoot: findRunnerRepoRoot(t), Root: t.TempDir()}
+
+	err := runAgentProxyHandler(paths, []string{
+		"intercept",
+		"--on-error",
+		agentProxyOnErrorFailClosed,
+	})
+	if !errors.Is(err, errAgentProxyInterceptDisabled) {
+		t.Fatalf("error = %v, want %v", err, errAgentProxyInterceptDisabled)
+	}
+}
+
+func TestRunAgentProxyInterceptRejectsInvalidOnError(t *testing.T) {
+	t.Setenv(envAgentAPIProxyIntercept, "")
+
+	err := runAgentProxyHandler(runtimePaths{Root: t.TempDir()}, []string{
+		"intercept",
+		"--on-error",
+		"explode",
+	})
+	if !errors.Is(err, errAgentProxyOnErrorInvalid) {
+		t.Fatalf("error = %v, want %v", err, errAgentProxyOnErrorInvalid)
+	}
+}
+
 func TestRunAgentProxyPassthroughRequiresUpstream(t *testing.T) {
 	err := runAgentProxyHandler(runtimePaths{Root: t.TempDir()}, []string{"passthrough"})
 	if !errors.Is(err, errAgentProxyUpstreamRequired) {

@@ -11,10 +11,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
 	"blackcat.ca/coding-ethos/go/internal/agenthookscli"
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
+	"blackcat.ca/coding-ethos/go/internal/agentproxy/ca"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintelcli"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
@@ -176,13 +179,6 @@ func agentShellSandboxPlan(
 		return sandbox.Plan{}, nil, cleanup, err
 	}
 
-	agentWriteDirs := []string{
-		filepath.Join(paths.Root, sandbox.SandboxTempWritePath),
-		filepath.Join(paths.Root, ".coding-ethos", "cache"),
-		filepath.Join(paths.Root, ".coding-ethos", "state"),
-		filepath.Join(paths.Root, ".coding-ethos", "lint-runs"),
-	}
-
 	agentWritePaths, err := agentShellWorktreeWritePaths(paths.Root)
 	if err != nil {
 		cleanup()
@@ -190,19 +186,16 @@ func agentShellSandboxPlan(
 		return sandbox.Plan{}, nil, func() {}, err
 	}
 
-	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
-	for _, dir := range agentWriteDirs {
-		err = os.MkdirAll(dir, agentShellCacheDirMode)
-		if err != nil {
-			cleanup()
+	agentWriteDirs, err := agentShellEnsureWriteDirs(paths.Root)
+	if err != nil {
+		cleanup()
 
-			return sandbox.Plan{}, nil, func() {}, fmt.Errorf(
-				"create agent-shell write directory %s: %w",
-				dir,
-				err,
-			)
-		}
+		return sandbox.Plan{}, nil, func() {}, err
 	}
+
+	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
+	interceptEvidence := agentShellInterceptEvidence(paths)
+	interceptCACertPath := agentShellInterceptCACertPath(interceptEvidence)
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
 		Cwd:         paths.InvocationCWD,
@@ -215,6 +208,7 @@ func agentShellSandboxPlan(
 			SandboxProfile:    "agent-shell",
 			StrategicIntent:   agentShellStrategicIntent(),
 			WritePaths:        append(agentShellProtectedWritePaths(paths), agentWritePaths...),
+			ReadPaths:         agentShellInterceptReadPaths(interceptEvidence),
 			AllowGitWrites:    true,
 			RequiresGit:       true,
 			RequiresNetwork:   true,
@@ -231,7 +225,86 @@ func agentShellSandboxPlan(
 		)
 	}
 
-	return plan, agentShellProcessEnv(paths.Root, gitWrapper, realGitBind), cleanup, nil
+	processEnv := agentShellProcessEnv(
+		paths.Root,
+		gitWrapper,
+		realGitBind,
+		interceptCACertPath,
+	)
+
+	return plan, processEnv, cleanup, nil
+}
+
+// agentShellEnsureWriteDirs creates the agent-shell managed write directories
+// under the repo root and returns their paths so the caller can fold them into
+// the sandbox write set.
+func agentShellEnsureWriteDirs(root string) ([]string, error) {
+	dirs := []string{
+		filepath.Join(root, sandbox.SandboxTempWritePath),
+		filepath.Join(root, ".coding-ethos", "cache"),
+		filepath.Join(root, ".coding-ethos", "state"),
+		filepath.Join(root, ".coding-ethos", "lint-runs"),
+	}
+
+	for _, dir := range dirs {
+		err := os.MkdirAll(dir, agentShellCacheDirMode)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"create agent-shell write directory %s: %w",
+				dir,
+				err,
+			)
+		}
+	}
+
+	return dirs, nil
+}
+
+// agentShellInterceptEvidence resolves the HTTPS interception gate decision for
+// this repo. A failed gate evaluation is treated as disabled (zero-value
+// evidence) so a misconfigured gate yields no CA trust binding rather than
+// blocking the shell.
+func agentShellInterceptEvidence(paths runtimePaths) agentproxy.InterceptionEvidence {
+	mode, approval := resolveProxyInterceptionConfig(paths)
+
+	evidence, err := ca.Evaluate(ca.GateInput{
+		Now:        time.Now().UTC(),
+		Mode:       mode,
+		CAApproval: approval,
+		RepoRoot:   paths.Root,
+		EnvOptIn:   agentAPIProxyInterceptOptIn(),
+	})
+	if err != nil {
+		return agentproxy.InterceptionEvidence{}
+	}
+
+	return evidence
+}
+
+// agentShellInterceptReadPaths returns the local CA certificate as a read-only
+// sandbox bind when interception is enabled, so the child can trust the proxy
+// leaves. The host trust store is never touched.
+func agentShellInterceptReadPaths(
+	evidence agentproxy.InterceptionEvidence,
+) []string {
+	path := agentShellInterceptCACertPath(evidence)
+	if path == "" {
+		return nil
+	}
+
+	return []string{path}
+}
+
+// agentShellInterceptCACertPath returns the provisioned CA certificate path
+// only when interception is enabled, and an empty string otherwise.
+func agentShellInterceptCACertPath(
+	evidence agentproxy.InterceptionEvidence,
+) string {
+	if evidence.Enabled && evidence.CACertPath != "" {
+		return evidence.CACertPath
+	}
+
+	return ""
 }
 
 func agentShellProtectedWritePaths(paths runtimePaths) []string {
@@ -469,7 +542,9 @@ func protectedAgentShellWorktreeEntry(name string) bool {
 		name == ".coding-ethos"
 }
 
-func agentShellProcessEnv(root, gitWrapper, realGitBind string) []string {
+func agentShellProcessEnv(
+	root, gitWrapper, realGitBind, interceptCACertPath string,
+) []string {
 	env := os.Environ()
 	wrapperDir := filepath.Dir(gitWrapper)
 	pathValue := wrapperDir + string(os.PathListSeparator) + os.Getenv("PATH")
@@ -483,6 +558,7 @@ func agentShellProcessEnv(root, gitWrapper, realGitBind string) []string {
 			strings.HasPrefix(item, "CODING_ETHOS_AGENT_SHELL_SANDBOX=") ||
 			strings.HasPrefix(item, "GPG_TTY=") ||
 			strings.HasPrefix(item, "TMPDIR=") ||
+			agentShellFilteredCAEnv(item) ||
 			agentShellFilteredGUIEnv(item) {
 			continue
 		}
@@ -503,7 +579,37 @@ func agentShellProcessEnv(root, gitWrapper, realGitBind string) []string {
 		filtered = append(filtered, "GPG_TTY="+gpgTTY)
 	}
 
+	filtered = append(
+		filtered,
+		agentShellInterceptCAEnv(interceptCACertPath)...,
+	)
+
 	return filtered
+}
+
+// agentShellFilteredCAEnv reports whether an inherited env entry names one of
+// the CA trust variables the sandbox replaces, so a host value never leaks past
+// the injected interception trust binding.
+func agentShellFilteredCAEnv(item string) bool {
+	return strings.HasPrefix(item, "SSL_CERT_FILE=") ||
+		strings.HasPrefix(item, "REQUESTS_CA_BUNDLE=") ||
+		strings.HasPrefix(item, "NODE_EXTRA_CA_CERTS=")
+}
+
+// agentShellInterceptCAEnv returns the CA trust variables that point the
+// sandboxed child at the local interception CA, or nil when interception is
+// disabled and no cert path was bound.
+func agentShellInterceptCAEnv(interceptCACertPath string) []string {
+	path := strings.TrimSpace(interceptCACertPath)
+	if path == "" {
+		return nil
+	}
+
+	return []string{
+		"SSL_CERT_FILE=" + path,
+		"REQUESTS_CA_BUNDLE=" + path,
+		"NODE_EXTRA_CA_CERTS=" + path,
+	}
 }
 
 func agentShellGPGTTY() string {
