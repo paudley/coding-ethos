@@ -304,7 +304,10 @@ func appendExistingGPGHomeWritePaths(writePaths []string, gpgHome string) []stri
 	}
 
 	writePaths = append(writePaths, resolvedGPGHome)
-	writePaths = append(writePaths, agentShellResolvedGPGHomeWritePaths(cleanGPGHome)...)
+	writePaths = append(
+		writePaths,
+		agentShellResolvedGPGHomeWritePaths(resolvedGPGHome)...,
+	)
 
 	return writePaths
 }

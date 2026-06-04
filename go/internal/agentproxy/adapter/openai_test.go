@@ -30,10 +30,35 @@ func TestOpenAIDetect(t *testing.T) {
 			matched:     true,
 		},
 		{
+			name: "host with port and path",
+			reqCtx: agentproxy.RequestContext{
+				Host: "api.openai.com:443",
+				Path: "/v1/chat/completions",
+			},
+			specificity: 20,
+			matched:     true,
+		},
+		{
 			name:        "path only",
 			reqCtx:      agentproxy.RequestContext{Path: "/v1/chat/completions"},
 			specificity: 10,
 			matched:     true,
+		},
+		{
+			name: "look-alike host rejected via path only",
+			reqCtx: agentproxy.RequestContext{
+				Host: "api.openai.com.evil.tld",
+				Path: "/v1/chat/completions",
+			},
+			specificity: 10,
+			matched:     true,
+		},
+		{
+			name: "non-prefix path rejected",
+			reqCtx: agentproxy.RequestContext{
+				Host: "api.openai.com",
+				Path: "/proxy/v1/chat/completions",
+			},
 		},
 		{
 			name:   "no match",

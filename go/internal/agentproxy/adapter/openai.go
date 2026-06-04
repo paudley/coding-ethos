@@ -5,7 +5,6 @@ package adapter
 
 import (
 	"encoding/json"
-	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 )
@@ -16,7 +15,7 @@ const (
 	// openAIHostMarker identifies the OpenAI API host.
 	openAIHostMarker = "api.openai.com"
 	// openAIPathMarker identifies the chat completions endpoint.
-	openAIPathMarker = "/chat/completions"
+	openAIPathMarker = "/v1/chat/completions"
 	// openAISpecificityHostPath scores a host-plus-path match.
 	openAISpecificityHostPath = 20
 	// openAISpecificityPath scores a path-only match.
@@ -91,10 +90,12 @@ func (OpenAI) Name() string {
 	return openAIName
 }
 
-// Detect reports whether the request targets the OpenAI chat endpoint.
+// Detect reports whether the request targets the OpenAI chat endpoint. The host
+// must equal or be a subdomain of the API host and the path must anchor on the
+// chat completions prefix, so look-alike hosts and embedded paths are rejected.
 func (OpenAI) Detect(reqCtx agentproxy.RequestContext) agentproxy.MatchResult {
-	hasPath := strings.Contains(reqCtx.Path, openAIPathMarker)
-	hasHost := strings.Contains(reqCtx.Host, openAIHostMarker)
+	hasPath := pathHasServicePrefix(reqCtx.Path, openAIPathMarker)
+	hasHost := hostMatchesService(reqCtx.Host, openAIHostMarker)
 
 	switch {
 	case hasHost && hasPath:

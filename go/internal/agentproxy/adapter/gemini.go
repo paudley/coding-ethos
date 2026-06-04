@@ -174,10 +174,14 @@ func (Gemini) Name() string {
 	return geminiName
 }
 
-// Detect reports whether the request targets a generateContent endpoint.
+// Detect reports whether the request targets a generateContent endpoint. The
+// host must equal or be a subdomain of the API host and the request path must
+// end with a generateContent method suffix, rejecting look-alike hosts.
 func (Gemini) Detect(reqCtx agentproxy.RequestContext) agentproxy.MatchResult {
-	hasPath := strings.Contains(reqCtx.Path, geminiPathMarker)
-	hasHost := strings.Contains(reqCtx.Host, geminiHostMarker)
+	trimmedPath := strings.TrimSpace(reqCtx.Path)
+	hasPath := strings.HasSuffix(trimmedPath, geminiPathMarker) ||
+		strings.HasSuffix(trimmedPath, geminiStreamPathMarker)
+	hasHost := hostMatchesService(reqCtx.Host, geminiHostMarker)
 
 	switch {
 	case hasHost && hasPath:

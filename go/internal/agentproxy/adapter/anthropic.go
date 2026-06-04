@@ -127,9 +127,11 @@ func (Anthropic) Name() string {
 }
 
 // Detect reports whether the request targets the Anthropic Messages endpoint.
+// The host must equal or be a subdomain of the API host and the path must
+// anchor on the Messages prefix, rejecting look-alike hosts and embedded paths.
 func (Anthropic) Detect(reqCtx agentproxy.RequestContext) agentproxy.MatchResult {
-	hasPath := strings.Contains(reqCtx.Path, anthropicPathMarker)
-	hasHost := strings.Contains(reqCtx.Host, anthropicHostMarker)
+	hasPath := pathHasServicePrefix(reqCtx.Path, anthropicPathMarker)
+	hasHost := hostMatchesService(reqCtx.Host, anthropicHostMarker)
 
 	switch {
 	case hasHost && hasPath:

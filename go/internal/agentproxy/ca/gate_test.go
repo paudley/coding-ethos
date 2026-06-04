@@ -121,3 +121,61 @@ func TestEvaluateDeniesOnFingerprintMismatch(t *testing.T) {
 		t.Fatalf("expected denied on approval mismatch, got %#v", evidence)
 	}
 }
+
+func TestEvaluateDeniesApprovalMismatchOnFirstMint(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+
+	evidence, err := ca.Evaluate(ca.GateInput{
+		Now:        fixedNow(),
+		Mode:       agentproxy.InterceptionModeRequired,
+		CAApproval: "deadbeefdeadbeef",
+		RepoRoot:   repoRoot,
+		EnvOptIn:   true,
+	})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	if evidence.Enabled || !evidence.Denied {
+		t.Fatalf("expected denied on first-mint approval mismatch, got %#v", evidence)
+	}
+
+	if evidence.CAFingerprint == "" || evidence.CACertPath == "" {
+		t.Fatalf(
+			"denied evidence must expose CA fingerprint and cert path, got %#v",
+			evidence,
+		)
+	}
+
+	if evidence.CAFingerprint == "deadbeefdeadbeef" {
+		t.Fatalf("fingerprint must report the actual CA, got %#v", evidence)
+	}
+}
+
+func TestEvaluateEnabledWhenApprovalMatchesFirstMint(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+
+	provisioned, err := ca.EnsureCA(repoRoot, fixedNow())
+	if err != nil {
+		t.Fatalf("pre-provision CA: %v", err)
+	}
+
+	evidence, err := ca.Evaluate(ca.GateInput{
+		Now:        fixedNow(),
+		Mode:       agentproxy.InterceptionModeRequired,
+		CAApproval: provisioned.Fingerprint(),
+		RepoRoot:   repoRoot,
+		EnvOptIn:   true,
+	})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+
+	if !evidence.Enabled || evidence.Denied {
+		t.Fatalf("expected enabled on matching approval, got %#v", evidence)
+	}
+}

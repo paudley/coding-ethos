@@ -9,6 +9,7 @@ package adapter
 
 import (
 	"encoding/json"
+	"net"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
@@ -114,6 +115,31 @@ func streamedResponse(body []byte) agentproxy.ResponseNormalization {
 		Metadata:    map[string]string{},
 		Streamed:    true,
 	}
+}
+
+// hostMatchesService reports whether host targets serviceHost exactly or as a
+// subdomain of it. The host is lowercased, trimmed, and stripped of any port so
+// look-alike hosts such as api.openai.com.evil.tld never satisfy the suffix
+// rule. serviceHost must already be lowercase (for example api.openai.com).
+func hostMatchesService(host, serviceHost string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(host))
+
+	hostOnly, _, err := net.SplitHostPort(normalized)
+	if err == nil {
+		normalized = hostOnly
+	}
+
+	return normalized == serviceHost ||
+		strings.HasSuffix(normalized, "."+serviceHost)
+}
+
+// pathHasServicePrefix reports whether path equals prefix or sits beneath it as
+// a path segment. A trailing path such as /proxy/v1/chat/completions is
+// rejected because the prefix must anchor at the start of the trimmed path.
+func pathHasServicePrefix(path, prefix string) bool {
+	trimmed := strings.TrimSpace(path)
+
+	return trimmed == prefix || strings.HasPrefix(trimmed, prefix+"/")
 }
 
 // joinTextParts concatenates non-empty text fragments with newlines.

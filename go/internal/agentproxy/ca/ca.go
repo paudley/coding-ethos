@@ -38,6 +38,17 @@ const (
 	caCertMode         = 0o644
 	caKeyMode          = 0o600
 	caMetadataMode     = 0o600
+	caLockFileName     = "mint.lock"
+	caLockMode         = 0o600
+	caLockMaxAttempts  = 100
+	caLockRetryDelay   = 50 * time.Millisecond
+)
+
+// ErrCAMintLockTimeout reports that the mint lock could not be acquired before
+// the bounded retry budget elapsed, signalling persistent contention or a stale
+// lock file rather than a transient race.
+var ErrCAMintLockTimeout = apperror.StaticError(
+	"agent-proxy CA mint lock acquisition timed out",
 )
 
 // ErrCANotProvisioned reports that no agent-proxy CA exists on disk yet.
@@ -84,7 +95,86 @@ func metadataPath(repoRoot string) string {
 }
 
 // EnsureCA loads an existing valid CA or mints a new one when absent or expired.
+// Minting is serialized with a portable on-disk lock so concurrent callers never
+// corrupt the key, certificate, or metadata files: the loser of the race waits,
+// reloads the freshly minted CA, and returns it instead of minting again.
 func EnsureCA(repoRoot string, now time.Time) (CA, error) {
+	existing, err := Load(repoRoot)
+	if err == nil && now.Before(existing.notAfter) {
+		return existing, nil
+	}
+
+	dir := storageDir(repoRoot)
+
+	err = os.MkdirAll(dir, caDirMode)
+	if err != nil {
+		return CA{}, fmt.Errorf("create agent-proxy CA directory: %w", err)
+	}
+
+	return ensureCALocked(repoRoot, now, filepath.Join(dir, caLockFileName))
+}
+
+// ensureCALocked acquires the mint lock, double-checks for a valid CA, and mints
+// one when still needed. It returns a CA produced by the lock holder or, when a
+// concurrent holder finishes first, the CA that holder wrote to disk.
+func ensureCALocked(repoRoot string, now time.Time, lockPath string) (CA, error) {
+	acquired, existing, err := acquireMintLock(repoRoot, now, lockPath)
+	if err != nil {
+		return CA{}, err
+	}
+
+	if !acquired {
+		return existing, nil
+	}
+
+	defer func() { _ = os.Remove(lockPath) }()
+
+	return mintUnderLock(repoRoot, now)
+}
+
+// acquireMintLock spins on an O_EXCL lock file until it wins the lock, observes a
+// valid CA written by another holder, or exhausts the bounded retry budget. A
+// true first result means the lock was acquired; a false result returns the CA a
+// concurrent holder produced.
+func acquireMintLock(
+	repoRoot string,
+	now time.Time,
+	lockPath string,
+) (bool, CA, error) {
+	for range caLockMaxAttempts {
+		lockFile, err := os.OpenFile(
+			filepath.Clean(lockPath),
+			os.O_CREATE|os.O_EXCL|os.O_WRONLY,
+			caLockMode,
+		)
+		if err == nil {
+			_ = lockFile.Close()
+
+			return true, CA{}, nil
+		}
+
+		if !os.IsExist(err) {
+			return false, CA{}, fmt.Errorf(
+				"acquire agent-proxy CA mint lock: %w",
+				err,
+			)
+		}
+
+		existing, loadErr := Load(repoRoot)
+		if loadErr == nil && now.Before(existing.notAfter) {
+			return false, existing, nil
+		}
+
+		time.Sleep(caLockRetryDelay)
+	}
+
+	return false, CA{}, ErrCAMintLockTimeout
+}
+
+// mintUnderLock re-checks for a valid CA after the lock is held and mints only
+// when the certificate is still absent or expired, completing the double-checked
+// guard against a CA written by a holder that exited just before this acquire.
+func mintUnderLock(repoRoot string, now time.Time) (CA, error) {
 	existing, err := Load(repoRoot)
 	if err == nil && now.Before(existing.notAfter) {
 		return existing, nil

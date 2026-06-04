@@ -32,10 +32,35 @@ func TestGeminiDetect(t *testing.T) {
 			matched:     true,
 		},
 		{
+			name: "host with port and path",
+			reqCtx: agentproxy.RequestContext{
+				Host: "generativelanguage.googleapis.com:443",
+				Path: geminiGenerateContentPath,
+			},
+			specificity: 20,
+			matched:     true,
+		},
+		{
 			name:        "path only",
 			reqCtx:      agentproxy.RequestContext{Path: geminiGenerateContentPath},
 			specificity: 10,
 			matched:     true,
+		},
+		{
+			name: "look-alike host rejected via path only",
+			reqCtx: agentproxy.RequestContext{
+				Host: "generativelanguage.googleapis.com.evil.tld",
+				Path: geminiGenerateContentPath,
+			},
+			specificity: 10,
+			matched:     true,
+		},
+		{
+			name: "non-method path rejected",
+			reqCtx: agentproxy.RequestContext{
+				Host: "generativelanguage.googleapis.com",
+				Path: "/v1beta/models/gemini-pro",
+			},
 		},
 		{
 			name:   "no match",

@@ -30,10 +30,35 @@ func TestAnthropicDetect(t *testing.T) {
 			matched:     true,
 		},
 		{
+			name: "host with port and path",
+			reqCtx: agentproxy.RequestContext{
+				Host: "api.anthropic.com:443",
+				Path: "/v1/messages",
+			},
+			specificity: 20,
+			matched:     true,
+		},
+		{
 			name:        "path only",
 			reqCtx:      agentproxy.RequestContext{Path: "/v1/messages"},
 			specificity: 10,
 			matched:     true,
+		},
+		{
+			name: "look-alike host rejected via path only",
+			reqCtx: agentproxy.RequestContext{
+				Host: "api.anthropic.com.evil.tld",
+				Path: "/v1/messages",
+			},
+			specificity: 10,
+			matched:     true,
+		},
+		{
+			name: "non-prefix path rejected",
+			reqCtx: agentproxy.RequestContext{
+				Host: "api.anthropic.com",
+				Path: "/proxy/v1/messages",
+			},
 		},
 		{
 			name:   "no match",
