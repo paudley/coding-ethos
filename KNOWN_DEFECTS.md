@@ -46,3 +46,27 @@ the end-to-end suite unless all of the following are true:
   operator approval.
 - Removal condition: remove the fixture once live-provider contract tests can
   run deterministically without external cost or credential exposure.
+
+#### Agent Proxy TLS Fixture Provider
+
+- Scope: `go/internal/e2e/proxy_harness.go` (the TLS fake provider used by the
+  CONNECT TLS-MITM interception end-to-end test).
+- Owner: Blackcat Informatics maintainers
+- Rationale: Live AI provider TLS endpoints are nondeterministic, externally
+  billed, and cannot back a blocking TLS-MITM end-to-end test that asserts
+  byte-identical forwarding and body-free recording. This fixture is
+  operator-approved. It replaces only the remote provider TLS endpoint; the
+  scenario still uses a real temporary Git repository, a real local CA, real
+  per-host leaf minting, real TLS handshakes, real HTTP framing, and the real
+  code-intel DuckDB ledger.
+- Real behavior replaced: the remote provider's TLS endpoint serving a
+  deterministic OpenAI-shaped chat completion and a deterministic Server-Sent
+  Events stream.
+- Remaining risk: real vendor authentication, streaming reconstruction, rate
+  limits, HTTP/2-specific provider behaviors, and vendor error bodies are not
+  exercised by this fixture.
+- Replacement plan: add provider-specific contract tests when the Agent Proxy
+  supports opt-in live-provider validation with explicit credentials and
+  operator approval.
+- Removal condition: remove the fixture once live-provider contract tests can
+  run deterministically without external cost or credential exposure.
