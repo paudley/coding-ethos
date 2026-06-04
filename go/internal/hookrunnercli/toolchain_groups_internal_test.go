@@ -326,7 +326,7 @@ case "$1 $2" in
     printf 'blackcat.ca/coding-ethos/go/internal/e2e\n'
     exit 0
     ;;
-  "test -buildvcs=false")
+  "test -p=1")
     exit 0
     ;;
   "tool cover")
@@ -387,7 +387,7 @@ case "$1 $2" in
     printf 'blackcat.ca/coding-ethos/go/internal/e2e\n'
     exit 0
     ;;
-  "test -buildvcs=false")
+  "test -p=1")
     exit 0
     ;;
   "tool cover")
@@ -508,7 +508,7 @@ case "$1 $2" in
     printf 'blackcat.ca/coding-ethos/go/internal/e2e\n'
     exit 0
     ;;
-  "test -buildvcs=false")
+  "test -p=1")
     printf '%s\n' "$*" > `+shellQuoteForTest(testArgsLog)+`
     case "$*" in
       *"/internal/e2e"*)

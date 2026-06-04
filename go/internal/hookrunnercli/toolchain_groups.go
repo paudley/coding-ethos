@@ -247,6 +247,7 @@ func runGoCoverageThreshold(cfg Config, paths []string) int {
 		Command: append([]string{
 			"go",
 			"test",
+			"-p=1",
 			"-buildvcs=false",
 			"-timeout=30s",
 			"-short",

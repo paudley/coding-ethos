@@ -472,9 +472,6 @@ func installManagedGitPolicyArtifacts(t *testing.T, repo e2e.Repo) {
 
 func managedGitCommitRepoConfig() string {
 	return strings.Join([]string{
-		"hooks:",
-		"  enabled_groups:",
-		"    - python-policy",
 		"python:",
 		"  optional_returns:",
 		"    enabled: false",

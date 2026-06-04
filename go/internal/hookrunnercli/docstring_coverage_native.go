@@ -77,15 +77,16 @@ func collectNativeDocstringCoveragePath(
 	excludePatterns []*regexp.Regexp,
 	stats *docstringCoverageStats,
 ) error {
-	root := filepath.Join(settings.ConsumerRoot, filepath.Clean(checkPath))
+	walkRoot, relBase := resolveDocstringCoverageWalkRoot(settings.ConsumerRoot, checkPath)
 
-	err := filepath.WalkDir(root, func(
+	err := filepath.WalkDir(walkRoot, func(
 		path string,
 		entry os.DirEntry,
 		walkErr error,
 	) error {
 		return collectNativeDocstringCoverageEntry(
 			path,
+			relBase,
 			entry,
 			walkErr,
 			settings,
@@ -94,14 +95,38 @@ func collectNativeDocstringCoveragePath(
 		)
 	})
 	if err != nil {
-		return fmt.Errorf("walk docstring coverage path %q: %w", root, err)
+		return fmt.Errorf("walk docstring coverage path %q: %w", walkRoot, err)
 	}
 
 	return nil
 }
 
+// resolveDocstringCoverageWalkRoot resolves the directory or file the native
+// docstring coverage walker traverses for a single check path. It honors a
+// check path that already resolves relative to the current working directory,
+// matching how existingFiles validated staged hook files, and otherwise falls
+// back to joining the path onto the consumer root for configured directory
+// targets. It returns the walk root and the base used to derive repo-relative
+// paths so labels and exclude matching stay stable across both resolutions.
+func resolveDocstringCoverageWalkRoot(consumerRoot, checkPath string) (string, string) {
+	cleaned := filepath.Clean(checkPath)
+
+	base, err := os.Getwd()
+	if err == nil {
+		workingRoot := filepath.Join(base, cleaned)
+
+		_, statErr := os.Lstat(workingRoot)
+		if statErr == nil {
+			return workingRoot, base
+		}
+	}
+
+	return filepath.Join(consumerRoot, cleaned), consumerRoot
+}
+
 func collectNativeDocstringCoverageEntry(
 	path string,
+	relBase string,
 	entry os.DirEntry,
 	walkErr error,
 	settings docstringCoverageSettings,
@@ -112,7 +137,7 @@ func collectNativeDocstringCoverageEntry(
 		return fmt.Errorf("walk docstring coverage entry %q: %w", path, walkErr)
 	}
 
-	relPath, err := filepath.Rel(settings.ConsumerRoot, path)
+	relPath, err := filepath.Rel(relBase, path)
 	if err != nil {
 		return fmt.Errorf("resolve docstring coverage path %q: %w", path, err)
 	}

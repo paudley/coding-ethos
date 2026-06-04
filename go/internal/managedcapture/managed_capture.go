@@ -953,6 +953,7 @@ func enforceManagedToolArgs(
 			[]string{
 				"-json",
 				"-cover",
+				"-p=1",
 				"-buildvcs=false",
 				"-count=1",
 				"-timeout=30s",

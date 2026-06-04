@@ -126,16 +126,6 @@ func goProfileOverlay(
 ) configdata.Map {
 	overlay := configdata.Map{
 		"go": map[string]any{"enabled": true},
-		"hooks": map[string]any{"enabled_groups": []any{
-			"syntax",
-			"docs",
-			"security",
-			"shell",
-			"workflow",
-			"go",
-			"ai",
-			"commit-msg",
-		}},
 	}
 
 	if !detector.HasPythonSources(repoRoot, ethosRoot) {

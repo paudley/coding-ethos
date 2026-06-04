@@ -1059,10 +1059,7 @@ func writeTestRepoConfig(t *testing.T, repo string) string {
 
 	path := filepath.Join(repo, "repo_config.yaml")
 	writeTestGitHookFile(t, repo, "repo_config.yaml", fmt.Sprintf(
-		"hooks:\n"+
-			"  enabled_groups:\n"+
-			"    - format\n"+
-			"python:\n"+
+		"python:\n"+
 			"  manifest_validation:\n"+
 			"    enabled: true\n"+
 			"    candidate_paths:\n"+

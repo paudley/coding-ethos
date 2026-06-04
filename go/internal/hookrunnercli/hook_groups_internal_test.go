@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestFormatHookPlanJSONUsesBooleanFields(t *testing.T) {
+func TestFormatHookPlanJSONOmitsEnabledState(t *testing.T) {
 	t.Parallel()
 
 	plan := hookPlan{
@@ -18,7 +18,6 @@ func TestFormatHookPlanJSONUsesBooleanFields(t *testing.T) {
 		Groups: []hookPlanGroup{
 			{
 				Name:     "syntax",
-				Enabled:  hookPlanBoolTrue,
 				Commands: []string{"yamllint"},
 			},
 		},
@@ -27,13 +26,15 @@ func TestFormatHookPlanJSONUsesBooleanFields(t *testing.T) {
 	output := formatHookPlan(plan, hookOutputFormatJSON)
 	for _, fragment := range []string{
 		`"parallel_groups": true`,
-		`"enabled": true`,
 		`"commands": [`,
 		`"yamllint"`,
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("formatHookPlan() missing %q:\n%s", fragment, output)
 		}
+	}
+	if strings.Contains(output, `"enabled"`) {
+		t.Fatalf("formatHookPlan() should not expose enabled state:\n%s", output)
 	}
 }
 
@@ -47,7 +48,6 @@ func TestFormatHookPlanTOONIncludesGroups(t *testing.T) {
 		Groups: []hookPlanGroup{
 			{
 				Name:     "syntax",
-				Enabled:  hookPlanBoolTrue,
 				Commands: []string{"yamllint", "shellcheck"},
 			},
 		},
@@ -55,8 +55,8 @@ func TestFormatHookPlanTOONIncludesGroups(t *testing.T) {
 
 	output := formatHookPlan(plan, hookOutputFormatTOON)
 	for _, fragment := range []string{
-		"groups[1]{name,enabled,commands}:",
-		"syntax,true,yamllint shellcheck",
+		"groups[1]{name,commands}:",
+		"syntax,yamllint shellcheck",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("formatHookPlan() missing %q:\n%s", fragment, output)

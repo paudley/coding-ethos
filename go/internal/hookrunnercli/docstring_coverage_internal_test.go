@@ -291,6 +291,54 @@ def documented():
 	}
 }
 
+func TestRunNativeDocstringCoverageWalksStagedFilesRelativeToWorkingDir(t *testing.T) {
+	workingDir := t.TempDir()
+	consumerRoot := t.TempDir()
+	t.Chdir(workingDir)
+
+	mustWriteTestFile(
+		t,
+		filepath.Join(workingDir, "pkg", "commit_success.py"),
+		strings.TrimSpace(`
+"""Documented module that lives in the working tree, not the consumer root."""
+
+def documented():
+    """Documented function."""
+    return 1
+`)+"\n",
+	)
+
+	settings := docstringCoverageSettings{
+		ConsumerRoot:             consumerRoot,
+		Threshold:                100,
+		CheckPaths:               []string{"pkg/commit_success.py"},
+		IgnoreInitMethod:         true,
+		IgnoreInitModule:         true,
+		IgnoreMagic:              true,
+		IgnorePrivate:            true,
+		IgnoreSemiprivate:        true,
+		IgnoreNestedFunctions:    true,
+		IgnoreNestedClasses:      true,
+		IgnorePropertyDecorators: true,
+	}
+
+	exitCode, stdout, stderr, err := runNativeDocstringCoverage(settings)
+	if err != nil {
+		t.Fatalf("runNativeDocstringCoverage() error = %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf(
+			"runNativeDocstringCoverage() exit = %d, stdout %q, stderr %q",
+			exitCode,
+			stdout,
+			stderr,
+		)
+	}
+	if !strings.Contains(stdout, "Coverage: 100.0% (1/1 documented)") {
+		t.Fatalf("stdout missing fully documented summary:\n%s", stdout)
+	}
+}
+
 func TestScopeDocstringCoverageForHookSkipsWithoutPythonFiles(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)

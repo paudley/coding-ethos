@@ -706,6 +706,36 @@ func rootConfigValue(root map[string]any, path string) (any, bool) {
 	return current, true
 }
 
+// rootConfigSectionHasNormalizedKey reports whether the config section at the
+// given dotted path contains a direct child key matching name under the same
+// normalization the config decoder uses (case-insensitive, ignoring "_", "-",
+// and "."). It exists so removed settings are rejected regardless of spelling
+// (e.g. enabled_groups, enabled-groups, enabledGroups) instead of being
+// silently dropped by the lenient decoder.
+func rootConfigSectionHasNormalizedKey(
+	root map[string]any,
+	sectionPath, name string,
+) bool {
+	section, found := rootConfigValue(root, sectionPath)
+	if !found {
+		return false
+	}
+
+	keys, isMap := section.(map[string]any)
+	if !isMap {
+		return false
+	}
+
+	target := normalizeConfigKey(name)
+	for key := range keys {
+		if normalizeConfigKey(key) == target {
+			return true
+		}
+	}
+
+	return false
+}
+
 func formatRootConfigValue(value any) (string, error) {
 	switch typed := value.(type) {
 	case nil:
