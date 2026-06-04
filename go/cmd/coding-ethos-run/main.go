@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	envAgentAPIProxyEnabled = "CODE_ETHOS_AGENT_API_PROXY"
-	envAgentAPIProxyURL     = "CODE_ETHOS_AGENT_API_PROXY_URL"
-	exitMissing             = 127
+	envAgentAPIProxyEnabled   = "CODE_ETHOS_AGENT_API_PROXY"
+	envAgentAPIProxyURL       = "CODE_ETHOS_AGENT_API_PROXY_URL"
+	envAgentAPIProxyIntercept = "CODE_ETHOS_AGENT_PROXY_INTERCEPT"
+	exitMissing               = 127
 )
 
 type runtimePaths struct {
@@ -509,6 +510,10 @@ func agentAPIProxyRoutingEnv() map[string]string {
 		"http_proxy":  proxyURL,
 		"https_proxy": proxyURL,
 	}
+}
+
+func agentAPIProxyInterceptOptIn() bool {
+	return strings.TrimSpace(os.Getenv(envAgentAPIProxyIntercept)) == "1"
 }
 
 func exitErr(err error) {

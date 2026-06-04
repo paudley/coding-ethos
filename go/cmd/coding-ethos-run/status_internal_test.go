@@ -113,6 +113,59 @@ func TestAgentAPIProxyRoutingCheckPassesValidURL(t *testing.T) {
 	}
 }
 
+func interceptionTestPaths(t *testing.T, mode string) runtimePaths {
+	t.Helper()
+
+	ethosRoot := t.TempDir()
+	config := "proxy:\n  interception:\n    mode: \"" + mode + "\"\n"
+	if err := os.WriteFile(
+		filepath.Join(ethosRoot, "config.yaml"),
+		[]byte(config),
+		0o600,
+	); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	return runtimePaths{Root: t.TempDir(), EthosRoot: ethosRoot}
+}
+
+func TestAgentAPIProxyInterceptionCheckDisabledByDefault(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_PROXY_INTERCEPT", "")
+
+	paths := interceptionTestPaths(t, "off")
+
+	check := agentAPIProxyInterceptionCheck(paths)
+	if check.Name != "agent_api_proxy_interception" ||
+		check.Status != operatorStatusPass ||
+		check.Detail != "disabled" {
+		t.Fatalf("check = %#v", check)
+	}
+}
+
+func TestAgentAPIProxyInterceptionCheckDeniesStaleConfig(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_PROXY_INTERCEPT", "")
+
+	paths := interceptionTestPaths(t, "required")
+
+	check := agentAPIProxyInterceptionCheck(paths)
+	if check.Status != operatorStatusWarn ||
+		!strings.Contains(check.Detail, "stale-config guard") {
+		t.Fatalf("check = %#v", check)
+	}
+}
+
+func TestAgentAPIProxyInterceptionCheckEnabled(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_PROXY_INTERCEPT", "1")
+
+	paths := interceptionTestPaths(t, "required")
+
+	check := agentAPIProxyInterceptionCheck(paths)
+	if check.Status != operatorStatusPass ||
+		!strings.Contains(check.Detail, "enabled (ca ") {
+		t.Fatalf("check = %#v", check)
+	}
+}
+
 func TestRunStatusReturnsFlagParseErrors(t *testing.T) {
 	paths := operatorStatusTestPaths(t, true)
 

@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,14 +14,17 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
+	"blackcat.ca/coding-ethos/go/internal/agentproxy/ca"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 )
 
 const (
 	agentProxyCommandPassthrough = "passthrough"
+	agentProxyCommandCAStatus    = "ca-status"
 )
 
 var (
@@ -46,9 +50,50 @@ func runAgentProxyHandler(paths runtimePaths, rest []string) error {
 	switch command {
 	case agentProxyCommandPassthrough:
 		return runAgentProxyPassthrough(paths, args)
+	case agentProxyCommandCAStatus:
+		return runAgentProxyCAStatus(paths, args)
 	default:
 		return fmt.Errorf("%w: %q", errUnknownAgentProxyCommand, command)
 	}
+}
+
+func runAgentProxyCAStatus(paths runtimePaths, args []string) error {
+	flags := flag.NewFlagSet("agent-proxy ca-status", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+
+	err := flags.Parse(args)
+	if err != nil {
+		return fmt.Errorf("parse agent-proxy ca-status flags: %w", err)
+	}
+
+	mode, approval := resolveProxyInterceptionConfig(paths)
+
+	evidence, err := ca.Evaluate(ca.GateInput{
+		Now:        time.Now().UTC(),
+		Mode:       mode,
+		CAApproval: approval,
+		RepoRoot:   paths.Root,
+		EnvOptIn:   agentAPIProxyInterceptOptIn(),
+	})
+	if err != nil {
+		return fmt.Errorf("evaluate agent-proxy interception gate: %w", err)
+	}
+
+	return writeAgentProxyCAStatus(evidence)
+}
+
+func writeAgentProxyCAStatus(evidence agentproxy.InterceptionEvidence) error {
+	encoded, err := json.MarshalIndent(evidence, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal agent-proxy interception evidence: %w", err)
+	}
+
+	_, err = fmt.Fprintln(os.Stdout, string(encoded))
+	if err != nil {
+		return fmt.Errorf("write agent-proxy interception evidence: %w", err)
+	}
+
+	return nil
 }
 
 func runAgentProxyPassthrough(paths runtimePaths, args []string) error {

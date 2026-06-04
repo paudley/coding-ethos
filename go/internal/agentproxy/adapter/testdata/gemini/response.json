@@ -1,0 +1,19 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "The repo root contains README.md and go.mod."
+          }
+        ]
+      }
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 42,
+    "candidatesTokenCount": 11,
+    "totalTokenCount": 53
+  }
+}

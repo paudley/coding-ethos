@@ -113,6 +113,31 @@ func (config RuntimeConfig) SandboxReadWritePaths() []string {
 	))
 }
 
+// ProxyInterceptionMode returns the configured agent-proxy HTTPS interception
+// mode, defaulting to "off" when the proxy stanza is absent.
+func (config RuntimeConfig) ProxyInterceptionMode() string {
+	mode := proxyInterceptionString(config.Merged, "mode")
+	if mode == "" {
+		return "off"
+	}
+
+	return mode
+}
+
+// ProxyInterceptionCAApproval returns the operator-pinned CA fingerprint that
+// gates HTTPS interception, or an empty string when none is configured.
+func (config RuntimeConfig) ProxyInterceptionCAApproval() string {
+	return proxyInterceptionString(config.Merged, "ca_approval")
+}
+
+func proxyInterceptionString(config map[string]any, key string) string {
+	section := configdata.MapValue(
+		configdata.GetPath(config, "proxy.interception", map[string]any{}),
+	)
+
+	return configdata.StringAt(section, key)
+}
+
 func parentRoots(values []string) []string {
 	roots := make([]string, 0, len(values)*sourceRootCapacityMultiplier)
 	for _, value := range values {

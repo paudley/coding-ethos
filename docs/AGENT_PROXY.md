@@ -96,6 +96,66 @@ Provider adapters for OpenAI, Anthropic, Gemini, and other APIs must translate
 provider-specific JSON into this envelope before policy code sees it. Policy
 code must not depend on raw provider JSON.
 
+## Provider Adapters
+
+Provider adapters live in `go/internal/agentproxy/adapter` and implement the
+`agentproxy.Adapter` interface. The interface and its normalization structs are
+declared in `agentproxy`, but the concrete OpenAI, Anthropic, and Gemini
+adapters live in the child package so the transport core never imports
+provider-specific JSON handling. The intercept layer depends only on the
+injected `agentproxy.AdapterRegistry`.
+
+Adapters are pure and IO-free. They receive already-buffered plaintext bytes
+plus a sanitized `RequestContext`/`ResponseContext` (method, host, path, content
+type, status) and never see request headers, so auth tokens cannot leak into
+normalization output. Detection is by host suffix plus path prefix only; bodies
+are never sniffed to choose an adapter, and the registry resolves the most
+specific match.
+
+`NormalizeRequest` extracts the model, messages, and tool definitions;
+`NormalizeResponse` extracts assistant messages, tool calls, and token usage.
+Tool definitions and tool-call arguments are reduced to schema/argument hashes,
+never raw schemas or argument JSON. `agentproxy.OutboundEvent` and
+`agentproxy.InboundEvent` then build body-free `ProviderEvent`s: message content
+is never copied into the event, only counts, hashes, measurements, structural
+tool-call names, and token usage. This keeps the pass-through retention contract
+(`payload_body_retained=false`) for intercepted traffic.
+
+Streaming responses (`text/event-stream`) are intentionally not reconstructed at
+this stage: they are marked `streaming_not_normalized` so the limitation is
+explicit rather than silently misclassified. A matched path whose body fails to
+parse is reported as an explicit normalization error, never reclassified as a
+different provider.
+
+## Opt-In HTTPS Interception Gate
+
+HTTPS interception is disabled by default and fails closed. The opt-in gate
+lives in `go/internal/agentproxy/ca` and mirrors the sandbox opt-in model:
+explicit modes only (`off`/`required`, no implicit default), with an
+`agentproxy.InterceptionEvidence` record emitted for every outcome so a disabled
+or denied state is visible rather than silent.
+
+Interception is enabled only when all of the following hold:
+
+- `proxy.interception.mode: required` in `config.yaml`/`repo_config.yaml`;
+- the `CODE_ETHOS_AGENT_PROXY_INTERCEPT=1` environment opt-in is set, so a stale
+  checked-in config cannot enable interception on its own;
+- when a local CA already exists and `proxy.interception.ca_approval` is set, the
+  approval token matches the provisioned CA fingerprint (otherwise the gate
+  fails closed with `Denied` evidence).
+
+When enabled, the gate provisions a local ECDSA P-256 root CA under
+`<repoRoot>/.coding-ethos/cache/agent-proxy-ca/` (`ca-cert.pem` mode `0644`,
+`ca-key.pem` mode `0600`, plus `metadata.json` carrying the fingerprint and
+validity). The CA cert path is exposed for later sandbox trust-store binding.
+The host trust store is never modified. Operators inspect the gate decision with
+`coding-ethos-run agent-proxy ca-status`, and the `status` command reports
+`agent_api_proxy_interception`.
+
+Leaf-certificate minting, the CONNECT TLS-MITM interception proxy, and the
+sandbox trust-store binding that consume this CA are tracked separately and ship
+behind this default-off gate.
+
 ## Code-Intel Ledger
 
 The repo-local code-intel database stores proxy sessions, events, transforms,

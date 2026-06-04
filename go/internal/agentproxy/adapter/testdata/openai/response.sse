@@ -1,0 +1,7 @@
+data: {"choices":[{"delta":{"role":"assistant"}}]}
+
+data: {"choices":[{"delta":{"content":"The repo root"}}]}
+
+data: {"choices":[{"delta":{"content":" contains README.md."}}]}
+
+data: [DONE]

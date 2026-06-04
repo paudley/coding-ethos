@@ -664,10 +664,15 @@ used by hooks.
   The envelope must carry provider, model, session ID, tool name, target paths,
   payload hashes, token estimates, trace IDs, and policy evidence. Foundation
   for #52-#62.
-- [ ] Add provider protocol adapters for OpenAI, Anthropic, and Gemini payload
+- [x] Add provider protocol adapters for OpenAI, Anthropic, and Gemini payload
   schemas behind a narrow interface. Adapters should extract messages,
   attachments, tool calls, tool results, and streaming chunks without exposing
   raw provider JSON to policy code. Foundation for #52, #56, and #57.
+  - [x] Pure `agentproxy/adapter` package (OpenAI/Anthropic/Gemini + registry)
+        normalizing request messages, tool definitions, response assistant text,
+        and tool calls into hashes-only `ProviderEvent`s. See #223.
+  - [ ] SSE (`text/event-stream`) responses are marked `streaming_not_normalized`
+        rather than reconstructed; full streaming-chunk reconstruction is deferred.
 - [x] Add a proxy session ledger in the repo-local code-intel store for read
   events, directory-listing events, prompt/tool payload hashes, token counts,
   cache hits, truncation decisions, policy injections, and edit attempts.

@@ -1,0 +1,11 @@
+event: message_start
+data: {"type":"message_start","message":{"role":"assistant"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"The repo root"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":" contains README.md."}}
+
+event: message_stop
+data: {"type":"message_stop"}

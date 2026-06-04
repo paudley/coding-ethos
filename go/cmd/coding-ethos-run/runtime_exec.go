@@ -293,8 +293,21 @@ func appendExistingGPGHomeWritePaths(writePaths []string, gpgHome string) []stri
 		return writePaths
 	}
 
-	writePaths = append(writePaths, cleanGPGHome)
-	writePaths = append(writePaths, agentShellResolvedGPGHomeWritePaths(cleanGPGHome)...)
+	// Bind the fully resolved gpg home rather than a configured symlink. The
+	// native sandbox rejects symlinked write paths to prevent symlink escapes,
+	// so a symlinked gpg home (a common dotfiles layout) would otherwise block
+	// signed commits. Resolving here keeps the writable bind target a real
+	// directory while preserving access to the gpg keyring.
+	resolvedGPGHome, err := filepath.EvalSymlinks(cleanGPGHome)
+	if err != nil {
+		resolvedGPGHome = cleanGPGHome
+	}
+
+	writePaths = append(writePaths, resolvedGPGHome)
+	writePaths = append(
+		writePaths,
+		agentShellResolvedGPGHomeWritePaths(resolvedGPGHome)...,
+	)
 
 	return writePaths
 }

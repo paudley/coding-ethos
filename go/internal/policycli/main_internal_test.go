@@ -292,6 +292,63 @@ func TestValidateRepoConfigSectionsAllowsProxyCodeIntelEnrichment(t *testing.T) 
 	}
 }
 
+func TestValidateRepoConfigSectionsAllowsProxyInterception(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	inlineErr := os.WriteFile(
+		repoConfigPath,
+		[]byte(
+			"proxy:\n"+
+				"  interception:\n"+
+				"    mode: required\n"+
+				"    ca_approval: abc123\n",
+		),
+		0o600,
+	)
+	if inlineErr != nil {
+		t.Fatalf("write repo config: %v", inlineErr)
+	}
+
+	sections, err := validateRepoConfigSections(repoConfigPath, map[string]any{})
+	if err != nil {
+		t.Fatalf("validate repo config: %v", err)
+	}
+
+	if strings.Join(sections, ",") != "proxy" {
+		t.Fatalf("sections = %#v", sections)
+	}
+}
+
+func TestValidateRepoConfigSectionsRejectsUnknownProxyInterceptionKey(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	repoConfigPath := filepath.Join(dir, "repo_config.yaml")
+
+	inlineErr := os.WriteFile(
+		repoConfigPath,
+		[]byte("proxy:\n  interception:\n    modez: required\n"),
+		0o600,
+	)
+	if inlineErr != nil {
+		t.Fatalf("write repo config: %v", inlineErr)
+	}
+
+	_, err := validateRepoConfigSections(repoConfigPath, map[string]any{})
+	if err == nil {
+		t.Fatal("expected unknown proxy interception key error")
+	}
+
+	if !strings.Contains(err.Error(), "proxy.interception.modez") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestValidateRepoConfigSectionsRejectsUnknownProxyOutputKey(t *testing.T) {
 	t.Parallel()
 

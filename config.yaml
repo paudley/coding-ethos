@@ -59,6 +59,13 @@ sandbox:
     - .venv/
     - __pycache__/
 
+proxy:
+  # Opt-in HTTPS-interception gate for the agent API proxy. "off" disables
+  # interception and never provisions a CA; "required" requests interception
+  # but still demands the CODE_ETHOS_AGENT_PROXY_INTERCEPT runtime opt-in.
+  interception:
+    mode: "off"
+
 hooks:
   output_format: auto
   success_output: silent
