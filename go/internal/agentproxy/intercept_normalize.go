@@ -35,10 +35,11 @@ const (
 
 // decryptedHandler builds the HTTP handler that runs for each decrypted request
 // on an intercepted CONNECT tunnel. The handler is stateless because HTTP/2
-// invokes it concurrently across streams.
-func (proxy *InterceptProxy) decryptedHandler(host string) http.HandlerFunc {
+// invokes it concurrently across streams. The pinned CONNECT authority binds
+// every decrypted request to the host the allow-list decision was made against.
+func (proxy *InterceptProxy) decryptedHandler(host, authority string) http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
-		proxy.serveRequest(writer, request, host)
+		proxy.serveRequest(writer, request, host, authority)
 	}
 }
 
@@ -49,10 +50,22 @@ func (proxy *InterceptProxy) serveRequest(
 	writer http.ResponseWriter,
 	request *http.Request,
 	host string,
+	authority string,
 ) {
+	if !authorityMatches(request.Host, authority) {
+		http.Error(
+			writer,
+			http.StatusText(http.StatusMisdirectedRequest),
+			http.StatusMisdirectedRequest,
+		)
+		proxy.recordAuthorityMismatch(request.Context(), host, sessionID(request.Header))
+
+		return
+	}
+
 	reqBytes, reqBody, reqTruncated := readBounded(request.Body, proxy.maxNormalize)
 
-	upstreamReq, err := proxy.buildUpstreamRequest(request, reqBody)
+	upstreamReq, err := proxy.buildUpstreamRequest(request, reqBody, authority)
 	if err != nil {
 		http.Error(
 			writer,
@@ -108,14 +121,14 @@ func (proxy *InterceptProxy) serveRequest(
 
 // buildUpstreamRequest constructs the verbatim upstream request, preserving the
 // original method, request URI, headers (minus hop-by-hop), host, and declared
-// content length.
+// content length. The upstream authority is the pinned CONNECT target, never the
+// decrypted request's Host, so a forged decrypted Host cannot retarget the
+// upstream dial and escape the allow list.
 func (proxy *InterceptProxy) buildUpstreamRequest(
 	request *http.Request,
 	body io.Reader,
+	authority string,
 ) (*http.Request, error) {
-	// request.Host carries the original authority (including any port) the TLS
-	// client targeted, so the upstream dial reaches the exact endpoint.
-	authority := request.Host
 	upstreamURL := upstreamScheme + authority + request.URL.RequestURI()
 
 	// #nosec G704 -- the URL host is the client's own CONNECT target.
@@ -202,12 +215,16 @@ func (proxy *InterceptProxy) bufferAndForward(
 	copyHeaders(writer.Header(), response.Header)
 	writer.WriteHeader(response.StatusCode)
 
-	_, writeErr := writer.Write(respBytes)
-	discardClientWriteError(writeErr)
-
+	// respBody already replays the buffered prefix plus the unread remainder when
+	// truncated, so writing respBytes as well would duplicate the prefix and
+	// corrupt the body. Forward exactly one source: respBody when truncated,
+	// otherwise the fully buffered respBytes.
 	if truncated {
 		_, copyErr := io.Copy(writer, respBody)
 		discardClientWriteError(copyErr)
+	} else {
+		_, writeErr := writer.Write(respBytes)
+		discardClientWriteError(writeErr)
 	}
 
 	respCtx := ResponseContext{
@@ -254,7 +271,10 @@ func (proxy *InterceptProxy) recordOutbound(
 	}
 
 	if !input.matched {
-		proxy.record(ctx, minimalOutboundEvent(identity, input, false))
+		// TLS was terminated and the payload inspected even without an adapter
+		// match, so the event is intercepted (just not normalized). Only the
+		// blind-tunnel path records intercepted=false.
+		proxy.record(ctx, minimalOutboundEvent(identity, input, true))
 
 		return
 	}
@@ -372,6 +392,50 @@ func (proxy *InterceptProxy) recordRouteError(
 			metaIntercepted:         metaValueTrue,
 			metaHost:                host,
 			metaError:               safeInterceptError(errInterceptRoute),
+			metaPayloadBodyRetained: metaValueFalse,
+		},
+		Kind:      EventProviderCall,
+		RepoRoot:  identity.RepoRoot,
+		ID:        identity.ID,
+		Provider:  identity.Provider,
+		PolicyID:  interceptPolicyID,
+		Decision:  interceptDecisionRouteError,
+		SessionID: identity.SessionID,
+		Direction: DirectionOutbound,
+	})
+}
+
+// authorityMatches reports whether the decrypted request's Host authority is
+// consistent with the pinned CONNECT authority. The comparison is
+// case-insensitive, and an absent decrypted Host is treated as matching because
+// HTTP/2 may omit :authority for a request whose target host is already implied
+// by the connection.
+func authorityMatches(requestHost, pinnedAuthority string) bool {
+	requestHost = strings.TrimSpace(requestHost)
+	if requestHost == "" {
+		return true
+	}
+
+	return strings.EqualFold(requestHost, strings.TrimSpace(pinnedAuthority))
+}
+
+// recordAuthorityMismatch records a body-free route-error event for a decrypted
+// request whose Host authority diverged from the pinned CONNECT authority,
+// making the rejected allow-list bypass attempt explicit in the evidence trail.
+func (proxy *InterceptProxy) recordAuthorityMismatch(
+	ctx context.Context,
+	host string,
+	session string,
+) {
+	now := proxy.now().UTC()
+	identity := proxy.identity(session, host, now)
+
+	proxy.record(ctx, ProviderEvent{
+		RecordedAtUTC: now,
+		Metadata: map[string]string{
+			metaIntercepted:         metaValueTrue,
+			metaHost:                host,
+			metaError:               metaAuthorityMismatch,
 			metaPayloadBodyRetained: metaValueFalse,
 		},
 		Kind:      EventProviderCall,

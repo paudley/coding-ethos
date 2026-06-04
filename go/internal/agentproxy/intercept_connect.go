@@ -6,6 +6,7 @@ package agentproxy
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -75,7 +76,11 @@ func (proxy *InterceptProxy) handleConnect(
 
 	ctx := request.Context()
 	if intercept && proxy.canMintLeaf(host) {
-		proxy.interceptTLS(ctx, clientConn, host)
+		// The full CONNECT authority (with port) is the allow-list decision
+		// anchor; it is pinned here and used to build every upstream request so a
+		// decrypted request cannot retarget a different host and escape the
+		// allow list.
+		proxy.interceptTLS(ctx, clientConn, host, request.Host)
 
 		return
 	}
@@ -209,9 +214,10 @@ func (proxy *InterceptProxy) interceptTLS(
 	ctx context.Context,
 	clientConn net.Conn,
 	host string,
+	authority string,
 ) {
 	server := &http.Server{
-		Handler:           proxy.decryptedHandler(host),
+		Handler:           proxy.decryptedHandler(host, authority),
 		ReadHeaderTimeout: interceptReadHeaderTimeout,
 		TLSConfig: &tls.Config{
 			MinVersion:     tls.VersionTLS12,
@@ -222,6 +228,10 @@ func (proxy *InterceptProxy) interceptTLS(
 
 	listener := newSingleConnListener(clientConn)
 
+	// ServeTLS blocks until the listener returns the exhaustion sentinel. The
+	// listener only does so once its single connection is closed, so wrapping the
+	// conn to close the listener on Close guarantees ServeTLS returns after the
+	// tunnel ends rather than leaking this goroutine on a forever-blocked Accept.
 	serveErr := server.ServeTLS(listener, "", "")
 	discardTunnelError(serveErr)
 }
@@ -261,6 +271,30 @@ func (proxy *InterceptProxy) leafFor(
 	}
 }
 
+// singleConn wraps the hijacked client connection so closing it also releases
+// the owning single-connection listener. http.Server closes the served
+// connection when the request lifecycle ends; that close must wake the
+// listener's blocked Accept so ServeTLS returns instead of leaking.
+type singleConn struct {
+	net.Conn
+
+	onClose func()
+	once    sync.Once
+}
+
+// Close closes the underlying connection and notifies the listener exactly once,
+// so repeated closes by http.Server never panic or double-signal.
+func (conn *singleConn) Close() error {
+	err := conn.Conn.Close()
+	conn.once.Do(conn.onClose)
+
+	if err != nil {
+		return fmt.Errorf("close hijacked intercept connection: %w", err)
+	}
+
+	return nil
+}
+
 // singleConnListener is a net.Listener that yields exactly one pre-accepted
 // connection and then reports exhaustion so http.Server.Serve exits after the
 // connection closes.
@@ -271,12 +305,19 @@ type singleConnListener struct {
 }
 
 // newSingleConnListener wraps an already-accepted connection in a listener that
-// returns it on the first Accept and blocks no further connections.
+// returns it on the first Accept and blocks no further connections. The yielded
+// connection closes the listener on Close so the next Accept unblocks with the
+// exhaustion sentinel, letting ServeTLS return when the tunnel ends.
 func newSingleConnListener(conn net.Conn) *singleConnListener {
-	return &singleConnListener{
-		conn: conn,
+	listener := &singleConnListener{
 		done: make(chan struct{}),
 	}
+	listener.conn = &singleConn{
+		Conn:    conn,
+		onClose: func() { _ = listener.Close() },
+	}
+
+	return listener
 }
 
 // Accept returns the wrapped connection once, then blocks until Close and

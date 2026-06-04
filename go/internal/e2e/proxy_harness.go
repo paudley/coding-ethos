@@ -39,9 +39,6 @@ const (
 	// tlsFixtureStreamBody is the canned SSE body the stream endpoint emits.
 	tlsFixtureStreamBody = "data: {\"delta\":\"fixture-stream-token\"}\n\n" +
 		"data: [DONE]\n\n"
-	// interceptFixedNowRFC3339 anchors the harness clock so CA and leaf validity
-	// windows are deterministic across the interception scenario.
-	interceptFixedNowRFC3339 = "2026-06-01T00:00:00Z"
 )
 
 type ProxyProviderServer struct {
@@ -247,11 +244,11 @@ func NewProxyInterceptServer(
 ) *ProxyInterceptServer {
 	t.Helper()
 
-	// The CA is provisioned at a fixed instant so its 90-day on-disk identity is
-	// deterministic, while the leaf issuer and proxy run on the real clock so the
-	// short-lived leaves they mint are valid at the driving client's real
-	// verification time. The fixed CA window comfortably covers the real now.
-	authority, err := ca.EnsureCA(repoRoot, fixedInterceptNow(t))
+	// The CA and the leaf issuer both run on the real clock so the minted CA and
+	// the short-lived leaves are valid at the driving client's real verification
+	// time. A fixed provisioning instant would let the CA's 90-day window lapse
+	// and silently expire the suite once wall-clock time passed it.
+	authority, err := ca.EnsureCA(repoRoot, time.Now())
 	if err != nil {
 		t.Fatalf("provision intercept CA: %v", err)
 	}
@@ -366,19 +363,6 @@ func NewInterceptClientThroughProxy(
 	cloned.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}
 
 	return &http.Client{Transport: cloned}
-}
-
-// fixedInterceptNow returns the deterministic clock anchoring CA and leaf
-// validity windows for the interception scenario.
-func fixedInterceptNow(t *testing.T) time.Time {
-	t.Helper()
-
-	now, err := time.Parse(time.RFC3339, interceptFixedNowRFC3339)
-	if err != nil {
-		t.Fatalf("parse fixed intercept now: %v", err)
-	}
-
-	return now
 }
 
 func (provider *ProxyProviderServer) handle(

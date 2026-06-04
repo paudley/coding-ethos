@@ -550,6 +550,10 @@ func agentShellProcessEnv(
 	pathValue := wrapperDir + string(os.PathListSeparator) + os.Getenv("PATH")
 	tempDir := filepath.Join(root, sandbox.SandboxTempWritePath)
 	gpgTTY := agentShellGPGTTY()
+	// Inherited CA trust variables are only dropped when interception binds a
+	// replacement CA; otherwise they are preserved so a configured custom trust
+	// bundle continues to apply inside the agent shell.
+	replaceCAEnv := strings.TrimSpace(interceptCACertPath) != ""
 
 	filtered := make([]string, 0, len(env)+agentShellInjectedEnv)
 	for _, item := range env {
@@ -558,7 +562,7 @@ func agentShellProcessEnv(
 			strings.HasPrefix(item, "CODING_ETHOS_AGENT_SHELL_SANDBOX=") ||
 			strings.HasPrefix(item, "GPG_TTY=") ||
 			strings.HasPrefix(item, "TMPDIR=") ||
-			agentShellFilteredCAEnv(item) ||
+			(replaceCAEnv && agentShellFilteredCAEnv(item)) ||
 			agentShellFilteredGUIEnv(item) {
 			continue
 		}
@@ -579,10 +583,12 @@ func agentShellProcessEnv(
 		filtered = append(filtered, "GPG_TTY="+gpgTTY)
 	}
 
-	filtered = append(
-		filtered,
-		agentShellInterceptCAEnv(interceptCACertPath)...,
-	)
+	if replaceCAEnv {
+		filtered = append(
+			filtered,
+			agentShellInterceptCAEnv(interceptCACertPath)...,
+		)
+	}
 
 	return filtered
 }

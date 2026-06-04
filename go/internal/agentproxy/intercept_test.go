@@ -291,6 +291,7 @@ type proxyConfig struct {
 	recorder     *recordingRecorder
 	upstreamPool *x509.CertPool
 	allow        []string
+	maxNormalize int64
 }
 
 // buildProxy constructs an enabled InterceptProxy whose upstream client trusts
@@ -314,14 +315,15 @@ func buildProxy(t *testing.T, config proxyConfig) *agentproxy.InterceptProxy {
 	}
 
 	proxy, err := agentproxy.NewInterceptProxy(agentproxy.InterceptOptions{
-		Now:        config.now,
-		Recorder:   config.recorder,
-		Registry:   adapter.DefaultRegistry(),
-		Issuer:     config.issuer,
-		Client:     client,
-		AllowHosts: config.allow,
-		Provider:   "fixture",
-		Enabled:    true,
+		Now:          config.now,
+		Recorder:     config.recorder,
+		Registry:     adapter.DefaultRegistry(),
+		Issuer:       config.issuer,
+		Client:       client,
+		AllowHosts:   config.allow,
+		Provider:     "fixture",
+		MaxNormalize: config.maxNormalize,
+		Enabled:      true,
 	})
 	if err != nil {
 		t.Fatalf("new intercept proxy: %v", err)

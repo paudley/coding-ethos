@@ -62,6 +62,9 @@ const (
 	metaPayloadTooLarge = "payload_too_large_for_normalization"
 	// metaError records a sanitized routing error class.
 	metaError = "error"
+	// metaAuthorityMismatch flags a decrypted request whose Host authority did
+	// not match the pinned CONNECT authority the allow-list decision used.
+	metaAuthorityMismatch = "authority_mismatch"
 	// reasonHostNotAllowed explains a blind tunnel for an unlisted host.
 	reasonHostNotAllowed = "host_not_in_allow_list"
 	// reasonInterceptionDisabled explains a blind tunnel while disabled.
@@ -71,6 +74,9 @@ const (
 	reasonInterceptUnavailable = "intercept_unavailable"
 	// dlpLargePayload marks a payload that bypassed structural normalization.
 	dlpLargePayload = "large_payload"
+	// routeFailedErrorClass is the sanitized, non-sensitive error class reported
+	// for any upstream routing failure across the proxy modes.
+	routeFailedErrorClass = "proxy_route_failed"
 )
 
 // errInterceptIssuerRequired reports that interception was requested without a
@@ -382,5 +388,5 @@ func safeInterceptError(routeErr error) string {
 		return ""
 	}
 
-	return "proxy_route_failed"
+	return routeFailedErrorClass
 }

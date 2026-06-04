@@ -37,6 +37,13 @@ var ErrEmptyServerName = apperror.StaticError(
 	"TLS ClientHello carried no server name",
 )
 
+// ErrInvalidCAMaterial reports that the loaded CA certificate and signer cannot
+// sign leaves: the certificate is not a CA, lacks the certificate-signing key
+// usage, or its public key does not match the loaded private key.
+var ErrInvalidCAMaterial = apperror.StaticError(
+	"agent-proxy CA material cannot sign leaves",
+)
+
 // LeafIssuer mints short-lived leaf certificates signed by the local agent-proxy
 // CA for on-demand TLS interception. The CA private key is contained entirely
 // within this type and is never written back to disk; minted leaves are cached
@@ -88,6 +95,11 @@ func NewLeafIssuer(repoRoot string, options LeafIssuerOptions) (*LeafIssuer, err
 		return nil, fmt.Errorf("parse agent-proxy CA certificate: %w", err)
 	}
 
+	err = validateCAMaterial(caCert, signer)
+	if err != nil {
+		return nil, err
+	}
+
 	options = options.withDefaults()
 
 	return &LeafIssuer{
@@ -118,6 +130,40 @@ func (options LeafIssuerOptions) withDefaults() LeafIssuerOptions {
 	}
 
 	return options
+}
+
+// validateCAMaterial asserts the loaded certificate can actually issue leaves:
+// it must be a CA with the certificate-signing key usage, and its ECDSA public
+// key must match the loaded private key so signatures verify against the
+// published certificate. Any mismatch returns ErrInvalidCAMaterial.
+func validateCAMaterial(caCert *x509.Certificate, signer *ecdsa.PrivateKey) error {
+	if !caCert.IsCA {
+		return fmt.Errorf("%w: certificate is not a CA", ErrInvalidCAMaterial)
+	}
+
+	if caCert.KeyUsage&x509.KeyUsageCertSign == 0 {
+		return fmt.Errorf(
+			"%w: certificate lacks the cert-sign key usage",
+			ErrInvalidCAMaterial,
+		)
+	}
+
+	certPublicKey, ok := caCert.PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return fmt.Errorf(
+			"%w: certificate public key is not ECDSA",
+			ErrInvalidCAMaterial,
+		)
+	}
+
+	if !certPublicKey.Equal(&signer.PublicKey) {
+		return fmt.Errorf(
+			"%w: certificate public key does not match the CA private key",
+			ErrInvalidCAMaterial,
+		)
+	}
+
+	return nil
 }
 
 // loadCASigner reads and parses the CA EC private key from disk, returning
@@ -162,15 +208,29 @@ func (issuer *LeafIssuer) MintLeaf(
 	}
 
 	issuer.mu.Lock()
-	defer issuer.mu.Unlock()
-
 	if cert, ok := issuer.cacheGet(key, now); ok {
+		issuer.mu.Unlock()
+
 		return cert, nil
 	}
+	issuer.mu.Unlock()
 
+	// Key generation and signing are expensive and touch only immutable issuer
+	// fields, so they run outside the lock to avoid serializing all minting
+	// across hosts. The cache is re-checked under the lock afterward.
 	cert, notAfter, err := issuer.createLeaf(key, now)
 	if err != nil {
 		return tls.Certificate{}, err
+	}
+
+	issuer.mu.Lock()
+	defer issuer.mu.Unlock()
+
+	// A concurrent mint for the same host may have won the race while this
+	// goroutine was signing; reuse its cached leaf so the cache holds a single
+	// authoritative entry per host.
+	if existing, ok := issuer.cacheGet(key, now); ok {
+		return existing, nil
 	}
 
 	issuer.cachePut(key, cachedLeaf{notAfter: notAfter, cert: cert})
