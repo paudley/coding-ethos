@@ -1,0 +1,3 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"list_dir","args":{"path":"."}}}]}}]}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":""}]}}],"usageMetadata":{"promptTokenCount":42,"candidatesTokenCount":7,"totalTokenCount":49}}

@@ -188,7 +188,7 @@ func (Anthropic) NormalizeResponse(
 	respCtx agentproxy.ResponseContext,
 ) (agentproxy.ResponseNormalization, error) {
 	if isStreamingResponse(respCtx.ContentType) {
-		return streamedResponse(body), nil
+		return anthropicReconstructStream(body), nil
 	}
 
 	var wire anthropicResponse
@@ -272,5 +272,197 @@ func anthropicTokenUsage(wire anthropicUsage) agentproxy.TokenUsage {
 		InputTokens:  input,
 		OutputTokens: output,
 		TotalTokens:  input + output,
+	}
+}
+
+const (
+	// anthropicEventMessageStart names the stream message-start event.
+	anthropicEventMessageStart = "message_start"
+	// anthropicEventBlockStart names the content-block-start event.
+	anthropicEventBlockStart = "content_block_start"
+	// anthropicEventBlockDelta names the content-block-delta event.
+	anthropicEventBlockDelta = "content_block_delta"
+	// anthropicEventMessageDelta names the message-delta event.
+	anthropicEventMessageDelta = "message_delta"
+	// anthropicTextDelta marks an incremental text delta.
+	anthropicTextDelta = "text_delta"
+	// anthropicInputJSONDelta marks an incremental tool-argument delta.
+	anthropicInputJSONDelta = "input_json_delta"
+)
+
+// anthropicStreamEnvelope is the structural subset of one stream event payload.
+type anthropicStreamEnvelope struct {
+	Message      anthropicStreamMessage `json:"message"`
+	Delta        anthropicStreamDelta   `json:"delta"`
+	Usage        anthropicUsage         `json:"usage"`
+	ContentBlock anthropicBlock         `json:"content_block"`
+	Index        int                    `json:"index"`
+}
+
+// anthropicStreamMessage carries the role, model, and seed usage of a stream.
+type anthropicStreamMessage struct {
+	Role  string         `json:"role"`
+	Model string         `json:"model"`
+	Usage anthropicUsage `json:"usage"`
+}
+
+// anthropicStreamDelta carries one incremental text or tool-argument fragment.
+type anthropicStreamDelta struct {
+	Type        string `json:"type"`
+	Text        string `json:"text"`
+	PartialJSON string `json:"partial_json"`
+}
+
+// anthropicStreamState accumulates the reconstructed message, tool calls, and
+// usage across an Anthropic content-block stream keyed by block index.
+type anthropicStreamState struct {
+	blocks       map[int]*anthropicBlockAccumulator
+	role         string
+	model        string
+	text         strings.Builder
+	blockOrder   []int
+	inputTokens  int
+	outputTokens int
+}
+
+// anthropicBlockAccumulator gathers the name and argument fragments of one
+// tool_use content block across the deltas that contribute to it.
+type anthropicBlockAccumulator struct {
+	name string
+	args strings.Builder
+}
+
+// anthropicReconstructStream rebuilds a normalization from an accumulated
+// Anthropic SSE body. A scan failure or a stream that carries no recognized
+// event falls back to the streamed marker so a parse failure and an
+// unrecognized stream both degrade gracefully rather than erroring.
+func anthropicReconstructStream(body []byte) agentproxy.ResponseNormalization {
+	events, err := parseSSEEvents(body)
+	if err != nil {
+		return streamedResponse(body)
+	}
+
+	state := newAnthropicStreamState()
+
+	parsed := false
+
+	for _, event := range events {
+		var envelope anthropicStreamEnvelope
+		if json.Unmarshal(event.Data, &envelope) != nil {
+			continue
+		}
+
+		if state.apply(event.Event, envelope) {
+			parsed = true
+		}
+	}
+
+	if !parsed {
+		return streamedResponse(body)
+	}
+
+	return state.normalization(body)
+}
+
+// newAnthropicStreamState returns an empty state ready to accumulate events.
+func newAnthropicStreamState() *anthropicStreamState {
+	return &anthropicStreamState{
+		blocks: make(map[int]*anthropicBlockAccumulator),
+	}
+}
+
+// apply folds one typed stream event into the accumulating state, reporting
+// whether the event type was recognized so the caller can distinguish a real
+// Anthropic stream from an unrecognized payload that happened to parse as JSON.
+func (state *anthropicStreamState) apply(
+	eventType string,
+	envelope anthropicStreamEnvelope,
+) bool {
+	switch eventType {
+	case anthropicEventMessageStart:
+		state.role = envelope.Message.Role
+		state.model = envelope.Message.Model
+		state.inputTokens = jsonNumberToInt(envelope.Message.Usage.InputTokens)
+	case anthropicEventBlockStart:
+		state.startBlock(envelope)
+	case anthropicEventBlockDelta:
+		state.applyDelta(envelope)
+	case anthropicEventMessageDelta:
+		state.outputTokens = jsonNumberToInt(envelope.Usage.OutputTokens)
+	default:
+		return false
+	}
+
+	return true
+}
+
+// startBlock registers a tool_use content block so later deltas can target it.
+func (state *anthropicStreamState) startBlock(envelope anthropicStreamEnvelope) {
+	if envelope.ContentBlock.Type != anthropicToolUseBlock {
+		return
+	}
+
+	if _, present := state.blocks[envelope.Index]; !present {
+		state.blockOrder = append(state.blockOrder, envelope.Index)
+	}
+
+	state.blocks[envelope.Index] = &anthropicBlockAccumulator{
+		name: envelope.ContentBlock.Name,
+	}
+}
+
+// applyDelta folds one content-block delta into text or a tool accumulator.
+func (state *anthropicStreamState) applyDelta(envelope anthropicStreamEnvelope) {
+	switch envelope.Delta.Type {
+	case anthropicTextDelta:
+		state.text.WriteString(envelope.Delta.Text)
+	case anthropicInputJSONDelta:
+		if accumulator, present := state.blocks[envelope.Index]; present {
+			accumulator.args.WriteString(envelope.Delta.PartialJSON)
+		}
+	default:
+	}
+}
+
+// normalization renders the accumulated state into a response normalization.
+func (state *anthropicStreamState) normalization(
+	body []byte,
+) agentproxy.ResponseNormalization {
+	role := state.role
+	if role == "" {
+		role = string(agentproxy.RoleAssistant)
+	}
+
+	messages := []agentproxy.Message{{
+		Role:    mapRole(role),
+		Content: state.text.String(),
+	}}
+
+	calls := make([]agentproxy.ToolCall, 0, len(state.blockOrder))
+	for _, index := range state.blockOrder {
+		accumulator := state.blocks[index]
+		calls = append(calls, agentproxy.ToolCall{
+			Name:     accumulator.name,
+			ArgsHash: agentproxy.HashText(accumulator.args.String()),
+		})
+	}
+
+	return agentproxy.ResponseNormalization{
+		Messages:    messages,
+		ToolCalls:   calls,
+		Usage:       state.tokenUsage(),
+		Model:       state.model,
+		BodyHash:    agentproxy.HashText(string(body)),
+		Measurement: agentproxy.Measure(body),
+		Metadata:    map[string]string{metaStreamingReconstructed: metaValueTrue},
+	}
+}
+
+// tokenUsage assembles neutral token usage from the seed and delta counts.
+func (state *anthropicStreamState) tokenUsage() agentproxy.TokenUsage {
+	return agentproxy.TokenUsage{
+		InputTokens:  state.inputTokens,
+		OutputTokens: state.outputTokens,
+		TotalTokens:  state.inputTokens + state.outputTokens,
 	}
 }

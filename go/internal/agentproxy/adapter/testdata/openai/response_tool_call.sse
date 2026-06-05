@@ -1,0 +1,7 @@
+data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"function":{"name":"list_dir","arguments":"{\"path\""}}]}}]}
+
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":": \".\"}"}}]}}]}
+
+data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":42,"completion_tokens":7,"total_tokens":49}}
+
+data: [DONE]

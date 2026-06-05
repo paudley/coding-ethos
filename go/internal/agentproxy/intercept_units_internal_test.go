@@ -611,10 +611,13 @@ func TestNormalizeResponseUnmatchedAndTruncated(t *testing.T) {
 }
 
 // recordingAdapter is a test Adapter whose normalization results are scripted so
-// the matched request/response paths can be driven without a real provider.
+// the matched request/response paths can be driven without a real provider. The
+// optional gotResponseBody pointer captures the bytes the response normalizer
+// received so a test can prove Content-Encoding decoding happened first.
 type recordingAdapter struct {
-	reqErr  error
-	respErr error
+	reqErr          error
+	respErr         error
+	gotResponseBody *[]byte
 }
 
 func (recordingAdapter) Name() string { return "recording" }
@@ -642,6 +645,10 @@ func (adapter recordingAdapter) NormalizeResponse(
 	body []byte,
 	_ ResponseContext,
 ) (ResponseNormalization, error) {
+	if adapter.gotResponseBody != nil {
+		*adapter.gotResponseBody = append([]byte(nil), body...)
+	}
+
 	if adapter.respErr != nil {
 		return ResponseNormalization{}, adapter.respErr
 	}
@@ -651,6 +658,114 @@ func (adapter recordingAdapter) NormalizeResponse(
 		Measurement: Measure(body),
 		Metadata:    map[string]string{},
 	}, nil
+}
+
+// TestNormalizeStreamedResponseDecodesContentEncoding proves the SSE normalize
+// path decompresses the accumulated body by its Content-Encoding before handing
+// it to the adapter, so a gzip text/event-stream still reconstructs (FIX 3).
+func TestNormalizeStreamedResponseDecodesContentEncoding(t *testing.T) {
+	t.Parallel()
+
+	plain := []byte("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n")
+
+	var buffer bytes.Buffer
+
+	writer := gzip.NewWriter(&buffer)
+	if _, err := writer.Write(plain); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+
+	var seen []byte
+
+	proxy := &InterceptProxy{maxNormalize: 1024}
+	norm := proxy.normalizeStreamedResponse(streamedNormalizeInput{
+		accumulated: buffer.Bytes(),
+		encoding:    encodingGzip,
+		input: branchInput{
+			adapter: recordingAdapter{gotResponseBody: &seen},
+			matched: true,
+		},
+	})
+
+	if !bytes.Equal(seen, plain) {
+		t.Fatalf("adapter received %q, want decoded %q", seen, plain)
+	}
+
+	if norm.Metadata[metaIntercepted] != metaValueTrue {
+		t.Fatalf("decoded stream normalization = %#v", norm.Metadata)
+	}
+}
+
+// TestNormalizeStreamedResponseSkipsReconstructionOnCopyFailure proves a stream
+// whose copy failed mid-flight is recorded as a streamed marker with an error,
+// never reconstructed from the incomplete accumulator (FIX 4).
+func TestNormalizeStreamedResponseSkipsReconstructionOnCopyFailure(t *testing.T) {
+	t.Parallel()
+
+	proxy := &InterceptProxy{maxNormalize: 1024}
+	norm := proxy.normalizeStreamedResponse(streamedNormalizeInput{
+		accumulated: []byte(
+			"data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
+		),
+		input:      branchInput{adapter: recordingAdapter{}, matched: true},
+		copyFailed: true,
+	})
+
+	if !norm.Streamed {
+		t.Fatal("copy-failed stream not marked streamed")
+	}
+
+	// streaming_reconstructed is the adapter-side marker; the streamed path must
+	// never set it when the copy failed before the body was fully read.
+	if norm.Metadata["streaming_reconstructed"] == metaValueTrue {
+		t.Fatalf("copy-failed stream reconstructed: %#v", norm.Metadata)
+	}
+
+	if norm.Metadata[metaError] == "" {
+		t.Fatalf("copy-failed stream missing error marker: %#v", norm.Metadata)
+	}
+}
+
+// TestNormalizeStreamedResponseMatchedParseFailure proves a matched stream whose
+// adapter fails to reconstruct is marked with an explicit normalization error
+// plus its body hash and measurement rather than a bare streamed marker (FIX 5).
+func TestNormalizeStreamedResponseMatchedParseFailure(t *testing.T) {
+	t.Parallel()
+
+	decoded := []byte("data: garbage\n\n")
+
+	proxy := &InterceptProxy{maxNormalize: 1024}
+	norm := proxy.normalizeStreamedResponse(streamedNormalizeInput{
+		accumulated: decoded,
+		input: branchInput{
+			adapter: recordingAdapter{respErr: errors.New("parse fail")},
+			matched: true,
+		},
+	})
+
+	if norm.Metadata[metaNormalizationError] != metaValueTrue {
+		t.Fatalf("parse failure missing normalization_error: %#v", norm.Metadata)
+	}
+
+	if !norm.Streamed {
+		t.Fatal("parse failure not marked streamed")
+	}
+
+	if norm.BodyHash != HashText(string(decoded)) {
+		t.Fatalf("parse failure body hash = %q", norm.BodyHash)
+	}
+
+	if norm.Measurement.Bytes != len(decoded) {
+		t.Fatalf(
+			"parse failure measurement = %d, want %d",
+			norm.Measurement.Bytes,
+			len(decoded),
+		)
+	}
 }
 
 func TestRecordOutboundMatchedSuccessAndError(t *testing.T) {

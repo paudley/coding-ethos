@@ -232,7 +232,7 @@ func (Gemini) NormalizeResponse(
 	respCtx agentproxy.ResponseContext,
 ) (agentproxy.ResponseNormalization, error) {
 	if isStreamingResponse(respCtx.ContentType) {
-		return streamedResponse(body), nil
+		return geminiReconstructStream(body), nil
 	}
 
 	var wire geminiResponse
@@ -359,5 +359,132 @@ func geminiTokenUsage(wire geminiUsage) agentproxy.TokenUsage {
 		InputTokens:  jsonNumberToInt(wire.PromptTokenCount),
 		OutputTokens: jsonNumberToInt(wire.CandidatesTokenCount),
 		TotalTokens:  jsonNumberToInt(wire.TotalTokenCount),
+	}
+}
+
+// geminiCandidateState accumulates the reconstructed message and tool calls of
+// one candidate index across the streamed chunks that contribute to it.
+type geminiCandidateState struct {
+	role  string
+	texts []string
+	calls []agentproxy.ToolCall
+}
+
+// geminiStreamState accumulates the reconstructed per-candidate messages and
+// last-seen usage across streamed generateContent chunks, preserving candidate
+// index order.
+type geminiStreamState struct {
+	candidates map[int]*geminiCandidateState
+	usage      geminiUsage
+	order      []int
+}
+
+// newGeminiStreamState returns an empty state ready to accumulate chunks.
+func newGeminiStreamState() *geminiStreamState {
+	return &geminiStreamState{
+		candidates: make(map[int]*geminiCandidateState),
+	}
+}
+
+// geminiReconstructStream rebuilds a normalization from an accumulated Gemini
+// SSE body, reconstructing one message per candidate index. A scan failure or a
+// stream that contributes no recognizable candidate falls back to the streamed
+// marker so a parse failure and an unrecognized stream both degrade gracefully
+// rather than emitting a misleading reconstruction.
+func geminiReconstructStream(body []byte) agentproxy.ResponseNormalization {
+	events, err := parseSSEEvents(body)
+	if err != nil {
+		return streamedResponse(body)
+	}
+
+	state := newGeminiStreamState()
+
+	parsed := false
+
+	for _, event := range events {
+		var chunk geminiResponse
+		if json.Unmarshal(event.Data, &chunk) != nil {
+			continue
+		}
+
+		if state.apply(chunk) {
+			parsed = true
+		}
+	}
+
+	if !parsed {
+		return streamedResponse(body)
+	}
+
+	return state.normalization(body)
+}
+
+// apply folds one streamed generateContent chunk into the accumulating state,
+// reporting whether the chunk carried at least one candidate so the caller can
+// distinguish a real stream from an unrecognized payload. Each candidate's
+// parts contribute to the message at its positional index within the chunk.
+func (state *geminiStreamState) apply(chunk geminiResponse) bool {
+	for index, candidate := range chunk.Candidates {
+		target := state.candidateState(index)
+
+		if candidate.Content.Role != "" {
+			target.role = candidate.Content.Role
+		}
+
+		target.texts = append(target.texts, geminiPartTexts(candidate.Content.Parts)...)
+		target.calls = append(target.calls, geminiPartCalls(candidate.Content.Parts)...)
+	}
+
+	if chunk.UsageMetadata.TotalTokenCount != "" ||
+		chunk.UsageMetadata.PromptTokenCount != "" {
+		state.usage = chunk.UsageMetadata
+	}
+
+	return len(chunk.Candidates) > 0
+}
+
+// candidateState returns the accumulator for one candidate index, registering
+// it in first-seen order so reconstructed messages preserve their stream order.
+func (state *geminiStreamState) candidateState(index int) *geminiCandidateState {
+	candidate, present := state.candidates[index]
+	if !present {
+		candidate = &geminiCandidateState{}
+		state.candidates[index] = candidate
+		state.order = append(state.order, index)
+	}
+
+	return candidate
+}
+
+// normalization renders the accumulated state into a response normalization,
+// emitting one message per candidate index in stream order.
+func (state *geminiStreamState) normalization(
+	body []byte,
+) agentproxy.ResponseNormalization {
+	messages := make([]agentproxy.Message, 0, len(state.order))
+	calls := make([]agentproxy.ToolCall, 0, len(state.order))
+
+	for _, index := range state.order {
+		candidate := state.candidates[index]
+
+		role := candidate.role
+		if role == "" {
+			role = "model"
+		}
+
+		messages = append(messages, agentproxy.Message{
+			Role:    mapRole(role),
+			Content: strings.Join(candidate.texts, ""),
+		})
+		calls = append(calls, candidate.calls...)
+	}
+
+	return agentproxy.ResponseNormalization{
+		Messages:    messages,
+		ToolCalls:   calls,
+		Usage:       geminiTokenUsage(state.usage),
+		BodyHash:    agentproxy.HashText(string(body)),
+		Measurement: agentproxy.Measure(body),
+		Metadata:    map[string]string{metaStreamingReconstructed: metaValueTrue},
 	}
 }

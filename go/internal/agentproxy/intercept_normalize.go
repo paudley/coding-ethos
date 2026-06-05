@@ -175,8 +175,11 @@ func (proxy *InterceptProxy) branchResponse(
 	proxy.bufferAndForward(writer, request, response, input)
 }
 
-// streamSSE forwards a Server-Sent Events response unbuffered, flushing each
-// chunk, and records an inbound event marked as streamed (not normalized).
+// streamSSE forwards a Server-Sent Events response verbatim with live flushing
+// while teeing a bounded copy of the bytes. After the stream completes it
+// reconstructs the accumulated copy into structural facts via the matched
+// adapter, falling back to a streamed marker only when reconstruction cannot
+// run or the copy failed mid-stream. The tee never alters the client bytes.
 func (proxy *InterceptProxy) streamSSE(
 	writer http.ResponseWriter,
 	request *http.Request,
@@ -186,19 +189,104 @@ func (proxy *InterceptProxy) streamSSE(
 	copyHeaders(writer.Header(), response.Header)
 	writer.WriteHeader(response.StatusCode)
 
+	accumulator := newBoundedBuffer(proxy.maxNormalize)
+	teeReader := io.TeeReader(response.Body, accumulator)
+
+	var copyErr error
 	if flusher, ok := writer.(http.Flusher); ok {
-		_, copyErr := copyResponseBodyFlushing(writer, response.Body, flusher)
-		discardClientWriteError(copyErr)
+		_, copyErr = copyResponseBodyFlushing(writer, teeReader, flusher)
 	} else {
-		_, copyErr := io.Copy(writer, response.Body)
-		discardClientWriteError(copyErr)
+		_, copyErr = io.Copy(writer, teeReader)
 	}
 
-	norm := ResponseNormalization{
-		Metadata: map[string]string{metaIntercepted: metaValueTrue},
-		Streamed: true,
+	discardClientWriteError(copyErr)
+
+	respCtx := ResponseContext{
+		ContentType: response.Header.Get(contentTypeHeader),
+		StatusCode:  response.StatusCode,
 	}
+	norm := proxy.normalizeStreamedResponse(streamedNormalizeInput{
+		accumulated: accumulator.Bytes(),
+		encoding:    response.Header.Get(contentEncodingHeader),
+		respCtx:     respCtx,
+		input:       input,
+		truncated:   accumulator.Truncated(),
+		copyFailed:  copyErr != nil,
+	})
 	proxy.recordInbound(request.Context(), input, norm)
+}
+
+// streamedNormalizeInput carries the facts needed to reconstruct an accumulated
+// SSE body without retaining raw content beyond the bounded copy.
+type streamedNormalizeInput struct {
+	accumulated []byte
+	encoding    string
+	respCtx     ResponseContext
+	input       branchInput
+	truncated   bool
+	copyFailed  bool
+}
+
+// normalizeStreamedResponse reconstructs an accumulated SSE body into structural
+// facts. A truncated or copy-failed stream is recorded as a streamed marker (too
+// large or copy error) because the accumulator is incomplete, so reconstruction
+// would emit a misleading result. A matched, complete stream is parsed by its
+// adapter after Content-Encoding decoding; a parse failure is recorded as an
+// explicit normalization error. An unmatched stream stays a plain marker.
+func (proxy *InterceptProxy) normalizeStreamedResponse(
+	args streamedNormalizeInput,
+) ResponseNormalization {
+	if args.truncated {
+		return ResponseNormalization{
+			Metadata: map[string]string{
+				metaIntercepted:     metaValueTrue,
+				metaPayloadTooLarge: metaValueTrue,
+			},
+			Streamed:    true,
+			Measurement: Measure(args.accumulated),
+		}
+	}
+
+	if args.copyFailed {
+		return ResponseNormalization{
+			Metadata: map[string]string{
+				metaIntercepted: metaValueTrue,
+				metaError:       routeFailedErrorClass,
+			},
+			Streamed:    true,
+			Measurement: Measure(args.accumulated),
+		}
+	}
+
+	if !args.input.matched {
+		return ResponseNormalization{
+			Metadata: map[string]string{metaIntercepted: metaValueTrue},
+			Streamed: true,
+		}
+	}
+
+	decoded := decodeForAdapter(args.accumulated, args.encoding, proxy.maxNormalize)
+
+	norm, err := args.input.adapter.NormalizeResponse(decoded, args.respCtx)
+	if err != nil {
+		return ResponseNormalization{
+			Metadata: map[string]string{
+				metaIntercepted:        metaValueTrue,
+				metaNormalizationError: metaValueTrue,
+			},
+			Streamed:    true,
+			BodyHash:    HashText(string(decoded)),
+			Measurement: Measure(decoded),
+		}
+	}
+
+	if norm.Metadata == nil {
+		norm.Metadata = map[string]string{}
+	}
+
+	norm.Metadata[metaIntercepted] = metaValueTrue
+
+	return norm
 }
 
 // bufferAndForward buffers up to the normalize bound, forwards every byte
@@ -532,6 +620,62 @@ func readBounded(reader io.Reader, limit int64) ([]byte, io.Reader, bool) {
 	}
 
 	return buffered, bytes.NewReader(buffered), false
+}
+
+// boundedBuffer accumulates a bounded copy of streamed bytes for structural
+// normalization. It retains at most limit bytes and flags truncation once the
+// stream exceeds the bound, so a large stream can never grow memory without
+// limit. Write always reports the full input length so an io.TeeReader or
+// io.Copy driving the buffer never observes a short write while the buffer
+// silently discards the overflow.
+type boundedBuffer struct {
+	data      []byte
+	limit     int64
+	truncated bool
+}
+
+// newBoundedBuffer returns a boundedBuffer that retains at most limit bytes.
+func newBoundedBuffer(limit int64) *boundedBuffer {
+	return &boundedBuffer{limit: limit}
+}
+
+// Write appends bytes up to the retention bound and discards the overflow,
+// setting the truncated flag once the bound is reached. It always returns the
+// full input length so the driving reader treats every byte as consumed.
+func (buffer *boundedBuffer) Write(payload []byte) (int, error) {
+	remaining := buffer.limit - int64(len(buffer.data))
+	if remaining <= 0 {
+		if len(payload) > 0 {
+			buffer.truncated = true
+		}
+
+		return len(payload), nil
+	}
+
+	if int64(len(payload)) > remaining {
+		// remaining is in (0, len(payload)] here, so it fits an int index without
+		// truncation; the explicit cast keeps the slice bound int-typed and
+		// satisfies gosec G115 against the int64 retention counter.
+		keep := int(remaining)
+		buffer.data = append(buffer.data, payload[:keep]...)
+		buffer.truncated = true
+
+		return len(payload), nil
+	}
+
+	buffer.data = append(buffer.data, payload...)
+
+	return len(payload), nil
+}
+
+// Bytes returns the retained prefix of the streamed body.
+func (buffer *boundedBuffer) Bytes() []byte {
+	return buffer.data
+}
+
+// Truncated reports whether the stream exceeded the retention bound.
+func (buffer *boundedBuffer) Truncated() bool {
+	return buffer.truncated
 }
 
 // decodeForAdapter decompresses raw for structural normalization only, bounding

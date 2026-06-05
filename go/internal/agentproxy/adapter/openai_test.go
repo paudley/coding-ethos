@@ -5,6 +5,7 @@ package adapter_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
@@ -123,14 +124,17 @@ func TestOpenAINormalizeRequest(t *testing.T) {
 func TestOpenAINormalizeResponse(t *testing.T) {
 	t.Parallel()
 
+	streamCtx := agentproxy.ResponseContext{ContentType: "text/event-stream"}
+
 	tests := []struct {
-		name      string
-		fixture   string
-		respCtx   agentproxy.ResponseContext
-		content   string
-		callNames []string
-		streamed  bool
-		input     int
+		name          string
+		fixture       string
+		respCtx       agentproxy.ResponseContext
+		content       string
+		callNames     []string
+		streamed      bool
+		reconstructed bool
+		input         int
 	}{
 		{
 			name:    "text response",
@@ -145,10 +149,19 @@ func TestOpenAINormalizeResponse(t *testing.T) {
 			input:     42,
 		},
 		{
-			name:     "streaming response",
-			fixture:  "response.sse",
-			respCtx:  agentproxy.ResponseContext{ContentType: "text/event-stream"},
-			streamed: true,
+			name:          "streaming text reconstructed",
+			fixture:       "response.sse",
+			respCtx:       streamCtx,
+			content:       "The repo root contains README.md.",
+			reconstructed: true,
+		},
+		{
+			name:          "streaming tool call reconstructed",
+			fixture:       "response_tool_call.sse",
+			respCtx:       streamCtx,
+			callNames:     []string{"list_dir"},
+			reconstructed: true,
+			input:         42,
 		},
 	}
 
@@ -164,13 +177,126 @@ func TestOpenAINormalizeResponse(t *testing.T) {
 			}
 
 			assertResponse(t, norm, responseExpectation{
-				content:   test.content,
-				callNames: test.callNames,
-				streamed:  test.streamed,
-				input:     test.input,
+				content:       test.content,
+				callNames:     test.callNames,
+				streamed:      test.streamed,
+				reconstructed: test.reconstructed,
+				input:         test.input,
 			})
 		})
 	}
+}
+
+func TestOpenAINormalizeResponseFallsBackOnMalformedStream(t *testing.T) {
+	t.Parallel()
+
+	body := []byte("data: not-json\n\ndata: [DONE]\n")
+
+	norm, err := adapter.OpenAI{}.NormalizeResponse(
+		body,
+		agentproxy.ResponseContext{ContentType: "text/event-stream"},
+	)
+	if err != nil {
+		t.Fatalf("normalize response: %v", err)
+	}
+
+	assertResponse(t, norm, responseExpectation{streamed: true})
+}
+
+func TestOpenAINormalizeResponseFallsBackOnUnrecognizedStream(t *testing.T) {
+	t.Parallel()
+
+	body := []byte("data: {\"unexpected\":true}\n\ndata: [DONE]\n\n")
+
+	norm, err := adapter.OpenAI{}.NormalizeResponse(
+		body,
+		agentproxy.ResponseContext{ContentType: "text/event-stream"},
+	)
+	if err != nil {
+		t.Fatalf("normalize response: %v", err)
+	}
+
+	assertResponse(t, norm, responseExpectation{streamed: true})
+}
+
+func TestOpenAINormalizeResponseReconstructsMultipleChoices(t *testing.T) {
+	t.Parallel()
+
+	body := []byte("data: {\"choices\":[" +
+		"{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"first \"}}," +
+		"{\"index\":1,\"delta\":{\"role\":\"assistant\",\"content\":\"second \"}}]}\n\n" +
+		"data: {\"choices\":[" +
+		"{\"index\":0,\"delta\":{\"content\":\"choice\"}}," +
+		"{\"index\":1,\"delta\":{\"content\":\"choice\"}}]}\n\n" +
+		"data: [DONE]\n\n")
+
+	norm, err := adapter.OpenAI{}.NormalizeResponse(
+		body,
+		agentproxy.ResponseContext{ContentType: "text/event-stream"},
+	)
+	if err != nil {
+		t.Fatalf("normalize response: %v", err)
+	}
+
+	if len(norm.Messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(norm.Messages))
+	}
+
+	if norm.Messages[0].Content != "first choice" {
+		t.Fatalf("choice 0 content = %q", norm.Messages[0].Content)
+	}
+
+	if norm.Messages[1].Content != "second choice" {
+		t.Fatalf("choice 1 content = %q", norm.Messages[1].Content)
+	}
+}
+
+func TestOpenAINormalizeResponseJoinsMultiLineDataFrames(t *testing.T) {
+	t.Parallel()
+
+	// One event split across two data: lines must concatenate with a newline
+	// into a single JSON payload before the adapter parses it.
+	body := []byte("data: {\"choices\":[{\"delta\":\n" +
+		"data: {\"role\":\"assistant\",\"content\":\"joined\"}}]}\n\n" +
+		"data: [DONE]\n\n")
+
+	norm, err := adapter.OpenAI{}.NormalizeResponse(
+		body,
+		agentproxy.ResponseContext{ContentType: "text/event-stream"},
+	)
+	if err != nil {
+		t.Fatalf("normalize response: %v", err)
+	}
+
+	if len(norm.Messages) != 1 {
+		t.Fatalf("messages = %d, want 1", len(norm.Messages))
+	}
+
+	if norm.Messages[0].Content != "joined" {
+		t.Fatalf("joined content = %q, want joined", norm.Messages[0].Content)
+	}
+}
+
+func TestOpenAINormalizeResponseFallsBackOnOversizedLine(t *testing.T) {
+	t.Parallel()
+
+	// A single data: line longer than the bounded scanner buffer must surface as
+	// a scan failure, so the adapter falls back to the streamed marker rather
+	// than reconstructing a partially scanned stream.
+	oversized := strings.Repeat("a", (1<<20)+16)
+	body := []byte(
+		"data: {\"choices\":[{\"delta\":{\"content\":\"" + oversized + "\"}}]}\n\n",
+	)
+
+	norm, err := adapter.OpenAI{}.NormalizeResponse(
+		body,
+		agentproxy.ResponseContext{ContentType: "text/event-stream"},
+	)
+	if err != nil {
+		t.Fatalf("normalize response: %v", err)
+	}
+
+	assertResponse(t, norm, responseExpectation{streamed: true})
 }
 
 func TestOpenAINormalizeRequestRejectsGarbage(t *testing.T) {

@@ -138,14 +138,17 @@ func TestGeminiNormalizeRequestDetectsStream(t *testing.T) {
 func TestGeminiNormalizeResponse(t *testing.T) {
 	t.Parallel()
 
+	streamCtx := agentproxy.ResponseContext{ContentType: "text/event-stream"}
+
 	tests := []struct {
-		name      string
-		fixture   string
-		respCtx   agentproxy.ResponseContext
-		content   string
-		callNames []string
-		streamed  bool
-		input     int
+		name          string
+		fixture       string
+		respCtx       agentproxy.ResponseContext
+		content       string
+		callNames     []string
+		streamed      bool
+		reconstructed bool
+		input         int
 	}{
 		{
 			name:    "text response",
@@ -161,10 +164,20 @@ func TestGeminiNormalizeResponse(t *testing.T) {
 			input:     42,
 		},
 		{
-			name:     "streaming response",
-			fixture:  "response.sse",
-			respCtx:  agentproxy.ResponseContext{ContentType: "text/event-stream"},
-			streamed: true,
+			name:          "streaming text reconstructed",
+			fixture:       "response.sse",
+			respCtx:       streamCtx,
+			content:       "The repo root contains README.md.",
+			reconstructed: true,
+			input:         42,
+		},
+		{
+			name:          "streaming tool call reconstructed",
+			fixture:       "response_tool_call.sse",
+			respCtx:       streamCtx,
+			callNames:     []string{"list_dir"},
+			reconstructed: true,
+			input:         42,
 		},
 	}
 
@@ -180,12 +193,76 @@ func TestGeminiNormalizeResponse(t *testing.T) {
 			}
 
 			assertResponse(t, norm, responseExpectation{
-				content:   test.content,
-				callNames: test.callNames,
-				streamed:  test.streamed,
-				input:     test.input,
+				content:       test.content,
+				callNames:     test.callNames,
+				streamed:      test.streamed,
+				reconstructed: test.reconstructed,
+				input:         test.input,
 			})
 		})
+	}
+}
+
+func TestGeminiNormalizeResponseFallsBackOnMalformedStream(t *testing.T) {
+	t.Parallel()
+
+	body := []byte("data: not-json\n")
+
+	norm, err := adapter.Gemini{}.NormalizeResponse(
+		body,
+		agentproxy.ResponseContext{ContentType: "text/event-stream"},
+	)
+	if err != nil {
+		t.Fatalf("normalize response: %v", err)
+	}
+
+	assertResponse(t, norm, responseExpectation{streamed: true})
+}
+
+func TestGeminiNormalizeResponseFallsBackOnUnrecognizedStream(t *testing.T) {
+	t.Parallel()
+
+	body := []byte("data: {\"unexpected\":true}\n\n")
+
+	norm, err := adapter.Gemini{}.NormalizeResponse(
+		body,
+		agentproxy.ResponseContext{ContentType: "text/event-stream"},
+	)
+	if err != nil {
+		t.Fatalf("normalize response: %v", err)
+	}
+
+	assertResponse(t, norm, responseExpectation{streamed: true})
+}
+
+func TestGeminiNormalizeResponseReconstructsMultipleCandidates(t *testing.T) {
+	t.Parallel()
+
+	body := []byte("data: {\"candidates\":[" +
+		"{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"first \"}]}}," +
+		"{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"second \"}]}}]}\n\n" +
+		"data: {\"candidates\":[" +
+		"{\"content\":{\"parts\":[{\"text\":\"candidate\"}]}}," +
+		"{\"content\":{\"parts\":[{\"text\":\"candidate\"}]}}]}\n\n")
+
+	norm, err := adapter.Gemini{}.NormalizeResponse(
+		body,
+		agentproxy.ResponseContext{ContentType: "text/event-stream"},
+	)
+	if err != nil {
+		t.Fatalf("normalize response: %v", err)
+	}
+
+	if len(norm.Messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(norm.Messages))
+	}
+
+	if norm.Messages[0].Content != "first candidate" {
+		t.Fatalf("candidate 0 content = %q", norm.Messages[0].Content)
+	}
+
+	if norm.Messages[1].Content != "second candidate" {
+		t.Fatalf("candidate 1 content = %q", norm.Messages[1].Content)
 	}
 }
 
