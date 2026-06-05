@@ -384,6 +384,14 @@ func TestNewInterceptProxyValidationErrors(t *testing.T) {
 		t.Fatalf("missing issuer error = %v", err)
 	}
 
+	_, err = NewInterceptProxy(InterceptOptions{
+		Enabled: true,
+		Issuer:  stubIssuer{},
+	})
+	if !errors.Is(err, errInterceptEvaluatorRequired) {
+		t.Fatalf("missing evaluator error = %v", err)
+	}
+
 	_, err = NewInterceptProxy(InterceptOptions{Enabled: false})
 	if !errors.Is(err, errInterceptRegistryRequired) {
 		t.Fatalf("missing registry error = %v", err)
@@ -821,5 +829,79 @@ func TestNormalizeResponseMatchedSuccessAndError(t *testing.T) {
 	})
 	if failed.Metadata[metaNormalizationError] != metaValueTrue {
 		t.Fatalf("matched response error normalization = %#v", failed)
+	}
+}
+
+// TestDenyEventEvalErrorKeepsEvidenceCorrelation proves a fail-closed eval-error
+// denial — whose decision is the zero value — still carries the request identity
+// as its evidence ID and the stable proxy_* SARIF correlation keys, so it is as
+// joinable as a policy denial.
+func TestDenyEventEvalErrorKeepsEvidenceCorrelation(t *testing.T) {
+	t.Parallel()
+
+	identity := EventIdentity{
+		ID:         "evt-123",
+		SessionID:  "sess-9",
+		Provider:   "anthropic",
+		TraceID:    "trace-7",
+		TrackingID: "track-3",
+	}
+
+	event := denyOutboundEvent(denyOutboundInput{
+		identity: identity,
+		host:     "api.example.com",
+		policyID: interceptPolicyID,
+		reason:   reasonProxyEvalError,
+		// decision is intentionally the zero value: this is the eval-error path.
+	})
+
+	if event.Policy.EvidenceID != "evt-123" {
+		t.Fatalf("eval-error deny evidence id = %q, want evt-123",
+			event.Policy.EvidenceID)
+	}
+
+	wantMeta := map[string]string{
+		metaProxyEventID:     "evt-123",
+		metaProxySessionID:   "sess-9",
+		metaProxyProvider:    "anthropic",
+		metaProxyDirection:   string(DirectionOutbound),
+		metaProxyEventKind:   string(EventProviderCall),
+		metaProxyPayloadKind: string(PayloadPrompt),
+		metaProxyTraceID:     "trace-7",
+		metaProxyTrackingID:  "track-3",
+	}
+	for key, want := range wantMeta {
+		if event.Metadata[key] != want {
+			t.Fatalf("eval-error deny metadata[%q] = %q, want %q",
+				key, event.Metadata[key], want)
+		}
+	}
+}
+
+// TestDenyEventPolicyDenialKeepsDecisionEvidence proves a policy denial uses the
+// decision's evidence id and metadata while still carrying the identity-derived
+// correlation keys.
+func TestDenyEventPolicyDenialKeepsDecisionEvidence(t *testing.T) {
+	t.Parallel()
+
+	identity := EventIdentity{ID: "evt-77", SessionID: "sess-1", Provider: "openai"}
+
+	event := denyOutboundEvent(denyOutboundInput{
+		identity: identity,
+		host:     "api.example.com",
+		policyID: "proxy.outbound_exfiltration",
+		reason:   "blocked",
+		decision: ProxyDecision{
+			EvidenceID: "evt-77",
+			Metadata:   map[string]string{"proxy_event_id": "evt-77"},
+		},
+	})
+
+	if event.Policy.EvidenceID != "evt-77" {
+		t.Fatalf("policy deny evidence id = %q, want evt-77", event.Policy.EvidenceID)
+	}
+
+	if event.Metadata[metaProxyEventID] != "evt-77" {
+		t.Fatalf("policy deny proxy_event_id = %q", event.Metadata[metaProxyEventID])
 	}
 }

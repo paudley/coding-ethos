@@ -219,40 +219,55 @@ func addExpressionPoliciesToHookDispatch(
 				continue
 			}
 
-			for _, event := range stringSliceValueAllowEmpty(
-				evaluator.Options["hook_events"],
-				[]string{"PreToolUse"},
-			) {
-				for _, tool := range stringSliceValue(
-					evaluator.Options["tools"],
-					expressionHookTools(
-						stringOptionFromMap(evaluator.Options, "scope", "command"),
-					),
-				) {
-					ensureHookTool(hooks, event, tool)
-
-					if !hookDispatchContains(hooks[event][tool], policyID) {
-						hooks[event][tool] = append(
-							hooks[event][tool],
-							HookDispatchEntry{
-								PolicyID: policyID,
-								Mode: expressionDispatchMode(
-									policyDef,
-									evaluator,
-								),
-								CommandPatterns: stringSliceValue(
-									evaluator.Options["command_patterns"],
-									nil,
-								),
-								PathPatterns: stringSliceValue(
-									evaluator.Options["path_patterns"],
-									nil,
-								),
-							},
-						)
-					}
-				}
+			if stringOptionFromMap(evaluator.Options, "scope", "command") == scopeProxy {
+				continue
 			}
+
+			addEvaluatorHookDispatch(hooks, policyID, policyDef, evaluator)
+		}
+	}
+}
+
+func addEvaluatorHookDispatch(
+	hooks map[string]map[string][]HookDispatchEntry,
+	policyID string,
+	policyDef Policy,
+	evaluator Evaluator,
+) {
+	for _, event := range stringSliceValueAllowEmpty(
+		evaluator.Options["hook_events"],
+		[]string{"PreToolUse"},
+	) {
+		for _, tool := range stringSliceValue(
+			evaluator.Options["tools"],
+			expressionHookTools(
+				stringOptionFromMap(evaluator.Options, "scope", "command"),
+			),
+		) {
+			ensureHookTool(hooks, event, tool)
+
+			if hookDispatchContains(hooks[event][tool], policyID) {
+				continue
+			}
+
+			hooks[event][tool] = append(
+				hooks[event][tool],
+				HookDispatchEntry{
+					PolicyID: policyID,
+					Mode: expressionDispatchMode(
+						policyDef,
+						evaluator,
+					),
+					CommandPatterns: stringSliceValue(
+						evaluator.Options["command_patterns"],
+						nil,
+					),
+					PathPatterns: stringSliceValue(
+						evaluator.Options["path_patterns"],
+						nil,
+					),
+				},
+			)
 		}
 	}
 }
@@ -268,6 +283,8 @@ func expressionDispatchMode(policyDef Policy, evaluator Evaluator) string {
 
 func expressionHookTools(scope string) []string {
 	switch scope {
+	case scopeProxy:
+		return nil
 	case "path", "file", "files":
 		return []string{"Bash", "Write", "Edit", "MultiEdit"}
 	case "diagnostic", "finding", "lint":
@@ -417,6 +434,10 @@ func addExpressionPoliciesToLinterDispatch(
 	for policyID, policyDef := range policies {
 		for _, evaluator := range policyDef.Evaluators {
 			if evaluator.Name != evaluatorNameCELExpression {
+				continue
+			}
+
+			if stringOptionFromMap(evaluator.Options, "scope", "command") == scopeProxy {
 				continue
 			}
 

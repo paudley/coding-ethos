@@ -1561,6 +1561,98 @@ func TestEvaluateCELExpressionDoesNotFakeDiagnosticInput(t *testing.T) {
 	}
 }
 
+func TestEvaluateCELExpressionBlocksOutboundExfiltration(t *testing.T) {
+	t.Parallel()
+
+	policyDef := proxyExfiltrationPolicy()
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Scope: "proxy",
+			Proxy: celexpr.ProxyInput{
+				Direction:   "outbound",
+				HasDLPFacts: true,
+				DLPFacts: []celexpr.ProxyDLPFactInput{
+					{Type: "secret"},
+				},
+			},
+			EvaluatorOptions: map[string]any{
+				"scope":           "proxy",
+				"proxy_direction": "outbound",
+				"when":            proxyOutboundExfiltrationCEL(),
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 ||
+		decisions[0].PolicyID != "proxy.outbound_exfiltration" ||
+		decisions[0].Decision != blockDecision {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+}
+
+func TestEvaluateCELExpressionAllowsOutboundWithoutDLPFacts(t *testing.T) {
+	t.Parallel()
+
+	decisions, err := EvaluateCELExpression(
+		proxyExfiltrationPolicy(),
+		Context{
+			Scope: "proxy",
+			Proxy: celexpr.ProxyInput{
+				Direction: "outbound",
+			},
+			EvaluatorOptions: map[string]any{
+				"scope":           "proxy",
+				"proxy_direction": "outbound",
+				"when":            proxyOutboundExfiltrationCEL(),
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 0 {
+		t.Fatalf("decisions = %#v, want no block", decisions)
+	}
+}
+
+func proxyExfiltrationPolicy() policy.Policy {
+	return policy.Policy{
+		ID:       "proxy.outbound_exfiltration",
+		Category: "expression",
+		Source: policy.SourceRef{
+			File: "coding_ethos.yml",
+			Path: "principles[security-by-design].policy.expressions",
+		},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{blockDecision, recordDecision},
+		Message: "Outbound provider request carries secret, credential-file, " +
+			"or protected-path content and was blocked.",
+		Suggestion:    "Remove the secret/credential or protected file from the request.",
+		DefenseLayers: policy.CodeDefenseLayers(),
+		Evaluators: []policy.Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+		}},
+		PrincipleIDs: []string{
+			"security-by-design",
+			"one-path-for-critical-operations",
+		},
+	}
+}
+
+func proxyOutboundExfiltrationCEL() string {
+	return `proxy.direction == "outbound" && proxy.has_dlp_facts &&
+		proxy.dlp_facts.exists(f,
+			f.type in ["secret", "credential_file", "protected_path"]
+		)`
+}
+
 func runCELGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 

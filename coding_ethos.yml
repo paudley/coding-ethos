@@ -4640,6 +4640,24 @@ principles:
                 tool.seccomp_profile == ""
               )
             )
+        - id: proxy.outbound_exfiltration
+          scope: proxy
+          proxy_direction: outbound
+          severity: block
+          protected: true
+          principle_ids:
+            - security-by-design
+            - one-path-for-critical-operations
+          when: >
+            proxy.direction == "outbound" && proxy.has_dlp_facts &&
+            proxy.dlp_facts.exists(f,
+            f.type in ["secret", "credential_file", "protected_path"])
+          message: >-
+            Outbound provider request carries secret, credential-file, or
+            protected-path content and was blocked.
+          advice: >-
+            Remove the secret/credential or protected file from the request;
+            never transmit it to an external model provider.
     sections:
       - id: overview
         kind: overview

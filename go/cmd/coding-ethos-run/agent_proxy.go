@@ -21,6 +21,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/agentproxy/ca"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/proxypolicy"
 	"blackcat.ca/coding-ethos/go/lintcapture"
 )
 
@@ -345,7 +347,10 @@ type serveInterceptRequest struct {
 }
 
 // serveInterceptProxy opens the evidence store, builds the interception proxy,
-// binds the listener, and serves CONNECT traffic until interrupted.
+// binds the listener, and serves CONNECT traffic until interrupted. When
+// interception is enabled it loads the compiled policy bundle and builds the
+// outbound evaluator, refusing to start if either step fails so enforcement is
+// never silently absent.
 func serveInterceptProxy(paths runtimePaths, request serveInterceptRequest) error {
 	store, err := codeintel.Open(
 		context.Background(),
@@ -356,7 +361,7 @@ func serveInterceptProxy(paths runtimePaths, request serveInterceptRequest) erro
 	}
 	defer store.Close()
 
-	proxy, err := agentproxy.NewInterceptProxy(agentproxy.InterceptOptions{
+	options := agentproxy.InterceptOptions{
 		Recorder:     store,
 		Registry:     adapter.DefaultRegistry(),
 		Issuer:       request.runtime.issuer,
@@ -366,12 +371,78 @@ func serveInterceptProxy(paths runtimePaths, request serveInterceptRequest) erro
 		AllowHosts:   request.allowHosts,
 		MaxNormalize: request.maxNormalize,
 		Enabled:      request.runtime.enabled,
-	})
+	}
+
+	// A blind-tunnel-only run decrypts nothing, so it needs no evaluator. An
+	// enabled run must build one or refuse to start so enforcement is never
+	// silently absent.
+	options, err = attachInterceptEvaluator(options, paths, request.runtime.enabled)
+	if err != nil {
+		return err
+	}
+
+	proxy, err := agentproxy.NewInterceptProxy(options)
 	if err != nil {
 		return fmt.Errorf("create interception agent proxy: %w", err)
 	}
 
 	return runInterceptListener(proxy, request.flags.listen)
+}
+
+// attachInterceptEvaluator builds and attaches the outbound policy evaluator to
+// options when interception is enabled, leaving a blind-tunnel-only run's
+// options untouched. A bundle-load or compile failure aborts the run.
+func attachInterceptEvaluator(
+	options agentproxy.InterceptOptions,
+	paths runtimePaths,
+	enabled bool,
+) (agentproxy.InterceptOptions, error) {
+	if !enabled {
+		return options, nil
+	}
+
+	evaluator, err := interceptEvaluator(paths)
+	if err != nil {
+		return agentproxy.InterceptOptions{}, err
+	}
+
+	options.Evaluator = evaluator
+
+	return options, nil
+}
+
+// interceptEvaluator loads the compiled policy bundle and builds the outbound
+// proxy policy evaluator. A bundle-load or compile failure aborts the run so
+// enforcement never starts in a degraded state.
+func interceptEvaluator(paths runtimePaths) (*proxypolicy.Evaluator, error) {
+	bundle, err := loadInterceptPolicyBundle(paths)
+	if err != nil {
+		return nil, err
+	}
+
+	evaluator, err := proxypolicy.New(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("build proxy policy evaluator: %w", err)
+	}
+
+	return evaluator, nil
+}
+
+// loadInterceptPolicyBundle opens and decodes the compiled policy bundle the
+// interception proxy enforces, mirroring the hook runtime's bundle resolution.
+func loadInterceptPolicyBundle(paths runtimePaths) (policy.Bundle, error) {
+	bundleFile, err := os.Open(hookPolicyBundlePath(paths))
+	if err != nil {
+		return policy.Bundle{}, fmt.Errorf("open policy bundle for agent proxy: %w", err)
+	}
+	defer bundleFile.Close()
+
+	bundle, err := policy.DecodeBundle(bundleFile)
+	if err != nil {
+		return policy.Bundle{}, fmt.Errorf("decode policy bundle for agent proxy: %w", err)
+	}
+
+	return bundle, nil
 }
 
 // runInterceptListener binds the listener, prints the bound address, and serves

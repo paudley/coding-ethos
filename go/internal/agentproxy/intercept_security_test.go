@@ -160,6 +160,7 @@ func TestInterceptProxyFailClosedDropsWhenMintFails(t *testing.T) {
 		Now:        now,
 		Registry:   registryStub{},
 		Issuer:     failingIssuer{},
+		Evaluator:  allowEvaluator{},
 		AllowHosts: []string{upstreamHost},
 		OnError:    "fail_closed",
 		Enabled:    true,
