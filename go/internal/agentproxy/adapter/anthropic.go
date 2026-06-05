@@ -333,10 +333,14 @@ type anthropicBlockAccumulator struct {
 }
 
 // anthropicReconstructStream rebuilds a normalization from an accumulated
-// Anthropic SSE body. An empty or unrecognized stream falls back to the
-// streamed marker so the response degrades gracefully rather than erroring.
+// Anthropic SSE body. A scan failure or a stream that carries no recognized
+// event falls back to the streamed marker so a parse failure and an
+// unrecognized stream both degrade gracefully rather than erroring.
 func anthropicReconstructStream(body []byte) agentproxy.ResponseNormalization {
-	events := parseSSEEvents(body)
+	events, err := parseSSEEvents(body)
+	if err != nil {
+		return streamedResponse(body)
+	}
 
 	state := newAnthropicStreamState()
 
@@ -348,9 +352,9 @@ func anthropicReconstructStream(body []byte) agentproxy.ResponseNormalization {
 			continue
 		}
 
-		state.apply(event.Event, envelope)
-
-		parsed = true
+		if state.apply(event.Event, envelope) {
+			parsed = true
+		}
 	}
 
 	if !parsed {
@@ -367,11 +371,13 @@ func newAnthropicStreamState() *anthropicStreamState {
 	}
 }
 
-// apply folds one typed stream event into the accumulating state.
+// apply folds one typed stream event into the accumulating state, reporting
+// whether the event type was recognized so the caller can distinguish a real
+// Anthropic stream from an unrecognized payload that happened to parse as JSON.
 func (state *anthropicStreamState) apply(
 	eventType string,
 	envelope anthropicStreamEnvelope,
-) {
+) bool {
 	switch eventType {
 	case anthropicEventMessageStart:
 		state.role = envelope.Message.Role
@@ -384,7 +390,10 @@ func (state *anthropicStreamState) apply(
 	case anthropicEventMessageDelta:
 		state.outputTokens = jsonNumberToInt(envelope.Usage.OutputTokens)
 	default:
+		return false
 	}
+
+	return true
 }
 
 // startBlock registers a tool_use content block so later deltas can target it.

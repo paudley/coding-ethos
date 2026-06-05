@@ -199,6 +199,22 @@ func TestAnthropicNormalizeResponseFallsBackOnMalformedStream(t *testing.T) {
 	assertResponse(t, norm, responseExpectation{streamed: true})
 }
 
+func TestAnthropicNormalizeResponseFallsBackOnUnrecognizedStream(t *testing.T) {
+	t.Parallel()
+
+	body := []byte("data: {\"unexpected\":true}\n\n")
+
+	norm, err := adapter.Anthropic{}.NormalizeResponse(
+		body,
+		agentproxy.ResponseContext{ContentType: "text/event-stream"},
+	)
+	if err != nil {
+		t.Fatalf("normalize response: %v", err)
+	}
+
+	assertResponse(t, norm, responseExpectation{streamed: true})
+}
+
 func TestAnthropicStreamReconstructsTokenUsage(t *testing.T) {
 	t.Parallel()
 

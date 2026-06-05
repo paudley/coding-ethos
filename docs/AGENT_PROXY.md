@@ -128,9 +128,12 @@ which parses the Server-Sent Events into the same structural facts a
 non-streamed body yields and marks the event `streaming_reconstructed`. A stream
 that exceeds the bound is still forwarded in full but is marked
 `payload_too_large_for_normalization` instead of reconstructed.
-`streaming_not_normalized` now appears only as a graceful fallback when a matched
-stream cannot be parsed. A matched path whose body fails to parse is reported as
-an explicit normalization error, never reclassified as a different provider.
+A matched non-streamed body that fails to parse is reported with
+`normalization_error`, never reclassified as a different provider. A matched
+streamed body that fails to reconstruct is still forwarded verbatim and is also
+marked `normalization_error` so the parse failure is explicit and auditable,
+while a genuinely unrecognized or partial stream (including one whose copy
+failed mid-stream) falls back to `streaming_not_normalized`.
 
 ## Opt-In HTTPS Interception Gate
 

@@ -23,6 +23,14 @@ var ErrUnsupportedSchema = apperror.StaticError(
 	"provider adapter: unsupported or unparseable schema",
 )
 
+// ErrSSEParse marks an SSE body whose line scan failed, for example because a
+// single line exceeded the bounded scanner buffer. A reconstructor treats it as
+// a parse failure and falls back to the streamed marker rather than returning
+// the partially scanned events as if the stream had been read in full.
+var ErrSSEParse = apperror.StaticError(
+	"provider adapter: server-sent-events scan failed",
+)
+
 const (
 	// sseContentTypeMarker identifies a server-sent-events response.
 	sseContentTypeMarker = "text/event-stream"
@@ -48,48 +56,87 @@ type sseEvent struct {
 	Data  json.RawMessage
 }
 
-// parseSSEEvents splits an accumulated SSE body into events. It collects the
-// event type from event: lines and the JSON payload from data: lines, skipping
-// blank lines and the OpenAI [DONE] sentinel so adapters receive only payloads.
-func parseSSEEvents(body []byte) []sseEvent {
+// sseAccumulator gathers the event type and the data: payload lines of one
+// in-progress SSE event until a blank line dispatches it. Per the SSE spec an
+// event may carry several data: lines that must be concatenated with newlines
+// into a single data payload, which this accumulator reproduces. A non-nil data
+// slice marks that at least one data: line was seen, even an empty one.
+type sseAccumulator struct {
+	event string
+	data  []string
+}
+
+// parseSSEEvents splits an accumulated SSE body into events. It accumulates the
+// event type from event: lines and the JSON payload from data: lines, joining
+// multiple data: lines of one event with newlines, dispatching a completed
+// event on each blank line, and skipping comments and the OpenAI [DONE]
+// sentinel. A non-nil error reports a scan failure (for example a line longer
+// than the bounded buffer) so a reconstructor fails closed instead of treating
+// the partial scan as a complete stream.
+func parseSSEEvents(body []byte) ([]sseEvent, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(body))
 	scanner.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), sseScannerBufferBytes)
 
 	events := make([]sseEvent, 0)
 
-	var current sseEvent
+	var current sseAccumulator
 
 	for scanner.Scan() {
 		line := strings.TrimRight(scanner.Text(), "\r")
-		if accumulateSSELine(line, &current, &events) {
-			current = sseEvent{}
+		if line == "" {
+			dispatchSSEEvent(&current, &events)
+
+			continue
 		}
+
+		accumulateSSELine(line, &current)
 	}
 
-	return events
+	err := scanner.Err()
+	if err != nil {
+		return nil, ErrSSEParse
+	}
+
+	dispatchSSEEvent(&current, &events)
+
+	return events, nil
 }
 
-// accumulateSSELine folds one SSE line into the in-progress event and reports
-// whether a complete event was emitted so the caller can reset its accumulator.
-func accumulateSSELine(line string, current *sseEvent, events *[]sseEvent) bool {
+// accumulateSSELine folds one non-blank SSE line into the in-progress event,
+// retaining the event type and appending each data: payload line. Comment lines
+// beginning with a colon are ignored per the SSE specification.
+func accumulateSSELine(line string, current *sseAccumulator) {
 	switch {
 	case strings.HasPrefix(line, sseEventPrefix):
-		current.Event = strings.TrimSpace(strings.TrimPrefix(line, sseEventPrefix))
-
-		return false
+		current.event = strings.TrimSpace(strings.TrimPrefix(line, sseEventPrefix))
 	case strings.HasPrefix(line, sseDataPrefix):
 		payload := strings.TrimSpace(strings.TrimPrefix(line, sseDataPrefix))
-		if payload == sseDoneSentinel || payload == "" {
-			return false
-		}
-
-		current.Data = json.RawMessage(payload)
-		*events = append(*events, *current)
-
-		return true
+		// append makes a nil slice non-nil even for an empty payload, so a
+		// non-nil data slice reliably marks that a data: line was seen.
+		current.data = append(current.data, payload)
 	default:
-		return false
 	}
+}
+
+// dispatchSSEEvent emits the accumulated event when it carries a usable data
+// payload, joining its data: lines with newlines, then resets the accumulator.
+// A [DONE] sentinel or an empty payload is dropped so adapters see only JSON.
+func dispatchSSEEvent(current *sseAccumulator, events *[]sseEvent) {
+	if current.data == nil {
+		*current = sseAccumulator{}
+
+		return
+	}
+
+	payload := strings.Join(current.data, "\n")
+	if payload != sseDoneSentinel && payload != "" {
+		*events = append(*events, sseEvent{
+			Event: current.event,
+			Data:  json.RawMessage(payload),
+		})
+	}
+
+	*current = sseAccumulator{}
 }
 
 // mapRole converts a raw provider role string into the neutral role. Unknown

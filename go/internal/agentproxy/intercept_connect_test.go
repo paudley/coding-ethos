@@ -89,8 +89,12 @@ func assertBlindTunnel(t *testing.T, events []agentproxy.ProviderEvent, host str
 	}
 }
 
-const cannedSSE = "data: {\"delta\":\"chunk-one\"}\n\n" +
-	"data: {\"delta\":\"chunk-two\"}\n\n" +
+// cannedSSE is a provider-valid OpenAI chat-completions SSE body so the
+// streaming path exercises real reconstruction rather than a payload the adapter
+// cannot recognize. The deltas concatenate into one assistant message.
+const cannedSSE = "data: {\"model\":\"gpt-test\",\"choices\":" +
+	"[{\"delta\":{\"role\":\"assistant\",\"content\":\"chunk-one\"}}]}\n\n" +
+	"data: {\"choices\":[{\"delta\":{\"content\":\"chunk-two\"}}]}\n\n" +
 	"data: [DONE]\n\n"
 
 func TestInterceptProxyForwardsRedirectWithoutFollowing(t *testing.T) {

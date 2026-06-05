@@ -4,6 +4,8 @@
 package agentproxy_test
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"net"
@@ -186,6 +188,124 @@ func TestInterceptProxyForwardsOversizedSSEStreamVerbatim(t *testing.T) {
 
 	if event.Metadata["streaming_reconstructed"] == "true" {
 		t.Fatalf("oversized stream must not be reconstructed: %#v", event.Metadata)
+	}
+}
+
+// gzipStreamHandler writes the supplied SSE body gzip-compressed with a
+// text/event-stream content type and a gzip Content-Encoding so the proxy must
+// decode the accumulated bytes before reconstruction.
+func gzipStreamHandler(t *testing.T, body string) http.HandlerFunc {
+	t.Helper()
+
+	var buffer bytes.Buffer
+
+	writer := gzip.NewWriter(&buffer)
+	if _, err := writer.Write([]byte(body)); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+
+	compressed := buffer.Bytes()
+
+	return func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "text/event-stream")
+		response.Header().Set("Content-Encoding", "gzip")
+		response.WriteHeader(http.StatusOK)
+		_, _ = response.Write(compressed)
+	}
+}
+
+// TestInterceptProxyReconstructsGzipSSEStream proves a gzip-encoded SSE stream is
+// decoded by its Content-Encoding before reconstruction, so the recorded inbound
+// event carries reconstructed structural facts rather than a parse failure.
+func TestInterceptProxyReconstructsGzipSSEStream(t *testing.T) {
+	t.Parallel()
+
+	harness := newInterceptHarness(t, gzipStreamHandler(t, openAIStreamBody), true)
+	defer harness.close(t)
+
+	streamThroughProxy(t, harness, "sse-gzip")
+
+	event := waitForInbound(t, harness.recorder)
+
+	if event.Metadata["streaming_reconstructed"] != "true" {
+		t.Fatalf("gzip stream not reconstructed: %#v", event.Metadata)
+	}
+
+	if event.Metadata["normalization_error"] == "true" {
+		t.Fatalf("gzip stream marked normalization error: %#v", event.Metadata)
+	}
+
+	if event.Model != "gpt-test" {
+		t.Fatalf("gzip stream model not extracted: %q", event.Model)
+	}
+}
+
+// TestInterceptProxySkipsReconstructionOnStreamCopyFailure proves a stream whose
+// upstream connection aborts mid-body is not reconstructed: the incomplete
+// accumulator must yield a streamed marker, never streaming_reconstructed.
+func TestInterceptProxySkipsReconstructionOnStreamCopyFailure(t *testing.T) {
+	t.Parallel()
+
+	handler := func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "text/event-stream")
+		response.WriteHeader(http.StatusOK)
+
+		hijacker, ok := response.(http.Hijacker)
+		if !ok {
+			return
+		}
+
+		conn, _, err := hijacker.Hijack()
+		if err != nil {
+			return
+		}
+
+		// Write a partial chunked body that never terminates, then abruptly close
+		// the connection so the proxy's read of the response body errors.
+		_, _ = conn.Write([]byte("1f\r\ndata: {\"choices\":[{\"delta\":{\"con"))
+		_ = conn.Close()
+	}
+
+	harness := newInterceptHarness(t, handler, true)
+	defer harness.close(t)
+
+	client := proxiedClient(harness.client, harness.proxyURL)
+	target := harness.upstream.URL + "/v1/chat/completions/stream"
+
+	request, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		target,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("new stream request: %v", err)
+	}
+
+	request.Header.Set("X-Coding-Ethos-Session", "sse-copy-failure")
+
+	response, err := client.Do(request)
+	if err == nil {
+		_, _ = io.Copy(io.Discard, response.Body)
+		_ = response.Body.Close()
+	}
+
+	event := waitForInbound(t, harness.recorder)
+
+	if event.Metadata["streaming_reconstructed"] == "true" {
+		t.Fatalf("copy-failed stream reconstructed: %#v", event.Metadata)
+	}
+
+	if event.Metadata["streaming_not_normalized"] != "true" {
+		t.Fatalf("copy-failed stream not marked streamed: %#v", event.Metadata)
+	}
+
+	if event.Metadata["error"] == "" {
+		t.Fatalf("copy-failed stream missing error marker: %#v", event.Metadata)
 	}
 }
 

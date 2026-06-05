@@ -216,9 +216,11 @@ type openAIStreamChunk struct {
 	Choices []openAIStreamChoice `json:"choices"`
 }
 
-// openAIStreamChoice carries the incremental delta of one streamed choice.
+// openAIStreamChoice carries the incremental delta of one streamed choice and
+// its choice index so deltas reconstruct into the correct per-choice message.
 type openAIStreamChoice struct {
 	Delta openAIStreamDelta `json:"delta"`
+	Index int               `json:"index"`
 }
 
 // openAIStreamDelta is one incremental chunk of an assistant message.
@@ -248,10 +250,15 @@ type openAIToolAccumulator struct {
 }
 
 // openAIReconstructStream rebuilds a normalization from an accumulated OpenAI
-// SSE body. A parse that yields no chunks falls back to the streamed marker so
-// an unrecognized stream degrades gracefully rather than erroring the response.
+// SSE body, reconstructing one assistant message per choice index. A scan
+// failure or a stream that contributes no recognizable choice falls back to the
+// streamed marker so a parse failure and an unrecognized stream both degrade
+// gracefully rather than emitting a misleading reconstruction.
 func openAIReconstructStream(body []byte) agentproxy.ResponseNormalization {
-	events := parseSSEEvents(body)
+	events, err := parseSSEEvents(body)
+	if err != nil {
+		return streamedResponse(body)
+	}
 
 	state := newOpenAIStreamState()
 
@@ -263,9 +270,9 @@ func openAIReconstructStream(body []byte) agentproxy.ResponseNormalization {
 			continue
 		}
 
-		state.apply(chunk)
-
-		parsed = true
+		if state.apply(chunk) {
+			parsed = true
+		}
 	}
 
 	if !parsed {
@@ -275,26 +282,35 @@ func openAIReconstructStream(body []byte) agentproxy.ResponseNormalization {
 	return state.normalization(body)
 }
 
-// openAIStreamState accumulates the reconstructed assistant message, tool
-// calls, usage, and model across streamed chunks.
-type openAIStreamState struct {
+// openAIChoiceState accumulates the reconstructed message and tool calls of one
+// streamed choice index across the chunks that contribute to it.
+type openAIChoiceState struct {
 	tools map[int]*openAIToolAccumulator
-	usage openAIUsageWire
 	role  string
-	model string
 	text  strings.Builder
 	order []int
+}
+
+// openAIStreamState accumulates the reconstructed per-choice messages, usage,
+// and model across streamed chunks, preserving choice index order.
+type openAIStreamState struct {
+	choices map[int]*openAIChoiceState
+	usage   openAIUsageWire
+	model   string
+	order   []int
 }
 
 // newOpenAIStreamState returns an empty state ready to accumulate chunks.
 func newOpenAIStreamState() *openAIStreamState {
 	return &openAIStreamState{
-		tools: make(map[int]*openAIToolAccumulator),
+		choices: make(map[int]*openAIChoiceState),
 	}
 }
 
-// apply folds one chunk into the accumulating reconstruction state.
-func (state *openAIStreamState) apply(chunk openAIStreamChunk) {
+// apply folds one chunk into the accumulating reconstruction state, reporting
+// whether the chunk carried at least one recognizable choice so the caller can
+// distinguish a real stream from an unrecognized payload.
+func (state *openAIStreamState) apply(chunk openAIStreamChunk) bool {
 	if chunk.Model != "" {
 		state.model = chunk.Model
 	}
@@ -304,30 +320,45 @@ func (state *openAIStreamState) apply(chunk openAIStreamChunk) {
 	}
 
 	for _, choice := range chunk.Choices {
-		state.applyDelta(choice.Delta)
+		state.choiceState(choice.Index).applyDelta(choice.Delta)
 	}
+
+	return len(chunk.Choices) > 0
 }
 
-// applyDelta folds one streamed delta into the state.
-func (state *openAIStreamState) applyDelta(delta openAIStreamDelta) {
-	if state.role == "" && delta.Role != "" {
-		state.role = delta.Role
+// choiceState returns the accumulator for one choice index, registering it in
+// first-seen order so reconstructed messages preserve their stream order.
+func (state *openAIStreamState) choiceState(index int) *openAIChoiceState {
+	choice, present := state.choices[index]
+	if !present {
+		choice = &openAIChoiceState{tools: make(map[int]*openAIToolAccumulator)}
+		state.choices[index] = choice
+		state.order = append(state.order, index)
 	}
 
-	state.text.WriteString(delta.Content)
+	return choice
+}
+
+// applyDelta folds one streamed delta into the choice state.
+func (choice *openAIChoiceState) applyDelta(delta openAIStreamDelta) {
+	if choice.role == "" && delta.Role != "" {
+		choice.role = delta.Role
+	}
+
+	choice.text.WriteString(delta.Content)
 
 	for _, call := range delta.ToolCalls {
-		state.applyToolCall(call)
+		choice.applyToolCall(call)
 	}
 }
 
 // applyToolCall merges one indexed tool-call fragment into its accumulator.
-func (state *openAIStreamState) applyToolCall(call openAIStreamToolCall) {
-	accumulator, present := state.tools[call.Index]
+func (choice *openAIChoiceState) applyToolCall(call openAIStreamToolCall) {
+	accumulator, present := choice.tools[call.Index]
 	if !present {
 		accumulator = &openAIToolAccumulator{}
-		state.tools[call.Index] = accumulator
-		state.order = append(state.order, call.Index)
+		choice.tools[call.Index] = accumulator
+		choice.order = append(choice.order, call.Index)
 	}
 
 	if accumulator.name == "" && call.Function.Name != "" {
@@ -337,27 +368,41 @@ func (state *openAIStreamState) applyToolCall(call openAIStreamToolCall) {
 	accumulator.args.WriteString(call.Function.Arguments)
 }
 
-// normalization renders the accumulated state into a response normalization.
-func (state *openAIStreamState) normalization(
-	body []byte,
-) agentproxy.ResponseNormalization {
-	role := state.role
-	if role == "" {
-		role = string(agentproxy.RoleAssistant)
-	}
-
-	messages := []agentproxy.Message{{
-		Role:    mapRole(role),
-		Content: state.text.String(),
-	}}
-
-	calls := make([]agentproxy.ToolCall, 0, len(state.order))
-	for _, index := range state.order {
-		accumulator := state.tools[index]
+// toolCalls renders the accumulated tool calls of one choice in stream order.
+func (choice *openAIChoiceState) toolCalls() []agentproxy.ToolCall {
+	calls := make([]agentproxy.ToolCall, 0, len(choice.order))
+	for _, index := range choice.order {
+		accumulator := choice.tools[index]
 		calls = append(calls, agentproxy.ToolCall{
 			Name:     accumulator.name,
 			ArgsHash: agentproxy.HashText(accumulator.args.String()),
 		})
+	}
+
+	return calls
+}
+
+// normalization renders the accumulated state into a response normalization,
+// emitting one message per choice index in stream order.
+func (state *openAIStreamState) normalization(
+	body []byte,
+) agentproxy.ResponseNormalization {
+	messages := make([]agentproxy.Message, 0, len(state.order))
+	calls := make([]agentproxy.ToolCall, 0, len(state.order))
+
+	for _, index := range state.order {
+		choice := state.choices[index]
+
+		role := choice.role
+		if role == "" {
+			role = string(agentproxy.RoleAssistant)
+		}
+
+		messages = append(messages, agentproxy.Message{
+			Role:    mapRole(role),
+			Content: choice.text.String(),
+		})
+		calls = append(calls, choice.toolCalls()...)
 	}
 
 	return agentproxy.ResponseNormalization{

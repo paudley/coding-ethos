@@ -179,7 +179,7 @@ func (proxy *InterceptProxy) branchResponse(
 // while teeing a bounded copy of the bytes. After the stream completes it
 // reconstructs the accumulated copy into structural facts via the matched
 // adapter, falling back to a streamed marker only when reconstruction cannot
-// run. The tee never alters the bytes the client receives.
+// run or the copy failed mid-stream. The tee never alters the client bytes.
 func (proxy *InterceptProxy) streamSSE(
 	writer http.ResponseWriter,
 	request *http.Request,
@@ -192,60 +192,91 @@ func (proxy *InterceptProxy) streamSSE(
 	accumulator := newBoundedBuffer(proxy.maxNormalize)
 	teeReader := io.TeeReader(response.Body, accumulator)
 
+	var copyErr error
 	if flusher, ok := writer.(http.Flusher); ok {
-		_, copyErr := copyResponseBodyFlushing(writer, teeReader, flusher)
-		discardClientWriteError(copyErr)
+		_, copyErr = copyResponseBodyFlushing(writer, teeReader, flusher)
 	} else {
-		_, copyErr := io.Copy(writer, teeReader)
-		discardClientWriteError(copyErr)
+		_, copyErr = io.Copy(writer, teeReader)
 	}
+
+	discardClientWriteError(copyErr)
 
 	respCtx := ResponseContext{
 		ContentType: response.Header.Get(contentTypeHeader),
 		StatusCode:  response.StatusCode,
 	}
-	norm := proxy.normalizeStreamedResponse(
-		accumulator.Bytes(),
-		accumulator.Truncated(),
-		input,
-		respCtx,
-	)
+	norm := proxy.normalizeStreamedResponse(streamedNormalizeInput{
+		accumulated: accumulator.Bytes(),
+		encoding:    response.Header.Get(contentEncodingHeader),
+		respCtx:     respCtx,
+		input:       input,
+		truncated:   accumulator.Truncated(),
+		copyFailed:  copyErr != nil,
+	})
 	proxy.recordInbound(request.Context(), input, norm)
 }
 
+// streamedNormalizeInput carries the facts needed to reconstruct an accumulated
+// SSE body without retaining raw content beyond the bounded copy.
+type streamedNormalizeInput struct {
+	accumulated []byte
+	encoding    string
+	respCtx     ResponseContext
+	input       branchInput
+	truncated   bool
+	copyFailed  bool
+}
+
 // normalizeStreamedResponse reconstructs an accumulated SSE body into structural
-// facts. A matched, untruncated stream is parsed by its adapter; a parse failure
-// falls back to a streamed marker. A truncated stream forwarded verbatim is
-// recorded as too large, and an unmatched stream stays a plain streamed marker.
+// facts. A truncated or copy-failed stream is recorded as a streamed marker (too
+// large or copy error) because the accumulator is incomplete, so reconstruction
+// would emit a misleading result. A matched, complete stream is parsed by its
+// adapter after Content-Encoding decoding; a parse failure is recorded as an
+// explicit normalization error. An unmatched stream stays a plain marker.
 func (proxy *InterceptProxy) normalizeStreamedResponse(
-	accumulated []byte,
-	truncated bool,
-	input branchInput,
-	respCtx ResponseContext,
+	args streamedNormalizeInput,
 ) ResponseNormalization {
-	if truncated {
+	if args.truncated {
 		return ResponseNormalization{
 			Metadata: map[string]string{
 				metaIntercepted:     metaValueTrue,
 				metaPayloadTooLarge: metaValueTrue,
 			},
 			Streamed:    true,
-			Measurement: Measure(accumulated),
+			Measurement: Measure(args.accumulated),
 		}
 	}
 
-	if !input.matched {
+	if args.copyFailed {
+		return ResponseNormalization{
+			Metadata: map[string]string{
+				metaIntercepted: metaValueTrue,
+				metaError:       routeFailedErrorClass,
+			},
+			Streamed:    true,
+			Measurement: Measure(args.accumulated),
+		}
+	}
+
+	if !args.input.matched {
 		return ResponseNormalization{
 			Metadata: map[string]string{metaIntercepted: metaValueTrue},
 			Streamed: true,
 		}
 	}
 
-	norm, err := input.adapter.NormalizeResponse(accumulated, respCtx)
+	decoded := decodeForAdapter(args.accumulated, args.encoding, proxy.maxNormalize)
+
+	norm, err := args.input.adapter.NormalizeResponse(decoded, args.respCtx)
 	if err != nil {
 		return ResponseNormalization{
-			Metadata: map[string]string{metaIntercepted: metaValueTrue},
-			Streamed: true,
+			Metadata: map[string]string{
+				metaIntercepted:        metaValueTrue,
+				metaNormalizationError: metaValueTrue,
+			},
+			Streamed:    true,
+			BodyHash:    HashText(string(decoded)),
+			Measurement: Measure(decoded),
 		}
 	}
 
@@ -622,7 +653,11 @@ func (buffer *boundedBuffer) Write(payload []byte) (int, error) {
 	}
 
 	if int64(len(payload)) > remaining {
-		buffer.data = append(buffer.data, payload[:remaining]...)
+		// remaining is in (0, len(payload)] here, so it fits an int index without
+		// truncation; the explicit cast keeps the slice bound int-typed and
+		// satisfies gosec G115 against the int64 retention counter.
+		keep := int(remaining)
+		buffer.data = append(buffer.data, payload[:keep]...)
 		buffer.truncated = true
 
 		return len(payload), nil
