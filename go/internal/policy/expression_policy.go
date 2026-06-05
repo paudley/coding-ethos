@@ -479,6 +479,9 @@ func expressionPolicyPartsFromContent(
 	scope := stringOptionFromMap(expression, "scope", "command")
 	severity := stringOptionFromMap(expression, "severity", "block")
 	mode := stringOptionFromMap(expression, "mode", severity)
+	proxyDirection := normalizeProxyDirection(
+		stringOptionFromMap(expression, proxyDirectionOption, proxyDirectionDefault),
+	)
 	dispatchScopes := stringSliceValue(
 		firstPresentValue(expression, "lint_scopes", "dispatch_scopes"),
 		defaultExpressionDispatchScopes(scope),
@@ -503,6 +506,7 @@ func expressionPolicyPartsFromContent(
 		advice:          content.advice,
 		scope:           scope,
 		mode:            mode,
+		proxyDirection:  proxyDirection,
 		when:            content.when,
 		principleIDs:    content.principleIDs,
 		tools:           tools,
@@ -525,6 +529,7 @@ type expressionPolicyParts struct {
 	advice          string
 	scope           string
 	mode            string
+	proxyDirection  string
 	when            string
 	principleIDs    []string
 	tools           []string
@@ -561,13 +566,14 @@ func buildExpressionPolicy(parts expressionPolicyParts) Policy {
 
 func expressionEvaluatorOptions(parts expressionPolicyParts) map[string]any {
 	options := map[string]any{
-		"command_patterns": parts.commandPatterns,
-		"dispatch_scopes":  parts.dispatchScopes,
-		"hook_events":      parts.hookEvents,
-		"mode":             parts.mode,
-		"override":         parts.governance.Override,
-		"override_reason":  parts.governance.OverrideReason,
-		"path_patterns":    parts.pathPatterns,
+		"command_patterns":   parts.commandPatterns,
+		"dispatch_scopes":    parts.dispatchScopes,
+		"hook_events":        parts.hookEvents,
+		"mode":               parts.mode,
+		"override":           parts.governance.Override,
+		"override_reason":    parts.governance.OverrideReason,
+		"path_patterns":      parts.pathPatterns,
+		proxyDirectionOption: parts.proxyDirection,
 		"protected_branches": stringSliceAt(
 			parts.config,
 			[]string{"filesystem", "protected_branch_write", "branches"},
@@ -616,6 +622,17 @@ func expressionEvaluatorOptions(parts expressionPolicyParts) map[string]any {
 	}
 
 	return options
+}
+
+func normalizeProxyDirection(direction string) string {
+	switch strings.ToLower(strings.TrimSpace(direction)) {
+	case proxyDirectionInbound:
+		return proxyDirectionInbound
+	case proxyDirectionOutbound:
+		return proxyDirectionOutbound
+	default:
+		return proxyDirectionDefault
+	}
 }
 
 func expressionMapOption(

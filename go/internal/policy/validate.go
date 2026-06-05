@@ -44,6 +44,11 @@ const (
 	evaluatorValidationFactor    = 2
 	evaluatorKindCEL             = "cel"
 	evaluatorNameCELExpression   = "cel.expression"
+	scopeProxy                   = "proxy"
+	proxyDirectionOption         = "proxy_direction"
+	proxyDirectionDefault        = "both"
+	proxyDirectionInbound        = "inbound"
+	proxyDirectionOutbound       = "outbound"
 	fmtNilValue                  = "<nil>"
 	dispatchEntryCapacity        = 2
 	gitDispatchValidationFactor  = 2
@@ -438,7 +443,10 @@ func validateExpressionDispatchOptions(
 		}
 	}
 
-	if tools, ok := evaluator.Options["tools"]; ok && len(stringValues(tools)) == 0 {
+	scope := stringOptionFromMap(evaluator.Options, "scope", "command")
+	if tools, ok := evaluator.Options["tools"]; ok &&
+		scope != scopeProxy &&
+		len(stringValues(tools)) == 0 {
 		errs = append(errs, fmt.Errorf(
 			"%w: policy %q CEL evaluator tools must not be empty",
 			errValidationFailed,

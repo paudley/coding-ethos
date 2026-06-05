@@ -717,6 +717,7 @@ func celActivation(context Context, source string) map[string]any {
 		ReadOnlyInspection: context.ReadOnlyInspection,
 		Diagnostic:         context.Diagnostic,
 		Diagnostics:        context.Diagnostics,
+		Proxy:              context.Proxy,
 		Findings:           celFindings(context.Findings),
 		HookCommands:       celHookCommands(context, source),
 		LineLimits:         celLineLimitThresholds(context.EvaluatorOptions),

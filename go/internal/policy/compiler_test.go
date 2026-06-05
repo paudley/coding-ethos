@@ -667,6 +667,67 @@ policy:
 	}
 }
 
+func TestCompileProxyScopeExpressionPolicyExcludedFromDispatch(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML(t))
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: proxy.outbound_exfiltration
+      scope: proxy
+      proxy_direction: outbound
+      severity: block
+      protected: true
+      principle_ids: [security-by-design, one-path-for-critical-operations]
+      when: >
+        proxy.direction == "outbound" && proxy.has_dlp_facts &&
+        proxy.dlp_facts.exists(f, f.type in ["secret"])
+      message: Outbound provider request carries protected content and was blocked.
+      advice: Remove the secret or protected file before transmitting it.
+`)
+
+	bundle, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	policyDef, found := bundle.Policies["proxy.outbound_exfiltration"]
+	if !found {
+		t.Fatalf("missing proxy expression policy: %#v", bundle.Policies)
+	}
+
+	if direction, _ := policyDef.Evaluators[0].Options["proxy_direction"].(string); direction != "outbound" {
+		t.Fatalf("proxy_direction option = %q, want outbound", direction)
+	}
+
+	for event, tools := range bundle.Dispatch.Hooks {
+		for tool, entries := range tools {
+			for _, entry := range entries {
+				if entry.PolicyID == "proxy.outbound_exfiltration" {
+					t.Fatalf(
+						"proxy policy unexpectedly dispatched on %s/%s: %#v",
+						event,
+						tool,
+						entry,
+					)
+				}
+			}
+		}
+	}
+
+	for _, ids := range bundle.Dispatch.Linter {
+		assertPolicyNotDispatched(t, ids, "proxy.outbound_exfiltration")
+	}
+}
+
 func TestCompileRejectsExpressionPolicyIDCollisions(t *testing.T) {
 	t.Parallel()
 

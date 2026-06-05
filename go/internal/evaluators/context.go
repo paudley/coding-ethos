@@ -37,6 +37,7 @@ type Context struct {
 	StagedFiles        []string
 	Argv               []string
 	Stdin              []byte
+	Proxy              celexpr.ProxyInput
 	ReturnCode         int
 	HasToolResponse    bool
 	AdminApproved      bool
