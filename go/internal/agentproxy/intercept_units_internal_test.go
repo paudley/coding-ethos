@@ -384,6 +384,14 @@ func TestNewInterceptProxyValidationErrors(t *testing.T) {
 		t.Fatalf("missing issuer error = %v", err)
 	}
 
+	_, err = NewInterceptProxy(InterceptOptions{
+		Enabled: true,
+		Issuer:  stubIssuer{},
+	})
+	if !errors.Is(err, errInterceptEvaluatorRequired) {
+		t.Fatalf("missing evaluator error = %v", err)
+	}
+
 	_, err = NewInterceptProxy(InterceptOptions{Enabled: false})
 	if !errors.Is(err, errInterceptRegistryRequired) {
 		t.Fatalf("missing registry error = %v", err)

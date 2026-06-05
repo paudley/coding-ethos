@@ -234,10 +234,11 @@ func TestInterceptProxyRejectsNonConnectMethods(t *testing.T) {
 	issuer, _ := newTestIssuer(t, now)
 
 	proxy, err := agentproxy.NewInterceptProxy(agentproxy.InterceptOptions{
-		Now:      now,
-		Registry: registryStub{},
-		Issuer:   issuer,
-		Enabled:  true,
+		Now:       now,
+		Registry:  registryStub{},
+		Issuer:    issuer,
+		Evaluator: allowEvaluator{},
+		Enabled:   true,
 	})
 	if err != nil {
 		t.Fatalf("new intercept proxy: %v", err)
@@ -362,6 +363,19 @@ type registryStub struct{}
 // Match always reports no adapter.
 func (registryStub) Match(agentproxy.RequestContext) (agentproxy.Adapter, bool) {
 	return nil, false
+}
+
+// allowEvaluator is a ProxyPolicyEvaluator that allows every outbound request.
+// Enabled intercept proxies require an evaluator; tests that exercise routing
+// rather than enforcement inject this permissive stub.
+type allowEvaluator struct{}
+
+// EvaluateOutbound always allows the request.
+func (allowEvaluator) EvaluateOutbound(
+	context.Context,
+	agentproxy.ProxyDecisionInput,
+) (agentproxy.ProxyDecision, error) {
+	return agentproxy.ProxyDecision{Allowed: true}, nil
 }
 
 // statusRecorder captures the response status for non-streaming handler tests.

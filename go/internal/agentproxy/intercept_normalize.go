@@ -85,16 +85,26 @@ func (proxy *InterceptProxy) serveRequest(
 	}
 	adapter, matched := proxy.registry.Match(reqCtx)
 
-	proxy.recordOutbound(request.Context(), outboundInput{
+	encoding := request.Header.Get(contentEncodingHeader)
+	outbound := outboundInput{
 		host:      host,
 		sessionID: sessionID(request.Header),
 		reqBytes:  reqBytes,
-		encoding:  request.Header.Get(contentEncodingHeader),
+		decoded:   decodeForAdapter(reqBytes, encoding, proxy.maxNormalize),
+		encoding:  encoding,
 		reqCtx:    reqCtx,
 		adapter:   adapter,
 		matched:   matched,
 		truncated: reqTruncated,
-	})
+	}
+
+	if !proxy.enforceOutbound(writer, request, outbound) {
+		// enforceOutbound denied the request and recorded the deny event itself;
+		// it never reaches the upstream and no allow event is recorded.
+		return
+	}
+
+	proxy.recordOutbound(request.Context(), outbound)
 
 	// #nosec G704 -- an intercepting proxy forwards to the client's own host.
 	response, err := proxy.client.Do(upstreamReq)
@@ -331,6 +341,9 @@ func (proxy *InterceptProxy) bufferAndForward(
 }
 
 // outboundInput carries the facts needed to build a body-free outbound event.
+// decoded is the Content-Encoding-decompressed view of reqBytes computed once in
+// serveRequest so enforcement and recording inspect identical bytes; it is
+// transient and never stored in any recorded event.
 type outboundInput struct {
 	adapter   Adapter
 	reqCtx    RequestContext
@@ -338,6 +351,7 @@ type outboundInput struct {
 	sessionID string
 	encoding  string
 	reqBytes  []byte
+	decoded   []byte
 	matched   bool
 	truncated bool
 }
@@ -367,9 +381,7 @@ func (proxy *InterceptProxy) recordOutbound(
 		return
 	}
 
-	decoded := decodeForAdapter(input.reqBytes, input.encoding, proxy.maxNormalize)
-
-	norm, err := input.adapter.NormalizeRequest(decoded, input.reqCtx)
+	norm, err := input.adapter.NormalizeRequest(input.decoded, input.reqCtx)
 	if err != nil {
 		event := minimalOutboundEvent(identity, input, true)
 		event.Metadata[metaNormalizationError] = metaValueTrue
@@ -382,7 +394,7 @@ func (proxy *InterceptProxy) recordOutbound(
 	event.Metadata[metaIntercepted] = metaValueTrue
 
 	if event.InputHash == "" {
-		event.InputHash = HashText(string(decoded))
+		event.InputHash = HashText(string(input.decoded))
 	}
 
 	proxy.record(ctx, event)

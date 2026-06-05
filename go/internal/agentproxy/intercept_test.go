@@ -319,6 +319,7 @@ func buildProxy(t *testing.T, config proxyConfig) *agentproxy.InterceptProxy {
 		Recorder:     config.recorder,
 		Registry:     adapter.DefaultRegistry(),
 		Issuer:       config.issuer,
+		Evaluator:    allowEvaluator{},
 		Client:       client,
 		AllowHosts:   config.allow,
 		Provider:     "fixture",

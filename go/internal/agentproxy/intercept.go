@@ -91,6 +91,14 @@ var errInterceptRegistryRequired = apperror.StaticError(
 	"intercept proxy requires an adapter registry",
 )
 
+// errInterceptEvaluatorRequired reports that interception was requested without
+// a proxy policy evaluator. Enforcement is mandatory when interception is
+// enabled, so the proxy fails closed rather than decrypting traffic it cannot
+// adjudicate.
+var errInterceptEvaluatorRequired = apperror.StaticError(
+	"intercept proxy requires a policy evaluator when enabled",
+)
+
 // LeafIssuer mints TLS leaf certificates for on-demand interception. It mirrors
 // the concrete ca.LeafIssuer surface the proxy depends on; defining it here
 // keeps agentproxy free of an import cycle with the ca package and makes the
@@ -107,6 +115,7 @@ type InterceptOptions struct {
 	Recorder     EventRecorder
 	Registry     AdapterRegistry
 	Issuer       LeafIssuer
+	Evaluator    ProxyPolicyEvaluator
 	Now          func() time.Time
 	Client       *http.Client
 	Provider     string
@@ -125,6 +134,7 @@ type InterceptProxy struct {
 	recorder     EventRecorder
 	registry     AdapterRegistry
 	issuer       LeafIssuer
+	evaluator    ProxyPolicyEvaluator
 	now          func() time.Time
 	client       *http.Client
 	allowHosts   map[string]struct{}
@@ -144,6 +154,10 @@ type InterceptProxy struct {
 func NewInterceptProxy(options InterceptOptions) (*InterceptProxy, error) {
 	if options.Enabled && options.Issuer == nil {
 		return nil, errInterceptIssuerRequired
+	}
+
+	if options.Enabled && options.Evaluator == nil {
+		return nil, errInterceptEvaluatorRequired
 	}
 
 	maxNormalize := options.MaxNormalize
@@ -176,6 +190,7 @@ func NewInterceptProxy(options InterceptOptions) (*InterceptProxy, error) {
 		recorder:     options.Recorder,
 		registry:     registry,
 		issuer:       options.Issuer,
+		evaluator:    options.Evaluator,
 		client:       client,
 		allowHosts:   buildAllowHosts(options.AllowHosts),
 		provider:     strings.TrimSpace(options.Provider),
