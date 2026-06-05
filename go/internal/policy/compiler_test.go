@@ -728,6 +728,38 @@ policy:
 	}
 }
 
+func TestCompileRejectsUnknownProxyDirection(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	primaryPath := filepath.Join(dir, "coding_ethos.yml")
+	configPath := filepath.Join(dir, "config.yaml")
+
+	writeTestFile(t, primaryPath, testEthosYAML(t))
+	writeTestFile(t, configPath, testConfigYAML+`
+policy:
+  expressions:
+    - id: proxy.bad_direction
+      scope: proxy
+      proxy_direction: sideways
+      severity: block
+      protected: true
+      principle_ids: [security-by-design]
+      when: proxy.has_dlp_facts
+      message: Outbound provider request carries protected content.
+      advice: Remove the secret before transmitting it.
+`)
+
+	_, _, err := Compile(CompileOptions{
+		Primary: primaryPath,
+		Config:  configPath,
+	})
+	if err == nil ||
+		!strings.Contains(err.Error(), "proxy_direction") {
+		t.Fatalf("compile error = %v, want unknown proxy_direction error", err)
+	}
+}
+
 func TestCompileRejectsExpressionPolicyIDCollisions(t *testing.T) {
 	t.Parallel()
 

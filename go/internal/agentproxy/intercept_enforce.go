@@ -22,6 +22,18 @@ const (
 	metaProxyTraceID = "proxy_trace_id"
 	// metaProxyTrackingID carries the cross-event tracking correlation ID.
 	metaProxyTrackingID = "proxy_tracking_id"
+	// metaProxyEventID joins a deny event back to its originating proxy event.
+	metaProxyEventID = "proxy_event_id"
+	// metaProxySessionID carries the proxy session the denied request belonged to.
+	metaProxySessionID = "proxy_session_id"
+	// metaProxyEventKind carries the structural proxy event kind of the denial.
+	metaProxyEventKind = "proxy_event_kind"
+	// metaProxyProvider carries the upstream provider label of the denial.
+	metaProxyProvider = "proxy_provider"
+	// metaProxyDirection carries the traffic direction of the denied request.
+	metaProxyDirection = "proxy_direction"
+	// metaProxyPayloadKind carries the structural payload kind of the denial.
+	metaProxyPayloadKind = "proxy_payload_kind"
 )
 
 // enforceOutbound runs the proxy policy evaluator against the decoded request
@@ -42,11 +54,18 @@ func (proxy *InterceptProxy) enforceOutbound(
 
 	now := proxy.now().UTC()
 	identity := proxy.identity(outbound.sessionID, outbound.host, now)
-	dlpFacts := ScanRequest(outbound.decoded, "")
+
+	// Outbound provider requests carry no file target today, so targetPath is
+	// empty. The field is still populated and passed through so the path-based
+	// DLP checks and proxy.target_path work uniformly if a future event kind
+	// supplies a file target; content-based detection covers the body in the
+	// meantime.
+	targetPath := outboundTargetPath(outbound)
+	dlpFacts := ScanRequest(outbound.decoded, targetPath)
 
 	decision, err := proxy.evaluator.EvaluateOutbound(
 		request.Context(),
-		outboundDecisionInput(identity, outbound, dlpFacts),
+		outboundDecisionInput(identity, outbound, targetPath, dlpFacts),
 	)
 	if err != nil {
 		proxy.denyOutbound(writer, request, denyOutboundInput{
@@ -76,12 +95,21 @@ func (proxy *InterceptProxy) enforceOutbound(
 	return true
 }
 
+// outboundTargetPath returns the file target an outbound request writes to. A
+// provider-call request has no file target, so this is empty today; the helper
+// exists so the target is derived in one place and the field stays populated for
+// any future event kind that does carry one.
+func outboundTargetPath(_ outboundInput) string {
+	return ""
+}
+
 // outboundDecisionInput builds the body-free decision input from the outbound
 // request facts. Outbound requests carry tool definitions, never tool calls, so
 // ToolCalls is left nil. No raw body is included; payload size is a measurement.
 func outboundDecisionInput(
 	identity EventIdentity,
 	outbound outboundInput,
+	targetPath string,
 	dlpFacts []DLPFact,
 ) ProxyDecisionInput {
 	return ProxyDecisionInput{
@@ -91,6 +119,7 @@ func outboundDecisionInput(
 		PayloadKind: PayloadPrompt,
 		EventID:     identity.ID,
 		SessionID:   identity.SessionID,
+		TargetPath:  targetPath,
 		InputHash:   HashText(string(outbound.decoded)),
 		TokenUsage:  TokenUsage{},
 		Payload:     Measure(outbound.reqBytes),
@@ -146,9 +175,6 @@ func (proxy *InterceptProxy) denyOutbound(
 // writeDenyResponse emits the 403 denial body identifying the policy and reason
 // without echoing any request content.
 func writeDenyResponse(writer http.ResponseWriter, policyID, reason string) {
-	writer.Header().Set(contentTypeHeader, "application/json")
-	writer.WriteHeader(http.StatusForbidden)
-
 	body := map[string]string{
 		"error":     denyResponseError,
 		"policy_id": policyID,
@@ -157,8 +183,15 @@ func writeDenyResponse(writer http.ResponseWriter, policyID, reason string) {
 
 	encoded, err := json.Marshal(body)
 	if err != nil {
+		// Marshal the body before committing the status line so a (rare) marshal
+		// failure cannot leave a sent 403 header with a partial or absent body.
+		writer.WriteHeader(http.StatusInternalServerError)
+
 		return
 	}
+
+	writer.Header().Set(contentTypeHeader, "application/json")
+	writer.WriteHeader(http.StatusForbidden)
 
 	_, writeErr := writer.Write(encoded)
 	discardClientWriteError(writeErr)
@@ -189,23 +222,66 @@ func denyOutboundEvent(input denyOutboundInput) ProviderEvent {
 			SkillID:      input.decision.SkillID,
 			Decision:     interceptDecisionDeny,
 			Reason:       input.reason,
-			EvidenceID:   input.decision.EvidenceID,
+			EvidenceID:   denyEvidenceID(input),
 			PrincipleIDs: append([]string(nil), input.decision.PrincipleIDs...),
 		},
 		DLPFacts: input.dlpFacts,
 	}
 }
 
-// denyEventMetadata assembles the deny event metadata, copying any evaluator
-// SARIF keys and always recording the host, decision, and no-body-retained flag.
+// denyEvidenceID returns the evidence ID correlating a deny event to its
+// request. A policy denial supplies decision.EvidenceID; a fail-closed
+// eval-error denial has a zero decision, so the originating event identity is
+// used instead, keeping every denial joinable in SARIF and code-intel.
+func denyEvidenceID(input denyOutboundInput) string {
+	if input.decision.EvidenceID != "" {
+		return input.decision.EvidenceID
+	}
+
+	return input.identity.ID
+}
+
+// denyEventMetadata assembles the deny event metadata. It copies any evaluator
+// SARIF keys, then unconditionally rebuilds the stable proxy_* correlation keys
+// from the request identity so a fail-closed eval-error denial (whose decision
+// is the zero value and carries no metadata) is just as joinable as a policy
+// denial. The host, decision, and no-body-retained flags are always recorded.
 func denyEventMetadata(input denyOutboundInput) map[string]string {
 	metadata := map[string]string{}
 	maps.Copy(metadata, input.decision.Metadata)
+
+	maps.Copy(metadata, proxyCorrelationMetadata(input.identity))
 
 	metadata[metaIntercepted] = metaValueTrue
 	metadata[metaHost] = input.host
 	metadata[metaDecision] = interceptDecisionDeny
 	metadata[metaPayloadBodyRetained] = metaValueFalse
+
+	return metadata
+}
+
+// proxyCorrelationMetadata builds the stable proxy_* SARIF correlation keys from
+// the request identity. These mirror the keys the policy evaluator attaches on a
+// match, but are derived here so they are present on every denial — including the
+// fail-closed eval-error path where no decision metadata exists. Empty
+// correlation fields are omitted so the metadata stays sparse.
+func proxyCorrelationMetadata(identity EventIdentity) map[string]string {
+	metadata := map[string]string{
+		metaProxyEventID:     identity.ID,
+		metaProxySessionID:   identity.SessionID,
+		metaProxyEventKind:   string(EventProviderCall),
+		metaProxyProvider:    identity.Provider,
+		metaProxyDirection:   string(DirectionOutbound),
+		metaProxyPayloadKind: string(PayloadPrompt),
+	}
+
+	if identity.TraceID != "" {
+		metadata[metaProxyTraceID] = identity.TraceID
+	}
+
+	if identity.TrackingID != "" {
+		metadata[metaProxyTrackingID] = identity.TrackingID
+	}
 
 	return metadata
 }

@@ -42,6 +42,12 @@ const (
 	reasonCredentialFile = "credential_file_basename"
 	// reasonProtectedPath labels a protected secret-area path match.
 	reasonProtectedPath = "protected_path_segment"
+	// reasonCredentialFileContent labels a credential-file path reference found in
+	// the decoded body rather than the request target path.
+	reasonCredentialFileContent = "credential_file_content_path"
+	// reasonProtectedPathContent labels a protected-path reference found in the
+	// decoded body rather than the request target path.
+	reasonProtectedPathContent = "protected_path_content_segment"
 	// reasonNULByte labels a payload containing a NUL byte.
 	reasonNULByte = "nul_byte"
 	// reasonInvalidUTF8 labels a payload that is not valid UTF-8.
@@ -68,6 +74,24 @@ var (
 	patternPEMKey      = regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)
 )
 
+// Content-path detectors fire when the decoded body embeds a path-shaped
+// reference to a protected secret area or a credential file. They are
+// case-insensitive ((?i)) and anchored to a path-token boundary — a string
+// start, whitespace, quote, or slash — so a bare word in prose (".env",
+// "secrets") does not match while a real path token (".../secrets/",
+// ".../id_rsa") does. They are package-level so they compile once at load time;
+// only the match location is retained in a fact, never the matched content.
+var (
+	patternContentProtectedPath = regexp.MustCompile(
+		`(?i)(?:^|[\s"'/])[^\s"']*/(?:\.ssh|\.gnupg|\.aws|\.config/gcloud|secrets)/`,
+	)
+	patternContentCredentialFile = regexp.MustCompile(
+		`(?i)(?:^|[\s"'/])[^\s"']*` +
+			`(?:/(?:\.env(?:\.[\w-]+)?|id_rsa|id_ed25519|id_dsa|credentials|` +
+			`\.npmrc|\.netrc|\.pgpass)|\.pem)(?:\b|$)`,
+	)
+)
+
 // secretDetector pairs a compiled credential-shape pattern with the stable
 // detector label and confidence reported for a match. The label never contains
 // any matched payload content; it identifies only which detector fired.
@@ -86,6 +110,8 @@ func ScanRequest(decoded []byte, targetPath string) []DLPFact {
 	facts = append(facts, scanSecrets(decoded)...)
 	facts = append(facts, scanCredentialFile(targetPath)...)
 	facts = append(facts, scanProtectedPath(targetPath)...)
+	facts = append(facts, scanContentProtectedPath(decoded)...)
+	facts = append(facts, scanContentCredentialFile(decoded)...)
 	facts = append(facts, scanBinary(decoded)...)
 
 	return facts
@@ -109,7 +135,6 @@ func secretDetectorList() []secretDetector {
 // matched substring is used solely to compute a 1-based line and byte column;
 // it is never copied into a fact field.
 func scanSecrets(decoded []byte) []DLPFact {
-	text := string(decoded)
 	detectors := secretDetectorList()
 	facts := make([]DLPFact, 0, len(detectors))
 
@@ -119,7 +144,7 @@ func scanSecrets(decoded []byte) []DLPFact {
 			continue
 		}
 
-		line, column := lineColumn(text, location[0])
+		line, column := lineColumn(decoded, location[0])
 		facts = append(facts, DLPFact{
 			Type:       dlpSecret,
 			Reason:     detector.reason,
@@ -136,7 +161,9 @@ func scanSecrets(decoded []byte) []DLPFact {
 // basename names a known secret file or carries a .pem suffix. Only the
 // basename is retained, never the payload content.
 func scanCredentialFile(targetPath string) []DLPFact {
-	base := filepath.Base(strings.TrimSpace(targetPath))
+	normalized := strings.ReplaceAll(strings.TrimSpace(targetPath), "\\", "/")
+	base := filepath.Base(normalized)
+
 	if base == "." || base == string(filepath.Separator) || base == "" {
 		return nil
 	}
@@ -154,8 +181,11 @@ func scanCredentialFile(targetPath string) []DLPFact {
 }
 
 // isCredentialBasename reports whether base names a known secret file by exact
-// name, dotenv shape, or PEM extension.
+// name, dotenv shape, or PEM extension. Matching is case-insensitive so a
+// Windows-cased or upper-cased basename (e.g. ID_RSA, .PEM) is still detected.
 func isCredentialBasename(base string) bool {
+	lower := strings.ToLower(base)
+
 	names := map[string]struct{}{
 		"id_rsa":      {},
 		"id_ed25519":  {},
@@ -166,13 +196,13 @@ func isCredentialBasename(base string) bool {
 		".pgpass":     {},
 	}
 
-	if _, named := names[base]; named {
+	if _, named := names[lower]; named {
 		return true
 	}
 
-	return base == dotEnvBase ||
-		strings.HasPrefix(base, dotEnvPrefix) ||
-		strings.HasSuffix(base, pemSuffix)
+	return lower == dotEnvBase ||
+		strings.HasPrefix(lower, dotEnvPrefix) ||
+		strings.HasSuffix(lower, pemSuffix)
 }
 
 // scanProtectedPath reports a protected-path fact when the target path contains
@@ -183,19 +213,117 @@ func scanProtectedPath(targetPath string) []DLPFact {
 		return nil
 	}
 
-	segments := []string{".ssh/", ".gnupg/", ".aws/", ".config/gcloud/", "secrets/"}
-	for _, segment := range segments {
-		if strings.Contains(normalized, segment) {
-			return []DLPFact{{
-				Type:       dlpProtectedPath,
-				Path:       filepath.Base(normalized),
-				Reason:     reasonProtectedPath,
-				Confidence: confidenceMedium,
-			}}
+	if !containsProtectedSegment(normalized) {
+		return nil
+	}
+
+	return []DLPFact{{
+		Type:       dlpProtectedPath,
+		Path:       filepath.Base(normalized),
+		Reason:     reasonProtectedPath,
+		Confidence: confidenceMedium,
+	}}
+}
+
+// protectedPathSegments returns the secret-area path segments scanned for in
+// both target paths and decoded content. Each entry is a full slash-bounded
+// segment (".ssh", ".config/gcloud", "secrets") matched at a path boundary. It
+// is a function rather than a package var so it holds no mutable global state.
+func protectedPathSegments() []string {
+	return []string{
+		".ssh",
+		".gnupg",
+		".aws",
+		".config/gcloud",
+		"secrets",
+	}
+}
+
+// containsProtectedSegment reports whether a forward-slash path contains a known
+// protected segment at a path boundary. Matching is case-insensitive and
+// segment-aware: each segment must be preceded by a slash or the string start
+// and followed by a slash, so "mysecrets/" does not match "secrets/" while
+// "Secrets/" and ".SSH/" do.
+func containsProtectedSegment(normalized string) bool {
+	lower := strings.ToLower(normalized)
+	for _, segment := range protectedPathSegments() {
+		if pathContainsSegment(lower, segment) {
+			return true
 		}
 	}
 
-	return nil
+	return false
+}
+
+// pathContainsSegment reports whether lower (already lower-cased, forward-slash)
+// contains segment bounded by slashes or the string start on the left and a
+// slash on the right. Segment is supplied lower-cased without surrounding
+// slashes; a multi-part segment such as ".config/gcloud" is matched verbatim.
+func pathContainsSegment(lower, segment string) bool {
+	for searchFrom := 0; searchFrom < len(lower); {
+		index := strings.Index(lower[searchFrom:], segment)
+		if index < 0 {
+			return false
+		}
+
+		start := searchFrom + index
+		end := start + len(segment)
+		leftBoundary := start == 0 || lower[start-1] == '/'
+		rightBoundary := end < len(lower) && lower[end] == '/'
+
+		if leftBoundary && rightBoundary {
+			return true
+		}
+
+		searchFrom = start + 1
+	}
+
+	return false
+}
+
+// scanContentProtectedPath reports a protected-path fact when the decoded body
+// embeds a path-shaped reference to a known protected secret area. The match
+// index locates a 1-based line and column; the matched text is never retained.
+// This complements scanProtectedPath, which inspects the request target path,
+// so an outbound request that carries a protected path in its body is flagged.
+func scanContentProtectedPath(decoded []byte) []DLPFact {
+	location := patternContentProtectedPath.FindIndex(decoded)
+	if location == nil {
+		return nil
+	}
+
+	line, column := lineColumn(decoded, location[0])
+
+	return []DLPFact{{
+		Type:       dlpProtectedPath,
+		Reason:     reasonProtectedPathContent,
+		Confidence: confidenceMedium,
+		Line:       line,
+		Column:     column,
+	}}
+}
+
+// scanContentCredentialFile reports a credential-file fact when the decoded body
+// embeds a path-shaped reference whose final component names a known credential
+// file (e.g. .env, id_rsa, *.pem). Only the match location is retained, never
+// the matched text. This complements scanCredentialFile, which inspects the
+// request target path, so exfiltrating a credential-file path in the body is
+// flagged even when no file target is present.
+func scanContentCredentialFile(decoded []byte) []DLPFact {
+	location := patternContentCredentialFile.FindIndex(decoded)
+	if location == nil {
+		return nil
+	}
+
+	line, column := lineColumn(decoded, location[0])
+
+	return []DLPFact{{
+		Type:       dlpCredentialFile,
+		Reason:     reasonCredentialFileContent,
+		Confidence: confidenceHigh,
+		Line:       line,
+		Column:     column,
+	}}
 }
 
 // scanBinary reports a binary-payload fact when the payload contains a NUL byte
@@ -223,11 +351,11 @@ func scanBinary(decoded []byte) []DLPFact {
 // lineColumn converts a byte offset into a 1-based line number and 1-based byte
 // column within that line. It inspects only positions, never copying matched
 // content into any returned value.
-func lineColumn(text string, offset int) (int, int) {
-	prefix := text[:offset]
-	line := strings.Count(prefix, "\n") + 1
+func lineColumn(decoded []byte, offset int) (int, int) {
+	prefix := decoded[:offset]
+	line := bytes.Count(prefix, []byte{'\n'}) + 1
 
-	lastNewline := strings.LastIndexByte(prefix, '\n')
+	lastNewline := bytes.LastIndexByte(prefix, '\n')
 	column := offset - lastNewline
 
 	return line, column

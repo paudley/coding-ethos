@@ -14,6 +14,7 @@ package proxypolicy
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
@@ -107,6 +108,13 @@ func New(bundle policy.Bundle) (*Evaluator, error) {
 		})
 	}
 
+	// bundle.Policies is a map, so the selection order above is nondeterministic.
+	// Sort by policy ID so evaluation order — and therefore the first-deny-wins
+	// winning policy — is stable and auditable across runs.
+	sort.Slice(outbound, func(i, j int) bool {
+		return outbound[i].policy.ID < outbound[j].policy.ID
+	})
+
 	return &Evaluator{
 		evaluateCEL: evaluators.EvaluateCELExpression,
 		outbound:    outbound,
@@ -132,6 +140,16 @@ func (evaluator *Evaluator) EvaluateOutbound(
 	proxyInput := toCelProxyInput(input)
 
 	for _, selected := range evaluator.outbound {
+		// Re-check cancellation each iteration so a cancelled request stops
+		// evaluating promptly instead of running every selected policy.
+		loopErr := ctx.Err()
+		if loopErr != nil {
+			return agentproxy.ProxyDecision{}, fmt.Errorf(
+				"proxy policy evaluation canceled: %w",
+				loopErr,
+			)
+		}
+
 		decisions, err := evaluator.evaluateCEL(
 			selected.policy,
 			evaluators.Context{

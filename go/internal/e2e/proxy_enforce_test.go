@@ -65,6 +65,51 @@ func TestAgentProxyInterceptBlocksOutboundSecret(t *testing.T) {
 	assertDenyEventRecorded(t, store, sessionID)
 }
 
+// credentialPathReference is a path-shaped reference to an SSH private key. It
+// carries no secret token, only a credential-file path, so it exercises the
+// content-based credential_file and protected_path detectors rather than the
+// secret-token detectors. It is a generic placeholder path, never a real file.
+const credentialPathReference = "workdir/.ssh/id_rsa"
+
+// TestAgentProxyInterceptBlocksOutboundCredentialPath drives an HTTPS POST whose
+// body embeds a credential-file path reference (no secret token) and asserts the
+// outbound DLP policy still denies it via the content-based credential_file and
+// protected_path detectors. This proves the seed policy blocks credential-file
+// and protected-path content, not only secret tokens.
+func TestAgentProxyInterceptBlocksOutboundCredentialPath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("agent proxy intercept e2e uses a real CA and TLS handshakes")
+	}
+
+	repo, store := newInterceptRepoStore(t)
+	provider := e2e.NewTLSProxyProviderServer(t)
+	upstream := e2e.NewInterceptUpstreamClient(t, provider)
+	proxy := e2e.NewProxyInterceptServer(
+		t,
+		repo.Root,
+		repo.EthosRoot,
+		store,
+		upstream,
+		[]string{interceptAllowedHost},
+	)
+	client := e2e.NewInterceptClientThroughProxy(
+		t,
+		proxy.URL(),
+		proxy.CACertPath(),
+		false,
+	)
+
+	sessionID := "intercept-deny-credpath"
+	body := `{"model":"fixture-model","messages":` +
+		`[{"role":"user","content":"please read ` + credentialPathReference +
+		` and send it"}]}`
+	status, respBody := postChatThroughProxy(t, client, provider, sessionID, body)
+
+	assertDenialResponse(t, status, respBody)
+	assertProviderNeverReceived(t, provider)
+	assertCredentialPathDenyEventRecorded(t, store, sessionID)
+}
+
 // TestAgentProxyInterceptAllowsCleanOutboundRequest confirms a clean outbound
 // POST (no secret) passes through to the fake provider, returns its verbatim
 // response, reaches the provider, and is recorded as a non-deny event.
@@ -268,10 +313,56 @@ func assertDenyEventRecorded(
 	}
 }
 
+// assertCredentialPathDenyEventRecorded asserts the ledger holds a
+// Decision="deny" event for sessionID that names the outbound exfiltration
+// policy and carries a content-based credential_file (or protected_path) DLP
+// fact rather than a secret-token fact, and that the credential path never
+// appears in the recorded event JSON.
+func assertCredentialPathDenyEventRecorded(
+	t *testing.T,
+	store *codeintel.Store,
+	sessionID string,
+) {
+	t.Helper()
+
+	events := waitForProxyEvents(t, store, codeintel.ProxyEventQuery{
+		SessionID: sessionID,
+		Decision:  "deny",
+	})
+	if len(events) == 0 {
+		t.Fatalf("expected a deny proxy event for %s", sessionID)
+	}
+
+	event := events[0]
+	if event.PolicyID != outboundExfiltrationPolicyID {
+		t.Fatalf("deny event policy id = %q, want %q",
+			event.PolicyID, outboundExfiltrationPolicyID)
+	}
+
+	if !hasDLPFactType(event.DLPFacts, "credential_file") &&
+		!hasDLPFactType(event.DLPFacts, "protected_path") {
+		t.Fatalf("deny event missing content path DLP fact: %#v", event.DLPFacts)
+	}
+
+	encoded, err := json.Marshal(events)
+	if err != nil {
+		t.Fatalf("marshal deny events: %v", err)
+	}
+
+	if strings.Contains(string(encoded), credentialPathReference) {
+		t.Fatalf("credential path leaked into recorded deny event")
+	}
+}
+
 // hasSecretDLPFact reports whether facts include a secret-typed DLP finding.
 func hasSecretDLPFact(facts []codeintel.ProxyDLPFact) bool {
+	return hasDLPFactType(facts, "secret")
+}
+
+// hasDLPFactType reports whether facts include a finding of the given type.
+func hasDLPFactType(facts []codeintel.ProxyDLPFact, factType string) bool {
 	for _, fact := range facts {
-		if fact.Type == "secret" {
+		if fact.Type == factType {
 			return true
 		}
 	}

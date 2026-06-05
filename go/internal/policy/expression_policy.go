@@ -334,7 +334,7 @@ func compileExpressionPolicyParts(
 		return expressionPolicyParts{}, expressionPolicyGovernance{}, false, err
 	}
 
-	return expressionPolicyPartsFromContent(
+	parts, err := expressionPolicyPartsFromContent(
 		expression,
 		config,
 		governance,
@@ -342,7 +342,12 @@ func compileExpressionPolicyParts(
 		sourcePathPrefix,
 		index,
 		content,
-	), governance, true, nil
+	)
+	if err != nil {
+		return expressionPolicyParts{}, expressionPolicyGovernance{}, false, err
+	}
+
+	return parts, governance, true, nil
 }
 
 func expressionPolicyPrelude(
@@ -475,13 +480,21 @@ func expressionPolicyPartsFromContent(
 	sourcePathPrefix string,
 	index int,
 	content expressionPolicyContentFields,
-) expressionPolicyParts {
+) (expressionPolicyParts, error) {
 	scope := stringOptionFromMap(expression, "scope", "command")
 	severity := stringOptionFromMap(expression, "severity", "block")
 	mode := stringOptionFromMap(expression, "mode", severity)
-	proxyDirection := normalizeProxyDirection(
+
+	proxyDirection, err := normalizeProxyDirection(
 		stringOptionFromMap(expression, proxyDirectionOption, proxyDirectionDefault),
+		sourceFile,
+		sourcePathPrefix,
+		index,
 	)
+	if err != nil {
+		return expressionPolicyParts{}, err
+	}
+
 	dispatchScopes := stringSliceValue(
 		firstPresentValue(expression, "lint_scopes", "dispatch_scopes"),
 		defaultExpressionDispatchScopes(scope),
@@ -514,7 +527,7 @@ func expressionPolicyPartsFromContent(
 		dispatchScopes:  dispatchScopes,
 		hookEvents:      hookEvents,
 		pathPatterns:    pathPatterns,
-	}
+	}, nil
 }
 
 type expressionPolicyParts struct {
@@ -624,15 +637,50 @@ func expressionEvaluatorOptions(parts expressionPolicyParts) map[string]any {
 	return options
 }
 
-func normalizeProxyDirection(direction string) string {
+func normalizeProxyDirection(
+	direction string,
+	sourceFile string,
+	sourcePathPrefix string,
+	index int,
+) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(direction)) {
+	case "":
+		return proxyDirectionDefault, nil
 	case proxyDirectionInbound:
-		return proxyDirectionInbound
+		return proxyDirectionInbound, nil
 	case proxyDirectionOutbound:
-		return proxyDirectionOutbound
+		return proxyDirectionOutbound, nil
+	case proxyDirectionDefault:
+		return proxyDirectionDefault, nil
 	default:
-		return proxyDirectionDefault
+		return "", invalidProxyDirection(
+			sourceFile,
+			sourcePathPrefix,
+			index,
+			direction,
+		)
 	}
+}
+
+// invalidProxyDirection reports a proxy_direction option set to an unknown
+// non-empty value. Only empty defaults to both; an unrecognized value is a
+// config typo that must fail the bundle compile rather than be silently coerced.
+func invalidProxyDirection(
+	sourceFile string,
+	sourcePathPrefix string,
+	index int,
+	direction string,
+) error {
+	return apperror.Wrapf(
+		apperror.StaticError(
+			"%s %s[%d].proxy_direction %q is not one of inbound, outbound, both",
+		),
+		"%s %s[%d].proxy_direction %q is not one of inbound, outbound, both",
+		sourceFile,
+		sourcePathPrefix,
+		index,
+		direction,
+	)
 }
 
 func expressionMapOption(

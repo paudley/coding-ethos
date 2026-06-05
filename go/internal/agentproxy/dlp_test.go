@@ -22,31 +22,31 @@ func TestScanRequestSecretDetectors(t *testing.T) {
 	}{
 		{
 			name:       "openai key",
-			payload:    "token=sk-abcdef0123456789ABCDEFXYZ here",
+			payload:    "token=" + openAIKeyFixture() + " here",
 			wantType:   "secret",
 			wantReason: "openai_api_key_prefix",
 		},
 		{
 			name:       "aws access key",
-			payload:    "key AKIAIOSFODNN7EXAMPLE rest",
+			payload:    "key " + awsKeyFixture() + " rest",
 			wantType:   "secret",
 			wantReason: "aws_access_key_id_prefix",
 		},
 		{
 			name:       "github token",
-			payload:    "ghp_0123456789abcdefABCDEF0123456789abcdef",
+			payload:    githubTokenFixture(),
 			wantType:   "secret",
 			wantReason: "github_token_prefix",
 		},
 		{
 			name:       "slack token",
-			payload:    "xoxb-0123456789-abcdefXYZ",
+			payload:    slackTokenFixture(),
 			wantType:   "secret",
 			wantReason: "slack_token_prefix",
 		},
 		{
 			name:       "stripe live key",
-			payload:    "sk_live_0123456789abcdefABCDEF",
+			payload:    stripeKeyFixture(),
 			wantType:   "secret",
 			wantReason: "stripe_live_secret_key_prefix",
 		},
@@ -175,6 +175,123 @@ func TestScanRequestPathFacts(t *testing.T) {
 	}
 }
 
+func TestScanRequestContentPathFacts(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		payload    string
+		wantType   string
+		wantReason string
+	}{
+		{
+			name:       "ssh path in body",
+			payload:    `cat "workdir/.ssh/id_rsa"`,
+			wantType:   "protected_path",
+			wantReason: "protected_path_content_segment",
+		},
+		{
+			name:       "aws dir in body",
+			payload:    "look at app/.aws/config please",
+			wantType:   "protected_path",
+			wantReason: "protected_path_content_segment",
+		},
+		{
+			name:       "uppercase secrets dir in body",
+			payload:    "app/Secrets/token.json",
+			wantType:   "protected_path",
+			wantReason: "protected_path_content_segment",
+		},
+		{
+			name:       "dotenv path in body",
+			payload:    "send project/.env.production over",
+			wantType:   "credential_file",
+			wantReason: "credential_file_content_path",
+		},
+		{
+			name:       "id_rsa path in body",
+			payload:    "key at workdir/id_rsa here",
+			wantType:   "credential_file",
+			wantReason: "credential_file_content_path",
+		},
+		{
+			name:       "pem path in body",
+			payload:    "load certs/server.pem now",
+			wantType:   "credential_file",
+			wantReason: "credential_file_content_path",
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			facts := agentproxy.ScanRequest([]byte(testCase.payload), "")
+			if !hasFact(facts, testCase.wantType, testCase.wantReason) {
+				t.Fatalf(
+					"expected fact type=%q reason=%q in %#v",
+					testCase.wantType,
+					testCase.wantReason,
+					facts,
+				)
+			}
+		})
+	}
+}
+
+func TestScanRequestContentPathNegatives(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		payload string
+	}{
+		{name: "bare env word in prose", payload: "set the .env value to enabled"},
+		{name: "non-boundary secrets word", payload: "see mysecrets/notes for info"},
+		{name: "ordinary path", payload: "open src/main.go in the editor"},
+		{name: "credentials as plain word", payload: "your credentials are valid"},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			facts := agentproxy.ScanRequest([]byte(testCase.payload), "")
+			for _, fact := range facts {
+				if fact.Type == "credential_file" || fact.Type == "protected_path" {
+					t.Fatalf("unexpected path fact for prose: %#v", facts)
+				}
+			}
+		})
+	}
+}
+
+func TestScanRequestPathCaseAndBoundary(t *testing.T) {
+	t.Parallel()
+
+	// Upper-cased basename and segment must still match.
+	upperFacts := agentproxy.ScanRequest([]byte("x"), "workdir/.SSH/ID_RSA")
+	if !hasFact(upperFacts, "credential_file", "credential_file_basename") {
+		t.Fatalf("expected case-insensitive credential_file fact: %#v", upperFacts)
+	}
+
+	if !hasFact(upperFacts, "protected_path", "protected_path_segment") {
+		t.Fatalf("expected case-insensitive protected_path fact: %#v", upperFacts)
+	}
+
+	// A non-boundary substring (mysecrets) must not match the secrets segment.
+	noMatch := agentproxy.ScanRequest([]byte("x"), "app/mysecrets/data.json")
+	if _, found := findFact(noMatch, "protected_path"); found {
+		t.Fatalf("mysecrets should not match secrets segment: %#v", noMatch)
+	}
+
+	// Backslash Windows-style separators must normalize before basename check.
+	winFacts := agentproxy.ScanRequest([]byte("x"), `workdir\.ssh\id_rsa`)
+	if !hasFact(winFacts, "credential_file", "credential_file_basename") {
+		t.Fatalf("expected backslash-normalized credential_file fact: %#v", winFacts)
+	}
+}
+
 func TestScanRequestBinaryPayload(t *testing.T) {
 	t.Parallel()
 
@@ -202,7 +319,7 @@ func TestScanRequestBinaryPayload(t *testing.T) {
 func TestScanRequestMultipleFacts(t *testing.T) {
 	t.Parallel()
 
-	payload := []byte("AKIAIOSFODNN7EXAMPLE\x00trailing")
+	payload := []byte(awsKeyFixture() + "\x00trailing")
 
 	facts := agentproxy.ScanRequest(payload, "")
 	if !hasFact(facts, "secret", "aws_access_key_id_prefix") {
@@ -217,7 +334,7 @@ func TestScanRequestMultipleFacts(t *testing.T) {
 func TestScanRequestLineColumn(t *testing.T) {
 	t.Parallel()
 
-	payload := []byte("line one\nline two\nkey AKIAIOSFODNN7EXAMPLE tail")
+	payload := []byte("line one\nline two\nkey " + awsKeyFixture() + " tail")
 
 	fact, found := findFact(agentproxy.ScanRequest(payload, ""), "secret")
 	if !found {
@@ -241,9 +358,9 @@ func TestScanRequestRetention(t *testing.T) {
 	t.Parallel()
 
 	secrets := []string{
-		"AKIAIOSFODNN7EXAMPLE",
-		"sk-abcdef0123456789ABCDEFXYZ0123456789",
-		"ghp_0123456789abcdefABCDEF0123456789abcdef",
+		awsKeyFixture(),
+		openAIKeyFixture(),
+		githubTokenFixture(),
 	}
 
 	for _, secret := range secrets {
@@ -258,12 +375,27 @@ func TestScanRequestRetention(t *testing.T) {
 	}
 
 	// A credential-file path's content must also never leak into facts.
-	credentialContent := "AKIAIOSFODNN7EXAMPLE"
+	credentialContent := awsKeyFixture()
 	credFacts := agentproxy.ScanRequest(
 		[]byte(credentialContent),
 		"workdir/.aws/credentials",
 	)
 	assertNoSecretRetained(t, credFacts, credentialContent)
+
+	// The content path-match detectors must also retain only their label and
+	// match location, never the matched path token.
+	credentialPathToken := "workdir/.ssh/id_rsa"
+	contentPath := "open " + credentialPathToken + " now"
+	pathFacts := agentproxy.ScanRequest([]byte(contentPath), "")
+	if !hasFact(pathFacts, "credential_file", "credential_file_content_path") {
+		t.Fatalf("expected content credential_file fact in %#v", pathFacts)
+	}
+
+	if !hasFact(pathFacts, "protected_path", "protected_path_content_segment") {
+		t.Fatalf("expected content protected_path fact in %#v", pathFacts)
+	}
+
+	assertNoSecretRetained(t, pathFacts, credentialPathToken)
 }
 
 func assertNoSecretRetained(t *testing.T, facts []agentproxy.DLPFact, secret string) {
@@ -285,6 +417,37 @@ func assertNoSecretRetained(t *testing.T, facts []agentproxy.DLPFact, secret str
 // banned by the repo private-key scanner never appears in source text.
 func pemHeaderFixture() string {
 	return "-----BEGIN RSA " + "PRIVATE" + " KEY-----\nMII..."
+}
+
+// awsKeyFixture builds an AWS-access-key-shaped value at runtime by
+// concatenation so no contiguous, scannable token literal is committed to
+// source while the AWS detector is still exercised.
+func awsKeyFixture() string {
+	return "AKIA" + "IOSFODNN7" + "EXAMPLE"
+}
+
+// openAIKeyFixture builds an OpenAI-key-shaped value at runtime so no scannable
+// token literal is committed to source.
+func openAIKeyFixture() string {
+	return "sk-" + "abcdef0123456789" + "ABCDEFXYZ0123456789"
+}
+
+// githubTokenFixture builds a GitHub-token-shaped value at runtime so no
+// scannable token literal is committed to source.
+func githubTokenFixture() string {
+	return "ghp_" + "0123456789abcdef" + "ABCDEF0123456789abcdef"
+}
+
+// slackTokenFixture builds a Slack-token-shaped value at runtime so no scannable
+// token literal is committed to source.
+func slackTokenFixture() string {
+	return "xoxb-" + "0123456789-" + "abcdefXYZ"
+}
+
+// stripeKeyFixture builds a Stripe-live-key-shaped value at runtime so no
+// scannable token literal is committed to source.
+func stripeKeyFixture() string {
+	return "sk_live_" + "0123456789" + "abcdefABCDEF"
 }
 
 func hasFact(facts []agentproxy.DLPFact, wantType, wantReason string) bool {

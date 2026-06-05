@@ -220,6 +220,70 @@ func TestNewSkipsNonProxyAndInboundPolicies(t *testing.T) {
 	}
 }
 
+func TestEvaluateOutboundDenyOrderIsDeterministic(t *testing.T) {
+	t.Parallel()
+
+	// Two policies both match a secret-bearing request. The lowest-sorted policy
+	// ID must win every run regardless of the bundle map's iteration order.
+	first := outboundExfiltrationPolicy(outboundExfiltrationWhen)
+	first.ID = "proxy.aaa_first"
+
+	second := outboundExfiltrationPolicy(outboundExfiltrationWhen)
+	second.ID = "proxy.zzz_second"
+
+	for range 20 {
+		evaluator, err := proxypolicy.New(policy.Bundle{
+			Policies: map[string]policy.Policy{
+				first.ID:  first,
+				second.ID: second,
+			},
+		})
+		if err != nil {
+			t.Fatalf("new evaluator: %v", err)
+		}
+
+		decision, err := evaluator.EvaluateOutbound(
+			context.Background(),
+			agentproxy.ProxyDecisionInput{
+				Direction: agentproxy.DirectionOutbound,
+				Kind:      agentproxy.EventProviderCall,
+				EventID:   "event-order",
+				DLPFacts:  []agentproxy.DLPFact{{Type: "secret"}},
+			},
+		)
+		if err != nil {
+			t.Fatalf("evaluate outbound: %v", err)
+		}
+
+		if decision.PolicyID != "proxy.aaa_first" {
+			t.Fatalf("nondeterministic winning policy id = %q", decision.PolicyID)
+		}
+	}
+}
+
+func TestEvaluateOutboundStopsOnCanceledContext(t *testing.T) {
+	t.Parallel()
+
+	evaluator, err := proxypolicy.New(bundleWith(
+		outboundExfiltrationPolicy(outboundExfiltrationWhen),
+	))
+	if err != nil {
+		t.Fatalf("new evaluator: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err = evaluator.EvaluateOutbound(ctx, agentproxy.ProxyDecisionInput{
+		Direction: agentproxy.DirectionOutbound,
+		EventID:   "event-cancel",
+		DLPFacts:  []agentproxy.DLPFact{{Type: "secret"}},
+	})
+	if err == nil {
+		t.Fatal("expected canceled context to abort evaluation")
+	}
+}
+
 func TestNewFailsFastOnEmptyWhen(t *testing.T) {
 	t.Parallel()
 
