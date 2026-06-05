@@ -15,9 +15,9 @@ func TestDetectDirectoryListingInvocation(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		argv      []string
 		tool      string
 		path      string
+		argv      []string
 		depth     int
 		recursive bool
 		ok        bool

@@ -711,8 +711,11 @@ func addRepoConfigOnlyShape(reference map[string]any) {
 			"tail_tokens":     0,
 		},
 		"interception": map[string]any{
-			"mode":        "",
-			"ca_approval": "",
+			"mode":                "",
+			"ca_approval":         "",
+			"allow_hosts":         []any{},
+			"max_normalize_bytes": 0,
+			"on_error":            "",
 		},
 	}
 }

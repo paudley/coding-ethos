@@ -304,7 +304,11 @@ func TestValidateRepoConfigSectionsAllowsProxyInterception(t *testing.T) {
 			"proxy:\n"+
 				"  interception:\n"+
 				"    mode: required\n"+
-				"    ca_approval: abc123\n",
+				"    ca_approval: abc123\n"+
+				"    allow_hosts:\n"+
+				"      - api.anthropic.com\n"+
+				"    max_normalize_bytes: 1048576\n"+
+				"    on_error: fail_closed\n",
 		),
 		0o600,
 	)

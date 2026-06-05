@@ -16,6 +16,15 @@ import (
 
 const sourceRootCapacityMultiplier = 2
 
+// proxyInterceptionDefaultMaxNormalizeBytes bounds how many bytes of an
+// intercepted payload are buffered for structural normalization when the repo
+// config does not set an explicit limit.
+const proxyInterceptionDefaultMaxNormalizeBytes int64 = 8 * 1024 * 1024
+
+// proxyInterceptionDefaultOnError is the fail-closed error policy applied when
+// the repo config does not specify proxy.interception.on_error.
+const proxyInterceptionDefaultOnError = "fail_closed"
+
 type RuntimeConfig struct {
 	Merged       map[string]any
 	EthosRoot    string
@@ -130,12 +139,63 @@ func (config RuntimeConfig) ProxyInterceptionCAApproval() string {
 	return proxyInterceptionString(config.Merged, "ca_approval")
 }
 
+// ProxyInterceptionAllowHosts returns the trimmed, lowercased host allow list
+// that gates which CONNECT targets the interception proxy decrypts, or nil when
+// none is configured.
+func (config RuntimeConfig) ProxyInterceptionAllowHosts() []string {
+	section := proxyInterceptionSection(config.Merged)
+	hosts := configdata.StringList(section["allow_hosts"])
+
+	normalized := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		text := strings.ToLower(strings.TrimSpace(host))
+		if text != "" {
+			normalized = append(normalized, text)
+		}
+	}
+
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	return normalized
+}
+
+// ProxyInterceptionMaxNormalizeBytes returns the configured byte bound for
+// structural payload normalization, defaulting to 8 MiB when unset or
+// non-positive.
+func (config RuntimeConfig) ProxyInterceptionMaxNormalizeBytes() int64 {
+	section := proxyInterceptionSection(config.Merged)
+
+	configured := int64(configdata.IntAt(section, "max_normalize_bytes"))
+	if configured <= 0 {
+		return proxyInterceptionDefaultMaxNormalizeBytes
+	}
+
+	return configured
+}
+
+// ProxyInterceptionOnError returns the configured on-error policy for the
+// interception proxy, defaulting to "fail_closed" when unset.
+func (config RuntimeConfig) ProxyInterceptionOnError() string {
+	section := proxyInterceptionSection(config.Merged)
+
+	onError := configdata.StringAt(section, "on_error")
+	if onError == "" {
+		return proxyInterceptionDefaultOnError
+	}
+
+	return onError
+}
+
 func proxyInterceptionString(config map[string]any, key string) string {
-	section := configdata.MapValue(
+	return configdata.StringAt(proxyInterceptionSection(config), key)
+}
+
+func proxyInterceptionSection(config map[string]any) map[string]any {
+	return configdata.MapValue(
 		configdata.GetPath(config, "proxy.interception", map[string]any{}),
 	)
-
-	return configdata.StringAt(section, key)
 }
 
 func parentRoots(values []string) []string {

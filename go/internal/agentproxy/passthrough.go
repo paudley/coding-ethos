@@ -355,7 +355,7 @@ func safeRouteError(routeErr error) string {
 		return urlErr.Op
 	}
 
-	return "proxy_route_failed"
+	return routeFailedErrorClass
 }
 
 func copyHeaders(target, source http.Header) {

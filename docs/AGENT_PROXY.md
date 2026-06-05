@@ -156,6 +156,53 @@ Leaf-certificate minting, the CONNECT TLS-MITM interception proxy, and the
 sandbox trust-store binding that consume this CA are tracked separately and ship
 behind this default-off gate.
 
+## Interception Proxy
+
+`coding-ethos-run agent-proxy intercept` runs the CONNECT TLS-MITM interception
+proxy that consumes the opt-in CA above. It is default-off and only runs behind
+the same interception gate; it is never a hidden fallback. Agents reach it by
+pointing `HTTPS_PROXY` at the proxy, which terminates each `CONNECT` tunnel.
+
+For every intercepted host the proxy mints a per-SNI leaf certificate from the
+local CA, so the agent's TLS client sees a certificate it can validate against
+the CA it was given. Minting is keyed on the ClientHello SNI (falling back to the
+CONNECT host when SNI is absent), and leaves are cached in memory only.
+
+Interception is allow-list scoped. Only hosts in
+`proxy.interception.allow_hosts` are decrypted; every other host is
+blind-tunneled byte-for-byte without decryption, so unlisted destinations keep
+end-to-end TLS the proxy never reads. Blind tunnels still record a body-free
+event marked `intercepted=false` so the decision is visible.
+
+Decrypted traffic is forwarded verbatim. The proxy does not mutate the method,
+request URI, headers (minus hop-by-hop), status, or body; outbound enforcement
+mutation is the separate concern tracked under #224. HTTP/2 and HTTP/1.1 are both
+preserved: the per-CONNECT `ServeTLS` auto-negotiates the protocol over ALPN, so
+the proxy never forces a downgrade. Server-Sent Events (`text/event-stream`)
+responses stream through unbuffered and are recorded `streaming_not_normalized`
+rather than reconstructed.
+
+Structural normalization is bounded. The proxy buffers at most
+`proxy.interception.max_normalize_bytes` for adapter normalization; a payload
+that exceeds the bound is still forwarded in full but is recorded with a
+`large_payload` DLP marker instead of parsed facts. Recorded evidence stays
+body-free: counts, hashes, measurements, and structural facts only, never raw
+prompt or response bodies and never auth headers.
+
+CA trust is scoped to the sandboxed child only. The interception CA certificate
+is bound into the child via a `ReadPaths` bind plus the
+`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS` environment
+variables, so OpenSSL-, Python-requests-, and Node-based agents trust the minted
+leaves. The host trust store is never modified.
+
+When interception cannot run for an allow-listed host (for example a leaf cannot
+be minted), `proxy.interception.on_error` decides the outcome: `fail_closed`
+refuses the traffic, while `passthrough` falls back to a blind tunnel recorded
+with an `intercept_unavailable` reason. The relevant config keys are
+`proxy.interception.mode`, `proxy.interception.ca_approval`,
+`proxy.interception.allow_hosts`, `proxy.interception.max_normalize_bytes`, and
+`proxy.interception.on_error`.
+
 ## Code-Intel Ledger
 
 The repo-local code-intel database stores proxy sessions, events, transforms,
