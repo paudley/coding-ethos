@@ -725,6 +725,16 @@ used by hooks.
   - [x] Add proxy event correlation, DLP facts, policy evidence, payload kind,
     direction, cache key, and transform metadata to the code-intel ledger.
   - [x] Add proxy result properties and ingestion fields for SARIF.
+  - [x] Enforce outbound DLP via principle-owned `scope: proxy` CEL policies on
+    intercepted provider requests: scan body-free DLP facts, evaluate the seed
+    `proxy.outbound_exfiltration` policy, deny exfiltrating requests with a 403
+    coding-ethos body before they reach the provider, and record a
+    `Decision="deny"` proxy event with the policy id, DLP facts, and `proxy_*`
+    SARIF metadata. Enforcement is non-optional and fail-closed; the secret
+    value is never retained. E2E coverage in `go/internal/e2e` proves the block,
+    the not-received provider, the deny ledger event, and retention. (#224)
+  - [ ] Add inbound tool-call enforcement and a proxy-denial MCP tool so denials
+    are explainable through the MCP policy tools. (#235)
   - [ ] Add first-class proxy trace files and trace ingestion for proxy
     decisions and transformations.
 - [x] Add an Agent Proxy E2E harness with fake provider endpoints and real

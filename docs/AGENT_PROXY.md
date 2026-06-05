@@ -182,9 +182,10 @@ blind-tunneled byte-for-byte without decryption, so unlisted destinations keep
 end-to-end TLS the proxy never reads. Blind tunnels still record a body-free
 event marked `intercepted=false` so the decision is visible.
 
-Decrypted traffic is forwarded verbatim. The proxy does not mutate the method,
-request URI, headers (minus hop-by-hop), status, or body; outbound enforcement
-mutation is the separate concern tracked under #224. HTTP/2 and HTTP/1.1 are both
+Decrypted traffic is forwarded verbatim when it is allowed. The proxy does not
+mutate the method, request URI, headers (minus hop-by-hop), status, or body; the
+only outbound intervention is a fail-closed deny that replaces an exfiltrating
+request with a 403 (see Outbound Enforcement below). HTTP/2 and HTTP/1.1 are both
 preserved: the per-CONNECT `ServeTLS` auto-negotiates the protocol over ALPN, so
 the proxy never forces a downgrade. Server-Sent Events (`text/event-stream`)
 responses stream through unbuffered with live flushing while a bounded copy is
@@ -214,6 +215,39 @@ with an `intercept_unavailable` reason. The relevant config keys are
 `proxy.interception.mode`, `proxy.interception.ca_approval`,
 `proxy.interception.allow_hosts`, `proxy.interception.max_normalize_bytes`, and
 `proxy.interception.on_error`.
+
+## Outbound Enforcement
+
+When interception is enabled, every decrypted outbound request is scanned for
+deterministic DLP facts before it can reach the provider. The scanner reports
+only body-free, detector-labeled facts: secret shapes (AWS, OpenAI, GitHub,
+Slack, Stripe, PEM private-key headers), credential filenames (`.env`, `id_rsa`,
+`credentials`, `.netrc`, `*.pem`, …), protected paths (`.ssh/`, `.aws/`,
+`secrets/`, …), and binary payloads. These facts plus the request's structural
+metadata are evaluated by the principle-owned `scope: proxy` CEL policies
+compiled from `coding_ethos.yml`. The seed policy `proxy.outbound_exfiltration`
+denies any outbound request whose DLP facts include a `secret`,
+`credential_file`, or `protected_path` finding.
+
+A denial returns HTTP 403 with an explicit coding-ethos body
+(`{"error":"coding-ethos policy denial","policy_id":…,"reason":…}`) and is
+recorded as a single `Decision="deny"` proxy event carrying the matched policy
+id, the detector-labeled DLP facts, and the `proxy_*` SARIF metadata keys. The
+denied request never reaches the provider.
+
+This enforcement is **non-optional**: there is no toggle. Once interception is
+enabled the evaluator is required, and `NewInterceptProxy` refuses to start
+without one. It is **fail-closed**: an evaluator error denies the request rather
+than letting it through (recorded with a `proxy_eval_error` reason). DLP facts
+retain only the detector label, confidence, and match location — never the secret
+value or any payload content — so a denial is fully auditable without retaining
+what triggered it.
+
+Local hooks remain authoritative for local tool use. Proxy `scope: proxy`
+policies run only against proxied provider traffic; they never run on local tool
+invocations, and local-tool policies never run on proxy events. Inbound
+tool-call enforcement and the proxy-denial MCP tool are tracked in the follow-up
+(#235).
 
 ## Code-Intel Ledger
 

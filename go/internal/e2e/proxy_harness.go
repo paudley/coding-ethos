@@ -10,16 +10,21 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/agentproxy/adapter"
 	"blackcat.ca/coding-ethos/go/internal/agentproxy/ca"
+	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/proxypolicy"
 )
 
 const fixtureProviderOutputTokens = 3
@@ -153,7 +158,9 @@ func sendProviderRequest(
 // handshake against a trusted certificate without billed, nondeterministic
 // upstream calls. See KNOWN_DEFECTS.md, "Agent Proxy TLS Fixture Provider".
 type TLSProxyProviderServer struct {
-	server *httptest.Server
+	server   *httptest.Server
+	received []string
+	mu       sync.Mutex
 }
 
 // NewTLSProxyProviderServer starts a TLS fake provider that serves a canned chat
@@ -193,13 +200,50 @@ func (provider *TLSProxyProviderServer) Certificate() *x509.Certificate {
 	return provider.server.Certificate()
 }
 
+// ReceivedCount returns how many requests the TLS fake actually answered. A
+// blocked outbound request must never reach the fake, so a denial test asserts
+// this stays zero for the denied session.
+func (provider *TLSProxyProviderServer) ReceivedCount() int {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+
+	return len(provider.received)
+}
+
+// ReceivedHashes returns the body hashes of every request the TLS fake received.
+// Only hashes are retained, never raw bodies, so an enforcement test can assert
+// the secret payload never reached the provider without recording the secret.
+func (provider *TLSProxyProviderServer) ReceivedHashes() []string {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+
+	return append([]string(nil), provider.received...)
+}
+
+// recordReceived stores a body-hash record of a request the fake answered. It
+// hashes the body so the recorder never retains a secret the driving test sent,
+// mirroring the proxy's own body-free retention discipline.
+func (provider *TLSProxyProviderServer) recordReceived(body []byte) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+
+	provider.received = append(provider.received, agentproxy.HashText(string(body)))
+}
+
 // handle answers chat completions with canned JSON and the stream path with SSE.
-// Every other path returns 404 so an unexpected route fails loudly.
+// Every other path returns 404 so an unexpected route fails loudly. Each handled
+// request's body hash is recorded so a test can prove which requests reached the
+// fake provider without retaining any request content.
 func (provider *TLSProxyProviderServer) handle(
 	writer http.ResponseWriter,
 	request *http.Request,
 ) {
+	body, readErr := io.ReadAll(request.Body)
+	discardFixtureIOError(readErr)
+
 	defer func() { _ = request.Body.Close() }()
+
+	provider.recordReceived(body)
 
 	switch request.URL.Path {
 	case tlsFixtureChatPath:
@@ -219,13 +263,14 @@ func writeFixtureBody(writer http.ResponseWriter, contentType, body string) {
 	writer.WriteHeader(http.StatusOK)
 
 	_, writeErr := writer.Write([]byte(body))
-	discardFixtureWriteError(writeErr)
+	discardFixtureIOError(writeErr)
 }
 
-// discardFixtureWriteError intentionally consumes a best-effort write to the
-// intercepted client so errcheck is satisfied without masking an actionable
-// fault: the fake provider has no recovery path once the client disconnects.
-func discardFixtureWriteError(_ error) {}
+// discardFixtureIOError intentionally consumes a best-effort read or write
+// against the intercepted client so errcheck is satisfied without masking an
+// actionable fault: the fake provider has no recovery path once the client
+// disconnects mid-handshake or mid-body.
+func discardFixtureIOError(_ error) {}
 
 // ProxyInterceptServer wraps a CONNECT TLS-MITM interception proxy over a real
 // local CA. The proxy itself speaks plain HTTP for CONNECT; minted leaves chain
@@ -243,6 +288,7 @@ type ProxyInterceptServer struct {
 func NewProxyInterceptServer(
 	t *testing.T,
 	repoRoot string,
+	ethosRoot string,
 	store agentproxy.EventRecorder,
 	upstreamClient *http.Client,
 	allowHosts []string,
@@ -271,6 +317,7 @@ func NewProxyInterceptServer(
 		Issuer:     issuer,
 		Now:        time.Now,
 		Client:     upstreamClient,
+		Evaluator:  newInterceptEvaluator(t, ethosRoot),
 		RepoRoot:   repoRoot,
 		AllowHosts: allowHosts,
 		Enabled:    true,
@@ -286,6 +333,36 @@ func NewProxyInterceptServer(
 	t.Cleanup(server.server.Close)
 
 	return server
+}
+
+// newInterceptEvaluator compiles the canonical coding_ethos.yml + config.yaml
+// bundle under ethosRoot and builds the proxy policy evaluator from it. The
+// compiled bundle (unlike policy.ExampleBundle) carries the seed policy
+// proxy.outbound_exfiltration, so the interception proxy enforces real outbound
+// DLP denials. Construction failures fail the test rather than silently
+// disabling enforcement.
+func newInterceptEvaluator(
+	t *testing.T,
+	ethosRoot string,
+) agentproxy.ProxyPolicyEvaluator {
+	t.Helper()
+
+	bundle, _, err := policy.Compile(policy.CompileOptions{
+		Primary:     filepath.Join(ethosRoot, "coding_ethos.yml"),
+		Config:      filepath.Join(ethosRoot, "config.yaml"),
+		BundleID:    "intercept-e2e-bundle",
+		GeneratedAt: "2026-01-01T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("compile intercept policy bundle: %v", err)
+	}
+
+	evaluator, err := proxypolicy.New(bundle)
+	if err != nil {
+		t.Fatalf("build intercept proxy evaluator: %v", err)
+	}
+
+	return evaluator
 }
 
 // URL returns the plain-HTTP URL agents point HTTPS_PROXY at for CONNECT.

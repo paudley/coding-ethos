@@ -42,6 +42,7 @@ func TestAgentProxyInterceptForwardsAndRecordsBodyFreeEvidence(t *testing.T) {
 	proxy := e2e.NewProxyInterceptServer(
 		t,
 		repo.Root,
+		repo.EthosRoot,
 		store,
 		upstream,
 		[]string{interceptAllowedHost},
@@ -76,7 +77,14 @@ func TestAgentProxyInterceptBlindTunnelsUnlistedHost(t *testing.T) {
 	repo, store := newInterceptRepoStore(t)
 	provider := e2e.NewTLSProxyProviderServer(t)
 	upstream := e2e.NewInterceptUpstreamClient(t, provider)
-	proxy := e2e.NewProxyInterceptServer(t, repo.Root, store, upstream, nil)
+	proxy := e2e.NewProxyInterceptServer(
+		t,
+		repo.Root,
+		repo.EthosRoot,
+		store,
+		upstream,
+		nil,
+	)
 
 	client := blindTunnelClient(t, proxy.URL(), provider)
 	sessionID := "intercept-blind"
@@ -112,6 +120,7 @@ func TestAgentProxyInterceptStreamsSSE(t *testing.T) {
 	proxy := e2e.NewProxyInterceptServer(
 		t,
 		repo.Root,
+		repo.EthosRoot,
 		store,
 		upstream,
 		[]string{interceptAllowedHost},
@@ -168,6 +177,7 @@ func TestAgentProxyInterceptOverHTTP2(t *testing.T) {
 	proxy := e2e.NewProxyInterceptServer(
 		t,
 		repo.Root,
+		repo.EthosRoot,
 		store,
 		upstream,
 		[]string{interceptAllowedHost},
