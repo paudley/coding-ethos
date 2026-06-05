@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 )
@@ -186,27 +187,40 @@ func TestInterceptProxyStreamsServerSentEvents(t *testing.T) {
 		t.Fatalf("sse stream altered: %q", body)
 	}
 
-	assertStreamedEvidence(t, harness.recorder.snapshot())
+	assertReconstructedEvidence(t, harness.recorder)
 }
 
-// assertStreamedEvidence verifies that the inbound event marks the response as
-// streamed and not normalized.
-func assertStreamedEvidence(t *testing.T, events []agentproxy.ProviderEvent) {
+// assertReconstructedEvidence verifies that the inbound event for an SSE stream
+// is reconstructed into structural facts rather than left unparsed. The event is
+// recorded on the handler goroutine just after the client observes the streamed
+// EOF, so the assertion polls the recorder.
+func assertReconstructedEvidence(t *testing.T, recorder *recordingRecorder) {
 	t.Helper()
 
-	for _, event := range events {
-		if event.Kind != agentproxy.EventProviderResponse {
-			continue
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		for _, event := range recorder.snapshot() {
+			if event.Kind != agentproxy.EventProviderResponse {
+				continue
+			}
+
+			if event.Metadata["streaming_reconstructed"] != "true" {
+				t.Fatalf("sse inbound event not reconstructed: %#v", event)
+			}
+
+			if event.Metadata["streaming_not_normalized"] == "true" {
+				t.Fatalf("reconstructed sse event still marked not normalized: %#v", event)
+			}
+
+			return
 		}
 
-		if event.Metadata["streaming_not_normalized"] != "true" {
-			t.Fatalf("sse inbound event not marked streamed: %#v", event)
+		if time.Now().After(deadline) {
+			t.Fatalf("no inbound streaming event recorded: %#v", recorder.snapshot())
 		}
 
-		return
+		time.Sleep(5 * time.Millisecond)
 	}
-
-	t.Fatalf("no inbound streaming event recorded: %#v", events)
 }
 
 func TestInterceptProxyRejectsNonConnectMethods(t *testing.T) {

@@ -99,7 +99,8 @@ func TestAgentProxyInterceptBlindTunnelsUnlistedHost(t *testing.T) {
 }
 
 // TestAgentProxyInterceptStreamsSSE confirms an upstream text/event-stream
-// response streams through verbatim and is recorded streaming_not_normalized.
+// response streams through verbatim and is recorded as reconstructed structural
+// facts (streaming_reconstructed) rather than left unparsed.
 func TestAgentProxyInterceptStreamsSSE(t *testing.T) {
 	if testing.Short() {
 		t.Skip("agent proxy intercept e2e uses a real CA and TLS handshakes")
@@ -137,8 +138,20 @@ func TestAgentProxyInterceptStreamsSSE(t *testing.T) {
 		t.Fatalf("expected a streamed provider response event")
 	}
 
-	if events[0].Metadata["streaming_not_normalized"] != "true" {
-		t.Fatalf("streamed event not marked streaming_not_normalized: %#v", events[0])
+	if events[0].Metadata["streaming_reconstructed"] != "true" {
+		t.Fatalf("streamed event not reconstructed: %#v", events[0])
+	}
+
+	if events[0].Metadata["streaming_not_normalized"] == "true" {
+		t.Fatalf("reconstructed stream still marked not normalized: %#v", events[0])
+	}
+
+	if events[0].OutputHash == "" {
+		t.Fatalf("reconstructed stream missing output hash: %#v", events[0])
+	}
+
+	if events[0].Model != "fixture-model" {
+		t.Fatalf("reconstructed stream missing model: %#v", events[0])
 	}
 }
 
@@ -456,8 +469,13 @@ func tlsFixtureChatResponse() string {
 		`"usage":{"prompt_tokens":7,"completion_tokens":5,"total_tokens":12}}`
 }
 
-// tlsFixtureStreamResponse is the verbatim SSE body the TLS fixture returns.
+// tlsFixtureStreamResponse is the verbatim SSE body the TLS fixture returns. It
+// mirrors proxy_harness.go's tlsFixtureStreamBody: a parseable OpenAI stream the
+// interception proxy reconstructs into structural facts.
 func tlsFixtureStreamResponse() string {
-	return "data: {\"delta\":\"fixture-stream-token\"}\n\n" +
+	return "data: {\"model\":\"fixture-model\",\"choices\":" +
+		"[{\"delta\":{\"role\":\"assistant\",\"content\":\"fixture-stream-token\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{}}]," +
+		"\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\n" +
 		"data: [DONE]\n\n"
 }

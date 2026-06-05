@@ -121,11 +121,16 @@ is never copied into the event, only counts, hashes, measurements, structural
 tool-call names, and token usage. This keeps the pass-through retention contract
 (`payload_body_retained=false`) for intercepted traffic.
 
-Streaming responses (`text/event-stream`) are intentionally not reconstructed at
-this stage: they are marked `streaming_not_normalized` so the limitation is
-explicit rather than silently misclassified. A matched path whose body fails to
-parse is reported as an explicit normalization error, never reclassified as a
-different provider.
+Streaming responses (`text/event-stream`) are reconstructed: the proxy forwards
+the stream verbatim to the client while teeing a bounded copy (capped at
+`max_normalize_bytes`), then hands the accumulated stream to the matched adapter,
+which parses the Server-Sent Events into the same structural facts a
+non-streamed body yields and marks the event `streaming_reconstructed`. A stream
+that exceeds the bound is still forwarded in full but is marked
+`payload_too_large_for_normalization` instead of reconstructed.
+`streaming_not_normalized` now appears only as a graceful fallback when a matched
+stream cannot be parsed. A matched path whose body fails to parse is reported as
+an explicit normalization error, never reclassified as a different provider.
 
 ## Opt-In HTTPS Interception Gate
 
@@ -179,8 +184,12 @@ request URI, headers (minus hop-by-hop), status, or body; outbound enforcement
 mutation is the separate concern tracked under #224. HTTP/2 and HTTP/1.1 are both
 preserved: the per-CONNECT `ServeTLS` auto-negotiates the protocol over ALPN, so
 the proxy never forces a downgrade. Server-Sent Events (`text/event-stream`)
-responses stream through unbuffered and are recorded `streaming_not_normalized`
-rather than reconstructed.
+responses stream through unbuffered with live flushing while a bounded copy is
+teed off and reconstructed into structural facts, so the recorded event is marked
+`streaming_reconstructed`. The tee never alters the bytes the client receives. A
+stream larger than `max_normalize_bytes` still forwards verbatim but is marked
+`payload_too_large_for_normalization`; `streaming_not_normalized` now appears only
+as a graceful fallback for a matched stream that cannot be parsed.
 
 Structural normalization is bounded. The proxy buffers at most
 `proxy.interception.max_normalize_bytes` for adapter normalization; a payload

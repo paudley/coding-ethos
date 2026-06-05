@@ -5,6 +5,7 @@ package adapter
 
 import (
 	"encoding/json"
+	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 )
@@ -153,7 +154,7 @@ func (OpenAI) NormalizeResponse(
 	respCtx agentproxy.ResponseContext,
 ) (agentproxy.ResponseNormalization, error) {
 	if isStreamingResponse(respCtx.ContentType) {
-		return streamedResponse(body), nil
+		return openAIReconstructStream(body), nil
 	}
 
 	var wire openAIChatResponse
@@ -205,5 +206,167 @@ func openAIUsage(wire openAIUsageWire) agentproxy.TokenUsage {
 		InputTokens:  jsonNumberToInt(wire.PromptTokens),
 		OutputTokens: jsonNumberToInt(wire.CompletionTokens),
 		TotalTokens:  jsonNumberToInt(wire.TotalTokens),
+	}
+}
+
+// openAIStreamChunk is the structural subset of one chat.completion.chunk.
+type openAIStreamChunk struct {
+	Model   string               `json:"model"`
+	Usage   openAIUsageWire      `json:"usage"`
+	Choices []openAIStreamChoice `json:"choices"`
+}
+
+// openAIStreamChoice carries the incremental delta of one streamed choice.
+type openAIStreamChoice struct {
+	Delta openAIStreamDelta `json:"delta"`
+}
+
+// openAIStreamDelta is one incremental chunk of an assistant message.
+type openAIStreamDelta struct {
+	Role      string                 `json:"role"`
+	Content   string                 `json:"content"`
+	ToolCalls []openAIStreamToolCall `json:"tool_calls"`
+}
+
+// openAIStreamToolCall is one indexed tool-call fragment within a delta.
+type openAIStreamToolCall struct {
+	Function openAIStreamToolFunction `json:"function"`
+	Index    int                      `json:"index"`
+}
+
+// openAIStreamToolFunction carries the streamed name and argument fragments.
+type openAIStreamToolFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// openAIToolAccumulator gathers the name and argument fragments of one indexed
+// tool call across the chunks that contribute to it.
+type openAIToolAccumulator struct {
+	name string
+	args strings.Builder
+}
+
+// openAIReconstructStream rebuilds a normalization from an accumulated OpenAI
+// SSE body. A parse that yields no chunks falls back to the streamed marker so
+// an unrecognized stream degrades gracefully rather than erroring the response.
+func openAIReconstructStream(body []byte) agentproxy.ResponseNormalization {
+	events := parseSSEEvents(body)
+
+	state := newOpenAIStreamState()
+
+	parsed := false
+
+	for _, event := range events {
+		var chunk openAIStreamChunk
+		if json.Unmarshal(event.Data, &chunk) != nil {
+			continue
+		}
+
+		state.apply(chunk)
+
+		parsed = true
+	}
+
+	if !parsed {
+		return streamedResponse(body)
+	}
+
+	return state.normalization(body)
+}
+
+// openAIStreamState accumulates the reconstructed assistant message, tool
+// calls, usage, and model across streamed chunks.
+type openAIStreamState struct {
+	tools map[int]*openAIToolAccumulator
+	usage openAIUsageWire
+	role  string
+	model string
+	text  strings.Builder
+	order []int
+}
+
+// newOpenAIStreamState returns an empty state ready to accumulate chunks.
+func newOpenAIStreamState() *openAIStreamState {
+	return &openAIStreamState{
+		tools: make(map[int]*openAIToolAccumulator),
+	}
+}
+
+// apply folds one chunk into the accumulating reconstruction state.
+func (state *openAIStreamState) apply(chunk openAIStreamChunk) {
+	if chunk.Model != "" {
+		state.model = chunk.Model
+	}
+
+	if chunk.Usage.PromptTokens != "" || chunk.Usage.CompletionTokens != "" {
+		state.usage = chunk.Usage
+	}
+
+	for _, choice := range chunk.Choices {
+		state.applyDelta(choice.Delta)
+	}
+}
+
+// applyDelta folds one streamed delta into the state.
+func (state *openAIStreamState) applyDelta(delta openAIStreamDelta) {
+	if state.role == "" && delta.Role != "" {
+		state.role = delta.Role
+	}
+
+	state.text.WriteString(delta.Content)
+
+	for _, call := range delta.ToolCalls {
+		state.applyToolCall(call)
+	}
+}
+
+// applyToolCall merges one indexed tool-call fragment into its accumulator.
+func (state *openAIStreamState) applyToolCall(call openAIStreamToolCall) {
+	accumulator, present := state.tools[call.Index]
+	if !present {
+		accumulator = &openAIToolAccumulator{}
+		state.tools[call.Index] = accumulator
+		state.order = append(state.order, call.Index)
+	}
+
+	if accumulator.name == "" && call.Function.Name != "" {
+		accumulator.name = call.Function.Name
+	}
+
+	accumulator.args.WriteString(call.Function.Arguments)
+}
+
+// normalization renders the accumulated state into a response normalization.
+func (state *openAIStreamState) normalization(
+	body []byte,
+) agentproxy.ResponseNormalization {
+	role := state.role
+	if role == "" {
+		role = string(agentproxy.RoleAssistant)
+	}
+
+	messages := []agentproxy.Message{{
+		Role:    mapRole(role),
+		Content: state.text.String(),
+	}}
+
+	calls := make([]agentproxy.ToolCall, 0, len(state.order))
+	for _, index := range state.order {
+		accumulator := state.tools[index]
+		calls = append(calls, agentproxy.ToolCall{
+			Name:     accumulator.name,
+			ArgsHash: agentproxy.HashText(accumulator.args.String()),
+		})
+	}
+
+	return agentproxy.ResponseNormalization{
+		Messages:    messages,
+		ToolCalls:   calls,
+		Usage:       openAIUsage(state.usage),
+		Model:       state.model,
+		BodyHash:    agentproxy.HashText(string(body)),
+		Measurement: agentproxy.Measure(body),
+		Metadata:    map[string]string{metaStreamingReconstructed: metaValueTrue},
 	}
 }

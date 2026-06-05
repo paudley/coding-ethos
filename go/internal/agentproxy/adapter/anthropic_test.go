@@ -119,14 +119,17 @@ func TestAnthropicNormalizeRequest(t *testing.T) {
 func TestAnthropicNormalizeResponse(t *testing.T) {
 	t.Parallel()
 
+	streamCtx := agentproxy.ResponseContext{ContentType: "text/event-stream"}
+
 	tests := []struct {
-		name      string
-		fixture   string
-		respCtx   agentproxy.ResponseContext
-		content   string
-		callNames []string
-		streamed  bool
-		input     int
+		name          string
+		fixture       string
+		respCtx       agentproxy.ResponseContext
+		content       string
+		callNames     []string
+		streamed      bool
+		reconstructed bool
+		input         int
 	}{
 		{
 			name:    "text response",
@@ -142,10 +145,19 @@ func TestAnthropicNormalizeResponse(t *testing.T) {
 			input:     42,
 		},
 		{
-			name:     "streaming response",
-			fixture:  "response.sse",
-			respCtx:  agentproxy.ResponseContext{ContentType: "text/event-stream"},
-			streamed: true,
+			name:          "streaming text reconstructed",
+			fixture:       "response.sse",
+			respCtx:       streamCtx,
+			content:       "The repo root contains README.md.",
+			reconstructed: true,
+		},
+		{
+			name:          "streaming tool call reconstructed",
+			fixture:       "response_tool_call.sse",
+			respCtx:       streamCtx,
+			callNames:     []string{"list_dir"},
+			reconstructed: true,
+			input:         42,
 		},
 	}
 
@@ -161,12 +173,51 @@ func TestAnthropicNormalizeResponse(t *testing.T) {
 			}
 
 			assertResponse(t, norm, responseExpectation{
-				content:   test.content,
-				callNames: test.callNames,
-				streamed:  test.streamed,
-				input:     test.input,
+				content:       test.content,
+				callNames:     test.callNames,
+				streamed:      test.streamed,
+				reconstructed: test.reconstructed,
+				input:         test.input,
 			})
 		})
+	}
+}
+
+func TestAnthropicNormalizeResponseFallsBackOnMalformedStream(t *testing.T) {
+	t.Parallel()
+
+	body := []byte("event: message_start\ndata: not-json\n")
+
+	norm, err := adapter.Anthropic{}.NormalizeResponse(
+		body,
+		agentproxy.ResponseContext{ContentType: "text/event-stream"},
+	)
+	if err != nil {
+		t.Fatalf("normalize response: %v", err)
+	}
+
+	assertResponse(t, norm, responseExpectation{streamed: true})
+}
+
+func TestAnthropicStreamReconstructsTokenUsage(t *testing.T) {
+	t.Parallel()
+
+	body := loadFixture(t, "anthropic", "response_tool_call.sse")
+
+	norm, err := adapter.Anthropic{}.NormalizeResponse(
+		body,
+		agentproxy.ResponseContext{ContentType: "text/event-stream"},
+	)
+	if err != nil {
+		t.Fatalf("normalize response: %v", err)
+	}
+
+	if norm.Usage.OutputTokens != 11 {
+		t.Fatalf("output tokens = %d, want 11", norm.Usage.OutputTokens)
+	}
+
+	if norm.Usage.TotalTokens != 53 {
+		t.Fatalf("total tokens = %d, want 53", norm.Usage.TotalTokens)
 	}
 }
 

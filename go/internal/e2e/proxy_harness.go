@@ -36,8 +36,13 @@ const (
 	tlsFixtureChatBody = `{"model":"fixture-model",` +
 		`"choices":[{"message":{"role":"assistant","content":"fixture-secret-body"}}],` +
 		`"usage":{"prompt_tokens":7,"completion_tokens":5,"total_tokens":12}}`
-	// tlsFixtureStreamBody is the canned SSE body the stream endpoint emits.
-	tlsFixtureStreamBody = "data: {\"delta\":\"fixture-stream-token\"}\n\n" +
+	// tlsFixtureStreamBody is the canned SSE body the stream endpoint emits. It is
+	// a parseable OpenAI chat-completions stream so the interception proxy can
+	// reconstruct it into structural facts rather than leaving it unparsed.
+	tlsFixtureStreamBody = "data: {\"model\":\"fixture-model\",\"choices\":" +
+		"[{\"delta\":{\"role\":\"assistant\",\"content\":\"fixture-stream-token\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{}}]," +
+		"\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\n" +
 		"data: [DONE]\n\n"
 )
 

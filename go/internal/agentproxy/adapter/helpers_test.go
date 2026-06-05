@@ -29,11 +29,16 @@ func loadFixture(t *testing.T, provider, name string) []byte {
 // responseExpectation captures the asserted facts of a normalized response so
 // the per-provider tests share a single comparison routine.
 type responseExpectation struct {
-	content   string
-	callNames []string
-	streamed  bool
-	input     int
+	content       string
+	callNames     []string
+	streamed      bool
+	reconstructed bool
+	input         int
 }
+
+// metaStreamingReconstructed mirrors the adapter metadata key that records a
+// stream was reconstructed into structural facts.
+const metaStreamingReconstructed = "streaming_reconstructed"
 
 // assertResponse compares a normalized response against the expectation and
 // fails the test on the first mismatch.
@@ -54,6 +59,10 @@ func assertResponse(
 		return
 	}
 
+	if want.reconstructed {
+		assertReconstructed(t, norm)
+	}
+
 	if want.content != "" && norm.Messages[0].Content != want.content {
 		t.Fatalf("content = %q, want %q", norm.Messages[0].Content, want.content)
 	}
@@ -62,6 +71,25 @@ func assertResponse(
 
 	if want.input != 0 && norm.Usage.InputTokens != want.input {
 		t.Fatalf("input tokens = %d, want %d", norm.Usage.InputTokens, want.input)
+	}
+}
+
+// assertReconstructed verifies a stream rebuilt into facts retains its size,
+// hash, and the metadata marker that records the reconstruction.
+func assertReconstructed(t *testing.T, norm agentproxy.ResponseNormalization) {
+	t.Helper()
+
+	if norm.Metadata[metaStreamingReconstructed] != "true" {
+		t.Fatalf("reconstructed metadata = %q, want true",
+			norm.Metadata[metaStreamingReconstructed])
+	}
+
+	if norm.BodyHash == "" {
+		t.Fatal("reconstructed body hash empty")
+	}
+
+	if norm.Measurement.Bytes == 0 {
+		t.Fatal("reconstructed measurement bytes = 0")
 	}
 }
 

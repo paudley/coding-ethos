@@ -671,8 +671,12 @@ used by hooks.
   - [x] Pure `agentproxy/adapter` package (OpenAI/Anthropic/Gemini + registry)
         normalizing request messages, tool definitions, response assistant text,
         and tool calls into hashes-only `ProviderEvent`s. See #223.
-  - [ ] SSE (`text/event-stream`) responses are marked `streaming_not_normalized`
-        rather than reconstructed; full streaming-chunk reconstruction is deferred.
+  - [x] SSE (`text/event-stream`) responses are reconstructed: the proxy tees a
+        bounded copy of the verbatim stream and the matched adapter parses the
+        accumulated events into the same structural facts as a non-streamed body
+        (`streaming_reconstructed`). Oversized streams still forward verbatim but
+        are marked `payload_too_large_for_normalization`; `streaming_not_normalized`
+        now only appears as a graceful fallback for an unparseable stream.
 - [x] Add a proxy session ledger in the repo-local code-intel store for read
   events, directory-listing events, prompt/tool payload hashes, token counts,
   cache hits, truncation decisions, policy injections, and edit attempts.
