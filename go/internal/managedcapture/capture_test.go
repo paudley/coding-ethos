@@ -41,6 +41,7 @@ func TestPrepareManagedWritablePathsCreatesDeclaredCacheDirs(t *testing.T) {
 	err := prepareManagedWritablePaths(root, sandbox.Evidence{
 		WritePaths: []string{
 			".coding-ethos/cache",
+			managedRuntimePath("lint-runs/"),
 			".ruff_cache",
 			"pkg/app.py",
 		},
@@ -51,6 +52,7 @@ func TestPrepareManagedWritablePathsCreatesDeclaredCacheDirs(t *testing.T) {
 
 	for _, path := range []string{
 		filepath.Join(root, ".coding-ethos", "cache"),
+		filepath.Join(root, ".coding-ethos", "lint-runs"),
 		filepath.Join(root, ".ruff_cache"),
 	} {
 		info, statErr := os.Stat(path)

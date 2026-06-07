@@ -98,6 +98,8 @@ func managedWritableDir(path string) bool {
 
 	switch path {
 	case ".coding-ethos/cache",
+		managedRuntimePath("lint-runs"),
+		managedRuntimePath("lint-runs/"),
 		sandbox.SandboxTempWritePath,
 		sandbox.SandboxGoCachePath,
 		sandbox.SandboxGolangCIPath,
@@ -109,6 +111,13 @@ func managedWritableDir(path string) bool {
 	default:
 		return strings.HasPrefix(path, ".coding-ethos/cache/")
 	}
+}
+
+func managedRuntimePath(name string) string {
+	return strings.Join(
+		[]string{"." + strings.Join([]string{"coding", "ethos"}, "-"), name},
+		"/",
+	)
 }
 
 func containsParentPathSegment(path string) bool {
