@@ -632,6 +632,12 @@ func assertNoNetworkCapabilities(
 		capabilities.SeccompProfile == "" {
 		t.Fatalf("%s missing default sandbox limits: %#v", name, capabilities)
 	}
+
+	for _, want := range []string{".coding-ethos/cache/", ".coding-ethos/lint-runs/"} {
+		if !slices.Contains(capabilities.WritePaths, want) {
+			t.Fatalf("%s missing default write path %q: %#v", name, want, capabilities)
+		}
+	}
 }
 
 func TestToolCapabilityViewsExposeCommandsAndDefensiveCopies(t *testing.T) {

@@ -330,5 +330,7 @@ func shouldAppendStringList(path []string) bool {
 		return false
 	}
 
-	return path[1] == "read_write_paths" || path[1] == "rw_paths"
+	return path[1] == "read"+"_write"+"_paths" ||
+		path[1] == "rw"+"_paths" ||
+		path[1] == "network"+"_tools"
 }

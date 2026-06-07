@@ -160,7 +160,8 @@ sandbox:
   read_write_paths: []
   # Managed tools remain no-network by default. List only tools whose test or
   # validation workflow must bind local sockets or otherwise use networking.
-  network_tools: []
+  network_tools:
+    - go-test
 
 filesystem:
   protected_path:

@@ -149,7 +149,6 @@ sandbox:
 sandbox:
   network_tools:
     - go-test
-    - gemini-check
 `)
 
 	config, err := lintcapture.LoadRuntimeConfig(ethos, consumer)
