@@ -343,7 +343,7 @@ func assertSandboxTraceEvidence(t *testing.T, trace, mode string) {
 		`"repo_read_only": true`,
 		`"network_isolated": true`,
 		`"process_isolated": true`,
-		`".coding-ethos/cache"`,
+		`".coding-ethos/cache/"`,
 		`".ruff_cache/"`,
 		`"no-network"`,
 		`"no-git"`,

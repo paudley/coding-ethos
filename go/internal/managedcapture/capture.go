@@ -175,7 +175,7 @@ func executeCapturedTool(request captureRequest) captureExecution {
 
 	runArgs := capturedToolArgs(request.Tool, request.Args)
 	runArgs = append(append([]string(nil), request.ToolPrefix...), runArgs...)
-	plan, planErr := buildCapturedSandboxPlan(request, runArgs)
+	plan, cacheEnv, planErr := buildCapturedSandboxPlan(request, runArgs)
 
 	defer func() {
 		err := plan.Close()
@@ -193,6 +193,8 @@ func executeCapturedTool(request captureRequest) captureExecution {
 			zap.String("executable", request.ToolPath),
 			zap.Error(planErr),
 		)
+
+		cleanupSandboxCacheEnv(cacheEnv)
 
 		diagnostic := sandboxDenialDiagnostic(plan.Evidence)
 
@@ -217,13 +219,13 @@ func executeCapturedTool(request captureRequest) captureExecution {
 		zap.Int("timeout_seconds", plan.Evidence.TimeoutSeconds),
 	)
 
-	return runCapturedPlan(request, plan, runArgs)
+	return runCapturedPlan(request, plan, runArgs, cacheEnv)
 }
 
 func buildCapturedSandboxPlan(
 	request captureRequest,
 	runArgs []string,
-) (sandbox.Plan, error) {
+) (sandbox.Plan, sandboxCacheEnvironment, error) {
 	executable, executableErr := agentShellToolExecutable(request.ToolPath)
 	if executableErr != nil {
 		return sandbox.Plan{
@@ -231,7 +233,17 @@ func buildCapturedSandboxPlan(
 				Denied: true,
 				Reason: executableErr.Error(),
 			},
-		}, executableErr
+		}, sandboxCacheEnvironment{}, executableErr
+	}
+
+	cacheEnv, cacheEnvErr := sandboxCacheEnv(context.Background(), request)
+	if cacheEnvErr != nil {
+		return sandbox.Plan{
+			Evidence: sandbox.Evidence{
+				Denied: true,
+				Reason: cacheEnvErr.Error(),
+			},
+		}, cacheEnv, cacheEnvErr
 	}
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
@@ -248,7 +260,7 @@ func buildCapturedSandboxPlan(
 		Capabilities: captureSandboxCapabilities(request),
 	})
 	if err != nil {
-		return plan, fmt.Errorf("build captured sandbox plan: %w", err)
+		return plan, cacheEnv, fmt.Errorf("build captured sandbox plan: %w", err)
 	}
 
 	err = prepareManagedWritablePaths(
@@ -259,10 +271,10 @@ func buildCapturedSandboxPlan(
 		plan.Evidence.Denied = true
 		plan.Evidence.Reason = err.Error()
 
-		return plan, err
+		return plan, cacheEnv, err
 	}
 
-	return plan, nil
+	return plan, cacheEnv, nil
 }
 
 func captureSandboxCapabilities(request captureRequest) sandbox.Capabilities {
@@ -278,6 +290,7 @@ func runCapturedPlan(
 	request captureRequest,
 	plan sandbox.Plan,
 	runArgs []string,
+	cacheEnv sandboxCacheEnvironment,
 ) captureExecution {
 	commandContext, cancel := sandbox.CommandContext(
 		context.Background(),
@@ -313,6 +326,7 @@ func runCapturedPlan(
 		commandContext,
 		request,
 		plan,
+		cacheEnv,
 		cgroup,
 		appliedEvidence,
 	)
@@ -358,6 +372,7 @@ func startCapturedProcess(
 	ctx context.Context,
 	request captureRequest,
 	plan sandbox.Plan,
+	cacheEnv sandboxCacheEnvironment,
 	cgroup *sandbox.Cgroup,
 	evidence sandbox.Evidence,
 ) processResult {
@@ -366,13 +381,6 @@ func startCapturedProcess(
 		return failedResult
 	}
 	defer processIO.closeReaders()
-
-	cacheEnv, cacheEnvErr := sandboxCacheEnv(ctx, request)
-	if cacheEnvErr != nil {
-		processIO.closeWriters()
-
-		return processResult{err: cacheEnvErr, exitCode: capturedCommandNotFoundCode}
-	}
 
 	argv := capturedProcessArgv(plan)
 	process, startedAt, startErr := startCapturedOSProcess(

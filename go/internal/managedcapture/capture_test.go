@@ -1027,7 +1027,7 @@ func TestBuildCapturedSandboxPlanAllowsHookSubprocessesInsideAgentShell(
 	t.Setenv("CODING_ETHOS_SANDBOX_ROOT", repo)
 	t.Setenv("CODING_ETHOS_REAL_GIT", realGit)
 
-	plan, err := buildCapturedSandboxPlan(captureRequest{
+	plan, cacheEnv, err := buildCapturedSandboxPlan(captureRequest{
 		Tool:               "ruff",
 		ToolPath:           tool,
 		Cwd:                repo,
@@ -1047,6 +1047,62 @@ func TestBuildCapturedSandboxPlanAllowsHookSubprocessesInsideAgentShell(
 	}
 	if !plan.Evidence.Enabled || !plan.Evidence.RepoReadOnly {
 		t.Fatalf("nested capture lost filesystem sandbox evidence: %#v", plan.Evidence)
+	}
+
+	cleanupSandboxCacheEnv(cacheEnv)
+}
+
+func TestBuildCapturedSandboxPlanPreparesGoTestTempWritePath(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	tool := filepath.Join(repo, "bin", "go")
+	wrapper := filepath.Join(repo, "bin", "coding-ethos-sandbox")
+
+	if err := os.MkdirAll(filepath.Dir(tool), 0o700); err != nil {
+		t.Fatalf("create tool dir: %v", err)
+	}
+
+	writeExecutableFixture(t, tool, "#!/usr/bin/env sh\nexit 0\n")
+	writeExecutableFixture(t, wrapper, "#!/usr/bin/env sh\nexit 0\n")
+
+	plan, cacheEnv, err := buildCapturedSandboxPlan(captureRequest{
+		Tool:               goTestTool,
+		ToolPath:           tool,
+		Cwd:                repo,
+		TraceRoot:          repo,
+		SandboxBackendPath: wrapper,
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "lint-offline",
+			WritePaths: []string{
+				".coding-ethos/cache",
+				goTestSandboxTempDir(repo),
+			},
+		},
+	}, []string{"test", "./..."})
+	if err != nil {
+		t.Fatalf("build captured sandbox plan: %v", err)
+	}
+	defer func() {
+		err := plan.Close()
+		if err != nil {
+			t.Fatalf("close sandbox plan: %v", err)
+		}
+	}()
+	defer cleanupSandboxCacheEnv(cacheEnv)
+
+	if cacheEnv.TempDir == "" ||
+		!slices.Contains(plan.Evidence.WritePaths, cacheEnv.TempDir) {
+		t.Fatalf(
+			"go-test temp dir not declared writable: temp=%q evidence=%#v",
+			cacheEnv.TempDir,
+			plan.Evidence.WritePaths,
+		)
+	}
+
+	info, statErr := os.Stat(cacheEnv.TempDir)
+	if statErr != nil || !info.IsDir() {
+		t.Fatalf("go-test temp dir was not prepared: stat=%#v err=%v", info, statErr)
 	}
 }
 

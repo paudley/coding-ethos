@@ -1112,6 +1112,12 @@ func TestSandboxCapabilitiesForGoTestIncludeModuleWorktree(t *testing.T) {
 	if !slices.Contains(capabilities.ReadPaths, "go") {
 		t.Fatalf("sandbox read paths missing module worktree: %#v", capabilities)
 	}
+	if !slices.Contains(capabilities.WritePaths, goTestSandboxTempDir("/repo")) {
+		t.Fatalf("sandbox write paths missing go-test temp dir: %#v", capabilities)
+	}
+	if !slices.Contains(capabilities.ReadPaths, goTestSandboxTempDir("/repo")) {
+		t.Fatalf("sandbox read paths missing go-test temp dir: %#v", capabilities)
+	}
 
 	if !capabilities.RequiresGit ||
 		!slices.Contains(capabilities.Tags, "git") ||
