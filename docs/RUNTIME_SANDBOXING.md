@@ -58,6 +58,19 @@ They are for required workspace or toolchain directories, not policy
 exceptions; `.git` write binds remain blocked even if a consumer lists them
 here.
 
+Consumer repositories can also opt specific managed tools into network access:
+
+```yaml
+sandbox:
+  network_tools:
+    - go-test
+```
+
+Use this only when the repo's real validation workflow needs networking, such
+as Go tests that bind loopback HTTP or gRPC listeners. The bundled tool catalog
+keeps ordinary managed tools no-network by default; the repo-local entry is an
+auditable policy decision for that consumer.
+
 ## CEL Policy Surface
 
 Tool capabilities are exposed to CEL through `tool_capabilities`. Policies can

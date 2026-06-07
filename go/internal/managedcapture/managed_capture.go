@@ -318,6 +318,11 @@ func sandboxCapabilities(
 	config lintcapture.RuntimeConfig,
 ) sandbox.Capabilities {
 	spec := tool.CapabilitySpec()
+	if config.SandboxToolRequiresNetwork(tool.Name) {
+		spec.RequiresNetwork = true
+		spec.Tags = capabilityTagsRequire(spec.Tags, "network", "no-network")
+	}
+
 	writePaths := append([]string(nil), spec.WritePaths...)
 	writePaths = append(writePaths, config.SandboxReadWritePaths()...)
 	readPaths := append([]string(nil), spec.ReadPaths...)
@@ -350,7 +355,7 @@ func sandboxCapabilitiesForRequest(
 	capabilities := sandboxCapabilities(tool, config)
 	if tool.Name == goTestTool {
 		capabilities.RequiresGit = true
-		capabilities.Tags = requestCapabilityTagsRequireGit(capabilities.Tags)
+		capabilities.Tags = capabilityTagsRequire(capabilities.Tags, "git", "no-git")
 	}
 
 	writePaths, err := toolSandboxWritePaths(tool, consumerRoot, captureCwd, args)
@@ -367,25 +372,28 @@ func sandboxCapabilitiesForRequest(
 	return capabilities, nil
 }
 
-func requestCapabilityTagsRequireGit(tags []string) []string {
+func capabilityTagsRequire(tags []string, requiredTag, deniedTag string) []string {
 	updated := make([]string, 0, len(tags)+1)
-	hasGit := false
+	hasRequired := false
 
 	for _, tag := range tags {
-		switch tag {
-		case "git":
-			hasGit = true
+		if tag == requiredTag {
+			hasRequired = true
 
 			updated = append(updated, tag)
-		case "no-git":
+
 			continue
-		default:
-			updated = append(updated, tag)
 		}
+
+		if tag == deniedTag {
+			continue
+		}
+
+		updated = append(updated, tag)
 	}
 
-	if !hasGit {
-		updated = append(updated, "git")
+	if !hasRequired {
+		updated = append(updated, requiredTag)
 	}
 
 	return updated

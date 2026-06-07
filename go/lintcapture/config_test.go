@@ -131,6 +131,47 @@ sandbox:
 	}
 }
 
+func TestLoadRuntimeConfigMergesSandboxNetworkTools(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ethos := filepath.Join(root, "coding-ethos")
+	consumer := filepath.Join(root, "consumer")
+	writeFile(t, filepath.Join(ethos, "config.yaml"), `
+bundle:
+  consumer_override_candidates:
+    - repo_config.yml
+sandbox:
+  network_tools:
+    - gemini-check
+`)
+	writeFile(t, filepath.Join(consumer, "repo_config.yml"), `
+sandbox:
+  network_tools:
+    - go-test
+    - gemini-check
+`)
+
+	config, err := lintcapture.LoadRuntimeConfig(ethos, consumer)
+	if err != nil {
+		t.Fatalf("LoadRuntimeConfig(): %v", err)
+	}
+
+	got := config.SandboxNetworkTools()
+	for _, want := range []string{"gemini-check", "go-test"} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("SandboxNetworkTools() missing %q: %#v", want, got)
+		}
+	}
+
+	if !config.SandboxToolRequiresNetwork("go-test") {
+		t.Fatal("SandboxToolRequiresNetwork() rejected configured go-test")
+	}
+	if config.SandboxToolRequiresNetwork("ruff") {
+		t.Fatal("SandboxToolRequiresNetwork() accepted unconfigured ruff")
+	}
+}
+
 func TestCheckGeneratedToolConfigIntegrityReportsDrift(t *testing.T) {
 	t.Parallel()
 

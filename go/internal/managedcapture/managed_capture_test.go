@@ -957,6 +957,70 @@ func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 	}
 }
 
+func TestSandboxCapabilitiesKeepGoTestNoNetworkByDefault(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("go-test")
+	if !found {
+		t.Fatal("missing go-test tool")
+	}
+
+	capabilities := sandboxCapabilities(tool, lintcapture.RuntimeConfig{})
+	if capabilities.RequiresNetwork ||
+		slices.Contains(capabilities.Tags, "network") ||
+		!slices.Contains(capabilities.Tags, "no-network") {
+		t.Fatalf("go-test default network capabilities changed: %#v", capabilities)
+	}
+}
+
+func TestSandboxCapabilitiesAllowConsumerNetworkToolOptIn(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("go-test")
+	if !found {
+		t.Fatal("missing go-test tool")
+	}
+
+	config := lintcapture.RuntimeConfig{
+		Merged: map[string]any{
+			"sandbox": map[string]any{
+				"network_tools": []any{"go-test"},
+			},
+		},
+	}
+
+	capabilities := sandboxCapabilities(tool, config)
+	if !capabilities.RequiresNetwork ||
+		!slices.Contains(capabilities.Tags, "network") ||
+		slices.Contains(capabilities.Tags, "no-network") {
+		t.Fatalf("go-test network opt-in capabilities mismatch: %#v", capabilities)
+	}
+}
+
+func TestSandboxCapabilitiesNetworkToolOptInDoesNotAffectOtherTools(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff tool")
+	}
+
+	config := lintcapture.RuntimeConfig{
+		Merged: map[string]any{
+			"sandbox": map[string]any{
+				"network_tools": []any{"go-test"},
+			},
+		},
+	}
+
+	capabilities := sandboxCapabilities(tool, config)
+	if capabilities.RequiresNetwork ||
+		slices.Contains(capabilities.Tags, "network") ||
+		!slices.Contains(capabilities.Tags, "no-network") {
+		t.Fatalf("ruff network capabilities changed: %#v", capabilities)
+	}
+}
+
 func TestSandboxCapabilitiesForFormatToolIncludeOnlyTargetFiles(t *testing.T) {
 	t.Parallel()
 
