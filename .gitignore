@@ -107,9 +107,6 @@ logs/
 *~
 bin/
 go/bin/
-config.toml
-data/
-dist/
 
 # Editor and OS noise
 .DS_Store
