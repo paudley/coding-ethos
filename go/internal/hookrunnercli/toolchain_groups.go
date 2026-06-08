@@ -119,20 +119,21 @@ func runPythonVulture(_ Config, paths []string) int {
 }
 
 func runGoFormatCheck(_ Config, paths []string) int {
-	if len(goFiles(existingFiles(paths))) == 0 {
-		return 0
-	}
-
 	worktree, ok := configuredGoWorktree()
 	if !ok {
 		return 1
+	}
+
+	args := gofmtCheckArgs(worktree, paths)
+	if len(args) == 0 {
+		return 0
 	}
 
 	result := runExternalTool(
 		externalToolRequest{
 			Name:    "gofmt-check",
 			Dir:     worktree,
-			Command: []string{"gofmt", "-l", "."},
+			Command: append([]string{"gofmt", "-l"}, args...),
 		},
 	)
 	if strings.TrimSpace(result.Combined) != "" {
@@ -174,6 +175,28 @@ func runGoFormatCheck(_ Config, paths []string) int {
 	}
 
 	return result.ExitCode
+}
+
+func gofmtCheckArgs(worktree string, paths []string) []string {
+	args := []string{}
+
+	for _, file := range goFiles(existingFiles(paths)) {
+		absFile := file
+		if !filepath.IsAbs(absFile) {
+			absFile = repoPath(absFile)
+		}
+
+		rel, err := filepath.Rel(worktree, absFile)
+		if err != nil || rel == "." ||
+			strings.HasPrefix(rel, ".."+string(filepath.Separator)) ||
+			rel == ".." {
+			continue
+		}
+
+		args = append(args, filepath.ToSlash(rel))
+	}
+
+	return args
 }
 
 func parseGofmtCheckFindings(output string) []hookFinding {
