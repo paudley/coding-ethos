@@ -5,6 +5,7 @@ package hookoutput
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -26,6 +27,10 @@ const (
 
 	maxTOONFindingCellRunes = 320
 	toonFindingHeaderLines  = 3
+)
+
+var errMalformedLintDiagnostic = errors.New(
+	"lint output is malformed: diagnostic missing message",
 )
 
 func SelectedFormat() string {
@@ -102,9 +107,9 @@ func FormatLintResult(result lint.Result, format string) (string, error) {
 	case FormatSARIF:
 		return FormatLintResultSARIF(result)
 	case FormatTOON:
-		return FormatLintResultTOON(result), nil
+		return FormatLintResultTOON(result)
 	default:
-		return FormatLintResultHuman(result), nil
+		return FormatLintResultHuman(result)
 	}
 }
 
@@ -161,8 +166,14 @@ func FormatLintResultJSON(result lint.Result) (string, error) {
 	return strings.TrimRight(builder.String(), "\n"), nil
 }
 
-func FormatLintResultTOON(result lint.Result) string {
+func FormatLintResultTOON(result lint.Result) (string, error) {
 	findings := userFacingDiagnostics(result)
+
+	err := validateUserFacingDiagnostics(findings)
+	if err != nil {
+		return "", err
+	}
+
 	status := lint.ResultStatus(result)
 
 	lines := toonHeaderLines(result, status)
@@ -185,7 +196,7 @@ func FormatLintResultTOON(result lint.Result) string {
 		)
 	}
 
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), nil
 }
 
 func toonHeaderLines(result lint.Result, status string) []string {
@@ -303,8 +314,13 @@ func compactSkillHintMessage(message string) string {
 	return normalized
 }
 
-func FormatLintResultHuman(result lint.Result) string {
+func FormatLintResultHuman(result lint.Result) (string, error) {
 	findings := userFacingDiagnostics(result)
+
+	err := validateUserFacingDiagnostics(findings)
+	if err != nil {
+		return "", err
+	}
 
 	lines := []string{
 		"coding-ethos lint result: " + lint.ResultStatus(result),
@@ -350,7 +366,28 @@ func FormatLintResultHuman(result lint.Result) string {
 		lines = append(lines, "Fix the reported diagnostics before continuing.")
 	}
 
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), nil
+}
+
+func validateUserFacingDiagnostics(items []diagnostics.Diagnostic) error {
+	for _, item := range items {
+		if strings.TrimSpace(item.Message) != "" {
+			continue
+		}
+
+		return fmt.Errorf(
+			"%w "+
+				"(tool=%q file=%q line=%d code=%q policy_id=%q)",
+			errMalformedLintDiagnostic,
+			item.Tool,
+			item.File,
+			item.Line,
+			item.Code,
+			item.PolicyID,
+		)
+	}
+
+	return nil
 }
 
 func userFacingDiagnostics(result lint.Result) []diagnostics.Diagnostic {
