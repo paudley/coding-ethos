@@ -290,6 +290,7 @@ func gitCheckIgnore(cwd, path string) (bool, error) {
 		path,
 	)
 	cmd.Dir = cwd
+	cmd.Env = realgit.CleanGitLocalEnv(os.Environ())
 
 	err := cmd.Run()
 	if err == nil {

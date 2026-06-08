@@ -263,6 +263,12 @@ func buildCapturedSandboxPlan(
 		return plan, cacheEnv, fmt.Errorf("build captured sandbox plan: %w", err)
 	}
 
+	if !plan.Evidence.Enabled {
+		cleanupSandboxCacheEnv(cacheEnv)
+
+		return plan, sandboxCacheEnvironment{}, nil
+	}
+
 	err = prepareManagedWritablePaths(
 		firstCaptureNonEmpty(request.TraceRoot, request.Cwd),
 		plan.Evidence,

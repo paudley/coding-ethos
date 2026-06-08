@@ -140,3 +140,6 @@ ehthumbs.db
 #   .yamllint.yml
 #   .code-ethos/gemini/prompt-pack.json
 .code-ethos/cache/
+
+# coding-ethos generated runtime output
+.coding-ethos/code-intel.duckdb.shm

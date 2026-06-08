@@ -521,6 +521,32 @@ func TestNormalizeGoToolWorktreeRunsInsideModule(t *testing.T) {
 	}
 }
 
+func TestNormalizeGoToolWorktreeDefaultsRootModuleToAllPackages(t *testing.T) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(consumerRoot, "go.mod"),
+		"module example.test/repo\n",
+	)
+
+	cwd, args := normalizeGoToolWorktree(
+		consumerRoot,
+		consumerRoot,
+		[]string{"test", "-json", "-run", "TestThing"},
+	)
+
+	if cwd != consumerRoot {
+		t.Fatalf("normalized cwd = %q, want %q", cwd, consumerRoot)
+	}
+
+	wantArgs := []string{"test", "-json", "-run", "TestThing", "./..."}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("normalized args = %#v, want %#v", args, wantArgs)
+	}
+}
+
 func TestNormalizeGoToolWorktreeDefaultsToNestedModule(t *testing.T) {
 	t.Parallel()
 
@@ -609,6 +635,51 @@ func TestManagedCaptureEnforcesToolSpecificArgs(t *testing.T) {
 			tool: "tombi",
 			args: []string{"lint", "--quiet", "--error-on-warnings", "config.toml"},
 			want: []string{"lint", "--quiet", "--error-on-warnings", "config.toml"},
+		},
+		{
+			tool: "go-test",
+			args: nil,
+			want: []string{
+				"test",
+				"-json",
+				"-cover",
+				"-p=1",
+				"-buildvcs=false",
+				"-count=1",
+				"-timeout=30s",
+				"-short",
+			},
+		},
+		{
+			tool: "go-test",
+			args: []string{"-run", "TestThing"},
+			want: []string{
+				"test",
+				"-json",
+				"-cover",
+				"-p=1",
+				"-buildvcs=false",
+				"-count=1",
+				"-timeout=30s",
+				"-short",
+				"-run",
+				"TestThing",
+			},
+		},
+		{
+			tool: "go-test",
+			args: []string{"./internal/..."},
+			want: []string{
+				"test",
+				"-json",
+				"-cover",
+				"-p=1",
+				"-buildvcs=false",
+				"-count=1",
+				"-timeout=30s",
+				"-short",
+				"./internal/...",
+			},
 		},
 		{
 			tool: "yamllint",
@@ -994,6 +1065,12 @@ func TestSandboxCapabilitiesAllowConsumerNetworkToolOptIn(t *testing.T) {
 		!slices.Contains(capabilities.Tags, "network") ||
 		slices.Contains(capabilities.Tags, "no-network") {
 		t.Fatalf("go-test network opt-in capabilities mismatch: %#v", capabilities)
+	}
+	if capabilities.SandboxProfile != "" ||
+		capabilities.SeccompProfile != "" ||
+		capabilities.MemoryMB != 0 ||
+		capabilities.CPUQuotaPercent != 0 {
+		t.Fatalf("networked go-test should use host execution: %#v", capabilities)
 	}
 }
 
