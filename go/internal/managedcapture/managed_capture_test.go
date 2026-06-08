@@ -1164,6 +1164,33 @@ func TestSandboxCapabilitiesForModuleFormatToolIncludeWorktree(t *testing.T) {
 	}
 }
 
+func TestSandboxCapabilitiesForRootGolangciAutofixIncludeWorktree(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("golangci-lint-autofix")
+	if !found {
+		t.Fatal("missing golangci-lint-autofix tool")
+	}
+
+	capabilities, err := sandboxCapabilitiesForRequest(
+		tool,
+		lintcapture.RuntimeConfig{},
+		"/repo",
+		"/repo",
+		[]string{"run", "--fix", "./internal/..."},
+	)
+	if err != nil {
+		t.Fatalf("sandboxCapabilitiesForRequest() error = %v", err)
+	}
+
+	if !slices.Contains(capabilities.WritePaths, ".") {
+		t.Fatalf("sandbox write paths missing root worktree: %#v", capabilities)
+	}
+	if !slices.Contains(capabilities.ReadPaths, ".") {
+		t.Fatalf("sandbox read paths missing root worktree: %#v", capabilities)
+	}
+}
+
 func TestSandboxCapabilitiesForGoTestIncludeModuleWorktree(t *testing.T) {
 	t.Parallel()
 
