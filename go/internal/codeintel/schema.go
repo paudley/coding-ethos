@@ -18,7 +18,7 @@ func schemaStatements() []string {
 	return statements
 }
 
-const schemaStatementCapacity = 52
+const schemaStatementCapacity = 54
 
 func traceSchemaStatements() []string {
 	return []string{
@@ -274,11 +274,20 @@ func codeSchemaStatements() []string {
 		target_chunk_id TEXT,
 		target_symbol_path TEXT,
 		target_name TEXT,
+		provenance_class TEXT NOT NULL DEFAULT 'EXTRACTED',
 		raw_text TEXT,
 		FOREIGN KEY(path) REFERENCES code_files(path) ON DELETE CASCADE,
 		FOREIGN KEY(source_chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE CASCADE,
 		FOREIGN KEY(target_chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE SET NULL
 	)`,
+		// DuckDB cannot add this column with NOT NULL/DEFAULT constraints during
+		// migration. Inserts normalize through insertCodeEdge, migrated rows are
+		// backfilled here, and reads COALESCE before normalizeProvenanceClass.
+		`ALTER TABLE code_edges
+		ADD COLUMN IF NOT EXISTS provenance_class TEXT`,
+		`UPDATE code_edges
+		SET provenance_class = 'EXTRACTED'
+		WHERE COALESCE(provenance_class, '') = ''`,
 		`CREATE TABLE IF NOT EXISTS diff_edit_patterns (
 		pattern_hash TEXT PRIMARY KEY,
 		diff_source TEXT NOT NULL,

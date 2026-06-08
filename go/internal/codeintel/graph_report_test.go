@@ -54,6 +54,7 @@ func runApp() {}
 		report.Stats.Files != 2 ||
 		len(report.CentralFiles) != 2 ||
 		report.CentralFiles[0].Path == "" ||
+		!hasProvenanceClass(report.CentralFiles[0].ProvenanceClasses, ProvenanceExtracted) ||
 		!strings.Contains(strings.Join(report.CentralFiles[0].Reasons, "; "), "score") {
 		t.Fatalf("unexpected graph report:\n%#v", report)
 	}

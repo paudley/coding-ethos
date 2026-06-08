@@ -1523,6 +1523,7 @@ func dedupeCodeEdges(edges []CodeEdge) []CodeEdge {
 		}
 
 		seen[edge.ID] = true
+		edge.ProvenanceClass = normalizeProvenanceClass(edge.ProvenanceClass)
 		deduped = append(deduped, edge)
 	}
 

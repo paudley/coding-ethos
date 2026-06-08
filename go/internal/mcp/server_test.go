@@ -985,7 +985,9 @@ func TestServerCodeIntelRepoMapResource(t *testing.T) {
 		"params":{"uri":"coding-ethos://code-intel/repo-map"}
 	}`), runtime)
 	if !strings.Contains(readOutput, "coding_ethos_repo_map") ||
-		!strings.Contains(readOutput, "pkg/app.py") {
+		!strings.Contains(readOutput, "pkg/app.py") ||
+		!strings.Contains(readOutput, "provenance") ||
+		!strings.Contains(readOutput, "EXTRACTED") {
 		t.Fatalf("resource read missing repo map:\n%s", readOutput)
 	}
 }
@@ -1064,7 +1066,9 @@ func TestServerCodeIntelRepoMapRootPathDoesNotRefreshIndex(t *testing.T) {
 	}
 
 	if !strings.Contains(toolOutput, "pkg/app.py") ||
-		!strings.Contains(toolOutput, "coding_ethos_repo_map") {
+		!strings.Contains(toolOutput, "coding_ethos_repo_map") ||
+		!strings.Contains(toolOutput, "provenance") ||
+		!strings.Contains(toolOutput, "EXTRACTED") {
 		t.Fatalf("root repo-map tool did not return stored repo map:\n%s", toolOutput)
 	}
 

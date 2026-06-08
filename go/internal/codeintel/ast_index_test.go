@@ -463,6 +463,17 @@ Run the installer.
 	if !hasCodeEdge(edges, "documents", "Installation") {
 		t.Errorf("missing documents:Installation edge. Edges: %#v", edges)
 	}
+
+	for _, edge := range edges {
+		if edge.ProvenanceClass != ProvenanceExtracted {
+			t.Fatalf(
+				"edge provenance for %s = %q, want %q",
+				edge.ID,
+				edge.ProvenanceClass,
+				ProvenanceExtracted,
+			)
+		}
+	}
 }
 
 func writeIndexedTestFile(t *testing.T, root, path, content string) {

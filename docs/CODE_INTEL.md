@@ -143,6 +143,14 @@ remediation text.
 duckdb-vss is active for derived vector rows, but DuckDB facts remain the
 auditable source of truth.
 
+Graph facts expose provenance classes wherever repo maps, graph reports, and
+MCP graph surfaces show those facts. `EXTRACTED` marks parser/static-analysis
+facts, while `GIT_DERIVED`, `POLICY_DERIVED`, `TRACE_DERIVED`, and
+`DOC_DERIVED` mark deterministic derived evidence. `INFERRED` and `AMBIGUOUS`
+are advisory only and must not become enforcement inputs without a deterministic
+source fact behind them. Existing records without explicit provenance default to
+`EXTRACTED` so migrated indexes stay conservative.
+
 Code health scoring is another derived DuckDB surface. `code-intel health` and
 MCP `code_intel_health` compute deterministic refactoring rankings from indexed
 files/chunks, large files/functions, complex functions, complex conditionals,

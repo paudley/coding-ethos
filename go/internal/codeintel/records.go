@@ -351,6 +351,7 @@ type CodeEdge struct {
 	ID               string `json:"id"`
 	Kind             string `json:"kind"`
 	Path             string `json:"path"`
+	ProvenanceClass  string `json:"provenance_class,omitempty"`
 	SourceChunkID    string `json:"source_chunk_id,omitempty"`
 	TargetPath       string `json:"target_path,omitempty"`
 	TargetChunkID    string `json:"target_chunk_id,omitempty"`
@@ -453,6 +454,7 @@ type RepoMapFile struct {
 	Path                string          `json:"path"`
 	Language            string          `json:"language"`
 	PrimaryAuthorEmail  string          `json:"primary_author_email,omitempty"`
+	ProvenanceClasses   []string        `json:"provenance_classes,omitempty"`
 	Symbols             []RepoMapSymbol `json:"symbols,omitempty"`
 	SymbolCount         int             `json:"symbol_count"`
 	ChunkCount          int             `json:"chunk_count"`
@@ -463,14 +465,15 @@ type RepoMapFile struct {
 }
 
 type RepoMapSymbol struct {
-	Path       string `json:"path,omitempty"`
-	Language   string `json:"language,omitempty"`
-	Kind       string `json:"kind,omitempty"`
-	Name       string `json:"name,omitempty"`
-	SymbolPath string `json:"symbol_path,omitempty"`
-	Signature  string `json:"signature,omitempty"`
-	StartLine  int    `json:"start_line"`
-	EndLine    int    `json:"end_line,omitempty"`
+	Path              string   `json:"path,omitempty"`
+	Language          string   `json:"language,omitempty"`
+	Kind              string   `json:"kind,omitempty"`
+	Name              string   `json:"name,omitempty"`
+	SymbolPath        string   `json:"symbol_path,omitempty"`
+	Signature         string   `json:"signature,omitempty"`
+	ProvenanceClasses []string `json:"provenance_classes,omitempty"`
+	StartLine         int      `json:"start_line"`
+	EndLine           int      `json:"end_line,omitempty"`
 }
 
 type DirectoryAnatomyQuery struct {

@@ -45,6 +45,7 @@ type GraphReportFile struct {
 	Path                string          `json:"path"`
 	Language            string          `json:"language,omitempty"`
 	PrimaryAuthorEmail  string          `json:"primary_author_email,omitempty"`
+	ProvenanceClasses   []string        `json:"provenance_classes,omitempty"`
 	Symbols             []RepoMapSymbol `json:"symbols,omitempty"`
 	Reasons             []string        `json:"reasons,omitempty"`
 	SymbolCount         int             `json:"symbol_count"`
@@ -136,6 +137,7 @@ func graphReportFiles(files []RepoMapFile) []GraphReportFile {
 			Path:                file.Path,
 			Language:            file.Language,
 			PrimaryAuthorEmail:  file.PrimaryAuthorEmail,
+			ProvenanceClasses:   file.ProvenanceClasses,
 			Symbols:             file.Symbols,
 			Reasons:             graphReportFileReasons(file),
 			SymbolCount:         file.SymbolCount,

@@ -112,6 +112,7 @@ func globalRepoMap(
 			continue
 		}
 
+		symbol.ProvenanceClasses = []string{ProvenanceExtracted}
 		symbolsByFile[symbol.Path] = append(symbolsByFile[symbol.Path], symbol)
 	}
 
@@ -236,6 +237,7 @@ func queryRepoMapFiles(
 		}
 
 		file.Score = repoMapFileScore(file)
+		file.ProvenanceClasses = repoMapFileProvenanceClasses(file)
 		files = append(files, file)
 
 		if len(files) >= repoMapLimit(query) {
@@ -254,6 +256,17 @@ func queryRepoMapFiles(
 type repoMapPathQueryFilter struct {
 	Exact      string
 	PrefixLike string
+}
+
+func repoMapFileProvenanceClasses(file RepoMapFile) []string {
+	classes := []string{ProvenanceExtracted}
+	if file.HotspotScore > 0 ||
+		file.HiddenCouplingCount > 0 ||
+		strings.TrimSpace(file.PrimaryAuthorEmail) != "" {
+		classes = append(classes, ProvenanceGitDerived)
+	}
+
+	return classes
 }
 
 func repoMapPathFilter(path string) repoMapPathQueryFilter {
@@ -522,7 +535,7 @@ func RenderRepoMapTOON(repoMap RepoMap) string {
 		"coding_ethos_repo_map:",
 		"root: " + quoteAnatomyValue(repoMap.Root),
 		"files[" + strconv.Itoa(len(repoMap.Files)) +
-			"]{path,language,lines,score,hotspot,hidden_couplings,owner,symbols}:",
+			"]{path,language,lines,score,hotspot,hidden_couplings,owner,provenance,symbols}:",
 	}
 
 	for _, file := range repoMap.Files {
@@ -534,6 +547,7 @@ func RenderRepoMapTOON(repoMap RepoMap) string {
 			strconv.FormatFloat(file.HotspotScore, 'f', 1, 64),
 			strconv.Itoa(file.HiddenCouplingCount),
 			quoteAnatomyValue(file.PrimaryAuthorEmail),
+			quoteAnatomyValue(strings.Join(file.ProvenanceClasses, "|")),
 			quoteAnatomyValue(renderRepoMapSymbols(file.Symbols)),
 		}, ","))
 	}

@@ -146,6 +146,7 @@ func graphReportCentralFilesTable(
 			strconv.Itoa(file.HiddenCouplingCount),
 			strconv.Itoa(file.SymbolCount),
 			strconv.Itoa(file.ChunkCount),
+			strings.Join(file.ProvenanceClasses, "|"),
 			strings.Join(file.Reasons, "; "),
 		})
 	}
@@ -161,6 +162,7 @@ func graphReportCentralFilesTable(
 			"hidden_couplings",
 			"symbols",
 			"chunks",
+			"provenance",
 			"reasons",
 		},
 		Rows: rows,
