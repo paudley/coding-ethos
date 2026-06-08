@@ -296,6 +296,11 @@ file/symbol signatures as TOON. The same renderer backs MCP
 `coding-ethos://code-intel/repo-map` resource so agents can request the current
 map explicitly before broad exploration.
 
+`graph-report` composes the repo map, code-intel store counts, and the latest
+stored health snapshot into a human, JSON, or TOON orientation report. It is
+read-only with respect to indexing and tells agents when the AST index or health
+snapshot needs an explicit refresh.
+
 `proxy-file-read` is the current bridge for read deduplication. It reads a
 repo-relative file, computes the current content hash, records the first read as
 a `file_read` proxy event, and records later unchanged reads in the same session
