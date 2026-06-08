@@ -511,7 +511,7 @@ func managedGitCommitRepoConfig() string {
 		"repo:",
 		"  license:",
 		"    spdx_identifier: AGPL-3.0-only",
-		"    copyright: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>",
+		"    copyright: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>",
 		"    text: |",
 		"      Coding Ethos reference repository license.",
 		"",
@@ -625,7 +625,7 @@ func managedGitFixtureLicense() string {
 	return strings.Join([]string{
 		"Coding Ethos reference repository license.",
 		"",
-		"Copyright (c) 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>",
+		"Copyright (c) 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>",
 		"",
 	}, "\n")
 }
