@@ -59,15 +59,20 @@ func printGraphReport(ctx context.Context, args []string) error {
 
 	message := graphReportFeedback(report)
 
-	switch strings.TrimSpace(*format) {
-	case "", feedback.FormatHuman:
+	formatVal := strings.TrimSpace(*format)
+	if formatVal == "" {
+		formatVal = feedback.FormatHuman
+	}
+
+	switch formatVal {
+	case feedback.FormatHuman, feedback.FormatTOON:
 		err = feedback.Write(
 			os.Stdout,
 			message,
-			feedback.FormatHuman,
+			formatVal,
 		)
 		if err != nil {
-			return fmt.Errorf("write graph report human output: %w", err)
+			return fmt.Errorf("write graph report %s output: %w", formatVal, err)
 		}
 
 		return nil
@@ -75,17 +80,6 @@ func printGraphReport(ctx context.Context, args []string) error {
 		err = encodeJSON(os.Stdout, report)
 		if err != nil {
 			return fmt.Errorf("write graph report JSON: %w", err)
-		}
-
-		return nil
-	case outputFormatTOON:
-		err = feedback.Write(
-			os.Stdout,
-			message,
-			feedback.FormatTOON,
-		)
-		if err != nil {
-			return fmt.Errorf("write graph report TOON: %w", err)
 		}
 
 		return nil
@@ -115,9 +109,11 @@ func graphReportFeedback(report codeintel.GraphReport) feedback.Message {
 }
 
 func graphReportTables(report codeintel.GraphReport) []feedback.Table {
-	tables := []feedback.Table{
-		graphReportCentralFilesTable(report.CentralFiles),
+	tables := []feedback.Table{}
+	if len(report.CentralFiles) > 0 {
+		tables = append(tables, graphReportCentralFilesTable(report.CentralFiles))
 	}
+
 	if len(report.HealthTargets) > 0 {
 		tables = append(tables, graphReportHealthTargetsTable(report.HealthTargets))
 	}

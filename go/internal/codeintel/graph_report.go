@@ -15,6 +15,8 @@ const (
 	graphReportSymbolsPerFile = 4
 	graphReportHealthTrend    = 0
 	graphReportHotspotFormat  = "%.1f"
+	graphReportReasonCapacity = 5
+	graphReportWarnCapacity   = 2
 )
 
 // GraphReportQuery controls graph report scope and ranked-symbol density.
@@ -58,6 +60,9 @@ func (store *Store) GraphReport(
 	ctx context.Context,
 	query GraphReportQuery,
 ) (GraphReport, error) {
+	query.Root = strings.TrimSpace(query.Root)
+	query.Path = strings.TrimSpace(query.Path)
+
 	stats, err := store.Stats(ctx)
 	if err != nil {
 		return GraphReport{}, fmt.Errorf("query graph report stats: %w", err)
@@ -75,8 +80,8 @@ func (store *Store) GraphReport(
 
 	report := GraphReport{
 		Kind:             graphReportKind,
-		Root:             strings.TrimSpace(query.Root),
-		Path:             strings.TrimSpace(query.Path),
+		Root:             query.Root,
+		Path:             query.Path,
 		Stats:            stats,
 		RepoMap:          repoMap,
 		CentralFiles:     graphReportFiles(repoMap.Files),
@@ -146,7 +151,7 @@ func graphReportFiles(files []RepoMapFile) []GraphReportFile {
 }
 
 func graphReportFileReasons(file RepoMapFile) []string {
-	reasons := []string{}
+	reasons := make([]string, 0, graphReportReasonCapacity)
 
 	if file.Score > 0 {
 		reasons = append(reasons, fmt.Sprintf("repo-map score %d", file.Score))
@@ -184,7 +189,7 @@ func graphReportFileReasons(file RepoMapFile) []string {
 }
 
 func graphReportWarnings(stats Stats, repoMap RepoMap) []string {
-	warnings := []string{}
+	warnings := make([]string, 0, graphReportWarnCapacity)
 
 	if stats.Files == 0 || stats.CodeChunks == 0 {
 		warnings = append(
