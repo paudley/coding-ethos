@@ -364,7 +364,8 @@ func deep() {}
 		graphReportMarkdown,
 		"kind: code_intel.graph_report.v1",
 	) ||
-		!strings.Contains(graphReportMarkdown, "cmd/app.go") {
+		!strings.Contains(graphReportMarkdown, "cmd/app.go") ||
+		!strings.Contains(graphReportMarkdown, "EXTRACTED") {
 		t.Fatalf("graph-report human missing expected content:\n%s", graphReportMarkdown)
 	}
 
@@ -379,7 +380,9 @@ func deep() {}
 		t.Fatalf("graph-report TOON returned error: %v", graphReportTOONErr)
 	}
 	if !strings.Contains(graphReportTOON, "kind: code_intel.graph_report.v1") ||
-		!strings.Contains(graphReportTOON, "central_files[") {
+		!strings.Contains(graphReportTOON, "central_files[") ||
+		!strings.Contains(graphReportTOON, "provenance") ||
+		!strings.Contains(graphReportTOON, "EXTRACTED") {
 		t.Fatalf("graph-report TOON missing expected content:\n%s", graphReportTOON)
 	}
 

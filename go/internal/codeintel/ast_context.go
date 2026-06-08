@@ -617,7 +617,7 @@ func (store *Store) CodeEdges(
 		ctx,
 		`SELECT edge_id, edge_kind, path, COALESCE(source_chunk_id, ''),
 			target_path, COALESCE(target_chunk_id, ''), target_symbol_path,
-			target_name, raw_text
+			target_name, COALESCE(provenance_class, ''), raw_text
 		FROM code_edges
 		WHERE (? = '' OR path = ?)
 			AND (? = '' OR edge_kind = ?)
@@ -652,7 +652,7 @@ func (store *Store) outgoingCodeEdges(
 		ctx,
 		`SELECT edge_id, edge_kind, path, COALESCE(source_chunk_id, ''),
 			target_path, COALESCE(target_chunk_id, ''), target_symbol_path,
-			target_name, raw_text
+			target_name, COALESCE(provenance_class, ''), raw_text
 		FROM code_edges
 		WHERE source_chunk_id = ?
 		ORDER BY edge_kind, target_name
@@ -677,7 +677,7 @@ func (store *Store) incomingCodeEdges(
 		ctx,
 		`SELECT edge_id, edge_kind, path, COALESCE(source_chunk_id, ''),
 			target_path, COALESCE(target_chunk_id, ''), target_symbol_path,
-			target_name, raw_text
+			target_name, COALESCE(provenance_class, ''), raw_text
 		FROM code_edges
 		WHERE target_chunk_id = ?
 		ORDER BY edge_kind, target_name
@@ -708,12 +708,14 @@ func scanCodeEdges(rows *sql.Rows) ([]CodeEdge, error) {
 			&result.TargetChunkID,
 			&result.TargetSymbolPath,
 			&result.TargetName,
+			&result.ProvenanceClass,
 			&result.RawText,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan code edge: %w", err)
 		}
 
+		result.ProvenanceClass = normalizeProvenanceClass(result.ProvenanceClass)
 		results = append(results, result)
 	}
 

@@ -1176,6 +1176,30 @@ func TestOpenCreatesProxyEvidencePathOnlyOnTransforms(t *testing.T) {
 	}
 }
 
+func TestOpenCreatesCodeEdgeProvenanceColumn(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := Open(ctx, DefaultDBPath(t.TempDir()))
+	if err != nil {
+		t.Fatalf("open fresh store: %v", err)
+	}
+	defer store.Close()
+
+	column, err := testColumnExists(
+		ctx,
+		store.Database(),
+		"code_edges",
+		"provenance_class",
+	)
+	if err != nil {
+		t.Fatalf("check code_edges provenance_class column: %v", err)
+	}
+	if !column {
+		t.Fatal("code_edges.provenance_class was not created")
+	}
+}
+
 func testColumnExists(
 	ctx context.Context,
 	database *sql.DB,
@@ -2586,6 +2610,8 @@ func main() { fmt.Println("x"); fmt.Println("y") }
 		!strings.Contains(rendered, "coding_ethos_repo_map:") ||
 		!strings.Contains(rendered, "pkg/worker.py") ||
 		!strings.Contains(rendered, "def helper():") ||
+		!strings.Contains(rendered, "owner,provenance,symbols") ||
+		!strings.Contains(rendered, ProvenanceExtracted) ||
 		strings.Contains(rendered, ".codex/skills/generated/SKILL.md") ||
 		strings.Contains(rendered, ".venv/lib/python/site-packages/pkg.py") ||
 		strings.Contains(rendered, "coding-ethos/go/internal/tool.go") ||
@@ -2594,6 +2620,7 @@ func main() { fmt.Println("x"); fmt.Println("y") }
 		strings.Contains(rendered, `fmt.Println("x");`) {
 		t.Fatalf("repo map = %#v\n%s", repoMap, rendered)
 	}
+	assertRepoMapExtractedProvenance(t, repoMap)
 }
 
 func TestGlobalRepoMapFiltersDirectoryPath(t *testing.T) {
@@ -3041,6 +3068,43 @@ func assertWorkerImportEdge(t *testing.T, ctx context.Context, store *Store) {
 	if len(edges) != 1 {
 		t.Fatalf("import edges = %#v", edges)
 	}
+
+	if edges[0].ProvenanceClass != ProvenanceExtracted {
+		t.Fatalf(
+			"import edge provenance = %q, want %q",
+			edges[0].ProvenanceClass,
+			ProvenanceExtracted,
+		)
+	}
+}
+
+func assertRepoMapExtractedProvenance(t *testing.T, repoMap RepoMap) {
+	t.Helper()
+
+	for _, file := range repoMap.Files {
+		if !hasProvenanceClass(file.ProvenanceClasses, ProvenanceExtracted) {
+			t.Fatalf("file provenance for %s = %#v", file.Path, file.ProvenanceClasses)
+		}
+		for _, symbol := range file.Symbols {
+			if !hasProvenanceClass(symbol.ProvenanceClasses, ProvenanceExtracted) {
+				t.Fatalf(
+					"symbol provenance for %s = %#v",
+					symbol.SymbolPath,
+					symbol.ProvenanceClasses,
+				)
+			}
+		}
+	}
+}
+
+func hasProvenanceClass(classes []string, want string) bool {
+	for _, class := range classes {
+		if class == want {
+			return true
+		}
+	}
+
+	return false
 }
 
 func assertIndexedSummary(t *testing.T, summary CodeIndexSummary) {

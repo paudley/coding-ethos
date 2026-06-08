@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -133,6 +134,23 @@ func TestStoreRefreshesGitSignalsFromRealHistory(t *testing.T) {
 	if len(signal.CoChanges) != 1 || signal.CoChanges[0].RelatedPath != "pkg/b.go" ||
 		signal.CoChanges[0].Count != 2 || signal.CoChanges[0].HiddenCoupling {
 		t.Fatalf("unexpected co-change signal: %#v", signal.CoChanges)
+	}
+
+	_, err = NewASTIndexer(store).IndexPaths(ctx, repo, []string{"pkg"})
+	if err != nil {
+		t.Fatalf("index git signal repo: %v", err)
+	}
+
+	repoMap, err := store.GlobalRepoMap(ctx, RepoMapQuery{
+		Root:  repo,
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("query git-derived repo map: %v", err)
+	}
+	if len(repoMap.Files) == 0 ||
+		!slices.Contains(repoMap.Files[0].ProvenanceClasses, ProvenanceGitDerived) {
+		t.Fatalf("git-derived repo-map provenance missing: %#v", repoMap.Files)
 	}
 
 	reviewers, err := store.GitReviewerSuggestions(ctx, GitReviewerSuggestionQuery{

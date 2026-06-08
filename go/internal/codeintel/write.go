@@ -1064,8 +1064,9 @@ func insertCodeEdge(ctx context.Context, transaction *sql.Tx, edge CodeEdge) err
 		ctx,
 		`INSERT OR REPLACE INTO code_edges(
 			edge_id, edge_kind, path, source_chunk_id, target_path,
-			target_chunk_id, target_symbol_path, target_name, raw_text
-		) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?)`,
+			target_chunk_id, target_symbol_path, target_name,
+			provenance_class, raw_text
+		) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?)`,
 		edge.ID,
 		edge.Kind,
 		edge.Path,
@@ -1074,6 +1075,7 @@ func insertCodeEdge(ctx context.Context, transaction *sql.Tx, edge CodeEdge) err
 		edge.TargetChunkID,
 		edge.TargetSymbolPath,
 		edge.TargetName,
+		normalizeProvenanceClass(edge.ProvenanceClass),
 		edge.RawText,
 	)
 	if inlineErrP != nil {
