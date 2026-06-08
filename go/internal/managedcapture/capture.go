@@ -384,6 +384,8 @@ func startCapturedProcess(
 ) processResult {
 	processIO, failedResult, ok := openCapturedProcessIO(plan)
 	if !ok {
+		cleanupSandboxCacheEnv(cacheEnv)
+
 		return failedResult
 	}
 	defer processIO.closeReaders()
