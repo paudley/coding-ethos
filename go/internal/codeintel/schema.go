@@ -280,6 +280,9 @@ func codeSchemaStatements() []string {
 		FOREIGN KEY(source_chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE CASCADE,
 		FOREIGN KEY(target_chunk_id) REFERENCES code_chunks(chunk_id) ON DELETE SET NULL
 	)`,
+		// DuckDB cannot add this column with NOT NULL/DEFAULT constraints during
+		// migration. Inserts normalize through insertCodeEdge, migrated rows are
+		// backfilled here, and reads COALESCE before normalizeProvenanceClass.
 		`ALTER TABLE code_edges
 		ADD COLUMN IF NOT EXISTS provenance_class TEXT`,
 		`UPDATE code_edges

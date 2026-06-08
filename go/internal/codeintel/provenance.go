@@ -34,7 +34,3 @@ func normalizeProvenanceClass(value string) string {
 		return ProvenanceExtracted
 	}
 }
-
-func extractedProvenanceClasses() []string {
-	return []string{ProvenanceExtracted}
-}

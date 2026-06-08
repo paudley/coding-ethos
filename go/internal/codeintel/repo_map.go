@@ -112,12 +112,11 @@ func globalRepoMap(
 			continue
 		}
 
-		symbol.ProvenanceClasses = extractedProvenanceClasses()
+		symbol.ProvenanceClasses = []string{ProvenanceExtracted}
 		symbolsByFile[symbol.Path] = append(symbolsByFile[symbol.Path], symbol)
 	}
 
 	for index := range files {
-		files[index].ProvenanceClasses = repoMapFileProvenanceClasses(files[index])
 		files[index].Symbols = symbolsByFile[files[index].Path]
 	}
 
