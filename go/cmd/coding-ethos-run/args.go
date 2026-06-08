@@ -5,10 +5,16 @@ package main
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
-const injectedRootArgCount = 2
+const (
+	golangciLintAutofixTool = "golangci-lint-autofix"
+	golangciLintFormatTool  = "golangci-lint-format"
+	golangciLintTool        = "golangci-lint"
+	injectedRootArgCount    = 2
+)
 
 func runnerArgs(argv []string) []string {
 	if len(argv) != 1 {
@@ -57,10 +63,11 @@ func policyToolLintArgs(
 ) []string {
 	const managedLintBaseArgCount = 11
 
+	captureTool := policyToolCaptureTool(toolName, toolArgs)
 	lintArgs := make([]string, 0, managedLintBaseArgCount+len(toolArgs))
 	lintArgs = append(lintArgs,
 		"--bundle", paths.PolicyBundle,
-		"--managed-capture-tool", toolName,
+		"--managed-capture-tool", captureTool,
 		"--ethos-root", paths.EthosRoot,
 		"--consumer-root", paths.Root,
 		"--invocation-cwd", paths.InvocationCWD,
@@ -69,6 +76,42 @@ func policyToolLintArgs(
 	lintArgs = append(lintArgs, toolArgs...)
 
 	return lintArgs
+}
+
+func policyToolCaptureTool(toolName string, toolArgs []string) string {
+	if toolName != golangciLintTool {
+		return toolName
+	}
+
+	if golangciLintArgsRequestFormat(toolArgs) {
+		return golangciLintFormatTool
+	}
+
+	if golangciLintArgsRequestFix(toolArgs) {
+		return golangciLintAutofixTool
+	}
+
+	return toolName
+}
+
+func golangciLintArgsRequestFormat(args []string) bool {
+	return firstGolangciLintCommand(args) == "fmt"
+}
+
+func golangciLintArgsRequestFix(args []string) bool {
+	return slices.Contains(args, "--fix")
+}
+
+func firstGolangciLintCommand(args []string) string {
+	for _, arg := range args {
+		if strings.TrimSpace(arg) == "" || strings.HasPrefix(arg, "-") {
+			continue
+		}
+
+		return arg
+	}
+
+	return ""
 }
 
 func withDefaultHookCommand(paths runtimePaths, args []string) []string {

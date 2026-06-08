@@ -158,6 +158,10 @@ sandbox:
   # sandboxing is enabled. Use this only for required workspace/toolchain
   # directories; .git writes remain blocked even if listed here.
   read_write_paths: []
+  # Managed tools remain no-network by default. List only tools whose test or
+  # validation workflow must bind local sockets or otherwise use networking.
+  network_tools:
+    - go-test
 
 filesystem:
   protected_path:

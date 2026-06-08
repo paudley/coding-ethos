@@ -208,14 +208,15 @@ func preparedParentRuntimeRepo(t *testing.T) parentRuntimeFixture {
 	configureManagedGitSigning(t, parentRepo)
 
 	writeParentRuntimeFile(t, parentRepo, "repo_config.yaml", managedGitCommitRepoConfig())
+	writeParentRuntimeFile(t, parentRepo, "LICENSE", managedGitFixtureLicense())
 	writeParentRuntimeFile(
 		t,
 		parentRepo,
 		".gitignore",
-		strings.Join(repoignore.RuntimePaths(), "\n")+"\n",
+		strings.Join(managedGitRequiredIgnores(), "\n")+"\n",
 	)
 	writeParentRuntimeFile(t, parentRepo, "README.md", "# parent runtime e2e\n")
-	e2e.Run(t, parentRepo, realGitPath(t), "add", ".gitignore", "README.md", "repo_config.yaml").
+	e2e.Run(t, parentRepo, realGitPath(t), "add", ".gitignore", "LICENSE", "README.md", "repo_config.yaml").
 		RequireExit(t, 0)
 	e2e.Run(t, parentRepo, realGitPath(t), "commit", "-m", "test(repo): initialize parent runtime e2e").
 		RequireExit(t, 0)
@@ -249,6 +250,14 @@ func preparedManagedGitCommitRepo(t *testing.T) e2e.Repo {
 	configureManagedGitSigning(t, repo.Root)
 	syncManagedGitGeneratedFixtures(t, repo)
 	repo.Touch(t, "repo_config.yaml", managedGitCommitRepoConfig())
+	copyRuntimeFile(
+		t,
+		filepath.Join(repo.EthosRoot, "LICENSE"),
+		filepath.Join(repo.Root, "LICENSE"),
+	)
+	repo.Git(t, "add", "LICENSE", "repo_config.yaml").RequireExit(t, 0)
+	repo.Git(t, "commit", "-m", "test(repo): configure managed policy fixture").
+		RequireExit(t, 0)
 	installManagedGitPolicyArtifacts(t, repo)
 	installManagedGitEntrypoints(t, repo)
 
@@ -499,6 +508,14 @@ func managedGitCommitRepoConfig() string {
 		"    enabled: false",
 		"  file_docstrings:",
 		"    enabled: true",
+		"repo:",
+		"  license:",
+		"    spdx_identifier: AGPL-3.0-only",
+		"    copyright: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>",
+		"    text: |",
+		"      Coding Ethos reference repository license.",
+		"",
+		"      Copyright (c) <year> <copyright holders>",
 		"lint:",
 		"  source_roots:",
 		"    - pkg",
@@ -508,7 +525,7 @@ func managedGitCommitRepoConfig() string {
 
 func cleanCommitPython() string {
 	return strings.Join([]string{
-		"# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>",
+		"# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>",
 		"# SPDX-License-Identifier: AGPL-3.0-only",
 		"",
 		`"""Clean fixture used by the managed git commit e2e workflow.`,
@@ -527,7 +544,7 @@ func cleanCommitPython() string {
 
 func moduleDocFailurePython() string {
 	return strings.Join([]string{
-		"# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>",
+		"# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>",
 		"# SPDX-License-Identifier: AGPL-3.0-only",
 		"",
 		`"""Too short."""`,
@@ -593,6 +610,24 @@ func managedGitBinDir(t *testing.T, repo e2e.Repo) string {
 	}
 
 	return path
+}
+
+func managedGitRequiredIgnores() []string {
+	return append(
+		repoignore.RuntimePaths(),
+		"config.toml",
+		"data/",
+		"dist/",
+	)
+}
+
+func managedGitFixtureLicense() string {
+	return strings.Join([]string{
+		"Coding Ethos reference repository license.",
+		"",
+		"Copyright (c) 2026 Blackcat Informatics® Inc. <paudley@blackcat.ca>",
+		"",
+	}, "\n")
 }
 
 func repoLocalCoverageRuntime(t *testing.T, repo e2e.Repo) string {

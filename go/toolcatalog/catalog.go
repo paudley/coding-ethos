@@ -234,7 +234,10 @@ func withDefaultOfflineCapabilities(
 	spec.CPUQuotaPercent = defaultInt(spec.CPUQuotaPercent, defaultCPUQuotaPercent)
 	spec.SeccompProfile = defaultString(spec.SeccompProfile, "deny-privilege")
 	spec.ReadPaths = append([]string{"."}, spec.ReadPaths...)
-	spec.WritePaths = append([]string{".coding-ethos/cache"}, spec.WritePaths...)
+	spec.WritePaths = append(
+		[]string{".coding-ethos/cache/", ".coding-ethos/lint-runs/"},
+		spec.WritePaths...,
+	)
 
 	return spec
 }

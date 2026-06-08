@@ -101,6 +101,73 @@ func TestFormatLintResultTOONIncludesAgentRemediation(t *testing.T) {
 	}
 }
 
+func TestFormatLintResultTOONOmitsGenericAgentRemediation(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:golangci-lint",
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "golangci-lint",
+			File:     "internal/testsupport/components.go",
+			Line:     350,
+			Severity: "error",
+			Code:     "mnd",
+			Message:  "Magic number: 30, in <argument> detected",
+		}},
+	}
+
+	output, err := FormatLintResult(result, FormatTOON)
+	if err != nil {
+		t.Fatalf("format lint result: %v", err)
+	}
+
+	for _, want := range []string{
+		"golangci-lint,internal/testsupport/components.go,350,0,error,mnd,,," +
+			"Magic number: 30\\, in <argument> detected,,",
+		"guidance[1]{message}:",
+		"Fix the reported diagnostics before continuing.",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, output)
+		}
+	}
+
+	for _, forbidden := range []string{
+		"agent_remediation[",
+		"Fix the reported violation before retrying.",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("TOON output included generic remediation %q:\n%s", forbidden, output)
+		}
+	}
+}
+
+func TestFormatLintResultTOONRejectsMessageLessDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	result := lint.Result{
+		Scope:  "tool:golangci-lint",
+		Status: "blocked",
+		Diagnostics: []diagnostics.Diagnostic{{
+			Tool:     "golangci-lint",
+			File:     "internal/testsupport/components.go",
+			Line:     350,
+			Severity: "error",
+			Code:     "mnd",
+		}},
+	}
+
+	_, err := FormatLintResult(result, FormatTOON)
+	if err == nil {
+		t.Fatal("FormatLintResult() succeeded for diagnostic without message")
+	}
+	if !strings.Contains(err.Error(), "diagnostic missing message") ||
+		!strings.Contains(err.Error(), "internal/testsupport/components.go") {
+		t.Fatalf("error did not identify malformed diagnostic: %v", err)
+	}
+}
+
 func TestFormatLintResultSARIFIncludesNormalizedEvidence(t *testing.T) {
 	t.Parallel()
 

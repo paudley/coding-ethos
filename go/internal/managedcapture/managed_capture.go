@@ -318,6 +318,18 @@ func sandboxCapabilities(
 	config lintcapture.RuntimeConfig,
 ) sandbox.Capabilities {
 	spec := tool.CapabilitySpec()
+	if config.SandboxToolRequiresNetwork(tool.Name) {
+		spec.RequiresNetwork = true
+		spec.Tags = capabilityTagsRequire(spec.Tags, "network", "no-network")
+	}
+
+	if spec.RequiresNetwork && spec.RequiresProcesses {
+		spec.SandboxProfile = ""
+		spec.SeccompProfile = ""
+		spec.MemoryMB = 0
+		spec.CPUQuotaPercent = 0
+	}
+
 	writePaths := append([]string(nil), spec.WritePaths...)
 	writePaths = append(writePaths, config.SandboxReadWritePaths()...)
 	readPaths := append([]string(nil), spec.ReadPaths...)
@@ -350,7 +362,7 @@ func sandboxCapabilitiesForRequest(
 	capabilities := sandboxCapabilities(tool, config)
 	if tool.Name == goTestTool {
 		capabilities.RequiresGit = true
-		capabilities.Tags = requestCapabilityTagsRequireGit(capabilities.Tags)
+		capabilities.Tags = capabilityTagsRequire(capabilities.Tags, "git", "no-git")
 	}
 
 	writePaths, err := toolSandboxWritePaths(tool, consumerRoot, captureCwd, args)
@@ -367,25 +379,28 @@ func sandboxCapabilitiesForRequest(
 	return capabilities, nil
 }
 
-func requestCapabilityTagsRequireGit(tags []string) []string {
+func capabilityTagsRequire(tags []string, requiredTag, deniedTag string) []string {
 	updated := make([]string, 0, len(tags)+1)
-	hasGit := false
+	hasRequired := false
 
 	for _, tag := range tags {
-		switch tag {
-		case "git":
-			hasGit = true
+		if tag == requiredTag {
+			hasRequired = true
 
 			updated = append(updated, tag)
-		case "no-git":
+
 			continue
-		default:
-			updated = append(updated, tag)
 		}
+
+		if tag == deniedTag {
+			continue
+		}
+
+		updated = append(updated, tag)
 	}
 
-	if !hasGit {
-		updated = append(updated, "git")
+	if !hasRequired {
+		updated = append(updated, requiredTag)
 	}
 
 	return updated
@@ -947,21 +962,67 @@ func enforceManagedToolArgs(
 	case goVetTool:
 		return enforceFirstCommandArgs(args, "vet", nil)
 	case goTestTool:
-		return enforceFirstCommandArgs(
-			args,
-			"test",
-			[]string{
-				"-json",
-				"-cover",
-				"-p=1",
-				"-buildvcs=false",
-				"-count=1",
-				"-timeout=30s",
-				"-short",
-			},
-		)
+		return enforceGoTestArgs(args)
 	default:
 		return enforceCatalogConfigArgs(tool, args, consumerRoot)
+	}
+}
+
+func enforceGoTestArgs(args []string) []string {
+	enforced := []string{
+		"-json",
+		"-cover",
+		"-p=1",
+		"-buildvcs=false",
+		"-count=1",
+		"-timeout=30s",
+		"-short",
+	}
+
+	return enforceFirstCommandArgs(args, "test", enforced)
+}
+
+func goTestArgsHavePackage(args []string) bool {
+	for index := 0; index < len(args); index++ {
+		arg := strings.TrimSpace(args[index])
+		if arg == "" {
+			continue
+		}
+
+		if arg == "--" {
+			return index+1 < len(args)
+		}
+
+		if strings.HasPrefix(arg, "-") {
+			if goTestFlagConsumesValue(arg) {
+				index++
+			}
+
+			continue
+		}
+
+		return true
+	}
+
+	return false
+}
+
+func goTestFlagConsumesValue(arg string) bool {
+	name, hasValue := strings.CutPrefix(arg, "-")
+	if !hasValue || strings.Contains(name, "=") {
+		return false
+	}
+
+	switch name {
+	case "args", "benchtime", "blockprofile", "blockprofilerate",
+		"covermode", "coverpkg", "coverprofile", "cpu", "cpuprofile",
+		"exec", "gcflags", "ldflags", "list", "memprofile",
+		"memprofilerate", "mod", "modfile", "mutexprofile",
+		"mutexprofilefraction", "overlay", "p", "parallel", "run",
+		"shuffle", "skip", "tags", "timeout", "toolexec", "trace", "vet":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1222,6 +1283,10 @@ func normalizeGoToolWorktree(
 				defaultModuleDir,
 				args,
 			)
+		}
+
+		if args[0] == "test" && !goTestArgsHavePackage(args[1:]) {
+			return consumerRoot, append(append([]string(nil), args...), "./...")
 		}
 
 		return consumerRoot, args

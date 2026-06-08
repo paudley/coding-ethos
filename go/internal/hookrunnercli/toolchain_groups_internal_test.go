@@ -43,6 +43,47 @@ func TestParseGofmtCheckFindings(t *testing.T) {
 	}
 }
 
+func TestRunGoFormatCheckUsesExplicitSourceFiles(t *testing.T) {
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv(consumerRootEnv, tempDir)
+	bundleRoot := writeManagedToolchainBundle(t, tempDir)
+	t.Setenv(precommitRootEnv, bundleRoot)
+
+	mustWriteTestFile(t, "go/main.go", "package main\n")
+	mustWriteTestFile(
+		t,
+		".coding-ethos/cache/sandbox-tmp/go-test/go-build/b001/_testmain.go",
+		"package main\n",
+	)
+
+	fakeBin := filepath.Join(tempDir, "bin")
+	gofmtLog := filepath.Join(tempDir, "gofmt.log")
+	mustWriteExecutable(
+		t,
+		filepath.Join(fakeBin, "gofmt"),
+		"#!/usr/bin/env sh\nprintf '%s\\n' \"$*\" > "+shellQuoteForTest(gofmtLog)+"\n",
+	)
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if got := runGoFormatCheck(Config{}, []string{"go/main.go"}); got != 0 {
+		t.Fatalf("runGoFormatCheck() = %d, want 0", got)
+	}
+
+	content, err := os.ReadFile(gofmtLog)
+	if err != nil {
+		t.Fatalf("read gofmt log: %v", err)
+	}
+
+	got := strings.TrimSpace(string(content))
+	if got != "-l main.go" {
+		t.Fatalf("gofmt args = %q, want %q", got, "-l main.go")
+	}
+	if strings.Contains(got, ".coding-ethos") || strings.Contains(got, "_testmain.go") {
+		t.Fatalf("gofmt args included generated sandbox cache file: %q", got)
+	}
+}
+
 func TestKubeLinterFiltersNonKubernetesYAML(t *testing.T) {
 	t.Parallel()
 

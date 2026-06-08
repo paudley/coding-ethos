@@ -90,8 +90,7 @@ func FromDiagnostics(items []diagnostics.Diagnostic) []Remediation {
 	remediations := make([]Remediation, 0, len(items))
 	for _, item := range items {
 		remediation := fromDiagnostic(item)
-		if remediation.Message == "" && remediation.PolicyID == "" &&
-			remediation.File == "" {
+		if !diagnosticRemediationActionable(remediation) {
 			continue
 		}
 
@@ -227,11 +226,13 @@ func remediationSteps(
 		)
 	}
 
-	if len(next) == 0 {
-		next = append(next, "Fix the reported violation before retrying.")
-	}
-
 	return compactStrings(next)
+}
+
+func diagnosticRemediationActionable(remediation Remediation) bool {
+	return len(remediation.NextSteps) > 0 ||
+		len(remediation.Rerun) > 0 ||
+		remediation.MCP != nil
 }
 
 func remediationMCP(policyID, skillID string) *MCPCall {

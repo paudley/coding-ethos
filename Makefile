@@ -619,6 +619,8 @@ _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 	@rm -rf "$(PARENT_HOOK_RUNTIME_DIR)/pre-commit" "$(PARENT_HOOK_RUNTIME_DIR)/build/toolchain" "$(PARENT_HOOK_RUNTIME_DIR)/build/policy"
 	@mkdir -p "$(PARENT_HOOK_RUNTIME_DIR)/build" "$(PARENT_HOOK_RUNTIME_DIR)/build/policy"
 	@cp -R "$(PRECOMMIT_DIR)" "$(PARENT_HOOK_RUNTIME_DIR)/pre-commit"
+	@cp "$(LOCAL_REPO_ROOT)/coding_ethos.yml" "$(PARENT_HOOK_RUNTIME_DIR)/coding_ethos.yml"
+	@cp "$(LOCAL_REPO_ROOT)/repo_ethos.yml" "$(PARENT_HOOK_RUNTIME_DIR)/repo_ethos.yml"
 	@cp "$(LOCAL_REPO_ROOT)/config.yaml" "$(PARENT_HOOK_RUNTIME_DIR)/config.yaml"
 	@cp "$(PARENT_POLICY_DIR)"/* "$(PARENT_HOOK_RUNTIME_DIR)/build/policy/"
 	@cp -R "$(TOOLCHAIN_DIR)" "$(PARENT_HOOK_RUNTIME_DIR)/build/toolchain"
@@ -638,10 +640,10 @@ policy-bundle-install: ensure-go go-tools-install managed-toolchain-install ## C
 	@$(call print_step,Compiling policy bundle)
 	@mkdir -p "$(POLICY_DIR)"
 	@args=(compile --primary "$(LOCAL_REPO_ROOT)/coding_ethos.yml" --repo-ethos "$(LOCAL_REPO_ROOT)/repo_ethos.yml" --config "$(LOCAL_REPO_ROOT)/config.yaml" --out-dir "$(POLICY_DIR)"); \
-	if [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yaml" ]; then \
-		args+=(--repo-config "$(HOOK_CONSUMER_ROOT)/repo_config.yaml"); \
-	elif [ -f "$(HOOK_CONSUMER_ROOT)/repo_config.yml" ]; then \
-		args+=(--repo-config "$(HOOK_CONSUMER_ROOT)/repo_config.yml"); \
+	if [ -f "$(LOCAL_REPO_ROOT)/repo_config.yaml" ]; then \
+		args+=(--repo-config "$(LOCAL_REPO_ROOT)/repo_config.yaml"); \
+	elif [ -f "$(LOCAL_REPO_ROOT)/repo_config.yml" ]; then \
+		args+=(--repo-config "$(LOCAL_REPO_ROOT)/repo_config.yml"); \
 	fi; \
 	"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" "$${args[@]}" >/dev/null
 	@$(call print_info,compiled: $(POLICY_DIR)/policy-bundle.json)

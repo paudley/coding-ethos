@@ -1651,6 +1651,51 @@ func assertStableRepoInputs(
 	}
 }
 
+func TestActivationRequiredIgnoresIgnoreHookLocalGitEnvironment(t *testing.T) {
+	repo := t.TempDir()
+	poisonRepo := t.TempDir()
+
+	runTestGit(t, repo, "init")
+	runTestGit(t, poisonRepo, "init")
+
+	if err := os.WriteFile(
+		filepath.Join(repo, ".gitignore"),
+		[]byte(".coding-ethos/cache/\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write repo .gitignore: %v", err)
+	}
+
+	if err := os.WriteFile(
+		filepath.Join(poisonRepo, ".gitignore"),
+		[]byte("different-path/\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write poison repo .gitignore: %v", err)
+	}
+
+	t.Setenv("GIT_DIR", filepath.Join(poisonRepo, ".git"))
+	t.Setenv("GIT_WORK_TREE", poisonRepo)
+
+	activation := Activation(ActivationInput{
+		Cwd:             repo,
+		RequiredIgnores: []string{".coding-ethos/cache/"},
+	})
+
+	repoInput, found := activation["repo"].(RepoInput)
+	if !found {
+		t.Fatalf("repo input = %#v", activation["repo"])
+	}
+	if len(repoInput.RequiredIgnores) != 1 {
+		t.Fatalf("required ignores = %#v", repoInput.RequiredIgnores)
+	}
+
+	ignore := repoInput.RequiredIgnores[0]
+	if !ignore.Ignored || ignore.CheckFailed {
+		t.Fatalf("required ignore = %#v, want ignored without hook env failure", ignore)
+	}
+}
+
 func runTestGit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 

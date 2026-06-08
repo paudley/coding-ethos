@@ -521,6 +521,32 @@ func TestNormalizeGoToolWorktreeRunsInsideModule(t *testing.T) {
 	}
 }
 
+func TestNormalizeGoToolWorktreeDefaultsRootModuleToAllPackages(t *testing.T) {
+	t.Parallel()
+
+	consumerRoot := t.TempDir()
+	writeManagedCaptureFile(
+		t,
+		filepath.Join(consumerRoot, "go.mod"),
+		"module example.test/repo\n",
+	)
+
+	cwd, args := normalizeGoToolWorktree(
+		consumerRoot,
+		consumerRoot,
+		[]string{"test", "-json", "-run", "TestThing"},
+	)
+
+	if cwd != consumerRoot {
+		t.Fatalf("normalized cwd = %q, want %q", cwd, consumerRoot)
+	}
+
+	wantArgs := []string{"test", "-json", "-run", "TestThing", "./..."}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("normalized args = %#v, want %#v", args, wantArgs)
+	}
+}
+
 func TestNormalizeGoToolWorktreeDefaultsToNestedModule(t *testing.T) {
 	t.Parallel()
 
@@ -609,6 +635,51 @@ func TestManagedCaptureEnforcesToolSpecificArgs(t *testing.T) {
 			tool: "tombi",
 			args: []string{"lint", "--quiet", "--error-on-warnings", "config.toml"},
 			want: []string{"lint", "--quiet", "--error-on-warnings", "config.toml"},
+		},
+		{
+			tool: "go-test",
+			args: nil,
+			want: []string{
+				"test",
+				"-json",
+				"-cover",
+				"-p=1",
+				"-buildvcs=false",
+				"-count=1",
+				"-timeout=30s",
+				"-short",
+			},
+		},
+		{
+			tool: "go-test",
+			args: []string{"-run", "TestThing"},
+			want: []string{
+				"test",
+				"-json",
+				"-cover",
+				"-p=1",
+				"-buildvcs=false",
+				"-count=1",
+				"-timeout=30s",
+				"-short",
+				"-run",
+				"TestThing",
+			},
+		},
+		{
+			tool: "go-test",
+			args: []string{"./internal/..."},
+			want: []string{
+				"test",
+				"-json",
+				"-cover",
+				"-p=1",
+				"-buildvcs=false",
+				"-count=1",
+				"-timeout=30s",
+				"-short",
+				"./internal/...",
+			},
 		},
 		{
 			tool: "yamllint",
@@ -957,6 +1028,76 @@ func TestSandboxCapabilitiesIncludeConsumerReadWritePaths(t *testing.T) {
 	}
 }
 
+func TestSandboxCapabilitiesKeepGoTestNoNetworkByDefault(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("go-test")
+	if !found {
+		t.Fatal("missing go-test tool")
+	}
+
+	capabilities := sandboxCapabilities(tool, lintcapture.RuntimeConfig{})
+	if capabilities.RequiresNetwork ||
+		slices.Contains(capabilities.Tags, "network") ||
+		!slices.Contains(capabilities.Tags, "no-network") {
+		t.Fatalf("go-test default network capabilities changed: %#v", capabilities)
+	}
+}
+
+func TestSandboxCapabilitiesAllowConsumerNetworkToolOptIn(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("go-test")
+	if !found {
+		t.Fatal("missing go-test tool")
+	}
+
+	config := lintcapture.RuntimeConfig{
+		Merged: map[string]any{
+			"sandbox": map[string]any{
+				"network_tools": []any{"go-test"},
+			},
+		},
+	}
+
+	capabilities := sandboxCapabilities(tool, config)
+	if !capabilities.RequiresNetwork ||
+		!slices.Contains(capabilities.Tags, "network") ||
+		slices.Contains(capabilities.Tags, "no-network") {
+		t.Fatalf("go-test network opt-in capabilities mismatch: %#v", capabilities)
+	}
+	if capabilities.SandboxProfile != "" ||
+		capabilities.SeccompProfile != "" ||
+		capabilities.MemoryMB != 0 ||
+		capabilities.CPUQuotaPercent != 0 {
+		t.Fatalf("networked go-test should use host execution: %#v", capabilities)
+	}
+}
+
+func TestSandboxCapabilitiesNetworkToolOptInDoesNotAffectOtherTools(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("ruff")
+	if !found {
+		t.Fatal("missing ruff tool")
+	}
+
+	config := lintcapture.RuntimeConfig{
+		Merged: map[string]any{
+			"sandbox": map[string]any{
+				"network_tools": []any{"go-test"},
+			},
+		},
+	}
+
+	capabilities := sandboxCapabilities(tool, config)
+	if capabilities.RequiresNetwork ||
+		slices.Contains(capabilities.Tags, "network") ||
+		!slices.Contains(capabilities.Tags, "no-network") {
+		t.Fatalf("ruff network capabilities changed: %#v", capabilities)
+	}
+}
+
 func TestSandboxCapabilitiesForFormatToolIncludeOnlyTargetFiles(t *testing.T) {
 	t.Parallel()
 
@@ -1023,6 +1164,33 @@ func TestSandboxCapabilitiesForModuleFormatToolIncludeWorktree(t *testing.T) {
 	}
 }
 
+func TestSandboxCapabilitiesForRootGolangciAutofixIncludeWorktree(t *testing.T) {
+	t.Parallel()
+
+	tool, found := toolcatalog.HookOwnedTool("golangci-lint-autofix")
+	if !found {
+		t.Fatal("missing golangci-lint-autofix tool")
+	}
+
+	capabilities, err := sandboxCapabilitiesForRequest(
+		tool,
+		lintcapture.RuntimeConfig{},
+		"/repo",
+		"/repo",
+		[]string{"run", "--fix", "./internal/..."},
+	)
+	if err != nil {
+		t.Fatalf("sandboxCapabilitiesForRequest() error = %v", err)
+	}
+
+	if !slices.Contains(capabilities.WritePaths, ".") {
+		t.Fatalf("sandbox write paths missing root worktree: %#v", capabilities)
+	}
+	if !slices.Contains(capabilities.ReadPaths, ".") {
+		t.Fatalf("sandbox read paths missing root worktree: %#v", capabilities)
+	}
+}
+
 func TestSandboxCapabilitiesForGoTestIncludeModuleWorktree(t *testing.T) {
 	t.Parallel()
 
@@ -1047,6 +1215,12 @@ func TestSandboxCapabilitiesForGoTestIncludeModuleWorktree(t *testing.T) {
 	}
 	if !slices.Contains(capabilities.ReadPaths, "go") {
 		t.Fatalf("sandbox read paths missing module worktree: %#v", capabilities)
+	}
+	if !slices.Contains(capabilities.WritePaths, goTestSandboxTempDir("/repo")) {
+		t.Fatalf("sandbox write paths missing go-test temp dir: %#v", capabilities)
+	}
+	if !slices.Contains(capabilities.ReadPaths, goTestSandboxTempDir("/repo")) {
+		t.Fatalf("sandbox read paths missing go-test temp dir: %#v", capabilities)
 	}
 
 	if !capabilities.RequiresGit ||

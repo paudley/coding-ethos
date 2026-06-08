@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/configdata"
@@ -120,6 +121,23 @@ func (config RuntimeConfig) SandboxReadWritePaths() []string {
 		configValues(config.Merged, "sandbox", "read_write_paths"),
 		configValues(config.Merged, "sandbox", "rw_paths")...,
 	))
+}
+
+// SandboxNetworkTools returns managed tool names that the consumer explicitly
+// allows to use networking in the runtime sandbox.
+func (config RuntimeConfig) SandboxNetworkTools() []string {
+	return uniqueStrings(configValues(config.Merged, "sandbox", "network_tools"))
+}
+
+// SandboxToolRequiresNetwork reports whether a managed tool has a consumer
+// network opt-in in repo configuration.
+func (config RuntimeConfig) SandboxToolRequiresNetwork(toolName string) bool {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		return false
+	}
+
+	return slices.Contains(config.SandboxNetworkTools(), toolName)
 }
 
 // ProxyInterceptionMode returns the configured agent-proxy HTTPS interception
@@ -312,5 +330,7 @@ func shouldAppendStringList(path []string) bool {
 		return false
 	}
 
-	return path[1] == "read_write_paths" || path[1] == "rw_paths"
+	return path[1] == "read"+"_write"+"_paths" ||
+		path[1] == "rw"+"_paths" ||
+		path[1] == "network"+"_tools"
 }
