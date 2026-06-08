@@ -19,6 +19,7 @@ import (
 const (
 	defaultGitSignalCommitLimit = 500
 	defaultHealthTrendLimit     = 20
+	defaultGraphReportSymbols   = 4
 	defaultResultLimit          = 20
 	defaultSearchLimit          = 10
 )
@@ -68,6 +69,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"embedding-records":         printEmbeddingRecords,
 		"enrich-listing":            enrichDirectoryListing,
 		"git-signals":               gitSignals,
+		"graph-report":              printGraphReport,
 		"health":                    printHealth,
 		"hook-reviews":              printHookReviews,
 		"hook-usage":                printHookUsage,

@@ -350,6 +350,39 @@ func deep() {}
 		t.Fatalf("repo-map command returned error: %v", err)
 	}
 
+	var graphReportMarkdownErr error
+	graphReportMarkdown := captureStdout(t, func() {
+		graphReportMarkdownErr = run(ctx, []string{
+			"graph-report", "--root", root, "--db", dbPath,
+			"--path", "cmd", "--format", "human",
+		})
+	})
+	if graphReportMarkdownErr != nil {
+		t.Fatalf("graph-report human returned error: %v", graphReportMarkdownErr)
+	}
+	if !strings.Contains(
+		graphReportMarkdown,
+		"kind: code_intel.graph_report.v1",
+	) ||
+		!strings.Contains(graphReportMarkdown, "cmd/app.go") {
+		t.Fatalf("graph-report human missing expected content:\n%s", graphReportMarkdown)
+	}
+
+	var graphReportTOONErr error
+	graphReportTOON := captureStdout(t, func() {
+		graphReportTOONErr = run(ctx, []string{
+			"graph-report", "--root", root, "--db", dbPath,
+			"--path", "cmd", "--format", "toon",
+		})
+	})
+	if graphReportTOONErr != nil {
+		t.Fatalf("graph-report TOON returned error: %v", graphReportTOONErr)
+	}
+	if !strings.Contains(graphReportTOON, "kind: code_intel.graph_report.v1") ||
+		!strings.Contains(graphReportTOON, "central_files[") {
+		t.Fatalf("graph-report TOON missing expected content:\n%s", graphReportTOON)
+	}
+
 	err = run(ctx, []string{
 		"compact-context", "--root", root, "--db", dbPath,
 		"--path", "cmd/app.go",
