@@ -47,6 +47,10 @@ func loadModuleDocsSettings() (moduleDocsSettings, error) {
 		settings.ExcludedDirs = defaultModuleDocsExcludedDirs()
 	}
 
+	settings.ExcludedDirs = appendCodeIntelModuleDocsExcludedDirs(
+		settings.ExcludedDirs,
+		rootConfig,
+	)
 	settings.ExcludedDirs = appendRequiredModuleDocsExcludedDirs(settings.ExcludedDirs)
 
 	if len(settings.BannedDocFilenames) == 0 {
@@ -87,6 +91,66 @@ func appendRequiredModuleDocsExcludedDirs(excludedDirs []string) []string {
 	}
 
 	return merged
+}
+
+func appendCodeIntelModuleDocsExcludedDirs(
+	excludedDirs []string,
+	rootConfig map[string]any,
+) []string {
+	seen := stringSet(excludedDirs)
+	merged := append([]string(nil), excludedDirs...)
+
+	for _, dir := range codeIntelModuleDocsExcludedDirs(rootConfig) {
+		if !seen[dir] {
+			merged = append(merged, dir)
+			seen[dir] = true
+		}
+	}
+
+	return merged
+}
+
+func codeIntelModuleDocsExcludedDirs(rootConfig map[string]any) []string {
+	value, found := rootConfigValue(rootConfig, "code_intel.exclude_paths")
+	if !found {
+		return nil
+	}
+
+	patterns, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+
+	dirs := make([]string, 0, len(patterns))
+	for _, rawPattern := range patterns {
+		pattern, ok := rawPattern.(string)
+		if !ok {
+			continue
+		}
+
+		if dir, ok := moduleDocsExcludedDirFromGlob(pattern); ok {
+			dirs = append(dirs, dir)
+		}
+	}
+
+	sort.Strings(dirs)
+
+	return dirs
+}
+
+func moduleDocsExcludedDirFromGlob(pattern string) (string, bool) {
+	normalized := strings.TrimSpace(filepath.ToSlash(pattern))
+	normalized = strings.TrimPrefix(normalized, "./")
+	normalized = strings.TrimSuffix(normalized, "/")
+	normalized = strings.TrimSuffix(normalized, "/**")
+
+	if normalized == "" ||
+		strings.Contains(normalized, "/") ||
+		strings.ContainsAny(normalized, "*?[]") {
+		return "", false
+	}
+
+	return normalized, true
 }
 
 func shouldCheckModuleDocsFile(path string, settings moduleDocsSettings) bool {
