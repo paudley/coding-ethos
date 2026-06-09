@@ -15,6 +15,67 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
+func TestSourceIndexGateAppliesDirectoryAndFileRules(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "pkg", "app.go")
+	excludedPath := filepath.Join(root, "pkg", "generated.go")
+	unsupportedPath := filepath.Join(root, "pkg", "notes.txt")
+	symlinkPath := filepath.Join(root, "pkg", "link.go")
+
+	writeTestFile(t, sourcePath, []byte("package pkg\n"))
+	writeTestFile(t, excludedPath, []byte("package pkg\n"))
+	writeTestFile(t, unsupportedPath, []byte("notes\n"))
+	if err := os.Symlink(sourcePath, symlinkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	gate, err := NewSourceIndexGate(ctx, root, IndexOptions{
+		ExcludePatterns: []string{"pkg/generated.go", "vendor/**"},
+	})
+	if err != nil {
+		t.Fatalf("new source index gate: %v", err)
+	}
+
+	if !gate.AllowsDir(ctx, filepath.Join(root, "pkg")) {
+		t.Fatal("AllowsDir rejected source directory")
+	}
+	if gate.AllowsDir(ctx, filepath.Join(root, "vendor")) {
+		t.Fatal("AllowsDir accepted excluded directory")
+	}
+
+	sourceInfo := mustLstat(t, sourcePath)
+	relative, ok, err := gate.AllowsFile(ctx, sourcePath, sourceInfo)
+	if err != nil {
+		t.Fatalf("AllowsFile source: %v", err)
+	}
+	if !ok || relative != "pkg/app.go" {
+		t.Fatalf("AllowsFile source = %q %v, want pkg/app.go true", relative, ok)
+	}
+
+	excludedInfo := mustLstat(t, excludedPath)
+	if _, ok, err := gate.AllowsFile(ctx, excludedPath, excludedInfo); err != nil || ok {
+		t.Fatalf("AllowsFile excluded ok=%v err=%v, want false nil", ok, err)
+	}
+
+	unsupportedInfo := mustLstat(t, unsupportedPath)
+	if _, ok, err := gate.AllowsFile(
+		ctx,
+		unsupportedPath,
+		unsupportedInfo,
+	); err != nil ||
+		ok {
+		t.Fatalf("AllowsFile unsupported ok=%v err=%v, want false nil", ok, err)
+	}
+
+	symlinkInfo := mustLstat(t, symlinkPath)
+	if _, ok, err := gate.AllowsFile(ctx, symlinkPath, symlinkInfo); err != nil || ok {
+		t.Fatalf("AllowsFile symlink ok=%v err=%v, want false nil", ok, err)
+	}
+}
+
 func TestASTIndexerSkipsUnchangedFiles(t *testing.T) {
 	t.Parallel()
 
@@ -56,6 +117,28 @@ func TestASTIndexerSkipsUnchangedFiles(t *testing.T) {
 	if len(summary2.Skipped) != 1 || summary2.Skipped[0] != "app.py" {
 		t.Fatalf("expected 1 skipped (app.py), got %v", summary2.Skipped)
 	}
+}
+
+func writeTestFile(t *testing.T, path string, content []byte) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func mustLstat(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+
+	return info
 }
 
 func TestASTIndexerIndexesExplicitTempRootUnderIgnoredWorktree(t *testing.T) {

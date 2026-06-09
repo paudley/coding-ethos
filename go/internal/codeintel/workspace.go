@@ -6,7 +6,9 @@ package codeintel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -899,7 +901,7 @@ func normalizeWorkspaceRepo(root string, repo WorkspaceRepo) (WorkspaceRepo, err
 		return WorkspaceRepo{}, fmt.Errorf("%w: %q", errWorkspaceAliasInvalid, alias)
 	}
 
-	canonical, err := canonicalWorkspacePath(repo.Path)
+	canonical, err := canonicalWorkspacePathIfPresent(repo.Path)
 	if err != nil {
 		return WorkspaceRepo{}, fmt.Errorf("canonicalize repository path: %w", err)
 	}
@@ -924,6 +926,24 @@ func canonicalWorkspacePath(path string) (string, error) {
 	}
 
 	return canonical, nil
+}
+
+func canonicalWorkspacePathIfPresent(path string) (string, error) {
+	canonical, err := canonicalWorkspacePath(path)
+	if err == nil {
+		return canonical, nil
+	}
+
+	if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+
+	absolute, absErr := filepath.Abs(path)
+	if absErr != nil {
+		return "", fmt.Errorf("make path absolute: %w", absErr)
+	}
+
+	return absolute, nil
 }
 
 func sanitizeWorkspaceAlias(value string) string {

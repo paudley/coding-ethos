@@ -14,6 +14,68 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
+func TestHealthPureHelpers(t *testing.T) {
+	t.Parallel()
+
+	if !coverageHasEnoughEvidence(CodeHealthCoverage{
+		FoundLines:          4,
+		LineCoveragePercent: healthLowCoverageThreshold,
+	}) {
+		t.Fatal("coverageHasEnoughEvidence rejected sufficient coverage")
+	}
+	if coverageHasEnoughEvidence(CodeHealthCoverage{
+		FoundLines:          0,
+		LineCoveragePercent: 100,
+	}) {
+		t.Fatal("coverageHasEnoughEvidence accepted missing evidence")
+	}
+
+	for _, item := range []struct {
+		pattern string
+		path    string
+		want    bool
+	}{
+		{pattern: "go/**/*.go", path: "go/internal/app/main.go", want: true},
+		{pattern: "go/*.go", path: "go/internal/app/main.go", want: false},
+		{pattern: "[", path: "go/main.go", want: false},
+	} {
+		if got := healthGlobMatches(item.pattern, item.path); got != item.want {
+			t.Fatalf("healthGlobMatches(%q, %q) = %v, want %v",
+				item.pattern, item.path, got, item.want)
+		}
+	}
+
+	for _, item := range []struct {
+		value any
+		want  float64
+	}{
+		{value: 1.5, want: 1.5},
+		{value: 2, want: 2},
+		{value: int64(3), want: 3},
+		{value: " 4.25 ", want: 4.25},
+		{value: "not-a-number", want: 0},
+	} {
+		if got := floatValue(item.value); got != item.want {
+			t.Fatalf("floatValue(%#v) = %v, want %v", item.value, got, item.want)
+		}
+	}
+
+	for _, item := range []struct {
+		path string
+		want bool
+	}{
+		{path: "pkg/foo_test.go", want: true},
+		{path: "pkg/tests/foo.go", want: true},
+		{path: "pkg/foo.spec.ts", want: true},
+		{path: "pkg/test_helper.py", want: true},
+		{path: "pkg/source.go", want: false},
+	} {
+		if got := isTestPath(item.path); got != item.want {
+			t.Fatalf("isTestPath(%q) = %v, want %v", item.path, got, item.want)
+		}
+	}
+}
+
 func TestCodeHealthPersistsRankedSnapshotAndTrend(t *testing.T) {
 	t.Parallel()
 
