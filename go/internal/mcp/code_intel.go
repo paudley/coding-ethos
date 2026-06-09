@@ -33,6 +33,7 @@ const (
 	codeIntelQualityHigh       = "high"
 	codeIntelQualityMedium     = "medium"
 	codeIntelQualityLow        = "low"
+	contextCardCommunityLimit  = 200
 	codeIntelReviewerLimit     = 3
 	contextCardTOONHeaderLines = 3
 	semanticSearchContextLimit = 5
@@ -661,7 +662,6 @@ func (server Server) codeIntelContextCard(args json.RawMessage) (any, error) {
 		store,
 		server.codeIntelRoot(),
 		targets,
-		limit,
 	)
 	if err != nil {
 		return nil, err
@@ -1383,7 +1383,6 @@ func annotateContextTargetsWithCommunities(
 	store *codeintel.Store,
 	root string,
 	targets []codeIntelContextTarget,
-	limit int,
 ) error {
 	if len(targets) == 0 {
 		return nil
@@ -1391,7 +1390,7 @@ func annotateContextTargetsWithCommunities(
 
 	communities, err := store.CodeCommunities(ctx, codeintel.CodeCommunityQuery{
 		Root:  root,
-		Limit: limit,
+		Limit: contextCardCommunityLimit,
 	})
 	if err != nil {
 		return fmt.Errorf("query context-card communities: %w", err)

@@ -73,6 +73,7 @@ type globalRepoMapStore interface {
 	codeCommunityIDsByPath(
 		ctx context.Context,
 		query CodeCommunityQuery,
+		files []RepoMapFile,
 	) (map[string]string, error)
 	repoMapSymbols(
 		ctx context.Context,
@@ -114,7 +115,7 @@ func globalRepoMap(
 		Root:  query.Root,
 		Path:  query.Path,
 		Limit: repoMapLimit(query),
-	})
+	}, files)
 	if err != nil {
 		return RepoMap{}, err
 	}

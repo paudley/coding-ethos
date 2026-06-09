@@ -90,6 +90,7 @@ func TestCodeCommunitiesDeriveTopologyComponents(t *testing.T) {
 	}})
 	seedCommunityFile(t, ctx, store, "policy/rules.md", "markdown", nil)
 	seedCommunityCoChange(t, ctx, store, "cmd/app.go", "pkg/worker.go", 4, true)
+	seedCommunityCoChange(t, ctx, store, "docs/readme.md", "policy/rules.md", 2, false)
 
 	communities, err := store.CodeCommunities(ctx, CodeCommunityQuery{
 		Root:  root,
@@ -111,6 +112,20 @@ func TestCodeCommunitiesDeriveTopologyComponents(t *testing.T) {
 		!codeCommunityHasEvidence(*appCommunity, "cochange", "cmd/app.go", "pkg/worker.go") {
 		t.Fatalf("unexpected app community:\n%#v", appCommunity)
 	}
+
+	docsCommunity := codeCommunityContaining(communities, "docs/readme.md")
+	if docsCommunity == nil ||
+		docsCommunity.MemberCount != 2 ||
+		!hasProvenanceClass(docsCommunity.ProvenanceClasses, ProvenanceExtracted) ||
+		!hasProvenanceClass(docsCommunity.ProvenanceClasses, ProvenanceGitDerived) ||
+		!codeCommunityHasEvidence(
+			*docsCommunity,
+			"cochange",
+			"docs/readme.md",
+			"policy/rules.md",
+		) {
+		t.Fatalf("unexpected docs community:\n%#v", docsCommunity)
+	}
 }
 
 func TestCodeCommunitiesExcludeRepoMapProtectedPaths(t *testing.T) {
@@ -122,6 +137,13 @@ func TestCodeCommunitiesExcludeRepoMapProtectedPaths(t *testing.T) {
 		t,
 		ctx,
 		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
+	)
+
+	writeFile(t, filepath.Join(root, "pkg", "app.go"), []byte("package pkg\n"))
+	writeFile(
+		t,
+		filepath.Join(root, ".agents", "generated.go"),
+		[]byte("package agents\n"),
 	)
 
 	seedCommunityFile(t, ctx, store, "pkg/app.go", "go", []CodeEdge{{

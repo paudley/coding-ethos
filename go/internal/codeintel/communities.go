@@ -14,13 +14,13 @@ import (
 
 const (
 	defaultCodeCommunityLimit        = 20
-	codeCommunityCandidateLimit      = 200
 	codeCommunityRepresentativeLimit = 3
 	codeCommunityCentralMemberLimit  = 5
 	codeCommunityEvidenceLimit       = 5
 	codeCommunityStructuralWeight    = 3
 	codeCommunityCoChangeMaxWeight   = 10
 	codeCommunityHiddenWeight        = 2
+	codeCommunityPathFilterArgSets   = 2
 )
 
 // CodeCommunityQuery controls topology community scope and result density.
@@ -73,7 +73,7 @@ func (store *Store) CodeCommunities(
 	files, err := store.repoMapFiles(ctx, RepoMapQuery{
 		Root:  query.Root,
 		Path:  query.Path,
-		Limit: codeCommunityCandidateLimit,
+		Limit: codeCommunityLimit(query),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("query community candidate files: %w", err)
@@ -89,8 +89,9 @@ func (store *Store) CodeCommunities(
 func (store *Store) codeCommunityIDsByPath(
 	ctx context.Context,
 	query CodeCommunityQuery,
+	files []RepoMapFile,
 ) (map[string]string, error) {
-	communities, err := store.CodeCommunities(ctx, query)
+	communities, err := codeCommunitiesFromFiles(ctx, store.database, query, files)
 	if err != nil {
 		return nil, err
 	}
@@ -101,16 +102,8 @@ func (store *Store) codeCommunityIDsByPath(
 func (store *DuckDBStore) codeCommunityIDsByPath(
 	ctx context.Context,
 	query CodeCommunityQuery,
+	files []RepoMapFile,
 ) (map[string]string, error) {
-	files, err := store.repoMapFiles(ctx, RepoMapQuery{
-		Root:  query.Root,
-		Path:  query.Path,
-		Limit: codeCommunityCandidateLimit,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("query DuckDB community candidate files: %w", err)
-	}
-
 	communities, err := codeCommunitiesFromFiles(ctx, store.database, query, files)
 	if err != nil {
 		return nil, err
@@ -203,18 +196,28 @@ func structuralCommunityEdges(
 	database *sql.DB,
 	nodes map[string]*codeCommunityNode,
 ) ([]codeCommunityEdge, error) {
-	rows, err := database.QueryContext(
-		ctx,
+	if len(nodes) == 0 {
+		return nil, nil
+	}
+
+	inList, args := codeCommunityPathFilter(nodes)
+	// #nosec G201 -- only placeholder counts are formatted; paths remain bound parameters.
+	query := fmt.Sprintf(
 		`SELECT edge_kind, path, target_path, COALESCE(provenance_class, '')
-		FROM code_edges
-		WHERE COALESCE(target_path, '') != ''
-		ORDER BY path, target_path, edge_kind`,
+			FROM code_edges
+			WHERE path IN (%s) AND target_path IN (%s)
+			ORDER BY path, target_path, edge_kind`,
+		inList,
+		inList,
 	)
+
+	rows, err := database.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query structural community edges: %w", err)
 	}
 	defer rows.Close()
 
+	seen := map[string]bool{}
 	edges := []codeCommunityEdge{}
 
 	for rows.Next() {
@@ -233,9 +236,18 @@ func structuralCommunityEdges(
 			normalizeProvenanceClass(provenanceClass),
 			codeCommunityStructuralWeight,
 		)
-		if valid {
-			edges = append(edges, edge)
+		if !valid {
+			continue
 		}
+
+		key := edge.left + "\x00" + edge.right + "\x00" + edge.evidence.Kind
+		if seen[key] {
+			continue
+		}
+
+		seen[key] = true
+
+		edges = append(edges, edge)
 	}
 
 	err = rows.Err()
@@ -251,12 +263,22 @@ func coChangeCommunityEdges(
 	database *sql.DB,
 	nodes map[string]*codeCommunityNode,
 ) ([]codeCommunityEdge, error) {
-	rows, err := database.QueryContext(
-		ctx,
+	if len(nodes) == 0 {
+		return nil, nil
+	}
+
+	inList, args := codeCommunityPathFilter(nodes)
+	// #nosec G201 -- only placeholder counts are formatted; paths remain bound parameters.
+	query := fmt.Sprintf(
 		`SELECT path, related_path, cochange_count, hidden_coupling
-		FROM git_cochanges
-		ORDER BY path, related_path`,
+			FROM git_cochanges
+			WHERE path IN (%s) AND related_path IN (%s)
+			ORDER BY path, related_path`,
+		inList,
+		inList,
 	)
+
+	rows, err := database.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query co-change community edges: %w", err)
 	}
@@ -314,6 +336,29 @@ func coChangeCommunityEdges(
 	}
 
 	return edges, nil
+}
+
+func codeCommunityPathFilter(nodes map[string]*codeCommunityNode) (string, []any) {
+	paths := make([]string, 0, len(nodes))
+	for path := range nodes {
+		paths = append(paths, path)
+	}
+
+	slices.Sort(paths)
+
+	placeholders := make([]string, 0, len(paths))
+	args := make([]any, 0, len(paths)*codeCommunityPathFilterArgSets)
+
+	for _, path := range paths {
+		placeholders = append(placeholders, "?")
+		args = append(args, path)
+	}
+
+	for _, path := range paths {
+		args = append(args, path)
+	}
+
+	return strings.Join(placeholders, ","), args
 }
 
 func newCodeCommunityEdge(
