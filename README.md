@@ -250,15 +250,16 @@ and use the best available process execution evidence. See
 Code-intelligence storage is the memory layer for this evidence. The
 repo-local DuckDB store ingests hook traces, lint traces, SARIF,
 remediation outcomes, hook usage analytics, Tree-sitter chunks, graph edges,
-AST-to-finding links, and duckdb-vss metadata. Append-only
+AST-to-finding links, architectural decisions, decision links, and duckdb-vss
+metadata. Append-only
 `.coding-ethos/events/*.jsonl` files are the durable live telemetry surface,
 and `.coding-ethos/code-intel.duckdb` is the rebuildable analytical query index
 used by downstream support analysis. A DuckDB-resident term index provides
 exact search, while duckdb-vss stores derived embedding rows for hybrid
 retrieval without a daemon or hosted vector service. MCP tools expose search,
-code indexing, focused chunk
-lookup, embedding candidates, and index status so relevant context is available
-before broad file reads or repeated failed repairs. See
+code indexing, focused chunk lookup, decision rationale, embedding candidates,
+and index status so relevant context is available before broad file reads or
+repeated failed repairs. See
 [docs/CODE_INTEL.md](docs/CODE_INTEL.md) and
 [docs/CODE_INTEL_STORAGE.md](docs/CODE_INTEL_STORAGE.md).
 
@@ -358,6 +359,8 @@ The first tools are intentionally narrow and auditable:
 - `code_intel_health`: rank deterministic refactoring targets from indexed
   structure, structural clones, git signals, LCOV coverage, and repeated
   failure evidence with persisted trend snapshots.
+- `code_intel_why`: return architectural decisions and decision-health signals
+  for a query, path, symbol, or status before changing code.
 - `code_intel_session_snapshot`: return the canonical
   `coding_ethos.session.v1` snapshot derived from hook traces, proxy telemetry,
   memory activity, and code-intel freshness without broad source reads.
@@ -424,7 +427,7 @@ skills.
 `coding-ethos` can also import retained lint and hook traces into a local
 DuckDB code-intelligence store for repeated-failure and remediation search:
 
-```bash
+```text
 bin/coding-ethos-run code-intel ingest-traces
 bin/coding-ethos-run code-intel repeated-failures --policy-id python.unused_imports
 bin/coding-ethos-run code-intel search --text 'unused import'
@@ -436,6 +439,9 @@ bin/coding-ethos-run code-intel repo-map --path pkg/app.py
 bin/coding-ethos-run code-intel graph-report --path pkg --format toon
 bin/coding-ethos-run code-intel centrality --path pkg --format toon
 bin/coding-ethos-run code-intel surprises --path pkg --format toon
+bin/coding-ethos-run code-intel decisions add --title 'Use explicit startup' --rationale 'Startup should be inspectable.' --path pkg/app.py
+bin/coding-ethos-run code-intel decisions list --path pkg/app.py --query startup
+bin/coding-ethos-run code-intel decisions health --path pkg/app.py
 bin/coding-ethos-run code-intel rebuild-index
 bin/coding-ethos-run code-intel hook-usage --risk-category bypass
 bin/coding-ethos-run code-intel record-hook-review --trace-id hook-1 --disposition false_positive
@@ -458,7 +464,7 @@ The live telemetry surface lives in `.coding-ethos/events/*.jsonl`, and the
 rebuildable analytical index lives at `.coding-ethos/code-intel.duckdb`. These
 repo-local artifacts are derived from retained traces, SARIF, AST chunks, proxy
 session events, remediation records, hook review labels, LCOV coverage, health
-snapshots, and vector metadata.
+snapshots, architectural decisions, and vector metadata.
 They are not replacements for hooks or CEL policy evaluation.
 
 The recent code-intel graph work gives agents a richer orientation layer before
@@ -470,6 +476,11 @@ conservative: explicit repo path references produce `documents` edges, optional
 advisory `rationale_for` links. Extracted documentation references are
 `DOC_DERIVED`; rationale classification is `INFERRED`; neither class can permit
 or block policy decisions.
+
+Decision intelligence adds the `decisions` CLI group and MCP `code_intel_why`
+tool. Manual decisions and indexed inline `WHY:`, `DECISION:`, and `TRADEOFF:`
+markers link rationale to paths and symbols, while decision health reports
+stale, conflicting, overlapping, or ungoverned areas before an agent edits.
 
 Managed sandbox policy also supports repo-specific network-capable test tools
 without making the whole suite networked. A consumer repo can list a managed

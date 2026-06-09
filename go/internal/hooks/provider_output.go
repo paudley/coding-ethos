@@ -26,6 +26,10 @@ type providerHookOutput struct {
 
 func EncodeProviderResult(writer io.Writer, result Result) error {
 	output := providerOutput(result)
+	if output.empty() {
+		return nil
+	}
+
 	encoder := json.NewEncoder(writer)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
@@ -36,6 +40,16 @@ func EncodeProviderResult(writer io.Writer, result Result) error {
 	}
 
 	return nil
+}
+
+func (output providerHookOutput) empty() bool {
+	return output.HookSpecificOutput == nil &&
+		output.Decision == "" &&
+		output.Reason == "" &&
+		output.SystemMessage == "" &&
+		output.TraceID == "" &&
+		output.TrackingID == "" &&
+		len(output.AgentRemediation) == 0
 }
 
 func providerOutput(result Result) providerHookOutput {

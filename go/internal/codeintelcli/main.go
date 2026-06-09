@@ -66,6 +66,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"compact-context":           printCompactContext,
 		"code-context":              printCodeContext,
 		"downstream-analysis":       printDownstreamAnalysis,
+		"decisions":                 decisions,
 		"embedding-candidates":      printEmbeddingCandidates,
 		"embedding-records":         printEmbeddingRecords,
 		"enrich-listing":            enrichDirectoryListing,

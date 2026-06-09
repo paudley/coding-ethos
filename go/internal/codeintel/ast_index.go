@@ -833,6 +833,15 @@ func (indexer ASTIndexer) indexFile(
 		return inlineErr1
 	}
 
+	inlineErr2 := indexer.store.ReplaceIndexedDecisions(
+		ctx,
+		relativePath,
+		IndexedDecisions(relativePath, contents),
+	)
+	if inlineErr2 != nil {
+		return inlineErr2
+	}
+
 	existingFiles[relativePath] = file
 
 	summary.FilesIndexed++

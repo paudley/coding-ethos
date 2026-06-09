@@ -51,6 +51,8 @@ type Stats struct {
 	CodeHealthTargets   int `json:"code_health_targets"`
 	CodeHealthCoverage  int `json:"code_health_coverage"`
 	ASTFindingLinks     int `json:"ast_finding_links"`
+	Decisions           int `json:"decisions"`
+	DecisionLinks       int `json:"decision_links"`
 	Remediations        int `json:"remediations"`
 	RemediationEvents   int `json:"remediation_events"`
 	SARIFRuns           int `json:"sarif_runs"`
@@ -649,6 +651,16 @@ func statCountQueries(stats *Stats) []statCountQuery {
 			name:   "ast_finding_links",
 			query:  "SELECT COUNT(*) FROM ast_finding_links",
 			target: &stats.ASTFindingLinks,
+		},
+		{
+			name:   "decisions",
+			query:  "SELECT COUNT(*) FROM decisions",
+			target: &stats.Decisions,
+		},
+		{
+			name:   "decision_links",
+			query:  "SELECT COUNT(*) FROM decision_links",
+			target: &stats.DecisionLinks,
 		},
 		{
 			name:   "remediations",

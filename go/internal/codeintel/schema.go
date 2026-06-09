@@ -11,6 +11,7 @@ func schemaStatements() []string {
 	statements = append(statements, codeSchemaStatements()...)
 	statements = append(statements, gitSignalSchemaStatements()...)
 	statements = append(statements, healthSchemaStatements()...)
+	statements = append(statements, decisionSchemaStatements()...)
 	statements = append(statements, sarifSchemaStatements()...)
 	statements = append(statements, remediationSchemaStatements()...)
 	statements = append(statements, searchSchemaStatements()...)
@@ -18,7 +19,7 @@ func schemaStatements() []string {
 	return statements
 }
 
-const schemaStatementCapacity = 54
+const schemaStatementCapacity = 63
 
 func traceSchemaStatements() []string {
 	return []string{
@@ -429,6 +430,36 @@ func healthSchemaStatements() []string {
 	}
 }
 
+func decisionSchemaStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS decisions (
+		decision_id TEXT PRIMARY KEY,
+		title TEXT NOT NULL,
+		status TEXT NOT NULL,
+		rationale TEXT NOT NULL,
+		alternatives TEXT,
+		source_kind TEXT NOT NULL,
+		source_path TEXT,
+		source_line INTEGER NOT NULL DEFAULT 0,
+		provenance_class TEXT NOT NULL,
+		author TEXT,
+		recorded_at_utc TEXT,
+		updated_at_utc TEXT,
+		search_text TEXT NOT NULL,
+		raw_json TEXT NOT NULL
+	)`,
+		`CREATE TABLE IF NOT EXISTS decision_links (
+		decision_id TEXT NOT NULL,
+		ordinal INTEGER NOT NULL,
+		path TEXT NOT NULL,
+		symbol_path TEXT,
+		link_kind TEXT NOT NULL,
+		PRIMARY KEY(decision_id, ordinal),
+		FOREIGN KEY(decision_id) REFERENCES decisions(decision_id) ON DELETE CASCADE
+	)`,
+	}
+}
+
 func sarifSchemaStatements() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS sarif_runs (
@@ -625,6 +656,10 @@ func indexSchemaStatements() []string {
 		ON diff_edit_patterns(target_path, diff_source, seen_count)`,
 		`CREATE INDEX IF NOT EXISTS idx_ast_finding_links_chunk
 		ON ast_finding_links(chunk_id, policy_id, skill_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_decisions_lookup
+		ON decisions(status, source_kind, source_path)`,
+		`CREATE INDEX IF NOT EXISTS idx_decision_links_path
+		ON decision_links(path, symbol_path, link_kind)`,
 		`CREATE INDEX IF NOT EXISTS idx_sarif_results_policy
 		ON sarif_results(policy_id, skill_id, path)`,
 		`CREATE INDEX IF NOT EXISTS idx_sarif_results_run

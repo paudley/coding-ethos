@@ -252,6 +252,9 @@ bin/coding-ethos-run code-intel code-chunks --path pkg/app.go --symbol-name Buil
 bin/coding-ethos-run code-intel repo-map --path pkg/app.go
 bin/coding-ethos-run code-intel centrality --path pkg --format toon
 bin/coding-ethos-run code-intel surprises --path pkg --format toon
+bin/coding-ethos-run code-intel decisions add --title 'Use explicit startup' --rationale 'Startup should be inspectable.' --path pkg/app.go
+bin/coding-ethos-run code-intel decisions list --path pkg/app.go --query startup
+bin/coding-ethos-run code-intel decisions health --path pkg/app.go
 bin/coding-ethos-run code-intel compact-context --path pkg/app.go
 bin/coding-ethos-run code-intel ingest-sarif --file policy.sarif
 bin/coding-ethos-run code-intel sarif-results --policy-id python.unused_imports
@@ -342,6 +345,12 @@ provenance for rationale classification, and `graph-report` exposes them in a
 `document_links` section. This is deterministic Markdown-only graph context: it
 does not parse PDFs or images, does not call an LLM, and does not turn examples
 or prose into policy decisions.
+
+Decision intelligence stores explicit architectural rationale in the same
+DuckDB index. The `decisions` CLI group records manual decisions, links them to
+paths or symbols, indexes inline `WHY:`, `DECISION:`, and `TRADEOFF:` markers
+found during code indexing, and reports stale, conflicting, overlapping, or
+ungoverned decision areas through `decisions health`.
 
 `proxy-file-read` is the current bridge for read deduplication. It reads a
 repo-relative file, computes the current content hash, records the first read as
@@ -527,6 +536,8 @@ Add tools only after the store has a stable schema:
   local graph context, linked findings, freshness, and next MCP calls.
 - `code_intel_change_risk`: modification-risk summary for target files using
   indexed chunks, repeated failure evidence, and recommended checks.
+- `code_intel_why`: architectural decisions and decision-health signals for a
+  query, path, symbol, or status before changing code.
 - `code_intel_index_code`: refresh Tree-sitter code chunks for selected paths.
 - `code_intel_code_chunks`: return focused symbol/config chunks by path,
   language, symbol kind, or symbol name.
