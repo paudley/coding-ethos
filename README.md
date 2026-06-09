@@ -432,6 +432,10 @@ bin/coding-ethos-run code-intel git-signals --path pkg/app.py --paths pkg/app.py
 bin/coding-ethos-run code-intel health --refresh --lcov coverage/lcov.info
 bin/coding-ethos-run code-intel anatomy-map --path pkg --format toon
 ls pkg | bin/coding-ethos-run code-intel enrich-listing --command 'ls pkg'
+bin/coding-ethos-run code-intel repo-map --path pkg/app.py
+bin/coding-ethos-run code-intel graph-report --path pkg --format toon
+bin/coding-ethos-run code-intel centrality --path pkg --format toon
+bin/coding-ethos-run code-intel surprises --path pkg --format toon
 bin/coding-ethos-run code-intel rebuild-index
 bin/coding-ethos-run code-intel hook-usage --risk-category bypass
 bin/coding-ethos-run code-intel record-hook-review --trace-id hook-1 --disposition false_positive
@@ -456,6 +460,22 @@ repo-local artifacts are derived from retained traces, SARIF, AST chunks, proxy
 session events, remediation records, hook review labels, LCOV coverage, health
 snapshots, and vector metadata.
 They are not replacements for hooks or CEL policy evaluation.
+
+The recent code-intel graph work gives agents a richer orientation layer before
+they edit. `graph-report` combines repo-map ranking, store counts, stored health
+snapshots, provenance classes, deterministic topology communities, central node
+ranking, surprise edges, and Markdown document links. Markdown links are
+conservative: explicit repo path references produce `documents` edges, optional
+`path#symbol` fragments produce `mentions`, and rationale-like headings produce
+advisory `rationale_for` links. Extracted documentation references are
+`DOC_DERIVED`; rationale classification is `INFERRED`; neither class can permit
+or block policy decisions.
+
+Managed sandbox policy also supports repo-specific network-capable test tools
+without making the whole suite networked. A consumer repo can list a managed
+tool such as `go-test` under `sandbox.network_tools` in `repo_config.yaml` when
+its real tests bind loopback sockets or otherwise require networking. Unlisted
+managed tools keep the default no-network sandbox posture.
 
 `downstream-analysis` is the read-only support view for downstream repo
 ergonomics. It opens an existing code-intelligence database in read-only mode,

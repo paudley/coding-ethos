@@ -60,6 +60,144 @@ func runApp() {}
 	}
 }
 
+func TestGraphReportIncludesMarkdownDocumentLinks(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	runCodeIntelGit(t, root, "init")
+	writeFile(t, filepath.Join(root, "cmd", "app.go"), []byte(`package main
+
+func runApp() {}
+`))
+	writeFile(t, filepath.Join(root, "docs", "guide.md"), []byte(`# Guide
+`))
+	writeFile(t, filepath.Join(root, "docs", "architecture.md"), []byte(`# Architecture
+
+The runtime is implemented in cmd/app.go.
+The CLI entrypoint is cmd/app.go#runApp.
+The sibling guide is ./guide.md.
+The root README is ../README.md.
+
+## Rationale
+
+The entry point is cmd/app.go#runApp because the CLI owns startup wiring.
+
+## Examples
+
+Example snippets may mention cmd/app.go but are still advisory documentation.
+
+## Reason for Startup Boundary
+
+cmd/app.go owns startup initialization.
+`))
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
+	)
+
+	_, err := NewASTIndexer(store).IndexPaths(ctx, root, []string{"."})
+	if err != nil {
+		t.Fatalf("index code: %v", err)
+	}
+
+	report, err := store.GraphReport(ctx, GraphReportQuery{
+		Root:  root,
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("graph report: %v", err)
+	}
+
+	if !documentLinksContain(
+		report.DocumentLinks,
+		"documents",
+		"docs/architecture.md",
+		"",
+		"cmd/app.go",
+		"",
+		ProvenanceDocDerived,
+	) {
+		t.Fatalf("missing Markdown documents link:\n%#v", report.DocumentLinks)
+	}
+
+	if !documentLinksContain(
+		report.DocumentLinks,
+		"rationale_for",
+		"docs/architecture.md",
+		"",
+		"cmd/app.go",
+		"runApp",
+		ProvenanceInferred,
+	) {
+		t.Fatalf("missing Markdown rationale link:\n%#v", report.DocumentLinks)
+	}
+
+	if !documentLinksContain(
+		report.DocumentLinks,
+		"rationale_for",
+		"docs/architecture.md",
+		"",
+		"cmd/app.go",
+		"",
+		ProvenanceInferred,
+	) {
+		t.Fatalf("missing Markdown reason-prefix rationale link:\n%#v", report.DocumentLinks)
+	}
+
+	if !documentLinksContain(
+		report.DocumentLinks,
+		"mentions",
+		"docs/architecture.md",
+		"",
+		"cmd/app.go",
+		"runApp",
+		ProvenanceDocDerived,
+	) {
+		t.Fatalf("missing Markdown mentions link:\n%#v", report.DocumentLinks)
+	}
+
+	if !documentLinksContain(
+		report.DocumentLinks,
+		"documents",
+		"docs/architecture.md",
+		"",
+		"docs/guide.md",
+		"",
+		ProvenanceDocDerived,
+	) {
+		t.Fatalf("missing Markdown relative sibling link:\n%#v", report.DocumentLinks)
+	}
+
+	if !documentLinksContain(
+		report.DocumentLinks,
+		"documents",
+		"docs/architecture.md",
+		"",
+		"README.md",
+		"",
+		ProvenanceDocDerived,
+	) {
+		t.Fatalf("missing Markdown relative parent link:\n%#v", report.DocumentLinks)
+	}
+
+	if documentLinksContain(
+		report.DocumentLinks,
+		"rationale_for",
+		"docs/architecture.md",
+		"Examples",
+		"cmd/app.go",
+		"",
+		ProvenanceInferred,
+	) {
+		t.Fatalf(
+			"example path reference was classified as rationale:\n%#v",
+			report.DocumentLinks,
+		)
+	}
+}
+
 func TestCodeCommunitiesDeriveTopologyComponents(t *testing.T) {
 	t.Parallel()
 
@@ -393,6 +531,29 @@ func TestGraphReportReportsEmptyRepoMap(t *testing.T) {
 func graphReportHasWarning(report GraphReport, want string) bool {
 	for _, warning := range report.Warnings {
 		if strings.Contains(warning, want) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func documentLinksContain(
+	links []DocumentLink,
+	kind string,
+	sourcePath string,
+	sourceHeading string,
+	targetPath string,
+	targetSymbol string,
+	provenance string,
+) bool {
+	for _, link := range links {
+		if link.Kind == kind &&
+			link.SourcePath == sourcePath &&
+			(sourceHeading == "" || link.SourceHeading == sourceHeading) &&
+			link.TargetPath == targetPath &&
+			link.TargetSymbolPath == targetSymbol &&
+			link.ProvenanceClass == provenance {
 			return true
 		}
 	}
