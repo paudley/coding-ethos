@@ -100,6 +100,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"surprises":                 printSurprises,
 		"upsert-vector":             upsertVector,
 		"vector-stats":              printVectorStats,
+		"workspace":                 workspace,
 	}
 }
 

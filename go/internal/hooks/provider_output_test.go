@@ -103,7 +103,7 @@ func TestEncodeProviderResultBlocksCodexUnsupportedUpdatedInput(t *testing.T) {
 	}
 }
 
-func TestEncodeProviderResultOmitsEmptyCodexPreToolUseOutput(t *testing.T) {
+func TestEncodeProviderResultEmitsNeutralCodexPreToolUseOutput(t *testing.T) {
 	t.Parallel()
 
 	output := encodedProviderOutput(t, `{
@@ -113,8 +113,8 @@ func TestEncodeProviderResultOmitsEmptyCodexPreToolUseOutput(t *testing.T) {
 		"input": {}
 	}`)
 
-	if output != "" {
-		t.Fatalf("empty Codex PreToolUse output = %q, want empty stdout", output)
+	if strings.TrimSpace(output) != "{}" {
+		t.Fatalf("empty Codex PreToolUse output = %q, want neutral JSON", output)
 	}
 }
 

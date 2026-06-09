@@ -37,6 +37,9 @@ var (
 	errManagedLintRuntimeUnavailable = apperror.StaticError(
 		"managed lint runtime is not configured",
 	)
+	errCodeIntelRootUnavailable = apperror.StaticError(
+		"code-intel root is not configured",
+	)
 	errSARIFHistoryTooLarge = apperror.StaticError(
 		"sarif history exceeds supported MCP payload count",
 	)
@@ -204,6 +207,7 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "skill_lookup", Handler: server.lookupSkill},
 		{Name: "remediation_explain", Handler: server.explainRemediation},
 		{Name: "code_intel_overview", Handler: server.codeIntelOverview},
+		{Name: "code_intel_workspace_status", Handler: server.codeIntelWorkspaceStatus},
 		{Name: "code_intel_search", Handler: server.codeIntelSearch},
 		{Name: "code_intel_answer", Handler: server.codeIntelAnswer},
 		{Name: "semantic_search", Handler: server.semanticSearch},
