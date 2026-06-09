@@ -44,11 +44,28 @@ func TestIsGitRepoAcceptsGitFile(t *testing.T) {
 	if err := os.MkdirAll(gitDir, 0o700); err != nil {
 		t.Fatalf("mkdir gitdir: %v", err)
 	}
+	writeFile(t, filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"))
 
 	writeFile(t, filepath.Join(root, ".git"), []byte("gitdir: ../actual.git\n"))
 
 	if !isGitRepo(root) {
 		t.Fatal("isGitRepo rejected a worktree-style .git file")
+	}
+}
+
+func TestIsGitRepoRejectsBrokenGitFileTarget(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gitDir := filepath.Join(root, "..", "actual.git")
+	if err := os.MkdirAll(gitDir, 0o700); err != nil {
+		t.Fatalf("mkdir gitdir: %v", err)
+	}
+
+	writeFile(t, filepath.Join(root, ".git"), []byte("gitdir: ../actual.git\n"))
+
+	if isGitRepo(root) {
+		t.Fatal("isGitRepo accepted a gitdir without a HEAD marker")
 	}
 }
 
@@ -63,6 +80,24 @@ func TestAddWorkspaceRepoRejectsDuplicateCanonicalPath(t *testing.T) {
 	}
 	if _, err := AddWorkspaceRepo(root, "api-copy", repo); err == nil {
 		t.Fatal("AddWorkspaceRepo allowed duplicate canonical path")
+	}
+}
+
+func TestAddWorkspaceRepoRejectsDuplicateSymlinkPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	repo := createWorkspaceGitRepo(t, root, "api", "initial api")
+	link := filepath.Join(root, "api-link")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	if _, err := AddWorkspaceRepo(root, "api", repo); err != nil {
+		t.Fatalf("add api repo: %v", err)
+	}
+	if _, err := AddWorkspaceRepo(root, "api-link", link); err == nil {
+		t.Fatal("AddWorkspaceRepo allowed duplicate symlink path")
 	}
 }
 

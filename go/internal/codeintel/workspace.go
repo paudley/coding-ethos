@@ -364,7 +364,7 @@ func scanWorkspaceEntry(
 		return WorkspaceRepo{}, "", false, nil
 	}
 
-	canonical, err := filepath.Abs(path)
+	canonical, err := canonicalWorkspacePath(path)
 	if err != nil {
 		return WorkspaceRepo{}, "", false, fmt.Errorf("canonicalize discovered repo: %w", err)
 	}
@@ -416,7 +416,9 @@ func RefreshWorkspaceStatus(ctx context.Context, root string) (WorkspaceStatus, 
 		return WorkspaceStatus{}, err
 	}
 
-	return workspaceStatus(ctx, updatedRegistry)
+	status.UpdatedAtUTC = updatedRegistry.UpdatedAtUTC
+
+	return status, nil
 }
 
 // WorkspaceStatusForRegistry reports current workspace state.
@@ -873,7 +875,7 @@ func normalizeWorkspaceRegistry(
 }
 
 func newWorkspaceRepo(root, alias, repoPath string) (WorkspaceRepo, error) {
-	canonical, err := filepath.Abs(repoPath)
+	canonical, err := canonicalWorkspacePath(repoPath)
 	if err != nil {
 		return WorkspaceRepo{}, fmt.Errorf("canonicalize repository path: %w", err)
 	}
@@ -897,7 +899,7 @@ func normalizeWorkspaceRepo(root string, repo WorkspaceRepo) (WorkspaceRepo, err
 		return WorkspaceRepo{}, fmt.Errorf("%w: %q", errWorkspaceAliasInvalid, alias)
 	}
 
-	canonical, err := filepath.Abs(repo.Path)
+	canonical, err := canonicalWorkspacePath(repo.Path)
 	if err != nil {
 		return WorkspaceRepo{}, fmt.Errorf("canonicalize repository path: %w", err)
 	}
@@ -908,6 +910,20 @@ func normalizeWorkspaceRepo(root string, repo WorkspaceRepo) (WorkspaceRepo, err
 	_ = root
 
 	return repo, nil
+}
+
+func canonicalWorkspacePath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("make path absolute: %w", err)
+	}
+
+	canonical, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", fmt.Errorf("resolve path symlinks: %w", err)
+	}
+
+	return canonical, nil
 }
 
 func sanitizeWorkspaceAlias(value string) string {
@@ -983,8 +999,15 @@ func gitMarkerIsRepo(path, gitPath string) bool {
 	gitDir = filepath.Clean(gitDir)
 
 	info, err = os.Stat(gitDir) // #nosec G703 -- verifying Git's sanitized gitdir pointer.
+	if err != nil || !info.IsDir() {
+		return false
+	}
 
-	return err == nil && info.IsDir()
+	headPath := filepath.Join(gitDir, "HEAD")
+	// #nosec G703 -- validating Git's sanitized gitdir marker.
+	headInfo, err := os.Stat(headPath)
+
+	return err == nil && !headInfo.IsDir()
 }
 
 func workspaceFileExists(path string) bool {
