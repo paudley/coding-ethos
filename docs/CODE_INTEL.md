@@ -333,6 +333,8 @@ Markdown documentation is also indexed into the same graph when it contains
 explicit repo path references. Headings and code blocks remain ordinary Markdown
 chunks; path references such as `go/internal/codeintel/store.go` create
 `documents` edges, and `path#symbol` references create `mentions` edges.
+Repo-root paths stay repo-relative; Markdown `./` and `../` references resolve
+relative to the referencing Markdown file's directory before being stored.
 Rationale-like headings such as "Rationale", "Decision", "Reasoning", or "Why"
 classify explicit references as advisory `rationale_for` links. Documentation
 links use `DOC_DERIVED` provenance for extracted references and `INFERRED`

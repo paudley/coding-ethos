@@ -70,10 +70,14 @@ func TestGraphReportIncludesMarkdownDocumentLinks(t *testing.T) {
 
 func runApp() {}
 `))
+	writeFile(t, filepath.Join(root, "docs", "guide.md"), []byte(`# Guide
+`))
 	writeFile(t, filepath.Join(root, "docs", "architecture.md"), []byte(`# Architecture
 
 The runtime is implemented in cmd/app.go.
 The CLI entrypoint is cmd/app.go#runApp.
+The sibling guide is ./guide.md.
+The root README is ../README.md.
 
 ## Rationale
 
@@ -152,6 +156,30 @@ cmd/app.go owns startup initialization.
 		ProvenanceDocDerived,
 	) {
 		t.Fatalf("missing Markdown mentions link:\n%#v", report.DocumentLinks)
+	}
+
+	if !documentLinksContain(
+		report.DocumentLinks,
+		"documents",
+		"docs/architecture.md",
+		"",
+		"docs/guide.md",
+		"",
+		ProvenanceDocDerived,
+	) {
+		t.Fatalf("missing Markdown relative sibling link:\n%#v", report.DocumentLinks)
+	}
+
+	if !documentLinksContain(
+		report.DocumentLinks,
+		"documents",
+		"docs/architecture.md",
+		"",
+		"README.md",
+		"",
+		ProvenanceDocDerived,
+	) {
+		t.Fatalf("missing Markdown relative parent link:\n%#v", report.DocumentLinks)
 	}
 
 	if documentLinksContain(

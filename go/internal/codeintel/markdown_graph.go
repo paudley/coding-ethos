@@ -16,7 +16,10 @@ const (
 	codeEdgeKindRationaleFor = "rationale_for"
 )
 
-const markdownPathReferencePattern = `(?:\.{0,2}/)?[A-Za-z0-9_.-]+` +
+// markdownPathReferencePattern matches Markdown file references with an
+// optional ./ or ../ prefix, slash-separated path segments, a supported source
+// or documentation extension, and an optional #fragment for symbol mentions.
+const markdownPathReferencePattern = `(?:\.{1,2}/)?[A-Za-z0-9_.-]+` +
 	`(?:/[A-Za-z0-9_.-]+)*\.` +
 	`(?:go|py|md|yaml|yml|toml|json|jsonc|sh|bash|zsh|ts|tsx|js|jsx|mjs|cjs)` +
 	`(?:#[A-Za-z_][A-Za-z0-9_.-]*)?`
@@ -56,7 +59,7 @@ func markdownDocumentEdges(
 		}
 
 		for _, match := range markdownPathReferenceRE.FindAllString(line, -1) {
-			targetPath, targetSymbol := markdownTargetReference(match)
+			targetPath, targetSymbol := markdownTargetReference(path, match)
 			if targetPath == "" || targetPath == path {
 				continue
 			}
@@ -102,10 +105,14 @@ func markdownHeadingChunks(chunks []CodeChunk) []CodeChunk {
 	return headings
 }
 
-func markdownTargetReference(raw string) (string, string) {
+func markdownTargetReference(sourcePath, raw string) (string, string) {
 	targetPath, targetSymbol, _ := strings.Cut(raw, "#")
-	targetPath = strings.Trim(targetPath, "`'\"()[]{}<>,.;:")
-	targetPath = strings.TrimPrefix(targetPath, "./")
+	targetPath = strings.Trim(targetPath, "`'\"()[]{}<>,;:")
+
+	targetPath = strings.TrimRight(targetPath, ".")
+	if strings.HasPrefix(targetPath, "./") || strings.HasPrefix(targetPath, "../") {
+		targetPath = filepath.Join(filepath.Dir(sourcePath), targetPath)
+	}
 
 	targetPath = filepath.ToSlash(filepath.Clean(targetPath))
 	if targetPath == "." {
