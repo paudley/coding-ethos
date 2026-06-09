@@ -722,8 +722,6 @@ func workspaceContracts(
 
 		if closeErr != nil {
 			warnings = append(warnings, repo.Alias+" contracts close: "+closeErr.Error())
-
-			continue
 		}
 
 		contracts = append(contracts, workspaceContractsFromEdges(repo, registry, edges)...)
@@ -932,9 +930,9 @@ func workspaceSkipDir(name string) bool {
 }
 
 func isGitRepo(path string) bool {
-	info, err := os.Stat(filepath.Join(path, ".git"))
+	_, err := os.Stat(filepath.Join(path, ".git"))
 
-	return err == nil && info.IsDir()
+	return err == nil
 }
 
 func workspaceFileExists(path string) bool {

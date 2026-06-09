@@ -36,6 +36,17 @@ func TestWorkspaceScanRegistersGitRepos(t *testing.T) {
 	}
 }
 
+func TestIsGitRepoAcceptsGitFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, ".git"), []byte("gitdir: ../actual.git\n"))
+
+	if !isGitRepo(root) {
+		t.Fatal("isGitRepo rejected a worktree-style .git file")
+	}
+}
+
 func TestWorkspaceRefreshReportsStaleAndCochangeCandidates(t *testing.T) {
 	t.Parallel()
 

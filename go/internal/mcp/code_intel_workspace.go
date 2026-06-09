@@ -28,6 +28,7 @@ func (server Server) codeIntelWorkspaceSearch(
 	}
 
 	ctx := argsContext()
+	limit := boundedCodeIntelLimit(input.Limit)
 	results := []codeintel.HybridSearchResult{}
 
 	for _, repo := range repos {
@@ -53,7 +54,7 @@ func (server Server) codeIntelWorkspaceSearch(
 				SkillID:    input.SkillID,
 				Path:       input.Path,
 				Vector:     input.Vector,
-				Limit:      input.Limit,
+				Limit:      limit,
 			},
 		)
 
@@ -74,8 +75,19 @@ func (server Server) codeIntelWorkspaceSearch(
 		"kind":    "code_intel_search",
 		"backend": codeintel.VectorBackendDuckDBVSS,
 		"repo":    strings.TrimSpace(input.Repo),
-		"results": results,
+		"results": capWorkspaceSearchResults(results, limit),
 	}, nil
+}
+
+func capWorkspaceSearchResults(
+	results []codeintel.HybridSearchResult,
+	limit int,
+) []codeintel.HybridSearchResult {
+	if len(results) > limit {
+		return results[:limit]
+	}
+
+	return results
 }
 
 func annotateWorkspaceSearchResults(
