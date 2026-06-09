@@ -66,12 +66,13 @@ type codeIntelCitation struct {
 }
 
 type codeIntelContextTarget struct {
-	Context    *codeintel.CodeContext `json:"context,omitempty"`
-	Path       string                 `json:"path"`
-	Chunks     []codeintel.CodeChunk  `json:"chunks,omitempty"`
-	File       codeintel.CodeFile     `json:"file,omitzero"`
-	Found      bool                   `json:"found"`
-	IndexFresh bool                   `json:"index_fresh"`
+	Context     *codeintel.CodeContext `json:"context,omitempty"`
+	Path        string                 `json:"path"`
+	CommunityID string                 `json:"community_id,omitempty"`
+	Chunks      []codeintel.CodeChunk  `json:"chunks,omitempty"`
+	File        codeintel.CodeFile     `json:"file,omitzero"`
+	Found       bool                   `json:"found"`
+	IndexFresh  bool                   `json:"index_fresh"`
 }
 
 type gitReviewerSuggestions []codeintel.GitReviewerSuggestion
@@ -655,6 +656,17 @@ func (server Server) codeIntelContextCard(args json.RawMessage) (any, error) {
 		return nil, err
 	}
 
+	err = annotateContextTargetsWithCommunities(
+		ctx,
+		store,
+		server.codeIntelRoot(),
+		targets,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	meta, err := server.codeIntelTaskMeta(ctx, store, index, []string{
 		"code_files",
 		"code_chunks",
@@ -668,24 +680,10 @@ func (server Server) codeIntelContextCard(args json.RawMessage) (any, error) {
 	meta.Truncated = meta.Truncated || truncated
 
 	result := map[string]any{
-		"kind":    "code_intel_context_card",
-		"_meta":   meta,
-		"targets": targets,
-		"next_mcp_calls": []map[string]any{
-			{
-				"tool": "code_intel_code_context",
-				"arguments": map[string]any{
-					"path":        "<path>",
-					"symbol_path": "<symbol_path>",
-				},
-			},
-			{
-				"tool": "code_intel_change_risk",
-				"arguments": map[string]any{
-					"paths": targetPaths(targets),
-				},
-			},
-		},
+		"kind":           "code_intel_context_card",
+		"_meta":          meta,
+		"targets":        targets,
+		"next_mcp_calls": contextCardNextMCPCalls(targets),
 	}
 
 	if strings.EqualFold(strings.TrimSpace(input.Format), "toon") {
@@ -693,6 +691,24 @@ func (server Server) codeIntelContextCard(args json.RawMessage) (any, error) {
 	}
 
 	return result, nil
+}
+
+func contextCardNextMCPCalls(targets []codeIntelContextTarget) []map[string]any {
+	return []map[string]any{
+		{
+			"tool": "code_intel_code_context",
+			"arguments": map[string]any{
+				"path":        "<path>",
+				"symbol_path": "<symbol_path>",
+			},
+		},
+		{
+			"tool": "code_intel_change_risk",
+			"arguments": map[string]any{
+				"paths": targetPaths(targets),
+			},
+		},
+	}
 }
 
 func (server Server) codeIntelRepoMap(args json.RawMessage) (any, error) {
@@ -1362,6 +1378,40 @@ func targetPaths(targets []codeIntelContextTarget) []string {
 	return paths
 }
 
+func annotateContextTargetsWithCommunities(
+	ctx context.Context,
+	store *codeintel.Store,
+	root string,
+	targets []codeIntelContextTarget,
+	limit int,
+) error {
+	if len(targets) == 0 {
+		return nil
+	}
+
+	communities, err := store.CodeCommunities(ctx, codeintel.CodeCommunityQuery{
+		Root:  root,
+		Limit: limit,
+	})
+	if err != nil {
+		return fmt.Errorf("query context-card communities: %w", err)
+	}
+
+	communityByPath := map[string]string{}
+
+	for _, community := range communities {
+		for _, path := range community.MemberPaths {
+			communityByPath[path] = community.ID
+		}
+	}
+
+	for index := range targets {
+		targets[index].CommunityID = communityByPath[targets[index].Path]
+	}
+
+	return nil
+}
+
 func renderContextCardTOON(
 	targets []codeIntelContextTarget,
 	meta codeIntelTaskMeta,
@@ -1370,16 +1420,17 @@ func renderContextCardTOON(
 	lines = append(lines,
 		"tool: code_intel_context_card",
 		fmt.Sprintf("fresh: %t", meta.Fresh),
-		fmt.Sprintf("targets[%d]{path,found,chunks,index_fresh}:", len(targets)),
+		fmt.Sprintf("targets[%d]{path,found,chunks,index_fresh,community}:", len(targets)),
 	)
 
 	for _, target := range targets {
 		lines = append(lines, fmt.Sprintf(
-			"  %s,%t,%d,%t",
+			"  %s,%t,%d,%t,%s",
 			target.Path,
 			target.Found,
 			len(target.Chunks),
 			target.IndexFresh,
+			target.CommunityID,
 		))
 	}
 

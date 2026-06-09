@@ -34,6 +34,7 @@ type GraphReport struct {
 	Path             string             `json:"path,omitempty"`
 	RepoMap          RepoMap            `json:"repo_map"`
 	CentralFiles     []GraphReportFile  `json:"central_files,omitempty"`
+	Communities      []CodeCommunity    `json:"communities,omitempty"`
 	HealthTargets    []CodeHealthTarget `json:"health_targets,omitempty"`
 	SuggestedActions []string           `json:"suggested_actions,omitempty"`
 	Warnings         []string           `json:"warnings,omitempty"`
@@ -79,6 +80,15 @@ func (store *Store) GraphReport(
 		return GraphReport{}, fmt.Errorf("query graph report repo map: %w", err)
 	}
 
+	communities, err := store.CodeCommunities(ctx, CodeCommunityQuery{
+		Root:  query.Root,
+		Path:  query.Path,
+		Limit: graphReportLimit(query),
+	})
+	if err != nil {
+		return GraphReport{}, fmt.Errorf("query graph report communities: %w", err)
+	}
+
 	report := GraphReport{
 		Kind:             graphReportKind,
 		Root:             query.Root,
@@ -86,6 +96,7 @@ func (store *Store) GraphReport(
 		Stats:            stats,
 		RepoMap:          repoMap,
 		CentralFiles:     graphReportFiles(repoMap.Files),
+		Communities:      communities,
 		SuggestedActions: graphReportSuggestedActions(),
 		Warnings:         graphReportWarnings(stats, repoMap),
 	}

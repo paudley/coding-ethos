@@ -309,6 +309,13 @@ stored health snapshot into a human, JSON, or TOON orientation report. It is
 read-only with respect to indexing and tells agents when the AST index or health
 snapshot needs an explicit refresh.
 
+`graph-report` also includes deterministic topology communities derived from
+existing file-level `code_edges` and `git_cochanges`. The v1 implementation uses
+weighted connected components with stable ordering rather than Leiden or another
+external graph dependency. Community IDs are advisory orientation hints exposed
+in graph-report, repo-map, and context-card output; enforcement decisions must
+not depend on community detection.
+
 `proxy-file-read` is the current bridge for read deduplication. It reads a
 repo-relative file, computes the current content hash, records the first read as
 a `file_read` proxy event, and records later unchanged reads in the same session

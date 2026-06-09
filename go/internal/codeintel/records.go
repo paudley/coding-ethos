@@ -453,6 +453,7 @@ type RepoMap struct {
 type RepoMapFile struct {
 	Path                string          `json:"path"`
 	Language            string          `json:"language"`
+	CommunityID         string          `json:"community_id,omitempty"`
 	PrimaryAuthorEmail  string          `json:"primary_author_email,omitempty"`
 	ProvenanceClasses   []string        `json:"provenance_classes,omitempty"`
 	Symbols             []RepoMapSymbol `json:"symbols,omitempty"`
