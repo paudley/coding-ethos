@@ -34,7 +34,9 @@ type GraphReport struct {
 	Path             string             `json:"path,omitempty"`
 	RepoMap          RepoMap            `json:"repo_map"`
 	CentralFiles     []GraphReportFile  `json:"central_files,omitempty"`
+	CentralNodes     []CentralNode      `json:"central_nodes,omitempty"`
 	Communities      []CodeCommunity    `json:"communities,omitempty"`
+	SurpriseEdges    []SurpriseEdge     `json:"surprise_edges,omitempty"`
 	HealthTargets    []CodeHealthTarget `json:"health_targets,omitempty"`
 	SuggestedActions []string           `json:"suggested_actions,omitempty"`
 	Warnings         []string           `json:"warnings,omitempty"`
@@ -80,13 +82,9 @@ func (store *Store) GraphReport(
 		return GraphReport{}, fmt.Errorf("query graph report repo map: %w", err)
 	}
 
-	communities, err := store.CodeCommunities(ctx, CodeCommunityQuery{
-		Root:  query.Root,
-		Path:  query.Path,
-		Limit: graphReportLimit(query),
-	})
+	topology, err := store.graphReportTopology(ctx, query)
 	if err != nil {
-		return GraphReport{}, fmt.Errorf("query graph report communities: %w", err)
+		return GraphReport{}, err
 	}
 
 	report := GraphReport{
@@ -96,7 +94,9 @@ func (store *Store) GraphReport(
 		Stats:            stats,
 		RepoMap:          repoMap,
 		CentralFiles:     graphReportFiles(repoMap.Files),
-		Communities:      communities,
+		CentralNodes:     topology.centralNodes,
+		Communities:      topology.communities,
+		SurpriseEdges:    topology.surpriseEdges,
 		SuggestedActions: graphReportSuggestedActions(),
 		Warnings:         graphReportWarnings(stats, repoMap),
 	}
@@ -122,6 +122,50 @@ func (store *Store) GraphReport(
 	}
 
 	return report, nil
+}
+
+type graphReportTopology struct {
+	centralNodes  []CentralNode
+	communities   []CodeCommunity
+	surpriseEdges []SurpriseEdge
+}
+
+func (store *Store) graphReportTopology(
+	ctx context.Context,
+	query GraphReportQuery,
+) (graphReportTopology, error) {
+	communities, err := store.CodeCommunities(ctx, CodeCommunityQuery{
+		Root:  query.Root,
+		Path:  query.Path,
+		Limit: graphReportLimit(query),
+	})
+	if err != nil {
+		return graphReportTopology{}, fmt.Errorf("query graph report communities: %w", err)
+	}
+
+	centralNodes, err := store.CentralNodes(ctx, CentralNodeQuery{
+		Root:  query.Root,
+		Path:  query.Path,
+		Limit: graphReportLimit(query),
+	})
+	if err != nil {
+		return graphReportTopology{}, fmt.Errorf("query graph report central nodes: %w", err)
+	}
+
+	surpriseEdges, err := store.SurpriseEdges(ctx, SurpriseEdgeQuery{
+		Root:  query.Root,
+		Path:  query.Path,
+		Limit: graphReportLimit(query),
+	})
+	if err != nil {
+		return graphReportTopology{}, fmt.Errorf("query graph report surprise edges: %w", err)
+	}
+
+	return graphReportTopology{
+		centralNodes:  centralNodes,
+		communities:   communities,
+		surpriseEdges: surpriseEdges,
+	}, nil
 }
 
 func graphReportLimit(query GraphReportQuery) int {

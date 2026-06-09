@@ -114,8 +114,16 @@ func graphReportTables(report codeintel.GraphReport) []feedback.Table {
 		tables = append(tables, graphReportCentralFilesTable(report.CentralFiles))
 	}
 
+	if len(report.CentralNodes) > 0 {
+		tables = append(tables, centralNodesTable(report.CentralNodes))
+	}
+
 	if len(report.Communities) > 0 {
 		tables = append(tables, graphReportCommunitiesTable(report.Communities))
+	}
+
+	if len(report.SurpriseEdges) > 0 {
+		tables = append(tables, surpriseEdgesTable(report.SurpriseEdges))
 	}
 
 	if len(report.HealthTargets) > 0 {

@@ -61,6 +61,7 @@ type codeIntelCommand func(context.Context, []string) error
 func commandHandlers() map[string]codeIntelCommand {
 	return map[string]codeIntelCommand{
 		"anatomy-map":               printAnatomyMap,
+		"centrality":                printCentrality,
 		"code-chunks":               printCodeChunks,
 		"compact-context":           printCompactContext,
 		"code-context":              printCodeContext,
@@ -95,6 +96,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"search":                    search,
 		"session-snapshot":          printSessionSnapshot,
 		"stats":                     printStats,
+		"surprises":                 printSurprises,
 		"upsert-vector":             upsertVector,
 		"vector-stats":              printVectorStats,
 	}

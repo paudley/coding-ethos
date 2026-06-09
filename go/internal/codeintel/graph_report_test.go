@@ -170,6 +170,87 @@ func TestCodeCommunitiesExcludeRepoMapProtectedPaths(t *testing.T) {
 	}
 }
 
+func TestCentralNodesRankStructuralAndGitSignals(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
+	)
+
+	writeFile(t, filepath.Join(root, "cmd", "app.go"), []byte("package main\n"))
+	writeFile(t, filepath.Join(root, "pkg", "worker.go"), []byte("package pkg\n"))
+	seedCommunityFile(t, ctx, store, "cmd/app.go", "go", []CodeEdge{{
+		ID:              "edge-app-worker",
+		Kind:            "calls",
+		Path:            "cmd/app.go",
+		TargetPath:      "pkg/worker.go",
+		ProvenanceClass: ProvenanceExtracted,
+	}})
+	seedCommunityFile(t, ctx, store, "pkg/worker.go", "go", nil)
+	seedCommunityCoChange(t, ctx, store, "cmd/app.go", "pkg/worker.go", 4, true)
+
+	nodes, err := store.CentralNodes(ctx, CentralNodeQuery{
+		Root:  root,
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("central nodes: %v", err)
+	}
+
+	appNode := centralNodeForPath(nodes, "cmd/app.go")
+	if appNode == nil ||
+		appNode.Score == 0 ||
+		appNode.Degree == 0 ||
+		!centralNodeHasSignal(*appNode, "git_cochange") ||
+		!centralNodeHasSignal(*appNode, "structural_degree") {
+		t.Fatalf("unexpected central nodes:\n%#v", nodes)
+	}
+}
+
+func TestSurpriseEdgesExplainCrossBoundarySignals(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	store := openTestStoreAt(
+		t,
+		ctx,
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
+	)
+
+	writeFile(t, filepath.Join(root, "docs", "policy.md"), []byte("# Policy\n"))
+	writeFile(t, filepath.Join(root, "pkg", "worker.go"), []byte("package pkg\n"))
+	seedCommunityFile(t, ctx, store, "docs/policy.md", "markdown", []CodeEdge{{
+		ID:              "edge-doc-worker",
+		Kind:            "documents",
+		Path:            "docs/policy.md",
+		TargetPath:      "pkg/worker.go",
+		ProvenanceClass: ProvenanceDocDerived,
+	}})
+	seedCommunityFile(t, ctx, store, "pkg/worker.go", "go", nil)
+
+	edges, err := store.SurpriseEdges(ctx, SurpriseEdgeQuery{
+		Root:  root,
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("surprise edges: %v", err)
+	}
+
+	edge := surpriseEdgeForPaths(edges, "docs/policy.md", "pkg/worker.go")
+	if edge == nil ||
+		edge.Score == 0 ||
+		!surpriseEdgeHasReason(*edge, "cross_directory") ||
+		!surpriseEdgeHasReason(*edge, "cross_language") ||
+		!surpriseEdgeHasReason(*edge, "doc_to_code") {
+		t.Fatalf("unexpected surprise edges:\n%#v", edges)
+	}
+}
+
 func TestGraphReportIncludesCommunities(t *testing.T) {
 	t.Parallel()
 
@@ -210,6 +291,11 @@ func TestGraphReportIncludesCommunities(t *testing.T) {
 		report.Communities[0].MemberCount != 2 ||
 		!strings.Contains(report.Communities[0].ID, "cmd-app.go") {
 		t.Fatalf("unexpected graph report communities:\n%#v", report.Communities)
+	}
+
+	if len(report.CentralNodes) == 0 ||
+		len(report.SurpriseEdges) == 0 {
+		t.Fatalf("graph report missing centrality/surprise sections:\n%#v", report)
 	}
 }
 
@@ -413,6 +499,50 @@ func codeCommunityHasEvidence(
 		if evidence.Kind == kind &&
 			evidence.SourcePath == sourcePath &&
 			evidence.TargetPath == targetPath {
+			return true
+		}
+	}
+
+	return false
+}
+
+func centralNodeForPath(nodes []CentralNode, path string) *CentralNode {
+	for index := range nodes {
+		if nodes[index].Path == path {
+			return &nodes[index]
+		}
+	}
+
+	return nil
+}
+
+func centralNodeHasSignal(node CentralNode, kind string) bool {
+	for _, signal := range node.Signals {
+		if signal.Kind == kind {
+			return true
+		}
+	}
+
+	return false
+}
+
+func surpriseEdgeForPaths(
+	edges []SurpriseEdge,
+	sourcePath string,
+	targetPath string,
+) *SurpriseEdge {
+	for index := range edges {
+		if edges[index].SourcePath == sourcePath && edges[index].TargetPath == targetPath {
+			return &edges[index]
+		}
+	}
+
+	return nil
+}
+
+func surpriseEdgeHasReason(edge SurpriseEdge, kind string) bool {
+	for _, reason := range edge.Reasons {
+		if reason.Kind == kind {
 			return true
 		}
 	}
