@@ -29,6 +29,17 @@ import (
 
 const statusBlocked = "blocked"
 
+var codeIntelMCPTestSlots = make(chan struct{}, 1)
+
+func acquireCodeIntelMCPTestSlot(t *testing.T) {
+	t.Helper()
+
+	codeIntelMCPTestSlots <- struct{}{}
+	t.Cleanup(func() {
+		<-codeIntelMCPTestSlots
+	})
+}
+
 func TestServerListsTools(t *testing.T) {
 	t.Parallel()
 
@@ -38,8 +49,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 31 {
-		t.Fatalf("tool count = %d, want 31: %#v", len(tools), tools)
+	if len(tools) != 32 {
+		t.Fatalf("tool count = %d, want 32: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -68,6 +79,7 @@ func TestServerListsTools(t *testing.T) {
 		"code_intel_context_card",
 		"code_intel_change_risk",
 		"code_intel_health",
+		"code_intel_why",
 		"code_intel_session_snapshot",
 		"code_intel_index_code",
 		"code_intel_embedding_candidates",
@@ -771,6 +783,7 @@ func TestServerRejectsPolicyExplainWithoutID(t *testing.T) {
 
 func TestServerCodeIntelToolsUseStoredCodeAndRemediationData(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
 
 	root := t.TempDir()
 	seedCodeIntelToolData(t, root)
@@ -786,6 +799,7 @@ func TestServerCodeIntelToolsUseStoredCodeAndRemediationData(t *testing.T) {
 
 func TestServerChangeRiskDoesNotRefreshMissingHealthSnapshot(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
 
 	ctx := context.Background()
 	root := t.TempDir()
@@ -827,6 +841,7 @@ func TestServerChangeRiskDoesNotRefreshMissingHealthSnapshot(t *testing.T) {
 
 func TestServerSemanticSearchReturnsCodeChunks(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
 
 	root := t.TempDir()
 	seedCodeIntelToolData(t, root)
@@ -899,6 +914,19 @@ func seedCodeIntelToolData(t *testing.T, root string) {
 		t.Fatalf("record outcome: %v", inlineErr2)
 	}
 
+	_, inlineErrDecision := store.RecordDecision(ctx, codeintel.DecisionRecord{
+		Title:     "Use explicit startup flow",
+		Rationale: "Explicit startup flow keeps the app entrypoint inspectable.",
+		Status:    codeintel.DecisionStatusAccepted,
+		Links: []codeintel.DecisionLink{{
+			Path: "pkg/app.py",
+			Kind: codeintel.DecisionLinkAffects,
+		}},
+	})
+	if inlineErrDecision != nil {
+		t.Fatalf("record decision: %v", inlineErrDecision)
+	}
+
 	inlineErr3 := store.Close()
 	if inlineErr3 != nil {
 		t.Fatalf("close store: %v", inlineErr3)
@@ -940,6 +968,11 @@ func codeIntelToolRequests() []codeIntelToolRequestCase {
 			want: "code_intel_embedding_candidates",
 		},
 		{
+			name: "why",
+			body: `{"path":"pkg/app.py","query":"startup","limit":5}`,
+			want: "code_intel_why",
+		},
+		{
 			name: "index status",
 			body: `{"collection":"remediations","model_id":"test-model"}`,
 			want: "ready_records",
@@ -964,6 +997,7 @@ func codeIntelToolRequest(
 
 func TestServerCodeIntelRepoMapResource(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
 
 	root := t.TempDir()
 	seedCodeIntelToolData(t, root)
@@ -994,6 +1028,7 @@ func TestServerCodeIntelRepoMapResource(t *testing.T) {
 
 func TestServerCodeIntelRepoMapResourceDoesNotRefreshIndex(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
 
 	root := t.TempDir()
 	seedCodeIntelToolData(t, root)
@@ -1037,6 +1072,7 @@ func TestServerCodeIntelRepoMapResourceDoesNotRefreshIndex(t *testing.T) {
 
 func TestServerCodeIntelRepoMapRootPathDoesNotRefreshIndex(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
 
 	root := t.TempDir()
 	seedCodeIntelToolData(t, root)
@@ -1077,6 +1113,7 @@ func TestServerCodeIntelRepoMapRootPathDoesNotRefreshIndex(t *testing.T) {
 
 func TestServerCodeIntelRepoMapRejectsTraversalRefreshPath(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
 
 	root := t.TempDir()
 	seedCodeIntelToolData(t, root)
@@ -1124,6 +1161,7 @@ func TestServerCodeIntelRepoMapRejectsTraversalRefreshPath(t *testing.T) {
 
 func TestServerCodeIntelRepoMapReturnsDirectoryPath(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
 
 	root := t.TempDir()
 	goSourcePath := filepath.Join(root, "internal", "query", "postgres", "index.go")
@@ -1910,6 +1948,7 @@ func TestServerSkillRecommendFallsBackForFixIntent(t *testing.T) {
 
 func TestServerReportsCodeIntelHookUsage(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
 
 	root := t.TempDir()
 	ctx := context.Background()
@@ -1963,6 +2002,7 @@ func TestServerReportsCodeIntelHookUsage(t *testing.T) {
 
 func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
 
 	root := t.TempDir()
 
@@ -2192,6 +2232,7 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 
 func TestServerChecksCodeSimilarity(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
 
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "pkg", "existing.py")

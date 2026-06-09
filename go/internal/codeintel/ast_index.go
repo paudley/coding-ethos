@@ -718,6 +718,11 @@ func (indexer ASTIndexer) indexFile(
 			return err
 		}
 
+		err = indexer.store.ReplaceIndexedDecisions(ctx, relativePath, nil)
+		if err != nil {
+			return err
+		}
+
 		existingFiles[relativePath] = inactiveFile
 
 		summary.Skipped = append(summary.Skipped, relativePath)
@@ -772,6 +777,15 @@ func (indexer ASTIndexer) indexFile(
 			return err
 		}
 
+		err = indexer.store.ReplaceIndexedDecisions(
+			ctx,
+			relativePath,
+			IndexedDecisions(relativePath, contents),
+		)
+		if err != nil {
+			return err
+		}
+
 		existingFiles[relativePath] = inactiveFile
 
 		summary.Skipped = append(summary.Skipped, relativePath)
@@ -805,6 +819,15 @@ func (indexer ASTIndexer) indexFile(
 			return err
 		}
 
+		err = indexer.store.ReplaceIndexedDecisions(
+			ctx,
+			relativePath,
+			IndexedDecisions(relativePath, contents),
+		)
+		if err != nil {
+			return err
+		}
+
 		existingFiles[relativePath] = inactiveFile
 
 		summary.Skipped = append(summary.Skipped, relativePath)
@@ -831,6 +854,15 @@ func (indexer ASTIndexer) indexFile(
 	inlineErr1 := indexer.store.ReplaceCodeFileIndex(ctx, file, chunks, edges)
 	if inlineErr1 != nil {
 		return inlineErr1
+	}
+
+	inlineErr2 := indexer.store.ReplaceIndexedDecisions(
+		ctx,
+		relativePath,
+		IndexedDecisions(relativePath, contents),
+	)
+	if inlineErr2 != nil {
+		return inlineErr2
 	}
 
 	existingFiles[relativePath] = file

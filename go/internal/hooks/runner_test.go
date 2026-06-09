@@ -39,6 +39,17 @@ const (
 	toolBash        = "Bash"
 )
 
+var codeIntelHookTestSlots = make(chan struct{}, 1)
+
+func acquireCodeIntelHookTestSlot(t *testing.T) {
+	t.Helper()
+
+	codeIntelHookTestSlots <- struct{}{}
+	t.Cleanup(func() {
+		<-codeIntelHookTestSlots
+	})
+}
+
 func TestRunBlocksGitHookBypass(t *testing.T) {
 	t.Parallel()
 
@@ -4945,6 +4956,7 @@ func TestRunSuppressesCodexPostEditWithoutActionableSignal(t *testing.T) {
 
 func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelHookTestSlot(t)
 
 	repo := initHookRepo(t)
 	sourcePath := filepath.Join(repo, "pkg", "app.py")
@@ -5029,6 +5041,7 @@ func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 
 func TestRunFallsBackToLegacyRepoMapWhenDuckDBUpgradeIsLocked(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelHookTestSlot(t)
 
 	repo := initHookRepo(t)
 	sourcePath := filepath.Join(repo, "pkg", "app.py")
@@ -5081,6 +5094,7 @@ func TestRunFallsBackToLegacyRepoMapWhenDuckDBUpgradeIsLocked(t *testing.T) {
 
 func TestRunAddsCodeIntelEnrichmentForReadTool(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelHookTestSlot(t)
 
 	repo := initHookRepo(t)
 	sourcePath := filepath.Join(repo, "pkg", "app.py")
@@ -5154,6 +5168,7 @@ func TestRunAddsCodeIntelEnrichmentForReadTool(t *testing.T) {
 
 func TestRunReportsStaleCodeIntelEnrichmentForModifiedReadTarget(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelHookTestSlot(t)
 
 	repo := initHookRepo(t)
 	sourcePath := filepath.Join(repo, "pkg", "app.py")
@@ -5232,6 +5247,7 @@ func TestRunReportsStaleCodeIntelEnrichmentForModifiedReadTarget(t *testing.T) {
 
 func TestRunAddsGoldenCodeIntelEnrichmentForGlobTool(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelHookTestSlot(t)
 
 	repo := initHookRepo(t)
 	sourcePath := filepath.Join(repo, "pkg", "app.py")
@@ -5332,6 +5348,7 @@ func TestRunSkipsCodeIntelEnrichmentWhenDisabled(t *testing.T) {
 
 func TestRunReportsMissingCodeIntelIndexForSearchTool(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelHookTestSlot(t)
 
 	repo := initHookRepo(t)
 
@@ -5372,6 +5389,7 @@ func TestRunReportsMissingCodeIntelIndexForSearchTool(t *testing.T) {
 
 func TestRunCapsCodeIntelEnrichmentPathsFromSearchOutput(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelHookTestSlot(t)
 
 	repo := initHookRepo(t)
 	for _, source := range []string{"pkg/app.py", "pkg/worker.py"} {
@@ -5426,6 +5444,7 @@ func TestRunCapsCodeIntelEnrichmentPathsFromSearchOutput(t *testing.T) {
 
 func TestRunDedupesCodeIntelFreshnessNoticeAfterCommit(t *testing.T) {
 	t.Parallel()
+	acquireCodeIntelHookTestSlot(t)
 
 	repo := initHookRepo(t)
 	sourcePath := filepath.Join(repo, "pkg", "app.py")

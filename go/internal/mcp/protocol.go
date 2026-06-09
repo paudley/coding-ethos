@@ -328,6 +328,16 @@ type codeIntelAnswerInput struct {
 	Limit    int      `json:"limit,omitempty"`
 }
 
+type codeIntelWhyInput struct {
+	Text       string `json:"text,omitempty"`
+	Query      string `json:"query,omitempty"`
+	Path       string `json:"path,omitempty"`
+	SymbolPath string `json:"symbol_path,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Format     string `json:"format,omitempty"`
+	Limit      int    `json:"limit,omitempty"`
+}
+
 type codeIntelChangeRiskInput struct {
 	Path  string   `json:"path,omitempty"`
 	Paths []string `json:"paths,omitempty"`
@@ -446,8 +456,8 @@ func toolResult(result any) map[string]any {
 }
 
 const (
-	toolDefinitionCapacity          = 31
-	codeIntelToolDefinitionCapacity = 16
+	toolDefinitionCapacity          = 32
+	codeIntelToolDefinitionCapacity = 17
 )
 
 func toolDefinitions() []map[string]any {
@@ -1122,6 +1132,7 @@ func codeIntelCodeToolDefinitions() []map[string]any {
 		codeIntelContextCardToolDefinition(),
 		codeIntelChangeRiskToolDefinition(),
 		codeIntelHealthToolDefinition(),
+		codeIntelWhyToolDefinition(),
 		codeIntelSessionSnapshotToolDefinition(),
 		codeIntelIndexCodeToolDefinition(),
 		toolDefinition(
@@ -1204,6 +1215,36 @@ func codeIntelHealthToolDefinition() map[string]any {
 				"implementation work",
 			),
 			TracePersisted: true,
+		},
+	)
+}
+
+func codeIntelWhyToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_why",
+		toolText(
+			"Return architectural decisions and decision-health signals",
+			"for a query, path, symbol, or status before changing code.",
+		),
+		map[string]any{
+			"text":        map[string]any{"type": "string"},
+			"query":       aliasSchema("text"),
+			"path":        map[string]any{"type": "string"},
+			"symbol_path": map[string]any{"type": "string"},
+			"status":      map[string]any{"type": "string"},
+			"format":      map[string]any{"type": "string"},
+			"limit":       map[string]any{"type": "integer"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    true,
+			PreferredUse: toolText(
+				"ask why a design exists and inspect related decisions",
+				"before editing governed code",
+			),
+			TracePersisted: false,
 		},
 	)
 }

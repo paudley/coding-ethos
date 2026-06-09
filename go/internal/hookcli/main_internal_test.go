@@ -45,7 +45,7 @@ func TestHookCLIBlocksBashBypass(t *testing.T) {
 func TestHookCLIAdvisesMultiEditPythonPolicy(t *testing.T) {
 	t.Parallel()
 
-	result, status, _ := runHookCLI(
+	stdout, status, stderr := runHookCLIOutput(
 		t,
 		hookJSON(t, "PreToolUse", "MultiEdit", map[string]any{
 			"file_path":  "src/app.py",
@@ -56,8 +56,22 @@ func TestHookCLIAdvisesMultiEditPythonPolicy(t *testing.T) {
 		t.Fatalf("status mismatch: got %d", status)
 	}
 
-	if hookOutputDenies(result) {
-		t.Fatalf("result should not deny: %#v", result)
+	if strings.TrimSpace(stdout) != "" {
+		var result map[string]any
+
+		err := json.Unmarshal([]byte(stdout), &result)
+		if err != nil {
+			t.Fatalf(
+				"decode hook result: %v\nstdout:\n%s\nstderr:\n%s",
+				err,
+				stdout,
+				stderr,
+			)
+		}
+
+		if hookOutputDenies(result) {
+			t.Fatalf("result should not deny: %#v", result)
+		}
 	}
 }
 
@@ -324,6 +338,26 @@ func TestWriteProxyEventsKeepsDurableEventLogWhenLedgerLocked(t *testing.T) {
 func runHookCLI(t *testing.T, stdin string) (map[string]any, int, string) {
 	t.Helper()
 
+	stdout, status, stderr := runHookCLIOutput(t, stdin)
+
+	var result map[string]any
+
+	err := json.Unmarshal([]byte(stdout), &result)
+	if err != nil {
+		t.Fatalf(
+			"decode hook result: %v\nstdout:\n%s\nstderr:\n%s",
+			err,
+			stdout,
+			stderr,
+		)
+	}
+
+	return result, status, stderr
+}
+
+func runHookCLIOutput(t *testing.T, stdin string) (string, int, string) {
+	t.Helper()
+
 	bundlePath := writeCLITestBundle(t)
 
 	var (
@@ -338,19 +372,7 @@ func runHookCLI(t *testing.T, stdin string) (map[string]any, int, string) {
 		&stderr,
 	)
 
-	var result map[string]any
-
-	err := json.Unmarshal(stdout.Bytes(), &result)
-	if err != nil {
-		t.Fatalf(
-			"decode hook result: %v\nstdout:\n%s\nstderr:\n%s",
-			err,
-			stdout.String(),
-			stderr.String(),
-		)
-	}
-
-	return result, status, stderr.String()
+	return stdout.String(), status, stderr.String()
 }
 
 func captureHookStderr(t *testing.T, run func()) string {

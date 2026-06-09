@@ -672,6 +672,16 @@ func duckDBExtendedStatsQueries(stats *Stats) []statCountQuery {
 			target: &stats.ASTFindingLinks,
 		},
 		{
+			name:   "decisions",
+			query:  "SELECT COUNT(*) FROM decisions",
+			target: &stats.Decisions,
+		},
+		{
+			name:   "decision_links",
+			query:  "SELECT COUNT(*) FROM decision_links",
+			target: &stats.DecisionLinks,
+		},
+		{
 			name:   "remediations",
 			query:  "SELECT COUNT(*) FROM remediations",
 			target: &stats.Remediations,

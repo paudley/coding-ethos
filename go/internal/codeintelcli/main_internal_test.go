@@ -39,6 +39,90 @@ func TestStatsCreatesStore(t *testing.T) {
 	}
 }
 
+func TestDecisionsCommandsRecordListAndReportHealth(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
+
+	var addErr error
+	addOutput := captureStdout(t, func() {
+		addErr = run(context.Background(), []string{
+			"decisions",
+			"add",
+			"--root", root,
+			"--db", dbPath,
+			"--title", "Use managed caches",
+			"--rationale", "Managed caches keep tool startup deterministic.",
+			"--path", "pkg/cache.go",
+		})
+	})
+	if addErr != nil {
+		t.Fatalf("decisions add returned error: %v", addErr)
+	}
+	if !strings.Contains(addOutput, `"kind": "code_intel.decisions.v1"`) ||
+		!strings.Contains(addOutput, `"pkg/cache.go"`) {
+		t.Fatalf("decisions add output missing stable fields:\n%s", addOutput)
+	}
+
+	var listErr error
+	listOutput := captureStdout(t, func() {
+		listErr = run(context.Background(), []string{
+			"decisions",
+			"list",
+			"--root", root,
+			"--db", dbPath,
+			"--query", "deterministic",
+			"--path", "pkg/cache.go",
+			"--format", "json",
+		})
+	})
+	if listErr != nil {
+		t.Fatalf("decisions list returned error: %v", listErr)
+	}
+	if !strings.Contains(listOutput, `"decisions": [`) ||
+		!strings.Contains(listOutput, `"Use managed caches"`) {
+		t.Fatalf("decisions list output missing record:\n%s", listOutput)
+	}
+
+	var healthErr error
+	healthOutput := captureStdout(t, func() {
+		healthErr = run(context.Background(), []string{
+			"decisions",
+			"health",
+			"--root", root,
+			"--db", dbPath,
+			"--path", "pkg/cache.go",
+		})
+	})
+	if healthErr != nil {
+		t.Fatalf("decisions health returned error: %v", healthErr)
+	}
+	if !strings.Contains(healthOutput, `"kind": "code_intel.decision_health.v1"`) ||
+		!strings.Contains(healthOutput, `"decision_count": 1`) {
+		t.Fatalf("decisions health output missing summary:\n%s", healthOutput)
+	}
+}
+
+func TestDecisionsListRejectsUnsupportedFormatWithDecisionError(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
+
+	err := run(context.Background(), []string{
+		"decisions",
+		"list",
+		"--root", root,
+		"--db", dbPath,
+		"--format", "xml",
+	})
+	if err == nil {
+		t.Fatalf("expected unsupported decisions format error")
+	}
+	if !strings.Contains(err.Error(), "unsupported decisions format") {
+		t.Fatalf("error = %q, want decisions format message", err)
+	}
+}
+
 func TestGitSignalsCommandRefreshesRealRepository(t *testing.T) {
 	t.Parallel()
 

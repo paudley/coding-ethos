@@ -103,6 +103,21 @@ func TestEncodeProviderResultBlocksCodexUnsupportedUpdatedInput(t *testing.T) {
 	}
 }
 
+func TestEncodeProviderResultOmitsEmptyCodexPreToolUseOutput(t *testing.T) {
+	t.Parallel()
+
+	output := encodedProviderOutput(t, `{
+		"provider": "codex",
+		"event": "PreToolUse",
+		"tool": "functions.update_plan",
+		"input": {}
+	}`)
+
+	if output != "" {
+		t.Fatalf("empty Codex PreToolUse output = %q, want empty stdout", output)
+	}
+}
+
 func TestProviderDenialIncludesTrackingID(t *testing.T) {
 	t.Parallel()
 
