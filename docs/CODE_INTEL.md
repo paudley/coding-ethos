@@ -316,6 +316,16 @@ external graph dependency. Community IDs are advisory orientation hints exposed
 in graph-report, repo-map, and context-card output; enforcement decisions must
 not depend on community detection.
 
+`centrality` and `surprises` expose deterministic graph-orientation views over
+the same DuckDB facts. Central nodes rank files by explainable structural degree,
+git co-change, health-priority, finding, and remediation-outcome signals.
+Surprise edges highlight deterministic cross-boundary relationships such as
+cross-directory, cross-language, policy/config-to-code, documentation-to-code,
+test-to-production, and hidden git co-change links. These views are included in
+`graph-report`, carry provenance and explanation fields, and remain advisory:
+they help agents choose what to inspect before editing, but they do not block or
+permit policy decisions.
+
 `proxy-file-read` is the current bridge for read deduplication. It reads a
 repo-relative file, computes the current content hash, records the first read as
 a `file_read` proxy event, and records later unchanged reads in the same session

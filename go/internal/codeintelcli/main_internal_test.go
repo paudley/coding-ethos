@@ -381,10 +381,27 @@ func deep() {}
 	}
 	if !strings.Contains(graphReportTOON, "kind: code_intel.graph_report.v1") ||
 		!strings.Contains(graphReportTOON, "central_files[") ||
+		!strings.Contains(graphReportTOON, "central_nodes[") ||
 		!strings.Contains(graphReportTOON, "communities[") ||
 		!strings.Contains(graphReportTOON, "provenance") ||
 		!strings.Contains(graphReportTOON, "EXTRACTED") {
 		t.Fatalf("graph-report TOON missing expected content:\n%s", graphReportTOON)
+	}
+
+	err = run(ctx, []string{
+		"centrality", "--root", root, "--db", dbPath,
+		"--path", "cmd", "--format", "json",
+	})
+	if err != nil {
+		t.Fatalf("centrality returned error: %v", err)
+	}
+
+	err = run(ctx, []string{
+		"surprises", "--root", root, "--db", dbPath,
+		"--path", "cmd", "--format", "json",
+	})
+	if err != nil {
+		t.Fatalf("surprises returned error: %v", err)
 	}
 
 	err = run(ctx, []string{
