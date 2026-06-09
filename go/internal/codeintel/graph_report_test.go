@@ -82,6 +82,10 @@ The entry point is cmd/app.go#runApp because the CLI owns startup wiring.
 ## Examples
 
 Example snippets may mention cmd/app.go but are still advisory documentation.
+
+## Reason for Startup Boundary
+
+cmd/app.go owns startup initialization.
 `))
 	store := openTestStoreAt(
 		t,
@@ -106,6 +110,7 @@ Example snippets may mention cmd/app.go but are still advisory documentation.
 		report.DocumentLinks,
 		"documents",
 		"docs/architecture.md",
+		"",
 		"cmd/app.go",
 		"",
 		ProvenanceDocDerived,
@@ -117,6 +122,7 @@ Example snippets may mention cmd/app.go but are still advisory documentation.
 		report.DocumentLinks,
 		"rationale_for",
 		"docs/architecture.md",
+		"",
 		"cmd/app.go",
 		"runApp",
 		ProvenanceInferred,
@@ -126,8 +132,21 @@ Example snippets may mention cmd/app.go but are still advisory documentation.
 
 	if !documentLinksContain(
 		report.DocumentLinks,
+		"rationale_for",
+		"docs/architecture.md",
+		"",
+		"cmd/app.go",
+		"",
+		ProvenanceInferred,
+	) {
+		t.Fatalf("missing Markdown reason-prefix rationale link:\n%#v", report.DocumentLinks)
+	}
+
+	if !documentLinksContain(
+		report.DocumentLinks,
 		"mentions",
 		"docs/architecture.md",
+		"",
 		"cmd/app.go",
 		"runApp",
 		ProvenanceDocDerived,
@@ -139,6 +158,7 @@ Example snippets may mention cmd/app.go but are still advisory documentation.
 		report.DocumentLinks,
 		"rationale_for",
 		"docs/architecture.md",
+		"Examples",
 		"cmd/app.go",
 		"",
 		ProvenanceInferred,
@@ -494,6 +514,7 @@ func documentLinksContain(
 	links []DocumentLink,
 	kind string,
 	sourcePath string,
+	sourceHeading string,
 	targetPath string,
 	targetSymbol string,
 	provenance string,
@@ -501,6 +522,7 @@ func documentLinksContain(
 	for _, link := range links {
 		if link.Kind == kind &&
 			link.SourcePath == sourcePath &&
+			(sourceHeading == "" || link.SourceHeading == sourceHeading) &&
 			link.TargetPath == targetPath &&
 			link.TargetSymbolPath == targetSymbol &&
 			link.ProvenanceClass == provenance {

@@ -38,12 +38,19 @@ func markdownDocumentEdges(
 	}
 
 	edges := []CodeEdge{}
+	lineNumber := 0
+	headingIndex := 0
 
-	lines := strings.Split(string(contents), "\n")
-	for index, line := range lines {
-		lineNumber := index + 1
+	var source CodeChunk
 
-		source := nearestMarkdownHeading(headings, lineNumber)
+	for line := range strings.SplitSeq(string(contents), "\n") {
+		lineNumber++
+		for headingIndex < len(headings) &&
+			headings[headingIndex].StartLine <= lineNumber {
+			source = headings[headingIndex]
+			headingIndex++
+		}
+
 		if source.ID == "" {
 			continue
 		}
@@ -95,20 +102,6 @@ func markdownHeadingChunks(chunks []CodeChunk) []CodeChunk {
 	return headings
 }
 
-func nearestMarkdownHeading(headings []CodeChunk, lineNumber int) CodeChunk {
-	var nearest CodeChunk
-
-	for _, heading := range headings {
-		if heading.StartLine > lineNumber {
-			break
-		}
-
-		nearest = heading
-	}
-
-	return nearest
-}
-
 func markdownTargetReference(raw string) (string, string) {
 	targetPath, targetSymbol, _ := strings.Cut(raw, "#")
 	targetPath = strings.Trim(targetPath, "`'\"()[]{}<>,.;:")
@@ -144,6 +137,8 @@ func markdownHeadingIsRationale(heading string) bool {
 		strings.Contains(normalized, "decision") ||
 		strings.HasPrefix(normalized, "why ") ||
 		normalized == "why" ||
+		normalized == "reason" ||
+		strings.HasPrefix(normalized, "reason ") ||
 		strings.Contains(normalized, " reason")
 }
 
