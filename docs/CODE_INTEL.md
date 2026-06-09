@@ -250,6 +250,8 @@ bin/coding-ethos-run code-intel anatomy-map --path pkg --format toon
 ls pkg | bin/coding-ethos-run code-intel enrich-listing --command 'ls pkg'
 bin/coding-ethos-run code-intel code-chunks --path pkg/app.go --symbol-name BuildMessage
 bin/coding-ethos-run code-intel repo-map --path pkg/app.go
+bin/coding-ethos-run code-intel centrality --path pkg --format toon
+bin/coding-ethos-run code-intel surprises --path pkg --format toon
 bin/coding-ethos-run code-intel compact-context --path pkg/app.go
 bin/coding-ethos-run code-intel ingest-sarif --file policy.sarif
 bin/coding-ethos-run code-intel sarif-results --policy-id python.unused_imports
@@ -322,9 +324,10 @@ git co-change, health-priority, finding, and remediation-outcome signals.
 Surprise edges highlight deterministic cross-boundary relationships such as
 cross-directory, cross-language, policy/config-to-code, documentation-to-code,
 test-to-production, and hidden git co-change links. These views are included in
-`graph-report`, carry provenance and explanation fields, and remain advisory:
-they help agents choose what to inspect before editing, but they do not block or
-permit policy decisions.
+`graph-report` and available as standalone `code-intel centrality` and
+`code-intel surprises` commands. They carry provenance and explanation fields
+and remain advisory: they help agents choose what to inspect before editing, but
+they do not block or permit policy decisions.
 
 `proxy-file-read` is the current bridge for read deduplication. It reads a
 repo-relative file, computes the current content hash, records the first read as

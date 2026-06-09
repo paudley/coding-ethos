@@ -172,7 +172,7 @@ func (store *Store) SurpriseEdges(
 	files, err := store.repoMapFiles(ctx, RepoMapQuery{
 		Root:  query.Root,
 		Path:  query.Path,
-		Limit: centralNodeLimit(CentralNodeQuery(query)),
+		Limit: surpriseEdgeLimit(query),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("query surprise-edge candidate files: %w", err)
@@ -211,10 +211,18 @@ func (store *Store) SurpriseEdges(
 		return results[left].Kind < results[right].Kind
 	})
 
-	return boundedSurpriseEdges(results, centralNodeLimit(CentralNodeQuery(query))), nil
+	return boundedSurpriseEdges(results, surpriseEdgeLimit(query)), nil
 }
 
 func centralNodeLimit(query CentralNodeQuery) int {
+	if query.Limit > 0 {
+		return query.Limit
+	}
+
+	return defaultCentralNodeLimit
+}
+
+func surpriseEdgeLimit(query SurpriseEdgeQuery) int {
 	if query.Limit > 0 {
 		return query.Limit
 	}
@@ -867,9 +875,12 @@ func topDirectory(path string) string {
 		return ""
 	}
 
-	parts := strings.Split(path, "/")
+	before, _, ok := strings.Cut(path, "/")
+	if ok {
+		return before
+	}
 
-	return parts[0]
+	return path
 }
 
 func isPolicyPath(path string) bool {
@@ -885,13 +896,18 @@ func isDocPath(path string) bool {
 	path = strings.ToLower(filepath.ToSlash(path))
 
 	return strings.HasPrefix(path, "docs/") ||
+		strings.Contains(path, "/docs/") ||
 		strings.HasSuffix(path, ".md")
 }
 
 func isSurpriseTestPath(path string) bool {
 	path = strings.ToLower(filepath.ToSlash(path))
+	base := filepath.Base(path)
 
 	return strings.Contains(path, "_test.") ||
+		strings.HasPrefix(base, "test_") ||
+		strings.HasPrefix(path, "test/") ||
+		strings.HasPrefix(path, "tests/") ||
 		strings.Contains(path, "/test/") ||
 		strings.Contains(path, "/tests/")
 }

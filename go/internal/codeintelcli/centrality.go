@@ -90,7 +90,7 @@ func writeCentralityOutput(format string, nodes []codeintel.CentralNode) error {
 	}
 
 	switch format {
-	case "", feedback.FormatHuman, feedback.FormatTOON:
+	case feedback.FormatHuman, feedback.FormatTOON:
 		err := feedback.Write(
 			os.Stdout,
 			feedback.Message{
@@ -124,7 +124,7 @@ func writeSurprisesOutput(format string, edges []codeintel.SurpriseEdge) error {
 	}
 
 	switch format {
-	case "", feedback.FormatHuman, feedback.FormatTOON:
+	case feedback.FormatHuman, feedback.FormatTOON:
 		err := feedback.Write(
 			os.Stdout,
 			feedback.Message{
