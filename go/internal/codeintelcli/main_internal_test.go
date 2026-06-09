@@ -102,6 +102,27 @@ func TestDecisionsCommandsRecordListAndReportHealth(t *testing.T) {
 	}
 }
 
+func TestDecisionsListRejectsUnsupportedFormatWithDecisionError(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
+
+	err := run(context.Background(), []string{
+		"decisions",
+		"list",
+		"--root", root,
+		"--db", dbPath,
+		"--format", "xml",
+	})
+	if err == nil {
+		t.Fatalf("expected unsupported decisions format error")
+	}
+	if !strings.Contains(err.Error(), "unsupported decisions format") {
+		t.Fatalf("error = %q, want decisions format message", err)
+	}
+}
+
 func TestGitSignalsCommandRefreshesRealRepository(t *testing.T) {
 	t.Parallel()
 

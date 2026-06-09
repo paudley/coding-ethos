@@ -20,6 +20,10 @@ var errDecisionCommandRequired = apperror.StaticError(
 	"decision command is required",
 )
 
+var errUnsupportedDecisionFormat = apperror.StaticError(
+	"unsupported decisions format",
+)
+
 func decisions(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return errDecisionCommandRequired
@@ -218,7 +222,7 @@ func writeDecisionRecords(format string, records []codeintel.DecisionRecord) err
 
 		return nil
 	default:
-		return fmt.Errorf("%w: %q", errUnsupportedGraphReportFormat, format)
+		return fmt.Errorf("%w: %q", errUnsupportedDecisionFormat, format)
 	}
 }
 
@@ -246,7 +250,7 @@ func writeDecisionHealth(format string, health codeintel.DecisionHealth) error {
 
 		return nil
 	default:
-		return fmt.Errorf("%w: %q", errUnsupportedGraphReportFormat, format)
+		return fmt.Errorf("%w: %q", errUnsupportedDecisionFormat, format)
 	}
 }
 

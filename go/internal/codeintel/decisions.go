@@ -168,8 +168,8 @@ func (store *Store) LinkDecision(
 		return errDecisionIDRequired
 	}
 
-	links = normalizeDecisionLinks(decisionID, links)
-	if len(links) == 0 {
+	newLinks := normalizeDecisionLinks(decisionID, links)
+	if len(newLinks) == 0 {
 		return errDecisionLinkPathRequired
 	}
 
@@ -182,7 +182,18 @@ func (store *Store) LinkDecision(
 	}
 	defer rollbackUnlessCommitted(transaction)
 
-	err = replaceDecisionLinks(ctx, transaction, decisionID, links)
+	existingLinks, err := store.decisionLinks(ctx, decisionID)
+	if err != nil {
+		return fmt.Errorf("query existing decision links: %w", err)
+	}
+
+	err = insertDecisionLinks(
+		ctx,
+		transaction,
+		decisionID,
+		len(existingLinks),
+		newDecisionLinks(existingLinks, newLinks),
+	)
 	if err != nil {
 		return err
 	}
@@ -337,11 +348,14 @@ func (store *Store) ReplaceIndexedDecisions(
 }
 
 func IndexedDecisions(path string, contents []byte) []DecisionRecord {
-	lines := strings.Split(string(contents), "\n")
 	decisions := make([]DecisionRecord, 0)
 	inFence := false
+	lineNum := 0
 
-	for index, line := range lines {
+	for line := range strings.Lines(string(contents)) {
+		lineNum++
+		line = strings.TrimRight(line, "\r\n")
+
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			inFence = !inFence
@@ -370,7 +384,7 @@ func IndexedDecisions(path string, contents []byte) []DecisionRecord {
 			Rationale:       body,
 			SourceKind:      DecisionSourceInline,
 			SourcePath:      path,
-			SourceLine:      index + 1,
+			SourceLine:      lineNum,
 			ProvenanceClass: ProvenanceDocDerived,
 			Links: []DecisionLink{{
 				Path: path,
@@ -416,9 +430,6 @@ func normalizeDecisionRecord(decision DecisionRecord) DecisionRecord {
 		decision.UpdatedAtUTC = decision.RecordedAtUTC
 	}
 
-	decision.SearchText = decisionSearchText(decision)
-
-	decision.Links = normalizeDecisionLinks(decision.ID, decision.Links)
 	if decision.ID == "" {
 		decision.ID = stableID(
 			"decision",
@@ -428,8 +439,10 @@ func normalizeDecisionRecord(decision DecisionRecord) DecisionRecord {
 			strconv.Itoa(decision.SourceLine),
 			decision.Rationale,
 		)
-		decision.Links = normalizeDecisionLinks(decision.ID, decision.Links)
 	}
+
+	decision.Links = normalizeDecisionLinks(decision.ID, decision.Links)
+	decision.SearchText = decisionSearchText(decision)
 
 	return decision
 }
@@ -456,6 +469,52 @@ func normalizeDecisionLinks(decisionID string, links []DecisionLink) []DecisionL
 	}
 
 	return result
+}
+
+func dedupeDecisionLinks(links []DecisionLink) []DecisionLink {
+	result := make([]DecisionLink, 0, len(links))
+	seen := map[string]struct{}{}
+
+	for _, link := range links {
+		key := decisionLinkKey(link)
+		if _, found := seen[key]; found {
+			continue
+		}
+
+		seen[key] = struct{}{}
+		link.Ordinal = len(result)
+		result = append(result, link)
+	}
+
+	return result
+}
+
+func newDecisionLinks(
+	existingLinks []DecisionLink,
+	candidateLinks []DecisionLink,
+) []DecisionLink {
+	seen := map[string]struct{}{}
+	for _, link := range existingLinks {
+		seen[decisionLinkKey(link)] = struct{}{}
+	}
+
+	result := make([]DecisionLink, 0, len(candidateLinks))
+	for _, link := range dedupeDecisionLinks(candidateLinks) {
+		key := decisionLinkKey(link)
+		if _, found := seen[key]; found {
+			continue
+		}
+
+		seen[key] = struct{}{}
+
+		result = append(result, link)
+	}
+
+	return result
+}
+
+func decisionLinkKey(link DecisionLink) string {
+	return strings.Join([]string{link.Path, link.SymbolPath, link.Kind}, "\x00")
 }
 
 func upsertDecision(
@@ -508,14 +567,30 @@ func replaceDecisionLinks(
 		return fmt.Errorf("delete decision links: %w", err)
 	}
 
-	for index, link := range normalizeDecisionLinks(decisionID, links) {
-		_, err = transaction.ExecContext(
+	return insertDecisionLinks(
+		ctx,
+		transaction,
+		decisionID,
+		0,
+		dedupeDecisionLinks(normalizeDecisionLinks(decisionID, links)),
+	)
+}
+
+func insertDecisionLinks(
+	ctx context.Context,
+	transaction *sql.Tx,
+	decisionID string,
+	ordinalOffset int,
+	links []DecisionLink,
+) error {
+	for index, link := range links {
+		_, err := transaction.ExecContext(
 			ctx,
 			`INSERT OR REPLACE INTO decision_links(
 				decision_id, ordinal, path, symbol_path, link_kind
 			) VALUES (?, ?, ?, ?, ?)`,
 			decisionID,
-			index,
+			ordinalOffset+index,
 			link.Path,
 			link.SymbolPath,
 			link.Kind,
@@ -738,20 +813,21 @@ func (store *Store) ungovernedDecisionHotspots(
 	query DecisionQuery,
 ) ([]DecisionUngoverned, error) {
 	limit := boundedDecisionLimit(query.Limit)
+	path := normalizeDecisionPathFilter(query.Path)
 
 	rows, err := store.database.QueryContext(
 		ctx,
 		`SELECT file.path
 		FROM code_files file
 		LEFT JOIN decision_links link ON link.path = file.path
-		WHERE file.deleted_at_utc IS NULL
+		WHERE COALESCE(file.deleted_at_utc, '') = ''
 			AND link.decision_id IS NULL
 			AND (? = '' OR file.path = ? OR file.path LIKE ?)
 		ORDER BY file.line_count DESC, file.path
 		LIMIT ?`,
-		strings.TrimSpace(query.Path),
-		strings.TrimSpace(query.Path),
-		strings.TrimSuffix(strings.TrimSpace(query.Path), "/")+"/%",
+		path,
+		path,
+		strings.TrimSuffix(path, "/")+"/%",
 		limit,
 	)
 	if err != nil {
@@ -843,19 +919,28 @@ func decisionConflicts(decisions []DecisionRecord) []DecisionConflict {
 }
 
 func decisionOverlaps(decisions []DecisionRecord) []DecisionOverlap {
-	byPath := map[string][]string{}
+	byPath := map[string]map[string]struct{}{}
 
 	for _, decision := range decisions {
 		for _, link := range decision.Links {
-			byPath[link.Path] = append(byPath[link.Path], decision.ID)
+			if byPath[link.Path] == nil {
+				byPath[link.Path] = map[string]struct{}{}
+			}
+
+			byPath[link.Path][decision.ID] = struct{}{}
 		}
 	}
 
 	overlaps := []DecisionOverlap{}
 
-	for path, ids := range byPath {
-		if len(ids) < decisionConflictMinimum {
+	for path, idSet := range byPath {
+		if len(idSet) < decisionConflictMinimum {
 			continue
+		}
+
+		ids := make([]string, 0, len(idSet))
+		for id := range idSet {
+			ids = append(ids, id)
 		}
 
 		slices.Sort(ids)
@@ -902,13 +987,20 @@ func decisionMarkerInExample(line string) bool {
 
 func firstDecisionSentence(text string) string {
 	text = strings.TrimSpace(text)
-	for _, separator := range []string{".", ";"} {
-		if before, _, found := strings.Cut(text, separator); found {
-			return strings.TrimSpace(before)
-		}
+	if index := strings.IndexAny(text, ".;"); index != -1 {
+		return strings.TrimSpace(text[:index])
 	}
 
 	return text
+}
+
+func normalizeDecisionPathFilter(path string) string {
+	path = filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
+	if path == "." {
+		return ""
+	}
+
+	return path
 }
 
 func boundedDecisionLimit(limit int) int {
