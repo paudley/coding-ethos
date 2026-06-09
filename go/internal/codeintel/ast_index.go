@@ -813,6 +813,8 @@ func (indexer ASTIndexer) indexFile(
 	}
 
 	edges := codeEdgesFromParsedFile(relativePath, parsed, chunks)
+	edges = append(edges, markdownDocumentEdges(relativePath, contents, chunks)...)
+	edges = dedupeCodeEdges(edges)
 
 	file := CodeFile{
 		Path:             relativePath,
@@ -1183,7 +1185,6 @@ func codeEdgesFromParsedFile(
 	edges = append(edges, callEdges(path, parsed.Symbols, chunks)...)
 	edges = append(edges, inheritanceEdges(path, parsed.Symbols, chunks)...)
 	edges = append(edges, testEdges(path, parsed.Symbols, chunks)...)
-	edges = append(edges, documentationEdges(path, parsed.Symbols, chunks)...)
 
 	return dedupeCodeEdges(edges)
 }
@@ -1406,52 +1407,6 @@ func testEdges(
 			Path:          path,
 			SourceChunkID: source.ID,
 			TargetName:    targetName,
-		})
-	}
-
-	return edges
-}
-
-func documentationEdges(
-	path string,
-	symbols []astfacts.Symbol,
-	chunks []CodeChunk,
-) []CodeEdge {
-	if !strings.HasSuffix(path, ".md") {
-		return nil
-	}
-
-	chunksBySymbolPath := map[string]CodeChunk{}
-	for _, chunk := range chunks {
-		chunksBySymbolPath[chunk.SymbolPath] = chunk
-	}
-
-	edges := []CodeEdge{}
-
-	for _, symbol := range symbols {
-		if symbol.SymbolKind != "heading" {
-			continue
-		}
-
-		source, ok := chunksBySymbolPath[symbol.SymbolPath]
-		if !ok {
-			continue
-		}
-
-		// Heuristic: Link headings to mentioned identifiers in the heading text
-		// (Assuming the heading text itself might name a symbol)
-		edges = append(edges, CodeEdge{
-			ID: stableID(
-				"code-edge",
-				"documents",
-				path,
-				source.ID,
-				symbol.SymbolName,
-			),
-			Kind:          "documents",
-			Path:          path,
-			SourceChunkID: source.ID,
-			TargetName:    symbol.SymbolName,
 		})
 	}
 

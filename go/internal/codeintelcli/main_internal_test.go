@@ -288,9 +288,27 @@ func deep() {}
 		t.Fatalf("write nested source: %v", err)
 	}
 
+	docPath := filepath.Join(root, "docs", "architecture.md")
+	err = os.MkdirAll(filepath.Dir(docPath), 0o700)
+	if err != nil {
+		t.Fatalf("create docs dir: %v", err)
+	}
+
+	err = os.WriteFile(docPath, []byte(`# Architecture
+
+The command implementation is cmd/app.go.
+
+## Decision
+
+Use cmd/app.go#runApp as the documented entry point.
+`), 0o600)
+	if err != nil {
+		t.Fatalf("write docs: %v", err)
+	}
+
 	ctx := context.Background()
 
-	err = run(ctx, []string{"index-code", "--root", root, "--db", dbPath, "cmd"})
+	err = run(ctx, []string{"index-code", "--root", root, "--db", dbPath, "cmd", "docs"})
 	if err != nil {
 		t.Fatalf("index-code command returned error: %v", err)
 	}
@@ -383,6 +401,8 @@ func deep() {}
 		!strings.Contains(graphReportTOON, "central_files[") ||
 		!strings.Contains(graphReportTOON, "central_nodes[") ||
 		!strings.Contains(graphReportTOON, "communities[") ||
+		!strings.Contains(graphReportTOON, "document_links[") ||
+		!strings.Contains(graphReportTOON, "cmd/app.go") ||
 		!strings.Contains(graphReportTOON, "provenance") ||
 		!strings.Contains(graphReportTOON, "EXTRACTED") {
 		t.Fatalf("graph-report TOON missing expected content:\n%s", graphReportTOON)

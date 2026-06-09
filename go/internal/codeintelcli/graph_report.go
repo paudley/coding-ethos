@@ -122,6 +122,10 @@ func graphReportTables(report codeintel.GraphReport) []feedback.Table {
 		tables = append(tables, graphReportCommunitiesTable(report.Communities))
 	}
 
+	if len(report.DocumentLinks) > 0 {
+		tables = append(tables, graphReportDocumentLinksTable(report.DocumentLinks))
+	}
+
 	if len(report.SurpriseEdges) > 0 {
 		tables = append(tables, surpriseEdgesTable(report.SurpriseEdges))
 	}
@@ -205,6 +209,41 @@ func graphReportCommunitiesTable(
 			"score",
 			"representatives",
 			"central_members",
+			"provenance",
+			"evidence",
+		},
+		Rows: rows,
+	}
+}
+
+func graphReportDocumentLinksTable(
+	links []codeintel.DocumentLink,
+) feedback.Table {
+	rows := make([][]string, 0, len(links))
+	for _, link := range links {
+		rows = append(rows, []string{
+			link.Kind,
+			link.SourcePath,
+			link.SourceHeading,
+			strconv.Itoa(link.StartLine),
+			link.TargetPath,
+			link.TargetSymbolPath,
+			link.TargetName,
+			link.ProvenanceClass,
+			link.Evidence,
+		})
+	}
+
+	return feedback.Table{
+		Name: "document_links",
+		Columns: []string{
+			"kind",
+			"source_path",
+			"source_heading",
+			"line",
+			"target_path",
+			"target_symbol",
+			"target_name",
 			"provenance",
 			"evidence",
 		},

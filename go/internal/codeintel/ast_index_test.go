@@ -425,7 +425,7 @@ func TestExecute() {
 	// 3. Markdown file
 	mdPath := filepath.Join(tempDir, "README.md")
 	mdContent := []byte(`# Installation
-Run the installer.
+Run the installer from app.py.
 `)
 
 	err = os.WriteFile(mdPath, mdContent, 0o600)
@@ -460,11 +460,24 @@ Run the installer.
 		t.Errorf("missing verifies:Execute edge. Edges: %#v", edges)
 	}
 
-	if !hasCodeEdge(edges, "documents", "Installation") {
-		t.Errorf("missing documents:Installation edge. Edges: %#v", edges)
+	if !hasCodeEdge(edges, "documents", "app.py") {
+		t.Errorf("missing documents:app.py edge. Edges: %#v", edges)
 	}
 
 	for _, edge := range edges {
+		if edge.Kind == "documents" && edge.TargetName == "app.py" {
+			if edge.ProvenanceClass != ProvenanceDocDerived {
+				t.Fatalf(
+					"document edge provenance for %s = %q, want %q",
+					edge.ID,
+					edge.ProvenanceClass,
+					ProvenanceDocDerived,
+				)
+			}
+
+			continue
+		}
+
 		if edge.ProvenanceClass != ProvenanceExtracted {
 			t.Fatalf(
 				"edge provenance for %s = %q, want %q",

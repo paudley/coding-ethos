@@ -329,6 +329,18 @@ test-to-production, and hidden git co-change links. These views are included in
 and remain advisory: they help agents choose what to inspect before editing, but
 they do not block or permit policy decisions.
 
+Markdown documentation is also indexed into the same graph when it contains
+explicit repo path references. Headings and code blocks remain ordinary Markdown
+chunks; path references such as `go/internal/codeintel/store.go` create
+`documents` edges, and `path#symbol` references create `mentions` edges.
+Rationale-like headings such as "Rationale", "Decision", "Reasoning", or "Why"
+classify explicit references as advisory `rationale_for` links. Documentation
+links use `DOC_DERIVED` provenance for extracted references and `INFERRED`
+provenance for rationale classification, and `graph-report` exposes them in a
+`document_links` section. This is deterministic Markdown-only graph context: it
+does not parse PDFs or images, does not call an LLM, and does not turn examples
+or prose into policy decisions.
+
 `proxy-file-read` is the current bridge for read deduplication. It reads a
 repo-relative file, computes the current content hash, records the first read as
 a `file_read` proxy event, and records later unchanged reads in the same session
