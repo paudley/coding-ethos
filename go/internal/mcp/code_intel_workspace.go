@@ -71,6 +71,8 @@ func (server Server) codeIntelWorkspaceSearch(
 		results = append(results, annotateWorkspaceSearchResults(repo, repoResults)...)
 	}
 
+	rankHybridSearchResults(results)
+
 	return map[string]any{
 		"kind":    "code_intel_search",
 		"backend": codeintel.VectorBackendDuckDBVSS,
@@ -137,6 +139,8 @@ func (server Server) codeIntelWorkspaceAnswer(
 
 		results = append(results, repoResults...)
 	}
+
+	rankHybridSearchResults(results)
 
 	if len(results) > limit {
 		results = results[:limit]

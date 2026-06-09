@@ -29,6 +29,26 @@ func TestCapWorkspaceSearchResultsRespectsLimit(t *testing.T) {
 	}
 }
 
+func TestWorkspaceSearchResultsRankBeforeCap(t *testing.T) {
+	t.Parallel()
+
+	results := []codeintel.HybridSearchResult{
+		{RecordID: "repo-a-low", Score: 1},
+		{RecordID: "repo-a-mid", Score: 3},
+		{RecordID: "repo-b-high", Score: 10},
+	}
+
+	rankHybridSearchResults(results)
+	capped := capWorkspaceSearchResults(results, 2)
+
+	if len(capped) != 2 {
+		t.Fatalf("capped results = %d, want 2", len(capped))
+	}
+	if capped[0].RecordID != "repo-b-high" || capped[1].RecordID != "repo-a-mid" {
+		t.Fatalf("capped results = %#v, want highest-scoring workspace hits", capped)
+	}
+}
+
 func TestCodeIntelRootlessPathsUseCodeIntelError(t *testing.T) {
 	t.Parallel()
 

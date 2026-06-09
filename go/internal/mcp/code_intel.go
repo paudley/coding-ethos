@@ -314,6 +314,16 @@ func codeIntelAnswerResults(
 		results = append(results, pathResults...)
 	}
 
+	rankHybridSearchResults(results)
+
+	if len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results, nil
+}
+
+func rankHybridSearchResults(results []codeintel.HybridSearchResult) {
 	slices.SortFunc(results, func(left, right codeintel.HybridSearchResult) int {
 		if left.Score > right.Score {
 			return -1
@@ -325,12 +335,6 @@ func codeIntelAnswerResults(
 
 		return strings.Compare(left.RecordID, right.RecordID)
 	})
-
-	if len(results) > limit {
-		results = results[:limit]
-	}
-
-	return results, nil
 }
 
 type semanticSearchResult struct {
