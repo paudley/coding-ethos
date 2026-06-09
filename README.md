@@ -262,6 +262,9 @@ and index status so relevant context is available before broad file reads or
 repeated failed repairs. See
 [docs/CODE_INTEL.md](docs/CODE_INTEL.md) and
 [docs/CODE_INTEL_STORAGE.md](docs/CODE_INTEL_STORAGE.md).
+Multi-repo workspaces add a separate `.coding-ethos-workspace/` registry at a
+parent workspace root while keeping each repository's own code-intel DuckDB
+store independent.
 
 Repository trust surfaces are part of the product. The public repo now carries
 CODEOWNERS, structured issue templates for policy rules, hook false positives,
@@ -338,6 +341,9 @@ The first tools are intentionally narrow and auditable:
 - `code_intel_overview`: return a task-shaped repository orientation with
   ranked files, freshness metadata, evidence counts, and exact follow-up MCP
   calls.
+- `code_intel_workspace_status`: report registered workspace repositories,
+  stale per-repo indexes, cross-repo co-change candidates, and conservative
+  contract evidence.
 - `code_intel_search`: retrieve stored SARIF/remediation/code-chunk evidence
   with the DuckDB term index and duckdb-vss vector search.
 - `code_intel_answer`: retrieve cited code-intel evidence for a repository

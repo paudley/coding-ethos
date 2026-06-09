@@ -172,6 +172,10 @@ func (server Server) codeIntelSearch(args json.RawMessage) (any, error) {
 		return nil, apperror.StaticError("text/query or vector is required")
 	}
 
+	if strings.TrimSpace(input.Repo) != "" {
+		return server.codeIntelWorkspaceSearch(input, text)
+	}
+
 	store, index, closeAll, err := server.openCodeIntel()
 	if err != nil {
 		return nil, fmt.Errorf("open code intelligence index: %w", err)
@@ -216,6 +220,10 @@ func (server Server) codeIntelAnswer(args json.RawMessage) (any, error) {
 	question := strings.TrimSpace(firstNonEmpty(input.Question, input.Query))
 	if question == "" {
 		return nil, apperror.StaticError("question/query is required")
+	}
+
+	if strings.TrimSpace(input.Repo) != "" {
+		return server.codeIntelWorkspaceAnswer(input, question)
 	}
 
 	store, index, closeAll, err := server.openCodeIntel()
@@ -723,6 +731,10 @@ func (server Server) codeIntelRepoMap(args json.RawMessage) (any, error) {
 		)
 	}
 
+	if strings.TrimSpace(input.Repo) != "" {
+		return server.codeIntelWorkspaceRepoMap(input)
+	}
+
 	repoMap, rendered, err := server.loadRepoMap(input)
 	if err != nil {
 		return nil, err
@@ -1092,6 +1104,22 @@ func (server Server) codeIntelTaskMeta(
 	index evidence.VectorIndex,
 	dataSources []string,
 ) (codeIntelTaskMeta, error) {
+	return server.codeIntelTaskMetaForRoot(
+		ctx,
+		server.codeIntelRoot(),
+		store,
+		index,
+		dataSources,
+	)
+}
+
+func (server Server) codeIntelTaskMetaForRoot(
+	ctx context.Context,
+	root string,
+	store *codeintel.Store,
+	index evidence.VectorIndex,
+	dataSources []string,
+) (codeIntelTaskMeta, error) {
 	vectorStats, err := index.Stats(ctx)
 	if err != nil {
 		return codeIntelTaskMeta{}, fmt.Errorf("read vector index stats: %w", err)
@@ -1116,7 +1144,7 @@ func (server Server) codeIntelTaskMeta(
 	indexedAt := fileStats.LatestIndexedAtUTC
 
 	meta := codeIntelTaskMeta{
-		RepoHeadCommit: currentGitCommit(ctx, server.codeIntelRoot()),
+		RepoHeadCommit: currentGitCommit(ctx, root),
 		IndexedAtUTC:   indexedAt,
 		IndexAge:       indexAgeDescription(indexedAt),
 		Fresh:          status.Fresh,
@@ -1824,50 +1852,11 @@ func (server Server) openCodeIntel() (
 	func(),
 	error,
 ) {
-	store, closeStore, err := server.openCodeIntelStore()
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("open code intelligence store: %w", err)
-	}
-
-	ctx := argsContext()
-
-	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
-		Backend: codeintel.VectorBackendDuckDBVSS,
-		URI:     codeintel.DefaultVectorPath(server.codeIntelRoot()),
-	})
-	if err != nil {
-		closeStore()
-
-		return nil, nil, nil, fmt.Errorf("open vector index: %w", err)
-	}
-
-	closeAll := func() {
-		if closer, ok := index.(interface{ Close() error }); ok {
-			_ = closer.Close()
-		}
-
-		closeStore()
-	}
-
-	return store, index, closeAll, nil
+	return server.openCodeIntelForRoot(server.codeIntelRoot())
 }
 
 func (server Server) openCodeIntelStore() (*codeintel.Store, func(), error) {
-	root := server.codeIntelRoot()
-	if strings.TrimSpace(root) == "" {
-		return nil, nil, errManagedLintRuntimeUnavailable
-	}
-
-	store, err := codeintel.Open(argsContext(), codeintel.DefaultDBPath(root))
-	if err != nil {
-		return nil, nil, fmt.Errorf("open code intelligence store: %w", err)
-	}
-
-	closeStore := func() {
-		_ = store.Close()
-	}
-
-	return store, closeStore, nil
+	return server.openCodeIntelStoreForRoot(server.codeIntelRoot())
 }
 
 func (server Server) codeIntelRoot() string {

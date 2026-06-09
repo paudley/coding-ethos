@@ -276,6 +276,16 @@ bin/coding-ethos-run code-intel search --text 'unused import'
 These commands read retained `.coding-ethos` traces and write only the
 repo-local `.coding-ethos/code-intel.duckdb` store.
 
+Workspace commands are the exception to repo-local state because they model a
+parent directory or worktree family. They store only registry and derived
+workspace facts under `.coding-ethos-workspace/` at the workspace root. Each
+registered repository keeps its own `.coding-ethos/code-intel.duckdb` store;
+workspace queries federate across those stores and annotate results with repo
+aliases instead of merging databases. `scan`, `add`, `remove`, `list`,
+`status`, and `refresh` manage the registry, stale HEAD/store metadata,
+conservative git-history co-change candidates, and contract links derived from
+existing AST graph edges.
+
 `git-signals` records the HEAD commit and indexed timestamp before exposing
 stored signals. A refresh is skipped when the current HEAD is already indexed;
 `--force` rebuilds the bounded default window, and `--commits` raises or lowers
@@ -308,6 +318,14 @@ file/symbol signatures as TOON. The same renderer backs MCP
 `code_intel_repo_map` and the read-only
 `coding-ethos://code-intel/repo-map` resource so agents can request the current
 map explicitly before broad exploration.
+
+MCP workspace support adds `code_intel_workspace_status` plus an optional
+`repo` argument on `code_intel_search`, `code_intel_answer`, and
+`code_intel_repo_map`. Omitting `repo` preserves repo-local behavior.
+`repo="<alias>"` opens that registered repo's independent code-intel store and
+reports provenance in the result metadata. `repo="all"` is bounded to read-only
+aggregate queries and returns per-repo provenance rather than a synthetic merged
+repository.
 
 `graph-report` composes the repo map, code-intel store counts, and the latest
 stored health snapshot into a human, JSON, or TOON orientation report. It is

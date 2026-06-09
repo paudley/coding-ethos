@@ -39,6 +39,51 @@ func TestStatsCreatesStore(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCommandsScanAndStatus(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	repo := filepath.Join(root, "api")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	runCodeIntelCLIGit(t, ctx, repo, "init")
+	runCodeIntelCLIGit(t, ctx, repo, "config", "user.name", "Test User")
+	runCodeIntelCLIGit(t, ctx, repo, "config", "user.email", "test@example.invalid")
+	if err := os.WriteFile(
+		filepath.Join(repo, "README.md"),
+		[]byte("# api\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runCodeIntelCLIGit(t, ctx, repo, "add", ".")
+	runCodeIntelCLIGit(t, ctx, repo, "commit", "-m", "initial api")
+
+	var scanErr error
+	scanOutput := captureStdout(t, func() {
+		scanErr = run(ctx, []string{"workspace", "scan", "--root", root})
+	})
+	if scanErr != nil {
+		t.Fatalf("workspace scan returned error: %v", scanErr)
+	}
+	if !strings.Contains(scanOutput, `"alias": "api"`) ||
+		!strings.Contains(scanOutput, `.coding-ethos/code-intel.duckdb`) {
+		t.Fatalf("workspace scan output missing repo fields:\n%s", scanOutput)
+	}
+
+	var statusErr error
+	statusOutput := captureStdout(t, func() {
+		statusErr = run(ctx, []string{"workspace", "status", "--root", root})
+	})
+	if statusErr != nil {
+		t.Fatalf("workspace status returned error: %v", statusErr)
+	}
+	if !strings.Contains(statusOutput, `"repos": 1`) ||
+		!strings.Contains(statusOutput, `"store_available": false`) {
+		t.Fatalf("workspace status output missing expected status:\n%s", statusOutput)
+	}
+}
+
 func TestDecisionsCommandsRecordListAndReportHealth(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")

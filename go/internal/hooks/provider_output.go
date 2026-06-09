@@ -27,6 +27,13 @@ type providerHookOutput struct {
 func EncodeProviderResult(writer io.Writer, result Result) error {
 	output := providerOutput(result)
 	if output.empty() {
+		if neutralCodexPreToolOutput(result) {
+			_, err := writer.Write([]byte("{}\n"))
+			if err != nil {
+				return fmt.Errorf("encode neutral Codex PreToolUse hook result: %w", err)
+			}
+		}
+
 		return nil
 	}
 
@@ -40,6 +47,12 @@ func EncodeProviderResult(writer io.Writer, result Result) error {
 	}
 
 	return nil
+}
+
+func neutralCodexPreToolOutput(result Result) bool {
+	return result.Provider == providerCodex &&
+		result.Event == eventPreToolUse &&
+		!result.Blocked()
 }
 
 func (output providerHookOutput) empty() bool {

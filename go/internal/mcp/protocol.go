@@ -246,6 +246,7 @@ type codeIntelSearchInput struct {
 	Filters    map[string]string `json:"filters,omitempty"`
 	Text       string            `json:"text,omitempty"`
 	Query      string            `json:"query,omitempty"`
+	Repo       string            `json:"repo,omitempty"`
 	RecordKind string            `json:"record_kind,omitempty"`
 	Collection string            `json:"collection,omitempty"`
 	ModelID    string            `json:"model_id,omitempty"`
@@ -303,6 +304,7 @@ type codeIntelCodeContextInput struct {
 
 type codeIntelRepoMapInput struct {
 	Path           string `json:"path,omitempty"`
+	Repo           string `json:"repo,omitempty"`
 	Language       string `json:"language,omitempty"`
 	Format         string `json:"format,omitempty"`
 	Limit          int    `json:"limit,omitempty"`
@@ -323,6 +325,7 @@ type codeIntelContextCardInput struct {
 type codeIntelAnswerInput struct {
 	Question string   `json:"question,omitempty"`
 	Query    string   `json:"query,omitempty"`
+	Repo     string   `json:"repo,omitempty"`
 	Path     string   `json:"path,omitempty"`
 	Paths    []string `json:"paths,omitempty"`
 	Limit    int      `json:"limit,omitempty"`
@@ -358,6 +361,11 @@ type codeIntelSessionSnapshotInput struct {
 	SessionID string `json:"session_id,omitempty"`
 	Format    string `json:"format,omitempty"`
 	Limit     int    `json:"limit,omitempty"`
+}
+
+type codeIntelWorkspaceStatusInput struct {
+	Format  string `json:"format,omitempty"`
+	Refresh bool   `json:"refresh,omitempty"`
 }
 
 type codeSimilarityCheckInput struct {
@@ -978,6 +986,7 @@ func codeIntelSearchToolDefinition() map[string]any {
 		map[string]any{
 			"text":        map[string]any{"type": "string"},
 			"query":       aliasSchema("text"),
+			"repo":        map[string]any{"type": "string"},
 			"record_kind": map[string]any{"type": "string"},
 			"vector":      vectorSchema(),
 			"collection":  map[string]any{"type": "string"},
@@ -1012,6 +1021,7 @@ func codeIntelAnswerToolDefinition() map[string]any {
 		map[string]any{
 			"question": map[string]any{"type": "string"},
 			"query":    aliasSchema("question"),
+			"repo":     map[string]any{"type": "string"},
 			"path":     map[string]any{"type": "string"},
 			"paths": map[string]any{
 				"type":  "array",
@@ -1094,6 +1104,28 @@ func propertySchema(kind, description string) map[string]any {
 
 func codeIntelHookToolDefinitions() []map[string]any {
 	return []map[string]any{
+		toolDefinition(
+			"code_intel_workspace_status",
+			toolText(
+				"Report registered workspace repositories, stale code-intel",
+				"stores, cross-repo co-change candidates, and conservative",
+				"contract evidence.",
+			),
+			map[string]any{
+				"refresh": map[string]any{"type": "boolean"},
+				"format":  map[string]any{"type": "string"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:      true,
+				ExecutesTools: false,
+				ReadsFiles:    true,
+				PreferredUse: toolText(
+					"orient multi-repo work before querying a specific repo",
+				),
+				TracePersisted: false,
+			},
+		),
 		toolDefinition(
 			"code_intel_hook_usage",
 			toolText(
@@ -1378,6 +1410,7 @@ func codeIntelRepoMapToolDefinition() map[string]any {
 		),
 		map[string]any{
 			"path":             map[string]any{"type": "string"},
+			"repo":             map[string]any{"type": "string"},
 			"language":         map[string]any{"type": "string"},
 			"limit":            map[string]any{"type": "integer"},
 			"symbols_per_file": map[string]any{"type": "integer"},

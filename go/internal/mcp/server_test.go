@@ -49,8 +49,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 32 {
-		t.Fatalf("tool count = %d, want 32: %#v", len(tools), tools)
+	if len(tools) != 33 {
+		t.Fatalf("tool count = %d, want 33: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -69,6 +69,7 @@ func TestServerListsTools(t *testing.T) {
 		"skill_lookup",
 		"remediation_explain",
 		"code_intel_overview",
+		"code_intel_workspace_status",
 		"code_intel_search",
 		"code_intel_answer",
 		"semantic_search",
