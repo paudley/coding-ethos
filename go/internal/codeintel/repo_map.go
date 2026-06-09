@@ -70,6 +70,11 @@ func (store *DuckDBStore) GlobalRepoMap(
 
 type globalRepoMapStore interface {
 	repoMapFiles(ctx context.Context, query RepoMapQuery) ([]RepoMapFile, error)
+	codeCommunityIDsByPath(
+		ctx context.Context,
+		query CodeCommunityQuery,
+		files []RepoMapFile,
+	) (map[string]string, error)
 	repoMapSymbols(
 		ctx context.Context,
 		query RepoMapQuery,
@@ -106,6 +111,15 @@ func globalRepoMap(
 		return RepoMap{}, err
 	}
 
+	communitiesByPath, err := store.codeCommunityIDsByPath(ctx, CodeCommunityQuery{
+		Root:  query.Root,
+		Path:  query.Path,
+		Limit: repoMapLimit(query),
+	}, files)
+	if err != nil {
+		return RepoMap{}, err
+	}
+
 	symbolsByFile := map[string][]RepoMapSymbol{}
 	for _, symbol := range symbols {
 		if len(symbolsByFile[symbol.Path]) >= repoMapSymbolsPerFile(query) {
@@ -118,6 +132,7 @@ func globalRepoMap(
 
 	for index := range files {
 		files[index].Symbols = symbolsByFile[files[index].Path]
+		files[index].CommunityID = communitiesByPath[files[index].Path]
 	}
 
 	return RepoMap{
@@ -535,7 +550,8 @@ func RenderRepoMapTOON(repoMap RepoMap) string {
 		"coding_ethos_repo_map:",
 		"root: " + quoteAnatomyValue(repoMap.Root),
 		"files[" + strconv.Itoa(len(repoMap.Files)) +
-			"]{path,language,lines,score,hotspot,hidden_couplings,owner,provenance,symbols}:",
+			"]{path,language,lines,score,hotspot,hidden_couplings," +
+			"owner,community,provenance,symbols}:",
 	}
 
 	for _, file := range repoMap.Files {
@@ -547,6 +563,7 @@ func RenderRepoMapTOON(repoMap RepoMap) string {
 			strconv.FormatFloat(file.HotspotScore, 'f', 1, 64),
 			strconv.Itoa(file.HiddenCouplingCount),
 			quoteAnatomyValue(file.PrimaryAuthorEmail),
+			quoteAnatomyValue(file.CommunityID),
 			quoteAnatomyValue(strings.Join(file.ProvenanceClasses, "|")),
 			quoteAnatomyValue(renderRepoMapSymbols(file.Symbols)),
 		}, ","))

@@ -114,6 +114,10 @@ func graphReportTables(report codeintel.GraphReport) []feedback.Table {
 		tables = append(tables, graphReportCentralFilesTable(report.CentralFiles))
 	}
 
+	if len(report.Communities) > 0 {
+		tables = append(tables, graphReportCommunitiesTable(report.Communities))
+	}
+
 	if len(report.HealthTargets) > 0 {
 		tables = append(tables, graphReportHealthTargetsTable(report.HealthTargets))
 	}
@@ -169,6 +173,37 @@ func graphReportCentralFilesTable(
 	}
 }
 
+func graphReportCommunitiesTable(
+	communities []codeintel.CodeCommunity,
+) feedback.Table {
+	rows := make([][]string, 0, len(communities))
+	for _, community := range communities {
+		rows = append(rows, []string{
+			community.ID,
+			strconv.Itoa(community.MemberCount),
+			strconv.Itoa(community.Score),
+			strings.Join(community.RepresentativePaths, "; "),
+			graphReportCommunityMembers(community.CentralMembers),
+			strings.Join(community.ProvenanceClasses, "|"),
+			graphReportCommunityEvidence(community.Evidence),
+		})
+	}
+
+	return feedback.Table{
+		Name: "communities",
+		Columns: []string{
+			"id",
+			"members",
+			"score",
+			"representatives",
+			"central_members",
+			"provenance",
+			"evidence",
+		},
+		Rows: rows,
+	}
+}
+
 func graphReportHealthTargetsTable(
 	targets []codeintel.CodeHealthTarget,
 ) feedback.Table {
@@ -201,6 +236,36 @@ func graphReportListTable(name string, values []string) feedback.Table {
 		Columns: []string{"message"},
 		Rows:    rows,
 	}
+}
+
+func graphReportCommunityMembers(members []codeintel.CodeCommunityMember) string {
+	parts := make([]string, 0, len(members))
+	for _, member := range members {
+		parts = append(parts, fmt.Sprintf(
+			"%s(score=%d,degree=%d)",
+			member.Path,
+			member.Score,
+			member.WeightedDegree,
+		))
+	}
+
+	return strings.Join(parts, "; ")
+}
+
+func graphReportCommunityEvidence(evidence []codeintel.CodeCommunityEvidence) string {
+	parts := make([]string, 0, len(evidence))
+	for _, item := range evidence {
+		parts = append(parts, fmt.Sprintf(
+			"%s:%s->%s(weight=%d,provenance=%s)",
+			item.Kind,
+			item.SourcePath,
+			item.TargetPath,
+			item.Weight,
+			item.ProvenanceClass,
+		))
+	}
+
+	return strings.Join(parts, "; ")
 }
 
 func graphReportPrimaryEvidence(target codeintel.CodeHealthTarget) string {

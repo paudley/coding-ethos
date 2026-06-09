@@ -2610,7 +2610,7 @@ func main() { fmt.Println("x"); fmt.Println("y") }
 		!strings.Contains(rendered, "coding_ethos_repo_map:") ||
 		!strings.Contains(rendered, "pkg/worker.py") ||
 		!strings.Contains(rendered, "def helper():") ||
-		!strings.Contains(rendered, "owner,provenance,symbols") ||
+		!strings.Contains(rendered, "owner,community,provenance,symbols") ||
 		!strings.Contains(rendered, ProvenanceExtracted) ||
 		strings.Contains(rendered, ".codex/skills/generated/SKILL.md") ||
 		strings.Contains(rendered, ".venv/lib/python/site-packages/pkg.py") ||
