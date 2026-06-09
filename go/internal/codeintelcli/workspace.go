@@ -19,6 +19,7 @@ import (
 var (
 	errWorkspaceCommandRequired = apperror.StaticError("workspace command is required")
 	errWorkspaceCommandUnknown  = apperror.StaticError("unknown workspace command")
+	errWorkspaceFormatUnknown   = apperror.StaticError("unknown workspace output format")
 )
 
 type workspaceCommand func(context.Context, []string) error
@@ -195,7 +196,7 @@ func writeWorkspaceOutput(value any, format string) error {
 
 		return nil
 	default:
-		return fmt.Errorf("%w: %q", errUnknownDownstreamAnalysisFormat, format)
+		return fmt.Errorf("%w: %q", errWorkspaceFormatUnknown, format)
 	}
 }
 

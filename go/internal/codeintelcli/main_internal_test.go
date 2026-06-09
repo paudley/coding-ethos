@@ -84,6 +84,18 @@ func TestWorkspaceCommandsScanAndStatus(t *testing.T) {
 	}
 }
 
+func TestWorkspaceListRejectsUnsupportedFormatWithWorkspaceError(t *testing.T) {
+	t.Parallel()
+
+	err := writeWorkspaceOutput(nil, "xml")
+	if err == nil {
+		t.Fatalf("expected unsupported workspace format error")
+	}
+	if !strings.Contains(err.Error(), "unknown workspace output format") {
+		t.Fatalf("error = %q, want workspace format message", err)
+	}
+}
+
 func TestDecisionsCommandsRecordListAndReportHealth(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")

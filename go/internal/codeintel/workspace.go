@@ -42,6 +42,9 @@ var (
 	errWorkspaceAliasExists = apperror.StaticError(
 		"workspace repository alias already exists",
 	)
+	errWorkspacePathExists = apperror.StaticError(
+		"workspace repository path already registered",
+	)
 	errWorkspaceAliasMissing = apperror.StaticError(
 		"workspace repository alias is not registered",
 	)
@@ -232,6 +235,10 @@ func AddWorkspaceRepo(root, alias, repoPath string) (WorkspaceRegistry, error) {
 		if existing.Alias == repo.Alias {
 			return WorkspaceRegistry{}, fmt.Errorf("%w: %s", errWorkspaceAliasExists, repo.Alias)
 		}
+
+		if existing.Path == repo.Path {
+			return WorkspaceRegistry{}, fmt.Errorf("%w: %s", errWorkspacePathExists, repo.Path)
+		}
 	}
 
 	registry.Repos = append(registry.Repos, repo)
@@ -404,7 +411,12 @@ func RefreshWorkspaceStatus(ctx context.Context, root string) (WorkspaceStatus, 
 		return WorkspaceStatus{}, err
 	}
 
-	return workspaceStatus(ctx, registry)
+	updatedRegistry, err := LoadWorkspaceRegistry(root)
+	if err != nil {
+		return WorkspaceStatus{}, err
+	}
+
+	return workspaceStatus(ctx, updatedRegistry)
 }
 
 // WorkspaceStatusForRegistry reports current workspace state.
@@ -930,9 +942,49 @@ func workspaceSkipDir(name string) bool {
 }
 
 func isGitRepo(path string) bool {
-	_, err := os.Stat(filepath.Join(path, ".git"))
+	gitPath := filepath.Join(path, ".git")
 
-	return err == nil
+	return gitMarkerIsRepo(path, gitPath)
+}
+
+func gitMarkerIsRepo(path, gitPath string) bool {
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return false
+	}
+
+	if info.IsDir() {
+		return true
+	}
+
+	if !info.Mode().IsRegular() {
+		return false
+	}
+
+	data, err := os.ReadFile(gitPath)
+	if err != nil {
+		return false
+	}
+
+	gitDir := strings.TrimPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	if gitDir == strings.TrimSpace(string(data)) {
+		return false
+	}
+
+	gitDir = strings.TrimSpace(gitDir)
+	if gitDir == "" || strings.ContainsRune(gitDir, 0) {
+		return false
+	}
+
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(path, gitDir)
+	}
+
+	gitDir = filepath.Clean(gitDir)
+
+	info, err = os.Stat(gitDir) // #nosec G703 -- verifying Git's sanitized gitdir pointer.
+
+	return err == nil && info.IsDir()
 }
 
 func workspaceFileExists(path string) bool {

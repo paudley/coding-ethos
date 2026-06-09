@@ -37,6 +37,9 @@ var (
 	errManagedLintRuntimeUnavailable = apperror.StaticError(
 		"managed lint runtime is not configured",
 	)
+	errCodeIntelRootUnavailable = apperror.StaticError(
+		"code-intel root is not configured",
+	)
 	errSARIFHistoryTooLarge = apperror.StaticError(
 		"sarif history exceeds supported MCP payload count",
 	)

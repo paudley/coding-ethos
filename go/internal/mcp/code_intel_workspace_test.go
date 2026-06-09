@@ -4,6 +4,7 @@
 package mcp
 
 import (
+	"errors"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
@@ -25,5 +26,21 @@ func TestCapWorkspaceSearchResultsRespectsLimit(t *testing.T) {
 	}
 	if capped[0].RecordID != "one" || capped[1].RecordID != "two" {
 		t.Fatalf("capped results = %#v, want first two results", capped)
+	}
+}
+
+func TestCodeIntelRootlessPathsUseCodeIntelError(t *testing.T) {
+	t.Parallel()
+
+	server := Server{}
+
+	_, _, err := server.openCodeIntelStoreForRoot(" ")
+	if !errors.Is(err, errCodeIntelRootUnavailable) {
+		t.Fatalf("openCodeIntelStoreForRoot error = %v, want code-intel root error", err)
+	}
+
+	_, err = server.codeIntelIndexCode([]byte(`{"paths":["README.md"]}`))
+	if !errors.Is(err, errCodeIntelRootUnavailable) {
+		t.Fatalf("codeIntelIndexCode error = %v, want code-intel root error", err)
 	}
 }

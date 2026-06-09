@@ -40,10 +40,29 @@ func TestIsGitRepoAcceptsGitFile(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
+	gitDir := filepath.Join(root, "..", "actual.git")
+	if err := os.MkdirAll(gitDir, 0o700); err != nil {
+		t.Fatalf("mkdir gitdir: %v", err)
+	}
+
 	writeFile(t, filepath.Join(root, ".git"), []byte("gitdir: ../actual.git\n"))
 
 	if !isGitRepo(root) {
 		t.Fatal("isGitRepo rejected a worktree-style .git file")
+	}
+}
+
+func TestAddWorkspaceRepoRejectsDuplicateCanonicalPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	repo := createWorkspaceGitRepo(t, root, "api", "initial api")
+
+	if _, err := AddWorkspaceRepo(root, "api", repo); err != nil {
+		t.Fatalf("add api repo: %v", err)
+	}
+	if _, err := AddWorkspaceRepo(root, "api-copy", repo); err == nil {
+		t.Fatal("AddWorkspaceRepo allowed duplicate canonical path")
 	}
 }
 

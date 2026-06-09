@@ -117,7 +117,6 @@ func (server Server) codeIntelWorkspaceAnswer(
 		return nil, err
 	}
 
-	ctx := argsContext()
 	limit := boundedCodeIntelLimit(input.Limit)
 	paths := codeIntelInputPaths(input.Path, input.Paths)
 	results := []codeintel.HybridSearchResult{}
@@ -137,7 +136,6 @@ func (server Server) codeIntelWorkspaceAnswer(
 		metaByRepo[repo.Alias] = meta
 
 		results = append(results, repoResults...)
-		_ = ctx
 	}
 
 	if len(results) > limit {
@@ -361,7 +359,7 @@ func (server Server) openCodeIntelStoreForRoot(
 	root string,
 ) (*codeintel.Store, func(), error) {
 	if strings.TrimSpace(root) == "" {
-		return nil, nil, errManagedLintRuntimeUnavailable
+		return nil, nil, errCodeIntelRootUnavailable
 	}
 
 	store, err := codeintel.Open(argsContext(), codeintel.DefaultDBPath(root))

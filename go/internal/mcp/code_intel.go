@@ -495,7 +495,7 @@ func (server Server) codeIntelIndexCode(args json.RawMessage) (any, error) {
 
 	root := server.codeIntelRoot()
 	if strings.TrimSpace(root) == "" {
-		return nil, errManagedLintRuntimeUnavailable
+		return nil, errCodeIntelRootUnavailable
 	}
 
 	ctx := argsContext()
