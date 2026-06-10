@@ -196,7 +196,7 @@ func (indexer ASTIndexer) IndexPaths(
 	return indexer.IndexPathsWithOptions(ctx, root, paths, options)
 }
 
-//nolint:gocyclo,cyclop,funlen // Coordinates the repository traversal gate.
+//nolint:funlen // Coordinates the repository traversal gate.
 func (indexer ASTIndexer) IndexPathsWithOptions(
 	ctx context.Context,
 	root string,
