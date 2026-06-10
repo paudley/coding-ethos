@@ -1526,16 +1526,9 @@ func changeRiskTarget(
 		return codeIntelRiskTarget{}, fmt.Errorf("query code chunks for %s: %w", path, err)
 	}
 
-	failures, err := store.RepeatedFailures(ctx, codeintel.RepeatedFailureQuery{
-		Path:  path,
-		Limit: limit,
-	})
+	failures, err := changeRiskRepeatedFailures(ctx, store, path, limit)
 	if err != nil {
-		return codeIntelRiskTarget{}, fmt.Errorf(
-			"query repeated failures for %s: %w",
-			path,
-			err,
-		)
+		return codeIntelRiskTarget{}, err
 	}
 
 	gitFreshness, gitSignals, reviewers, err := changeRiskGitSignals(
@@ -1584,6 +1577,23 @@ func changeRiskTarget(
 		Reasons:            reasons,
 		RecommendedChecks:  recommendedChecksForPath(path),
 	}, nil
+}
+
+func changeRiskRepeatedFailures(
+	ctx context.Context,
+	store *codeintel.Store,
+	path string,
+	limit int,
+) ([]codeintel.RepeatedFailure, error) {
+	failures, err := store.RepeatedFailures(ctx, codeintel.RepeatedFailureQuery{
+		Path:  path,
+		Limit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query repeated failures for %s: %w", path, err)
+	}
+
+	return failures, nil
 }
 
 func storedHealthTargets(
@@ -1646,6 +1656,12 @@ func changeRiskReasons(
 	if found && (file.StaleReason != "" || file.DeletedAtUTC != "") {
 		reasons = append(reasons, "target index metadata is stale")
 	}
+
+	return append(reasons, decisionRiskReasons(decisionHealth)...)
+}
+
+func decisionRiskReasons(decisionHealth codeintel.DecisionHealth) []string {
+	reasons := []string{}
 
 	if decisionHealth.Summary.StaleCount != 0 {
 		reasons = append(reasons, "target has stale architectural decisions")

@@ -273,34 +273,17 @@ func (indexer ASTIndexer) IndexPathsWithOptions(
 		}
 	}
 
-	deleted, err := indexer.store.MarkMissingCodeFilesDeleted(ctx, root, paths)
-	if err != nil {
-		return CodeIndexSummary{}, err
-	}
-
-	summary.Deleted = deleted
-
-	ignored, err := indexer.store.MarkIgnoredCodeFilesDeleted(
+	err = indexer.finishIndexPaths(
 		ctx,
-		func(path string) bool {
-			absolutePath := filepath.Join(root, filepath.FromSlash(path))
-
-			return pathHasSkippedDir(path) ||
-				excludedByConfig(path, options.ExcludePatterns) ||
-				ignoreMatcher.ignoredFile(ctx, absolutePath)
-		},
+		root,
+		paths,
+		requestedPaths,
+		ignoreMatcher,
+		options,
+		&summary,
 	)
 	if err != nil {
 		return CodeIndexSummary{}, err
-	}
-
-	summary.Deleted = append(summary.Deleted, ignored...)
-
-	if shouldImportDecisionDefaults(root, requestedPaths) {
-		_, err = indexer.store.ImportDecisionRecords(ctx, root, nil)
-		if err != nil {
-			return CodeIndexSummary{}, fmt.Errorf("import decision records: %w", err)
-		}
 	}
 
 	return summary, nil
@@ -476,6 +459,62 @@ func (indexer ASTIndexer) IndexDirectoryTree(
 	}
 
 	return summary, nil
+}
+
+func (indexer ASTIndexer) finishIndexPaths(
+	ctx context.Context,
+	root string,
+	paths []string,
+	requestedPaths []string,
+	ignoreMatcher gitIgnoreMatcher,
+	options IndexOptions,
+	summary *CodeIndexSummary,
+) error {
+	deleted, err := indexer.store.MarkMissingCodeFilesDeleted(ctx, root, paths)
+	if err != nil {
+		return err
+	}
+
+	summary.Deleted = deleted
+
+	ignored, err := indexer.markIgnoredIndexPathsDeleted(
+		ctx,
+		root,
+		ignoreMatcher,
+		options,
+	)
+	if err != nil {
+		return err
+	}
+
+	summary.Deleted = append(summary.Deleted, ignored...)
+
+	if shouldImportDecisionDefaults(root, requestedPaths) {
+		_, err = indexer.store.ImportDecisionRecords(ctx, root, nil)
+		if err != nil {
+			return fmt.Errorf("import decision records: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (indexer ASTIndexer) markIgnoredIndexPathsDeleted(
+	ctx context.Context,
+	root string,
+	ignoreMatcher gitIgnoreMatcher,
+	options IndexOptions,
+) ([]string, error) {
+	return indexer.store.MarkIgnoredCodeFilesDeleted(
+		ctx,
+		func(path string) bool {
+			absolutePath := filepath.Join(root, filepath.FromSlash(path))
+
+			return pathHasSkippedDir(path) ||
+				excludedByConfig(path, options.ExcludePatterns) ||
+				ignoreMatcher.ignoredFile(ctx, absolutePath)
+		},
+	)
 }
 
 func (indexer ASTIndexer) walkDirectoryTreeEntry(
