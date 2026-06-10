@@ -213,6 +213,7 @@ func (indexer ASTIndexer) IndexPathsWithOptions(
 		root = "."
 	}
 
+	requestedPaths := append([]string(nil), paths...)
 	if len(paths) == 0 {
 		paths = []string{"."}
 	}
@@ -295,7 +296,60 @@ func (indexer ASTIndexer) IndexPathsWithOptions(
 
 	summary.Deleted = append(summary.Deleted, ignored...)
 
+	if shouldImportDecisionDefaults(root, requestedPaths) {
+		_, err = indexer.store.ImportDecisionRecords(ctx, root, nil)
+		if err != nil {
+			return CodeIndexSummary{}, fmt.Errorf("import decision records: %w", err)
+		}
+	}
+
 	return summary, nil
+}
+
+func shouldImportDecisionDefaults(root string, paths []string) bool {
+	if len(paths) == 0 {
+		return true
+	}
+
+	defaults := DefaultDecisionImportPaths()
+
+	for _, path := range paths {
+		relative := decisionImportRelativeInput(root, path)
+		if relative == "." {
+			return true
+		}
+
+		for _, defaultPath := range defaults {
+			if relative == defaultPath || strings.HasPrefix(relative, defaultPath+"/") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func decisionImportRelativeInput(root, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	if !filepath.IsAbs(path) {
+		cleaned := filepath.ToSlash(filepath.Clean(path))
+		if cleaned == "." {
+			return "."
+		}
+
+		return strings.TrimPrefix(cleaned, "./")
+	}
+
+	relative, ok := decisionRelativePath(root, path)
+	if !ok {
+		return ""
+	}
+
+	return relative
 }
 
 // IndexDirectoryChildren refreshes only direct child source files under dir.

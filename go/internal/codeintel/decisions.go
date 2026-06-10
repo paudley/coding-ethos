@@ -21,8 +21,9 @@ const (
 	DecisionStatusAccepted = "accepted"
 	DecisionStatusProposed = "proposed"
 
-	DecisionSourceManual = "manual"
-	DecisionSourceInline = "inline_marker"
+	DecisionSourceDocument = "decision_file"
+	DecisionSourceManual   = "manual"
+	DecisionSourceInline   = "inline_marker"
 
 	DecisionLinkAffects = "affects"
 )
@@ -301,6 +302,15 @@ func (store *Store) ReplaceIndexedDecisions(
 	path string,
 	decisions []DecisionRecord,
 ) error {
+	return store.ReplaceSourceDecisions(ctx, DecisionSourceInline, path, decisions)
+}
+
+func (store *Store) ReplaceSourceDecisions(
+	ctx context.Context,
+	sourceKind string,
+	path string,
+	decisions []DecisionRecord,
+) error {
 	store.writeMu.Lock()
 	defer store.writeMu.Unlock()
 
@@ -310,12 +320,14 @@ func (store *Store) ReplaceIndexedDecisions(
 	}
 	defer rollbackUnlessCommitted(transaction)
 
-	err = deleteSourceDecisions(ctx, transaction, path)
+	err = deleteSourceDecisions(ctx, transaction, sourceKind, path)
 	if err != nil {
 		return err
 	}
 
 	for _, decision := range decisions {
+		decision.SourceKind = sourceKind
+		decision.SourcePath = path
 		decision = normalizeDecisionRecord(decision)
 
 		raw, marshalErr := json.Marshal(decision)
@@ -627,13 +639,14 @@ func replaceDecisionFTS(
 func deleteSourceDecisions(
 	ctx context.Context,
 	transaction *sql.Tx,
+	sourceKind string,
 	path string,
 ) error {
 	rows, err := transaction.QueryContext(
 		ctx,
 		`SELECT decision_id FROM decisions
 		WHERE source_kind = ? AND source_path = ?`,
-		DecisionSourceInline,
+		sourceKind,
 		path,
 	)
 	if err != nil {

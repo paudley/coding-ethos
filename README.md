@@ -446,6 +446,7 @@ bin/coding-ethos-run code-intel graph-report --path pkg --format toon
 bin/coding-ethos-run code-intel centrality --path pkg --format toon
 bin/coding-ethos-run code-intel surprises --path pkg --format toon
 bin/coding-ethos-run code-intel decisions add --title 'Use explicit startup' --rationale 'Startup should be inspectable.' --path pkg/app.py
+bin/coding-ethos-run code-intel decisions import docs/decisions
 bin/coding-ethos-run code-intel decisions list --path pkg/app.py --query startup
 bin/coding-ethos-run code-intel decisions health --path pkg/app.py
 bin/coding-ethos-run code-intel rebuild-index
@@ -487,6 +488,11 @@ Decision intelligence adds the `decisions` CLI group and MCP `code_intel_why`
 tool. Manual decisions and indexed inline `WHY:`, `DECISION:`, and `TRADEOFF:`
 markers link rationale to paths and symbols, while decision health reports
 stale, conflicting, overlapping, or ungoverned areas before an agent edits.
+`decisions import` reads explicitly opted-in Markdown decision records from
+`adr/`, `docs/adr/`, `docs/decisions/`, `.coding-ethos/decisions/`, or a
+provided path. Imported records require YAML front matter with
+`coding_ethos_decision: true` or a `decision` / `architecture-decision` tag, so
+ordinary README examples and rationale headings are not promoted to decisions.
 
 Managed sandbox policy also supports repo-specific network-capable test tools
 without making the whole suite networked. A consumer repo can list a managed

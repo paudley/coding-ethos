@@ -2046,6 +2046,27 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 		t.Fatalf("index output missing summary:\n%s", indexOutput)
 	}
 
+	store, err := codeintel.Open(context.Background(), codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	_, err = store.RecordDecision(context.Background(), codeintel.DecisionRecord{
+		Title:     "Use explicit startup flow",
+		Rationale: "Explicit startup flow keeps the app entrypoint inspectable.",
+		Status:    codeintel.DecisionStatusAccepted,
+		Links: []codeintel.DecisionLink{{
+			Path: "pkg/app.py",
+			Kind: codeintel.DecisionLinkAffects,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("record decision: %v", err)
+	}
+	err = store.Close()
+	if err != nil {
+		t.Fatalf("close code-intel store: %v", err)
+	}
+
 	chunksOutput := runServerWithRuntime(t, compactJSON(t, `{
 		"jsonrpc":"2.0",
 		"id":32,
@@ -2117,7 +2138,9 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 	}`), runtime)
 	if !strings.Contains(contextCardOutput, `"code_intel_context_card"`) ||
 		!strings.Contains(contextCardOutput, `"build_message"`) ||
-		!strings.Contains(contextCardOutput, `"index_fresh":true`) {
+		!strings.Contains(contextCardOutput, `"index_fresh":true`) ||
+		!strings.Contains(contextCardOutput, `"decisions"`) ||
+		!strings.Contains(contextCardOutput, `"Use explicit startup flow"`) {
 		t.Fatalf("context card output missing indexed symbol:\n%s", contextCardOutput)
 	}
 
@@ -2194,6 +2217,8 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 	if !strings.Contains(riskOutput, `"code_intel_change_risk"`) ||
 		!strings.Contains(riskOutput, `"risk_level"`) ||
 		!strings.Contains(riskOutput, `"git_signal_freshness"`) ||
+		!strings.Contains(riskOutput, `"decision_health"`) ||
+		!strings.Contains(riskOutput, `"Use explicit startup flow"`) ||
 		!strings.Contains(riskOutput, `"health"`) ||
 		!strings.Contains(riskOutput, `"recommended_checks"`) {
 		t.Fatalf("change risk output missing task-shaped fields:\n%s", riskOutput)

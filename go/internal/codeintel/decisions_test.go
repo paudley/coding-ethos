@@ -126,6 +126,102 @@ func TestIndexedDecisionsUseFirstSentenceSeparator(t *testing.T) {
 	}
 }
 
+func TestParseDecisionDocumentRequiresExplicitOptIn(t *testing.T) {
+	t.Parallel()
+
+	_, found, err := ParseDecisionDocument("README.md", []byte(`---
+title: Looks like a decision
+---
+# Decision
+
+This is documentation prose, not an architectural decision record.
+`))
+	if err != nil {
+		t.Fatalf("parse non-decision document: %v", err)
+	}
+	if found {
+		t.Fatalf("generic decision-like document should not be imported")
+	}
+}
+
+func TestParseDecisionDocumentReadsFrontMatterLinks(t *testing.T) {
+	t.Parallel()
+
+	record, found, err := ParseDecisionDocument("docs/decisions/startup.md", []byte(`---
+coding_ethos_decision: true
+title: Use explicit startup flow
+status: accepted
+rationale: Startup should fail before background work begins.
+alternatives: Lazy validation hides configuration drift.
+author: platform
+recorded_at_utc: 2026-01-02T03:04:05Z
+affected_paths:
+  - pkg/app.go
+affected_symbols:
+  - path: pkg/app.go
+    symbol_path: Run
+---
+# Use explicit startup flow
+`))
+	if err != nil {
+		t.Fatalf("parse decision document: %v", err)
+	}
+	if !found {
+		t.Fatalf("decision document was not imported")
+	}
+	if record.SourceKind != DecisionSourceDocument ||
+		record.SourcePath != "docs/decisions/startup.md" ||
+		record.ProvenanceClass != ProvenanceDocDerived {
+		t.Fatalf("record provenance = %#v", record)
+	}
+	if len(record.Links) != 2 ||
+		record.Links[0].Path != "pkg/app.go" ||
+		record.Links[1].SymbolPath != "Run" {
+		t.Fatalf("record links = %#v", record.Links)
+	}
+}
+
+func TestImportDecisionRecordsScansDefaultCodingEthosDirectory(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	payload := []byte(`---
+tags: [architecture-decision]
+title: Keep startup explicit
+rationale: Explicit startup exposes missing dependencies before work starts.
+affected_paths:
+  - pkg/app.go
+---
+`)
+	_, found, err := ParseDecisionDocument(".coding-ethos/decisions/startup.md", payload)
+	if err != nil {
+		t.Fatalf("parse decision fixture: %v", err)
+	}
+	if !found {
+		t.Fatalf("decision fixture should parse before import")
+	}
+
+	writeFile(t, filepath.Join(root, ".coding-ethos", "decisions", "startup.md"), payload)
+
+	store := openTestStoreAt(t, ctx, DefaultDBPath(root))
+	summary, err := store.ImportDecisionRecords(ctx, root, nil)
+	if err != nil {
+		t.Fatalf("import decision records: %v", err)
+	}
+	if summary.DecisionsImported != 1 {
+		t.Fatalf("import summary = %#v, want 1 imported decision", summary)
+	}
+
+	records, err := store.Decisions(ctx, DecisionQuery{Path: "pkg/app.go", Limit: 5})
+	if err != nil {
+		t.Fatalf("query imported decisions: %v", err)
+	}
+	if len(records) != 1 || records[0].Title != "Keep startup explicit" {
+		t.Fatalf("imported records = %#v", records)
+	}
+}
+
 func TestASTIndexerReplacesIndexedDecisions(t *testing.T) {
 	t.Parallel()
 
