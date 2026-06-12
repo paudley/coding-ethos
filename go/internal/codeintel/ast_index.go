@@ -318,16 +318,12 @@ func decisionImportRelativeInput(root, path string) string {
 		return ""
 	}
 
-	if !filepath.IsAbs(path) {
-		cleaned := filepath.ToSlash(filepath.Clean(path))
-		if cleaned == "." {
-			return "."
-		}
-
-		return strings.TrimPrefix(cleaned, "./")
+	absolute := path
+	if !filepath.IsAbs(absolute) {
+		absolute = filepath.Join(root, absolute)
 	}
 
-	relative, ok := decisionRelativePath(root, path)
+	relative, ok := decisionRelativePath(root, absolute)
 	if !ok {
 		return ""
 	}

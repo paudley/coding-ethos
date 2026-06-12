@@ -26,6 +26,13 @@ func TestDecisionImportRelativeInputNormalizesRepoRoot(t *testing.T) {
 	); got != "docs/decisions" {
 		t.Fatalf("absolute child relative input = %q", got)
 	}
+
+	if got := decisionImportRelativeInput(
+		filepath.Join(root, "nested"),
+		"../nested/docs/decisions",
+	); got != "docs/decisions" {
+		t.Fatalf("root-resolved relative input = %q", got)
+	}
 }
 
 func TestDecisionImportScopeClassifiesFilesAndDirectories(t *testing.T) {
@@ -116,5 +123,24 @@ func TestFirstMarkdownHeadingFallback(t *testing.T) {
 	got := firstMarkdownHeading([]byte("intro\n# Chosen heading\n## ignored\n"))
 	if got != "Chosen heading" {
 		t.Fatalf("firstMarkdownHeading() = %q", got)
+	}
+}
+
+func TestSplitYAMLFrontMatterScansWithoutTrailingNewline(t *testing.T) {
+	t.Parallel()
+
+	frontMatter, body, found := splitYAMLFrontMatter(
+		[]byte("---\r\ntitle: Example\r\n---\r\nbody"),
+	)
+	if !found {
+		t.Fatal("splitYAMLFrontMatter did not find front matter")
+	}
+	if string(frontMatter) != "title: Example\r\n" || string(body) != "body" {
+		t.Fatalf("front matter = %q body = %q", frontMatter, body)
+	}
+
+	_, _, found = splitYAMLFrontMatter([]byte("---\ntitle: Example"))
+	if found {
+		t.Fatal("unterminated front matter was accepted")
 	}
 }

@@ -393,22 +393,36 @@ func splitYAMLFrontMatter(payload []byte) ([]byte, []byte, bool) {
 		return nil, payload, false
 	}
 
-	lines := bytes.SplitAfter(payload, []byte("\n"))
-	if len(lines) < frontMatterMinimumLineCount {
+	firstNewline := bytes.IndexByte(payload, '\n')
+	if firstNewline < 0 {
 		return nil, payload, false
 	}
 
-	offset := len(lines[0])
-	for _, line := range lines[1:] {
-		trimmed := strings.TrimSpace(string(line))
-		if trimmed == "---" {
-			frontMatter := payload[len(lines[0]):offset]
-			body := payload[offset+len(line):]
+	lineStart := firstNewline + 1
+	linesSeen := 1
+
+	for lineStart < len(payload) {
+		nextNewline := bytes.IndexByte(payload[lineStart:], '\n')
+		lineEnd := len(payload)
+		nextLineStart := len(payload)
+
+		if nextNewline >= 0 {
+			lineEnd = lineStart + nextNewline
+			nextLineStart = lineEnd + 1
+		}
+
+		linesSeen++
+		line := payload[lineStart:lineEnd]
+
+		if bytes.Equal(bytes.TrimSpace(line), []byte("---")) &&
+			linesSeen >= frontMatterMinimumLineCount {
+			frontMatter := payload[firstNewline+1 : lineStart]
+			body := payload[nextLineStart:]
 
 			return frontMatter, body, true
 		}
 
-		offset += len(line)
+		lineStart = nextLineStart
 	}
 
 	return nil, payload, false
