@@ -5,6 +5,7 @@ package codeintelcli
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -120,6 +121,38 @@ func TestDecisionsCommandsRecordListAndReportHealth(t *testing.T) {
 		t.Fatalf("decisions add output missing stable fields:\n%s", addOutput)
 	}
 
+	var addPayload struct {
+		Decisions []struct {
+			ID string `json:"id"`
+		} `json:"decisions"`
+	}
+	if err := json.Unmarshal([]byte(addOutput), &addPayload); err != nil {
+		t.Fatalf("decode decisions add output: %v", err)
+	}
+	if len(addPayload.Decisions) != 1 || addPayload.Decisions[0].ID == "" {
+		t.Fatalf("decisions add payload missing ID: %#v", addPayload)
+	}
+
+	var linkErr error
+	linkOutput := captureStdout(t, func() {
+		linkErr = run(context.Background(), []string{
+			"decisions",
+			"link",
+			"--root", root,
+			"--db", dbPath,
+			"--id", addPayload.Decisions[0].ID,
+			"--path", "pkg/cache.go",
+			"--symbol-path", "Cache.Start",
+		})
+	})
+	if linkErr != nil {
+		t.Fatalf("decisions link returned error: %v", linkErr)
+	}
+	if !strings.Contains(linkOutput, `"kind": "code_intel.decisions.link.v1"`) ||
+		!strings.Contains(linkOutput, `"pkg/cache.go"`) {
+		t.Fatalf("decisions link output missing stable fields:\n%s", linkOutput)
+	}
+
 	var listErr error
 	listOutput := captureStdout(t, func() {
 		listErr = run(context.Background(), []string{
@@ -138,6 +171,24 @@ func TestDecisionsCommandsRecordListAndReportHealth(t *testing.T) {
 	if !strings.Contains(listOutput, `"decisions": [`) ||
 		!strings.Contains(listOutput, `"Use managed caches"`) {
 		t.Fatalf("decisions list output missing record:\n%s", listOutput)
+	}
+
+	var humanListErr error
+	humanListOutput := captureStdout(t, func() {
+		humanListErr = run(context.Background(), []string{
+			"decisions",
+			"list",
+			"--root", root,
+			"--db", dbPath,
+			"--path", "pkg/cache.go",
+			"--format", "human",
+		})
+	})
+	if humanListErr != nil {
+		t.Fatalf("decisions human list returned error: %v", humanListErr)
+	}
+	if !strings.Contains(humanListOutput, "pkg/cache.go#Cache.Start") {
+		t.Fatalf("decisions human list missing linked symbol:\n%s", humanListOutput)
 	}
 
 	var healthErr error

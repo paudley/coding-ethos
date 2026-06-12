@@ -36,7 +36,7 @@ type decisionFrontMatter struct {
 	Author              string                   `yaml:"author"`
 	RecordedAtUTC       string                   `yaml:"recorded_at_utc"`
 	UpdatedAtUTC        string                   `yaml:"updated_at_utc"`
-	Tags                []string                 `yaml:"tags"`
+	Tags                any                      `yaml:"tags"`
 	AffectedPaths       []string                 `yaml:"affected_paths"`
 	AffectedFiles       []string                 `yaml:"affected_files"`
 	AffectedModules     []string                 `yaml:"affected_modules"`
@@ -85,12 +85,29 @@ func (store *Store) ImportDecisionRecords(
 		config: options,
 	}
 
+	retained := map[string]struct{}{}
+	scopes := make([]decisionImportPruneScope, 0, len(paths))
 	summary := DecisionImportSummary{PathsScanned: len(paths)}
+
 	for _, inputPath := range paths {
-		err = importer.importPath(ctx, inputPath, &summary)
+		if scope, ok := decisionImportScope(root, inputPath); ok {
+			scopes = append(scopes, scope)
+		}
+
+		err = importer.importPath(ctx, inputPath, retained, &summary)
 		if err != nil {
 			return DecisionImportSummary{}, err
 		}
+	}
+
+	err = importer.store.pruneSourceDecisionRecords(
+		ctx,
+		DecisionSourceDocument,
+		retained,
+		scopes,
+	)
+	if err != nil {
+		return DecisionImportSummary{}, err
 	}
 
 	return summary, nil
@@ -106,6 +123,7 @@ type decisionImporter struct {
 func (importer decisionImporter) importPath(
 	ctx context.Context,
 	inputPath string,
+	retained map[string]struct{},
 	summary *DecisionImportSummary,
 ) error {
 	path := strings.TrimSpace(inputPath)
@@ -136,6 +154,7 @@ func (importer decisionImporter) importPath(
 					currentPath,
 					entry,
 					walkErr,
+					retained,
 					summary,
 				)
 			},
@@ -147,7 +166,7 @@ func (importer decisionImporter) importPath(
 		return nil
 	}
 
-	return importer.importFile(ctx, path, info, summary)
+	return importer.importFile(ctx, path, info, retained, summary)
 }
 
 func (importer decisionImporter) importWalkEntry(
@@ -156,6 +175,7 @@ func (importer decisionImporter) importWalkEntry(
 	currentPath string,
 	entry fs.DirEntry,
 	walkErr error,
+	retained map[string]struct{},
 	summary *DecisionImportSummary,
 ) error {
 	if walkErr != nil {
@@ -175,7 +195,7 @@ func (importer decisionImporter) importWalkEntry(
 		return fmt.Errorf("stat decision import file %q: %w", currentPath, err)
 	}
 
-	return importer.importFile(ctx, currentPath, fileInfo, summary)
+	return importer.importFile(ctx, currentPath, fileInfo, retained, summary)
 }
 
 func (importer decisionImporter) skipsDir(ctx context.Context, path string) bool {
@@ -205,6 +225,7 @@ func (importer decisionImporter) importFile(
 	ctx context.Context,
 	path string,
 	info os.FileInfo,
+	retained map[string]struct{},
 	summary *DecisionImportSummary,
 ) error {
 	relative, ok := decisionRelativePath(importer.root, path)
@@ -217,6 +238,8 @@ func (importer decisionImporter) importFile(
 
 		return nil
 	}
+
+	retained[relative] = struct{}{}
 
 	payload, err := os.ReadFile(path)
 	if err != nil {
@@ -326,13 +349,10 @@ func ParseDecisionDocument(
 		)
 	}
 
-	rawTags, err := decisionFrontMatterTags(frontMatter)
-	if err != nil {
-		return DecisionRecord{}, false, err
-	}
+	tags := configdata.StringList(decoded.Tags)
 
 	if !decoded.CodingEthosDecision &&
-		!decisionTagsOptIn(append(decoded.Tags, rawTags...)) {
+		!decisionTagsOptIn(tags) {
 		return DecisionRecord{}, false, nil
 	}
 
@@ -402,17 +422,6 @@ func decisionTagsOptIn(tags []string) bool {
 	})
 }
 
-func decisionFrontMatterTags(frontMatter []byte) ([]string, error) {
-	var decoded configdata.Map
-
-	err := yaml.Unmarshal(frontMatter, &decoded)
-	if err != nil {
-		return nil, fmt.Errorf("parse decision front matter tags: %w", err)
-	}
-
-	return configdata.StringList(decoded["tags"]), nil
-}
-
 func firstMarkdownHeading(payload []byte) string {
 	for line := range strings.Lines(string(payload)) {
 		trimmed := strings.TrimSpace(line)
@@ -440,9 +449,16 @@ func decisionDocumentLinks(decoded decisionFrontMatter) []DecisionLink {
 	}
 
 	for _, symbol := range decoded.AffectedSymbols {
+		path := strings.TrimSpace(symbol.Path)
+		symbolPath := firstNonEmptyDecisionText(symbol.SymbolPath, symbol.Symbol)
+
+		if path == "" || symbolPath == "" {
+			continue
+		}
+
 		links = append(links, DecisionLink{
-			Path:       symbol.Path,
-			SymbolPath: firstNonEmptyDecisionText(symbol.SymbolPath, symbol.Symbol),
+			Path:       path,
+			SymbolPath: symbolPath,
 			Kind:       DecisionLinkAffects,
 		})
 	}
@@ -463,7 +479,6 @@ func decisionRelativePath(root, path string) (string, bool) {
 
 	relative, err := filepath.Rel(filepath.Clean(rootAbs), filepath.Clean(pathAbs))
 	if err != nil ||
-		relative == "." ||
 		relative == ".." ||
 		strings.HasPrefix(relative, ".."+string(filepath.Separator)) ||
 		filepath.IsAbs(relative) {
@@ -471,6 +486,23 @@ func decisionRelativePath(root, path string) (string, bool) {
 	}
 
 	return filepath.ToSlash(relative), true
+}
+
+type decisionImportPruneScope struct {
+	relative string
+	exact    bool
+}
+
+func decisionImportScope(root, path string) (decisionImportPruneScope, bool) {
+	relative := decisionImportRelativeInput(root, path)
+	if relative == "" {
+		return decisionImportPruneScope{}, false
+	}
+
+	return decisionImportPruneScope{
+		relative: relative,
+		exact:    strings.EqualFold(filepath.Ext(relative), ".md"),
+	}, true
 }
 
 func firstNonEmptyDecisionText(values ...string) string {

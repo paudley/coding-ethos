@@ -5,6 +5,7 @@ package codeintel_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -181,6 +182,55 @@ affected_symbols:
 	}
 }
 
+func TestParseDecisionDocumentAcceptsScalarTag(t *testing.T) {
+	t.Parallel()
+
+	record, found, err := ParseDecisionDocument("docs/decisions/scalar.md", []byte(`---
+tags: architecture-decision
+title: Accept scalar tags
+rationale: Decision documents should accept common YAML tag shapes.
+---
+`))
+	if err != nil {
+		t.Fatalf("parse scalar-tag decision document: %v", err)
+	}
+	if !found {
+		t.Fatalf("scalar-tag decision document was not imported")
+	}
+	if record.Title != "Accept scalar tags" {
+		t.Fatalf("record title = %q", record.Title)
+	}
+}
+
+func TestParseDecisionDocumentSkipsBlankAffectedSymbols(t *testing.T) {
+	t.Parallel()
+
+	record, found, err := ParseDecisionDocument("docs/decisions/symbols.md", []byte(`---
+coding_ethos_decision: true
+title: Sanitize symbol links
+rationale: Decision links should not store empty symbol targets.
+affected_symbols:
+  - path: ""
+    symbol_path: MissingPath
+  - path: pkg/app.go
+    symbol_path: ""
+  - path: pkg/app.go
+    symbol_path: Run
+---
+`))
+	if err != nil {
+		t.Fatalf("parse symbol decision document: %v", err)
+	}
+	if !found {
+		t.Fatalf("symbol decision document was not imported")
+	}
+	if len(record.Links) != 1 ||
+		record.Links[0].Path != "pkg/app.go" ||
+		record.Links[0].SymbolPath != "Run" {
+		t.Fatalf("record links = %#v", record.Links)
+	}
+}
+
 func TestImportDecisionRecordsScansDefaultCodingEthosDirectory(t *testing.T) {
 	t.Parallel()
 
@@ -219,6 +269,80 @@ affected_paths:
 	}
 	if len(records) != 1 || records[0].Title != "Keep startup explicit" {
 		t.Fatalf("imported records = %#v", records)
+	}
+}
+
+func TestImportDecisionRecordsPrunesDeletedDecisionFiles(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	decisionPath := filepath.Join(root, ".coding-ethos", "decisions", "startup.md")
+	writeFile(t, decisionPath, []byte(`---
+coding_ethos_decision: true
+title: Keep startup explicit
+rationale: Explicit startup exposes missing dependencies before work starts.
+affected_paths:
+  - pkg/app.go
+---
+`))
+
+	store := openTestStoreAt(t, ctx, DefaultDBPath(root))
+	if _, err := store.ImportDecisionRecords(ctx, root, nil); err != nil {
+		t.Fatalf("import initial decision records: %v", err)
+	}
+
+	if err := os.Remove(decisionPath); err != nil {
+		t.Fatalf("remove decision file: %v", err)
+	}
+
+	if _, err := store.ImportDecisionRecords(ctx, root, nil); err != nil {
+		t.Fatalf("import after deleted decision file: %v", err)
+	}
+
+	records, err := store.Decisions(ctx, DecisionQuery{Path: "pkg/app.go", Limit: 5})
+	if err != nil {
+		t.Fatalf("query pruned decisions: %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("decisions after deleted file = %#v, want none", records)
+	}
+}
+
+func TestASTIndexerImportsDefaultDecisionsForAbsoluteRepoRoot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "pkg", "app.go"), []byte(`package pkg
+
+func Run() {}
+`))
+	writeFile(
+		t,
+		filepath.Join(root, ".coding-ethos", "decisions", "startup.md"),
+		[]byte(`---
+coding_ethos_decision: true
+title: Govern startup
+rationale: Startup behavior needs explicit rationale.
+affected_paths:
+  - pkg/app.go
+---
+`),
+	)
+
+	store := openTestStoreAt(t, ctx, DefaultDBPath(root))
+	indexer := NewASTIndexer(store)
+	if _, err := indexer.IndexPaths(ctx, root, []string{root}); err != nil {
+		t.Fatalf("index absolute repo root: %v", err)
+	}
+
+	records, err := store.Decisions(ctx, DecisionQuery{Path: "pkg/app.go", Limit: 5})
+	if err != nil {
+		t.Fatalf("query imported decisions: %v", err)
+	}
+	if len(records) != 1 || records[0].Title != "Govern startup" {
+		t.Fatalf("imported decisions = %#v", records)
 	}
 }
 
