@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -68,13 +67,15 @@ type codeIntelCitation struct {
 }
 
 type codeIntelContextTarget struct {
-	Context     *codeintel.CodeContext `json:"context,omitempty"`
-	Path        string                 `json:"path"`
-	CommunityID string                 `json:"community_id,omitempty"`
-	Chunks      []codeintel.CodeChunk  `json:"chunks,omitempty"`
-	File        codeintel.CodeFile     `json:"file,omitzero"`
-	Found       bool                   `json:"found"`
-	IndexFresh  bool                   `json:"index_fresh"`
+	Context        *codeintel.CodeContext     `json:"context,omitempty"`
+	Path           string                     `json:"path"`
+	CommunityID    string                     `json:"community_id,omitempty"`
+	Chunks         []codeintel.CodeChunk      `json:"chunks,omitempty"`
+	Decisions      []codeintel.DecisionRecord `json:"decisions,omitempty"`
+	DecisionHealth *codeintel.DecisionHealth  `json:"decision_health,omitempty"`
+	File           codeintel.CodeFile         `json:"file,omitzero"`
+	Found          bool                       `json:"found"`
+	IndexFresh     bool                       `json:"index_fresh"`
 }
 
 type gitReviewerSuggestions []codeintel.GitReviewerSuggestion
@@ -87,6 +88,8 @@ type codeIntelRiskTarget struct {
 	Chunks             []codeintel.CodeChunk        `json:"chunks,omitempty"`
 	GitSignals         []codeintel.GitFileSignal    `json:"git_signals,omitempty"`
 	Health             []codeintel.CodeHealthTarget `json:"health"`
+	DecisionHealth     *codeintel.DecisionHealth    `json:"decision_health,omitempty"`
+	Decisions          []codeintel.DecisionRecord   `json:"decisions,omitempty"`
 	Reviewers          gitReviewerSuggestions       `json:"reviewers,omitempty"`
 	RepeatedFailures   []codeintel.RepeatedFailure  `json:"repeated_failures,omitempty"`
 	Reasons            []string                     `json:"reasons,omitempty"`
@@ -685,6 +688,8 @@ func (server Server) codeIntelContextCard(args json.RawMessage) (any, error) {
 		"code_chunks",
 		"code_context",
 		"ast_finding_links",
+		"decisions",
+		"decision_links",
 	})
 	if err != nil {
 		return nil, err
@@ -810,6 +815,8 @@ func (server Server) codeIntelChangeRisk(args json.RawMessage) (any, error) {
 		"code_health_targets",
 		"code_health_evidence",
 		"code_health_coverage",
+		"decisions",
+		"decision_links",
 		"finding_occurrences",
 		"remediation_outcomes",
 	})
@@ -879,73 +886,6 @@ func (server Server) codeIntelHealth(args json.RawMessage) (any, error) {
 			"Use code_intel_context_card before editing a ranked refactoring target.",
 		},
 	}, nil
-}
-
-func (server Server) codeIntelWhy(args json.RawMessage) (any, error) {
-	var input codeIntelWhyInput
-
-	inlineErr0 := json.Unmarshal(args, &input)
-	if inlineErr0 != nil {
-		return nil, fmt.Errorf("parse code intelligence why arguments: %w", inlineErr0)
-	}
-
-	text := strings.TrimSpace(firstNonEmpty(input.Text, input.Query))
-	path := strings.TrimSpace(input.Path)
-	symbolPath := strings.TrimSpace(input.SymbolPath)
-
-	status := strings.TrimSpace(input.Status)
-	if text == "" && path == "" && symbolPath == "" && status == "" {
-		return nil, apperror.StaticError("query, path, symbol_path, or status is required")
-	}
-
-	store, index, closeAll, err := server.openCodeIntel()
-	if err != nil {
-		return nil, fmt.Errorf("open code intelligence index: %w", err)
-	}
-	defer closeAll()
-
-	ctx := argsContext()
-	limit := boundedCodeIntelLimit(input.Limit)
-	query := codeintel.DecisionQuery{
-		Text:       text,
-		Path:       path,
-		SymbolPath: symbolPath,
-		Status:     status,
-		Limit:      limit,
-	}
-
-	decisions, err := store.Decisions(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("query architectural decisions: %w", err)
-	}
-
-	health, err := store.DecisionHealth(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("query architectural decision health: %w", err)
-	}
-
-	meta, err := server.codeIntelTaskMeta(ctx, store, index, []string{
-		"decisions",
-		"decision_links",
-		"code_files",
-		"code_chunks",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("read code intelligence task metadata: %w", err)
-	}
-
-	result := map[string]any{
-		"kind":           "code_intel_why",
-		"_meta":          meta,
-		"decisions":      decisions,
-		"health":         health,
-		"next_mcp_calls": codeIntelWhyNextCalls(path, symbolPath),
-	}
-	if strings.EqualFold(strings.TrimSpace(input.Format), "toon") {
-		result["content"] = renderCodeIntelWhyTOON(decisions, health)
-	}
-
-	return result, nil
 }
 
 func (server Server) codeIntelSessionSnapshot(args json.RawMessage) (any, error) {
@@ -1227,58 +1167,6 @@ func codeIntelInputPaths(path string, paths []string) []string {
 	return out
 }
 
-func codeIntelWhyNextCalls(path, symbolPath string) []map[string]any {
-	if strings.TrimSpace(path) == "" {
-		return []map[string]any{{
-			"tool":      "code_intel_overview",
-			"arguments": map[string]any{"limit": codeIntelDefaultTaskLimit},
-		}}
-	}
-
-	contextArgs := map[string]any{"path": path}
-	if strings.TrimSpace(symbolPath) != "" {
-		contextArgs["symbol_path"] = symbolPath
-	}
-
-	return []map[string]any{
-		{
-			"tool":      "code_intel_context_card",
-			"arguments": contextArgs,
-		},
-		{
-			"tool":      "code_intel_change_risk",
-			"arguments": map[string]any{"paths": []string{path}},
-		},
-	}
-}
-
-func renderCodeIntelWhyTOON(
-	decisions []codeintel.DecisionRecord,
-	health codeintel.DecisionHealth,
-) string {
-	var builder strings.Builder
-	builder.WriteString("kind: code_intel_why\n")
-	builder.WriteString("decisions: ")
-	builder.WriteString(strconv.Itoa(len(decisions)))
-	builder.WriteString("\nstale: ")
-	builder.WriteString(strconv.Itoa(health.Summary.StaleCount))
-	builder.WriteString("\nconflicts: ")
-	builder.WriteString(strconv.Itoa(health.Summary.ConflictCount))
-	builder.WriteString("\n")
-
-	for _, decision := range decisions {
-		builder.WriteString("- id: ")
-		builder.WriteString(decision.ID)
-		builder.WriteString("\n  status: ")
-		builder.WriteString(decision.Status)
-		builder.WriteString("\n  title: ")
-		builder.WriteString(decision.Title)
-		builder.WriteString("\n")
-	}
-
-	return builder.String()
-}
-
 func citationsFromHybridResults(
 	results []codeintel.HybridSearchResult,
 	limit int,
@@ -1407,6 +1295,11 @@ func (server Server) contextCardTargets(
 
 	for _, path := range targetOrder {
 		if target, ok := targetsByPath[path]; ok {
+			err := annotateContextTargetWithDecisions(ctx, store, &target, limit)
+			if err != nil {
+				return nil, false, err
+			}
+
 			targets = append(targets, target)
 		}
 	}
@@ -1568,20 +1461,41 @@ func renderContextCardTOON(
 	meta codeIntelTaskMeta,
 ) string {
 	lines := make([]string, 0, contextCardTOONHeaderLines+len(targets))
+	targetColumns := strings.Join([]string{
+		"path",
+		"found",
+		"chunks",
+		"index_fresh",
+		"community",
+		"decisions",
+		"stale",
+		"conflicts",
+		"ungoverned",
+	}, ",")
+
 	lines = append(lines,
 		"tool: code_intel_context_card",
 		fmt.Sprintf("fresh: %t", meta.Fresh),
-		fmt.Sprintf("targets[%d]{path,found,chunks,index_fresh,community}:", len(targets)),
+		fmt.Sprintf("targets[%d]{%s}:", len(targets), targetColumns),
 	)
 
 	for _, target := range targets {
+		health := codeintel.DecisionHealth{}
+		if target.DecisionHealth != nil {
+			health = *target.DecisionHealth
+		}
+
 		lines = append(lines, fmt.Sprintf(
-			"  %s,%t,%d,%t,%s",
+			"  %s,%t,%d,%t,%s,%d,%d,%d,%d",
 			target.Path,
 			target.Found,
 			len(target.Chunks),
 			target.IndexFresh,
 			target.CommunityID,
+			len(target.Decisions),
+			health.Summary.StaleCount,
+			health.Summary.ConflictCount,
+			health.Summary.UngovernedCount,
 		))
 	}
 
@@ -1612,16 +1526,9 @@ func changeRiskTarget(
 		return codeIntelRiskTarget{}, fmt.Errorf("query code chunks for %s: %w", path, err)
 	}
 
-	failures, err := store.RepeatedFailures(ctx, codeintel.RepeatedFailureQuery{
-		Path:  path,
-		Limit: limit,
-	})
+	failures, err := changeRiskRepeatedFailures(ctx, store, path, limit)
 	if err != nil {
-		return codeIntelRiskTarget{}, fmt.Errorf(
-			"query repeated failures for %s: %w",
-			path,
-			err,
-		)
+		return codeIntelRiskTarget{}, err
 	}
 
 	gitFreshness, gitSignals, reviewers, err := changeRiskGitSignals(
@@ -1639,6 +1546,11 @@ func changeRiskTarget(
 		return codeIntelRiskTarget{}, fmt.Errorf("query health score for %s: %w", path, err)
 	}
 
+	decisions, decisionHealth, err := changeRiskDecisions(ctx, store, path, limit)
+	if err != nil {
+		return codeIntelRiskTarget{}, err
+	}
+
 	reasons := changeRiskReasons(
 		file,
 		found,
@@ -1647,6 +1559,7 @@ func changeRiskTarget(
 		len(failures),
 		gitFreshness,
 		gitSignals,
+		decisionHealth,
 	)
 
 	return codeIntelRiskTarget{
@@ -1656,12 +1569,31 @@ func changeRiskTarget(
 		GitSignalFreshness: &gitFreshness,
 		GitSignals:         gitSignals,
 		Health:             healthTargets,
+		DecisionHealth:     &decisionHealth,
+		Decisions:          decisions,
 		Reviewers:          gitReviewerSuggestions(reviewers),
 		RepeatedFailures:   failures,
 		RiskLevel:          riskLevelForReasons(reasons),
 		Reasons:            reasons,
 		RecommendedChecks:  recommendedChecksForPath(path),
 	}, nil
+}
+
+func changeRiskRepeatedFailures(
+	ctx context.Context,
+	store *codeintel.Store,
+	path string,
+	limit int,
+) ([]codeintel.RepeatedFailure, error) {
+	failures, err := store.RepeatedFailures(ctx, codeintel.RepeatedFailureQuery{
+		Path:  path,
+		Limit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query repeated failures for %s: %w", path, err)
+	}
+
+	return failures, nil
 }
 
 func storedHealthTargets(
@@ -1694,6 +1626,7 @@ func changeRiskReasons(
 	failureCount int,
 	gitFreshness codeintel.GitSignalSummary,
 	gitSignals []codeintel.GitFileSignal,
+	decisionHealth codeintel.DecisionHealth,
 ) []string {
 	reasons := []string{}
 	if !found {
@@ -1722,6 +1655,24 @@ func changeRiskReasons(
 
 	if found && (file.StaleReason != "" || file.DeletedAtUTC != "") {
 		reasons = append(reasons, "target index metadata is stale")
+	}
+
+	return append(reasons, decisionRiskReasons(decisionHealth)...)
+}
+
+func decisionRiskReasons(decisionHealth codeintel.DecisionHealth) []string {
+	reasons := []string{}
+
+	if decisionHealth.Summary.StaleCount != 0 {
+		reasons = append(reasons, "target has stale architectural decisions")
+	}
+
+	if decisionHealth.Summary.ConflictCount != 0 {
+		reasons = append(reasons, "target has conflicting architectural decisions")
+	}
+
+	if decisionHealth.Summary.UngovernedCount != 0 {
+		reasons = append(reasons, "target has no governing architectural decision")
 	}
 
 	return reasons

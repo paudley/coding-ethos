@@ -196,7 +196,7 @@ func (indexer ASTIndexer) IndexPaths(
 	return indexer.IndexPathsWithOptions(ctx, root, paths, options)
 }
 
-//nolint:gocyclo,cyclop,funlen // Coordinates the repository traversal gate.
+//nolint:funlen // Coordinates the repository traversal gate.
 func (indexer ASTIndexer) IndexPathsWithOptions(
 	ctx context.Context,
 	root string,
@@ -213,6 +213,7 @@ func (indexer ASTIndexer) IndexPathsWithOptions(
 		root = "."
 	}
 
+	requestedPaths := append([]string(nil), paths...)
 	if len(paths) == 0 {
 		paths = []string{"."}
 	}
@@ -272,30 +273,62 @@ func (indexer ASTIndexer) IndexPathsWithOptions(
 		}
 	}
 
-	deleted, err := indexer.store.MarkMissingCodeFilesDeleted(ctx, root, paths)
-	if err != nil {
-		return CodeIndexSummary{}, err
-	}
-
-	summary.Deleted = deleted
-
-	ignored, err := indexer.store.MarkIgnoredCodeFilesDeleted(
+	err = indexer.finishIndexPaths(
 		ctx,
-		func(path string) bool {
-			absolutePath := filepath.Join(root, filepath.FromSlash(path))
-
-			return pathHasSkippedDir(path) ||
-				excludedByConfig(path, options.ExcludePatterns) ||
-				ignoreMatcher.ignoredFile(ctx, absolutePath)
-		},
+		root,
+		paths,
+		requestedPaths,
+		ignoreMatcher,
+		options,
+		&summary,
 	)
 	if err != nil {
 		return CodeIndexSummary{}, err
 	}
 
-	summary.Deleted = append(summary.Deleted, ignored...)
-
 	return summary, nil
+}
+
+func shouldImportDecisionDefaults(root string, paths []string) bool {
+	if len(paths) == 0 {
+		return true
+	}
+
+	defaults := DefaultDecisionImportPaths()
+
+	for _, path := range paths {
+		relative := decisionImportRelativeInput(root, path)
+		if relative == "." {
+			return true
+		}
+
+		for _, defaultPath := range defaults {
+			if relative == defaultPath || strings.HasPrefix(relative, defaultPath+"/") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func decisionImportRelativeInput(root, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+
+	absolute := path
+	if !filepath.IsAbs(absolute) {
+		absolute = filepath.Join(root, absolute)
+	}
+
+	relative, ok := decisionRelativePath(root, absolute)
+	if !ok {
+		return ""
+	}
+
+	return relative
 }
 
 // IndexDirectoryChildren refreshes only direct child source files under dir.
@@ -422,6 +455,62 @@ func (indexer ASTIndexer) IndexDirectoryTree(
 	}
 
 	return summary, nil
+}
+
+func (indexer ASTIndexer) finishIndexPaths(
+	ctx context.Context,
+	root string,
+	paths []string,
+	requestedPaths []string,
+	ignoreMatcher gitIgnoreMatcher,
+	options IndexOptions,
+	summary *CodeIndexSummary,
+) error {
+	deleted, err := indexer.store.MarkMissingCodeFilesDeleted(ctx, root, paths)
+	if err != nil {
+		return err
+	}
+
+	summary.Deleted = deleted
+
+	ignored, err := indexer.markIgnoredIndexPathsDeleted(
+		ctx,
+		root,
+		ignoreMatcher,
+		options,
+	)
+	if err != nil {
+		return err
+	}
+
+	summary.Deleted = append(summary.Deleted, ignored...)
+
+	if shouldImportDecisionDefaults(root, requestedPaths) {
+		_, err = indexer.store.ImportDecisionRecords(ctx, root, nil)
+		if err != nil {
+			return fmt.Errorf("import decision records: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (indexer ASTIndexer) markIgnoredIndexPathsDeleted(
+	ctx context.Context,
+	root string,
+	ignoreMatcher gitIgnoreMatcher,
+	options IndexOptions,
+) ([]string, error) {
+	return indexer.store.MarkIgnoredCodeFilesDeleted(
+		ctx,
+		func(path string) bool {
+			absolutePath := filepath.Join(root, filepath.FromSlash(path))
+
+			return pathHasSkippedDir(path) ||
+				excludedByConfig(path, options.ExcludePatterns) ||
+				ignoreMatcher.ignoredFile(ctx, absolutePath)
+		},
+	)
 }
 
 func (indexer ASTIndexer) walkDirectoryTreeEntry(

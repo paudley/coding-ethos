@@ -5,6 +5,7 @@ package codeintelcli
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -120,6 +121,38 @@ func TestDecisionsCommandsRecordListAndReportHealth(t *testing.T) {
 		t.Fatalf("decisions add output missing stable fields:\n%s", addOutput)
 	}
 
+	var addPayload struct {
+		Decisions []struct {
+			ID string `json:"id"`
+		} `json:"decisions"`
+	}
+	if err := json.Unmarshal([]byte(addOutput), &addPayload); err != nil {
+		t.Fatalf("decode decisions add output: %v", err)
+	}
+	if len(addPayload.Decisions) != 1 || addPayload.Decisions[0].ID == "" {
+		t.Fatalf("decisions add payload missing ID: %#v", addPayload)
+	}
+
+	var linkErr error
+	linkOutput := captureStdout(t, func() {
+		linkErr = run(context.Background(), []string{
+			"decisions",
+			"link",
+			"--root", root,
+			"--db", dbPath,
+			"--id", addPayload.Decisions[0].ID,
+			"--path", "pkg/cache.go",
+			"--symbol-path", "Cache.Start",
+		})
+	})
+	if linkErr != nil {
+		t.Fatalf("decisions link returned error: %v", linkErr)
+	}
+	if !strings.Contains(linkOutput, `"kind": "code_intel.decisions.link.v1"`) ||
+		!strings.Contains(linkOutput, `"pkg/cache.go"`) {
+		t.Fatalf("decisions link output missing stable fields:\n%s", linkOutput)
+	}
+
 	var listErr error
 	listOutput := captureStdout(t, func() {
 		listErr = run(context.Background(), []string{
@@ -140,6 +173,24 @@ func TestDecisionsCommandsRecordListAndReportHealth(t *testing.T) {
 		t.Fatalf("decisions list output missing record:\n%s", listOutput)
 	}
 
+	var humanListErr error
+	humanListOutput := captureStdout(t, func() {
+		humanListErr = run(context.Background(), []string{
+			"decisions",
+			"list",
+			"--root", root,
+			"--db", dbPath,
+			"--path", "pkg/cache.go",
+			"--format", "human",
+		})
+	})
+	if humanListErr != nil {
+		t.Fatalf("decisions human list returned error: %v", humanListErr)
+	}
+	if !strings.Contains(humanListOutput, "pkg/cache.go#Cache.Start") {
+		t.Fatalf("decisions human list missing linked symbol:\n%s", humanListOutput)
+	}
+
 	var healthErr error
 	healthOutput := captureStdout(t, func() {
 		healthErr = run(context.Background(), []string{
@@ -156,6 +207,56 @@ func TestDecisionsCommandsRecordListAndReportHealth(t *testing.T) {
 	if !strings.Contains(healthOutput, `"kind": "code_intel.decision_health.v1"`) ||
 		!strings.Contains(healthOutput, `"decision_count": 1`) {
 		t.Fatalf("decisions health output missing summary:\n%s", healthOutput)
+	}
+}
+
+func TestDecisionsImportCommandRecordsDecisionDocument(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
+	decisionPath := filepath.Join(root, "docs", "decisions", "startup.md")
+	writeCodeIntelCLIFile(t, decisionPath, []byte(`---
+coding_ethos_decision: true
+title: Use explicit startup
+rationale: Startup should fail before serving requests.
+affected_paths:
+  - pkg/app.go
+---
+`))
+
+	var importErr error
+	importOutput := captureStdout(t, func() {
+		importErr = run(context.Background(), []string{
+			"decisions",
+			"import",
+			"--root", root,
+			"--db", dbPath,
+			"docs/decisions",
+		})
+	})
+	if importErr != nil {
+		t.Fatalf("decisions import returned error: %v", importErr)
+	}
+	if !strings.Contains(importOutput, `"kind": "code_intel.decision_import.v1"`) ||
+		!strings.Contains(importOutput, `"decisions_imported": 1`) {
+		t.Fatalf("decisions import output missing summary:\n%s", importOutput)
+	}
+
+	var listErr error
+	listOutput := captureStdout(t, func() {
+		listErr = run(context.Background(), []string{
+			"decisions",
+			"list",
+			"--root", root,
+			"--db", dbPath,
+			"--path", "pkg/app.go",
+			"--format", "json",
+		})
+	})
+	if listErr != nil {
+		t.Fatalf("decisions list returned error: %v", listErr)
+	}
+	if !strings.Contains(listOutput, `"Use explicit startup"`) {
+		t.Fatalf("decisions list missing imported decision:\n%s", listOutput)
 	}
 }
 
@@ -1041,5 +1142,19 @@ func TestParseVectorHelpers(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "vector") {
 			t.Fatalf("parseVector(%q) error = %v", value, err)
 		}
+	}
+}
+
+func writeCodeIntelCLIFile(t *testing.T, path string, payload []byte) {
+	t.Helper()
+
+	err := os.MkdirAll(filepath.Dir(path), 0o700)
+	if err != nil {
+		t.Fatalf("create fixture dir: %v", err)
+	}
+
+	err = os.WriteFile(path, payload, 0o600)
+	if err != nil {
+		t.Fatalf("write fixture: %v", err)
 	}
 }

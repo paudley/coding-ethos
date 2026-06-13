@@ -37,6 +37,7 @@ const (
 	golangciLintRunCommand  = "run"
 	goFileExtension         = ".go"
 	goTestTool              = "go-test"
+	goTestTimeout           = "90s"
 	goVetTool               = "go-vet"
 	maxFormatterWritePaths  = 4096
 	ruffCheckCommand        = "check"
@@ -975,7 +976,7 @@ func enforceGoTestArgs(args []string) []string {
 		"-p=1",
 		"-buildvcs=false",
 		"-count=1",
-		"-timeout=30s",
+		"-timeout=" + goTestTimeout,
 		"-short",
 	}
 

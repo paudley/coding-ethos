@@ -253,6 +253,7 @@ bin/coding-ethos-run code-intel repo-map --path pkg/app.go
 bin/coding-ethos-run code-intel centrality --path pkg --format toon
 bin/coding-ethos-run code-intel surprises --path pkg --format toon
 bin/coding-ethos-run code-intel decisions add --title 'Use explicit startup' --rationale 'Startup should be inspectable.' --path pkg/app.go
+bin/coding-ethos-run code-intel decisions import docs/decisions
 bin/coding-ethos-run code-intel decisions list --path pkg/app.go --query startup
 bin/coding-ethos-run code-intel decisions health --path pkg/app.go
 bin/coding-ethos-run code-intel compact-context --path pkg/app.go
@@ -369,6 +370,17 @@ DuckDB index. The `decisions` CLI group records manual decisions, links them to
 paths or symbols, indexes inline `WHY:`, `DECISION:`, and `TRADEOFF:` markers
 found during code indexing, and reports stale, conflicting, overlapping, or
 ungoverned decision areas through `decisions health`.
+
+`decisions import` reads explicit Markdown decision records from a supplied
+file or directory. Full-repo code indexing also imports the default decision
+locations: `adr/`, `docs/adr/`, `docs/decisions/`, and
+`.coding-ethos/decisions/`. Imported Markdown must opt in with YAML front
+matter, either `coding_ethos_decision: true` or a `decision` /
+`architecture-decision` tag. Generic headings such as "Decision", "Rationale",
+or README examples are not imported. Front matter may include `title`,
+`status`, `rationale`, `alternatives`, `author`, `recorded_at_utc`,
+`updated_at_utc`, `affected_paths`, `affected_files`, `affected_modules`, and
+`affected_symbols` entries with `path` plus `symbol_path`.
 
 `proxy-file-read` is the current bridge for read deduplication. It reads a
 repo-relative file, computes the current content hash, records the first read as

@@ -21,8 +21,9 @@ const (
 	DecisionStatusAccepted = "accepted"
 	DecisionStatusProposed = "proposed"
 
-	DecisionSourceManual = "manual"
-	DecisionSourceInline = "inline_marker"
+	DecisionSourceDocument = "decision_file"
+	DecisionSourceManual   = "manual"
+	DecisionSourceInline   = "inline_marker"
 
 	DecisionLinkAffects = "affects"
 )
@@ -301,6 +302,15 @@ func (store *Store) ReplaceIndexedDecisions(
 	path string,
 	decisions []DecisionRecord,
 ) error {
+	return store.ReplaceSourceDecisions(ctx, DecisionSourceInline, path, decisions)
+}
+
+func (store *Store) ReplaceSourceDecisions(
+	ctx context.Context,
+	sourceKind string,
+	path string,
+	decisions []DecisionRecord,
+) error {
 	store.writeMu.Lock()
 	defer store.writeMu.Unlock()
 
@@ -310,12 +320,14 @@ func (store *Store) ReplaceIndexedDecisions(
 	}
 	defer rollbackUnlessCommitted(transaction)
 
-	err = deleteSourceDecisions(ctx, transaction, path)
+	err = deleteSourceDecisions(ctx, transaction, sourceKind, path)
 	if err != nil {
 		return err
 	}
 
 	for _, decision := range decisions {
+		decision.SourceKind = sourceKind
+		decision.SourcePath = path
 		decision = normalizeDecisionRecord(decision)
 
 		raw, marshalErr := json.Marshal(decision)
@@ -342,6 +354,38 @@ func (store *Store) ReplaceIndexedDecisions(
 	err = transaction.Commit()
 	if err != nil {
 		return fmt.Errorf("commit indexed decision transaction: %w", err)
+	}
+
+	return nil
+}
+
+func (store *Store) pruneSourceDecisionRecords(
+	ctx context.Context,
+	sourceKind string,
+	retained map[string]struct{},
+	scopes []decisionImportPruneScope,
+) error {
+	if len(scopes) == 0 {
+		return nil
+	}
+
+	store.writeMu.Lock()
+	defer store.writeMu.Unlock()
+
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin decision prune transaction: %w", err)
+	}
+	defer rollbackUnlessCommitted(transaction)
+
+	err = pruneSourceDecisions(ctx, transaction, sourceKind, retained, scopes)
+	if err != nil {
+		return err
+	}
+
+	err = transaction.Commit()
+	if err != nil {
+		return fmt.Errorf("commit decision prune transaction: %w", err)
 	}
 
 	return nil
@@ -627,13 +671,14 @@ func replaceDecisionFTS(
 func deleteSourceDecisions(
 	ctx context.Context,
 	transaction *sql.Tx,
+	sourceKind string,
 	path string,
 ) error {
 	rows, err := transaction.QueryContext(
 		ctx,
 		`SELECT decision_id FROM decisions
 		WHERE source_kind = ? AND source_path = ?`,
-		DecisionSourceInline,
+		sourceKind,
 		path,
 	)
 	if err != nil {
@@ -674,6 +719,86 @@ func deleteSourceDecisions(
 	}
 
 	return batchDeleteEntities(ctx, transaction, "decisions", "decision_id", ids)
+}
+
+func pruneSourceDecisions(
+	ctx context.Context,
+	transaction *sql.Tx,
+	sourceKind string,
+	retained map[string]struct{},
+	scopes []decisionImportPruneScope,
+) error {
+	rows, err := transaction.QueryContext(
+		ctx,
+		`SELECT decision_id, source_path FROM decisions WHERE source_kind = ?`,
+		sourceKind,
+	)
+	if err != nil {
+		return fmt.Errorf("query source decisions for pruning: %w", err)
+	}
+	defer rows.Close()
+
+	ids := []any{}
+
+	for rows.Next() {
+		var (
+			decisionID string
+			sourcePath string
+		)
+
+		scanErr := rows.Scan(&decisionID, &sourcePath)
+		if scanErr != nil {
+			return fmt.Errorf("scan source decision for pruning: %w", scanErr)
+		}
+
+		if _, ok := retained[sourcePath]; ok ||
+			!decisionPathInPruneScopes(sourcePath, scopes) {
+			continue
+		}
+
+		ids = append(ids, decisionID)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return fmt.Errorf("iterate source decisions for pruning: %w", err)
+	}
+
+	if len(ids) == 0 {
+		return nil
+	}
+
+	err = deleteDecisionFTSRows(ctx, transaction, ids)
+	if err != nil {
+		return err
+	}
+
+	err = batchDeleteEntities(ctx, transaction, "decision_links", "decision_id", ids)
+	if err != nil {
+		return err
+	}
+
+	return batchDeleteEntities(ctx, transaction, "decisions", "decision_id", ids)
+}
+
+func decisionPathInPruneScopes(path string, scopes []decisionImportPruneScope) bool {
+	for _, scope := range scopes {
+		if scope.exact {
+			if path == scope.relative {
+				return true
+			}
+
+			continue
+		}
+
+		if scope.relative == "." ||
+			path == scope.relative ||
+			strings.HasPrefix(path, scope.relative+"/") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func deleteDecisionFTSRows(ctx context.Context, transaction *sql.Tx, ids []any) error {

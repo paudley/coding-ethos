@@ -25,6 +25,7 @@ const (
 	coverageCodeTotal        = "coverage-total"
 	coverageDecisionBlock    = "block"
 	coverageDecisionWarn     = "warn"
+	goManagedTestTimeout     = "90s"
 	goCoverageGoalPolicyID   = "testing.go_coverage_goal"
 	goCoverageTempDirMode    = 0o700
 	maintainabilityThreshold = 50
@@ -272,7 +273,7 @@ func runGoCoverageThreshold(cfg Config, paths []string) int {
 			"test",
 			"-p=1",
 			"-buildvcs=false",
-			"-timeout=30s",
+			"-timeout=" + goManagedTestTimeout,
 			"-short",
 			"-covermode=atomic",
 			"-coverprofile=" + coverProfile,

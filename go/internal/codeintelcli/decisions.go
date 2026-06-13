@@ -36,6 +36,8 @@ func decisions(ctx context.Context, args []string) error {
 		return addDecision(ctx, args[1:])
 	case "link":
 		return linkDecision(ctx, args[1:])
+	case "import":
+		return importDecisions(ctx, args[1:])
 	case "health":
 		return decisionHealth(ctx, args[1:])
 	default:
@@ -168,6 +170,34 @@ func linkDecision(ctx context.Context, args []string) error {
 	})
 }
 
+func importDecisions(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("decisions import", flag.ExitOnError)
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
+	format := flags.String(
+		"format",
+		outputFormatJSON,
+		"Output format: json, human, or toon",
+	)
+
+	err := parseCommandFlags(flags, args, "decisions import")
+	if err != nil {
+		return err
+	}
+
+	store, err := openStore(ctx, *storeFlags.root, *storeFlags.dbPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	summary, err := store.ImportDecisionRecords(ctx, *storeFlags.root, flags.Args())
+	if err != nil {
+		return fmt.Errorf("import decision records: %w", err)
+	}
+
+	return writeDecisionImportSummary(*format, summary)
+}
+
 func decisionHealth(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("decisions health", flag.ExitOnError)
 	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
@@ -246,6 +276,36 @@ func writeDecisionHealth(format string, health codeintel.DecisionHealth) error {
 		}, format)
 		if err != nil {
 			return fmt.Errorf("write decision health feedback: %w", err)
+		}
+
+		return nil
+	default:
+		return fmt.Errorf("%w: %q", errUnsupportedDecisionFormat, format)
+	}
+}
+
+func writeDecisionImportSummary(
+	format string,
+	summary codeintel.DecisionImportSummary,
+) error {
+	switch strings.TrimSpace(format) {
+	case "", outputFormatJSON:
+		return encodeJSON(os.Stdout, map[string]any{
+			"kind":    "code_intel.decision_import.v1",
+			"summary": summary,
+		})
+	case feedback.FormatHuman, feedback.FormatTOON:
+		err := feedback.Write(os.Stdout, feedback.Message{
+			Scalars: []feedback.Scalar{
+				feedback.S("kind", "code_intel.decision_import.v1"),
+				feedback.S("paths_scanned", strconv.Itoa(summary.PathsScanned)),
+				feedback.S("files_scanned", strconv.Itoa(summary.FilesScanned)),
+				feedback.S("decisions_imported", strconv.Itoa(summary.DecisionsImported)),
+			},
+			Tables: []feedback.Table{decisionRecordsTable(summary.Imported)},
+		}, format)
+		if err != nil {
+			return fmt.Errorf("write decision import feedback: %w", err)
 		}
 
 		return nil
