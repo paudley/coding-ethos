@@ -251,9 +251,11 @@ bin/coding-ethos-run code-intel git-signals --path pkg/app.go --paths pkg/app.go
 bin/coding-ethos-run code-intel anatomy-map --path pkg --format toon
 ls pkg | bin/coding-ethos-run code-intel enrich-listing --command 'ls pkg'
 bin/coding-ethos-run code-intel code-chunks --path pkg/app.go --symbol-name BuildMessage
+bin/coding-ethos-run code-intel code-context --path pkg/app.go --symbol-path BuildMessage
 bin/coding-ethos-run code-intel repo-map --path pkg/app.go
 bin/coding-ethos-run code-intel centrality --path pkg --format toon
 bin/coding-ethos-run code-intel surprises --path pkg --format toon
+bin/coding-ethos-run code-intel downstream-analysis --root .
 bin/coding-ethos-run code-intel decisions add --title 'Use explicit startup' --rationale 'Startup should be inspectable.' --path pkg/app.go
 bin/coding-ethos-run code-intel decisions import docs/decisions
 bin/coding-ethos-run code-intel decisions list --path pkg/app.go --query startup
@@ -268,12 +270,18 @@ bin/coding-ethos-run code-intel proxy-events --session-id sess-1
 bin/coding-ethos-run code-intel session-snapshot --session-id sess-1 --format toon
 bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
 bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports
+bin/coding-ethos-run code-intel repeated-edits --path pkg/app.go
 bin/coding-ethos-run code-intel embedding-candidates --record-kind remediation_outcome
+bin/coding-ethos-run code-intel record-embedding --backend duckdb-vss --collection remediations --model-id voyage-code-3 --record-kind remediation --record-id rem-1 --dimension 3
+bin/coding-ethos-run code-intel record-outcome --remediation-id rem-1 --outcome fixed
 bin/coding-ethos-run code-intel upsert-vector --id rem-1 --model-id voyage-code-3 --vector '0.1,0.2,0.3'
 bin/coding-ethos-run code-intel embedding-records --backend duckdb-vss
 bin/coding-ethos-run code-intel hybrid-search --text 'unused import' --model-id voyage-code-3 --vector '0.1,0.2,0.3'
 bin/coding-ethos-run code-intel index-status --model-id voyage-code-3
+bin/coding-ethos-run code-intel vector-stats
 bin/coding-ethos-run code-intel search --text 'unused import'
+bin/coding-ethos-run code-intel rebuild-index --root .
+bin/coding-ethos-run code-intel workspace status --root ..
 ```
 
 These commands read retained `.coding-ethos` traces and write only the
