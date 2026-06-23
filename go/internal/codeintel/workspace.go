@@ -806,6 +806,7 @@ func workspaceContractEdgeKind(kind string) bool {
 	switch strings.TrimSpace(kind) {
 	case "imports",
 		"imported_by",
+		"package_dependency",
 		"http_route",
 		"http_client",
 		"grpc_service",
