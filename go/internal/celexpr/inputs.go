@@ -93,28 +93,34 @@ type EventInput struct {
 }
 
 type ProxyInput struct {
-	EventID      string              `json:"event_id"`
-	SessionID    string              `json:"session_id"`
-	Kind         string              `json:"kind"`
-	Provider     string              `json:"provider"`
-	Model        string              `json:"model"`
-	Tool         string              `json:"tool"`
-	Direction    string              `json:"direction"`
-	PayloadKind  string              `json:"payload_kind"`
-	TargetPath   string              `json:"target_path"`
-	TraceID      string              `json:"trace_id"`
-	TrackingID   string              `json:"tracking_id"`
-	PolicyID     string              `json:"policy_id"`
-	Decision     string              `json:"decision"`
-	CacheKey     string              `json:"cache_key"`
-	InputHash    string              `json:"input_hash"`
-	OutputHash   string              `json:"output_hash"`
-	DLPFacts     []ProxyDLPFactInput `json:"dlp_facts"`
-	HasDLPFacts  bool                `json:"has_dlp_facts"`
-	InputTokens  int64               `json:"input_tokens"`
-	OutputTokens int64               `json:"output_tokens"`
-	TotalTokens  int64               `json:"total_tokens"`
-	PayloadBytes int64               `json:"payload_bytes"`
+	EventID      string               `json:"event_id"`
+	SessionID    string               `json:"session_id"`
+	Kind         string               `json:"kind"`
+	Provider     string               `json:"provider"`
+	Model        string               `json:"model"`
+	Tool         string               `json:"tool"`
+	Direction    string               `json:"direction"`
+	PayloadKind  string               `json:"payload_kind"`
+	TargetPath   string               `json:"target_path"`
+	TraceID      string               `json:"trace_id"`
+	TrackingID   string               `json:"tracking_id"`
+	PolicyID     string               `json:"policy_id"`
+	Decision     string               `json:"decision"`
+	CacheKey     string               `json:"cache_key"`
+	InputHash    string               `json:"input_hash"`
+	OutputHash   string               `json:"output_hash"`
+	ToolCalls    []ProxyToolCallInput `json:"tool_calls"`
+	DLPFacts     []ProxyDLPFactInput  `json:"dlp_facts"`
+	HasDLPFacts  bool                 `json:"has_dlp_facts"`
+	InputTokens  int64                `json:"input_tokens"`
+	OutputTokens int64                `json:"output_tokens"`
+	TotalTokens  int64                `json:"total_tokens"`
+	PayloadBytes int64                `json:"payload_bytes"`
+}
+
+type ProxyToolCallInput struct {
+	Name     string `json:"name"`
+	ArgsHash string `json:"args_hash"`
 }
 
 type ProxyDLPFactInput struct {
@@ -806,6 +812,7 @@ func nativeTypeOptions() []cel.EnvOption {
 			reflect.TypeFor[GitCommandInput](),
 			reflect.TypeFor[EventInput](),
 			reflect.TypeFor[ProxyInput](),
+			reflect.TypeFor[ProxyToolCallInput](),
 			reflect.TypeFor[ProxyDLPFactInput](),
 			reflect.TypeFor[DiffInput](),
 			reflect.TypeFor[DiffHunkInput](),
@@ -1102,6 +1109,7 @@ func primaryActivationPath(
 
 func proxyInput(input ProxyInput) ProxyInput {
 	output := input
+	output.ToolCalls = append([]ProxyToolCallInput(nil), input.ToolCalls...)
 	output.DLPFacts = append([]ProxyDLPFactInput(nil), input.DLPFacts...)
 	output.HasDLPFacts = len(output.DLPFacts) > 0 || input.HasDLPFacts
 

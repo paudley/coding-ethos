@@ -365,13 +365,21 @@ func (registryStub) Match(agentproxy.RequestContext) (agentproxy.Adapter, bool) 
 	return nil, false
 }
 
-// allowEvaluator is a ProxyPolicyEvaluator that allows every outbound request.
+// allowEvaluator is a ProxyPolicyEvaluator that allows every proxy request.
 // Enabled intercept proxies require an evaluator; tests that exercise routing
 // rather than enforcement inject this permissive stub.
 type allowEvaluator struct{}
 
 // EvaluateOutbound always allows the request.
 func (allowEvaluator) EvaluateOutbound(
+	context.Context,
+	agentproxy.ProxyDecisionInput,
+) (agentproxy.ProxyDecision, error) {
+	return agentproxy.ProxyDecision{Allowed: true}, nil
+}
+
+// EvaluateInbound always allows the response.
+func (allowEvaluator) EvaluateInbound(
 	context.Context,
 	agentproxy.ProxyDecisionInput,
 ) (agentproxy.ProxyDecision, error) {

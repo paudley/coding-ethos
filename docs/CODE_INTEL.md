@@ -197,8 +197,10 @@ edit counts, cache hits, injection/truncation/denial counts, payload hashes,
 cache keys, trace/tracking IDs, direction, payload kind, DLP facts, policy
 evidence, token usage, payload byte counts, and ordered transform records. This
 is the storage substrate for future context-economy controls; it is not a
-separate shadow database. The trust boundary and event contract are documented
-in [AGENT_PROXY.md](AGENT_PROXY.md).
+separate shadow database. Inbound and outbound policy denials are exposed
+through MCP `code_intel_proxy_denials`, which queries the same ledger instead of
+reinterpreting proxy policy. The trust boundary and event contract are
+documented in [AGENT_PROXY.md](AGENT_PROXY.md).
 
 ## Canonical DuckDB Store
 

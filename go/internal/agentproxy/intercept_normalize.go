@@ -25,6 +25,8 @@ const (
 	contentTypeHeader = "Content-Type"
 	// contentEncodingHeader names the body compression header.
 	contentEncodingHeader = "Content-Encoding"
+	// contentLengthHeader names the fixed body length header.
+	contentLengthHeader = "Content-Length"
 	// mediaEventStream marks a Server-Sent Events response.
 	mediaEventStream = "text/event-stream"
 	// encodingGzip names gzip body compression.
@@ -197,6 +199,7 @@ func (proxy *InterceptProxy) streamSSE(
 	input branchInput,
 ) {
 	copyHeaders(writer.Header(), response.Header)
+	writer.Header().Del(contentLengthHeader)
 	writer.WriteHeader(response.StatusCode)
 
 	accumulator := newBoundedBuffer(proxy.maxNormalize)
@@ -223,7 +226,29 @@ func (proxy *InterceptProxy) streamSSE(
 		truncated:   accumulator.Truncated(),
 		copyFailed:  copyErr != nil,
 	})
-	proxy.recordInbound(request.Context(), input, norm)
+
+	identity := proxy.identity(input.sessionID, input.host, proxy.now().UTC())
+	decision, allowed := proxy.evaluateInbound(request.Context(), identity, &norm)
+
+	if !allowed {
+		proxy.surfaceStreamedInboundDenial(
+			writer,
+			request.Context(),
+			denyInboundInput{
+				identity: identity,
+				host:     input.host,
+				policyID: decision.PolicyID,
+				reason:   decision.Reason,
+				norm:     &norm,
+				decision: &decision,
+				streamed: true,
+			},
+		)
+
+		return
+	}
+
+	proxy.recordInboundEvent(request.Context(), identity, norm)
 }
 
 // streamedNormalizeInput carries the facts needed to reconstruct an accumulated
@@ -309,6 +334,38 @@ func (proxy *InterceptProxy) bufferAndForward(
 	input branchInput,
 ) {
 	respBytes, respBody, truncated := readBounded(response.Body, proxy.maxNormalize)
+	respCtx := ResponseContext{
+		ContentType: response.Header.Get(contentTypeHeader),
+		StatusCode:  response.StatusCode,
+	}
+	norm := proxy.normalizeResponse(normalizeResponseInput{
+		respBytes: respBytes,
+		encoding:  response.Header.Get(contentEncodingHeader),
+		respCtx:   respCtx,
+		adapter:   input.adapter,
+		matched:   input.matched,
+		truncated: truncated,
+	})
+
+	identity := proxy.identity(input.sessionID, input.host, proxy.now().UTC())
+	decision, allowed := proxy.evaluateInbound(request.Context(), identity, &norm)
+
+	if !allowed {
+		proxy.denyBufferedInbound(
+			writer,
+			request.Context(),
+			denyInboundInput{
+				identity: identity,
+				host:     input.host,
+				policyID: decision.PolicyID,
+				reason:   decision.Reason,
+				norm:     &norm,
+				decision: &decision,
+			},
+		)
+
+		return
+	}
 
 	copyHeaders(writer.Header(), response.Header)
 	writer.WriteHeader(response.StatusCode)
@@ -325,19 +382,7 @@ func (proxy *InterceptProxy) bufferAndForward(
 		discardClientWriteError(writeErr)
 	}
 
-	respCtx := ResponseContext{
-		ContentType: response.Header.Get(contentTypeHeader),
-		StatusCode:  response.StatusCode,
-	}
-	norm := proxy.normalizeResponse(normalizeResponseInput{
-		respBytes: respBytes,
-		encoding:  response.Header.Get(contentEncodingHeader),
-		respCtx:   respCtx,
-		adapter:   input.adapter,
-		matched:   input.matched,
-		truncated: truncated,
-	})
-	proxy.recordInbound(request.Context(), input, norm)
+	proxy.recordInboundEvent(request.Context(), identity, norm)
 }
 
 // outboundInput carries the facts needed to build a body-free outbound event.
@@ -463,16 +508,14 @@ func (proxy *InterceptProxy) normalizeResponse(
 	return norm
 }
 
-// recordInbound records the inbound provider-response event built solely from a
-// response normalization, never from raw bytes or headers.
-func (proxy *InterceptProxy) recordInbound(
+// recordInboundEvent records a body-free inbound provider-response event with a
+// caller-supplied identity. Enforcement paths use this helper so the decision
+// input and recorded event share the same join key.
+func (proxy *InterceptProxy) recordInboundEvent(
 	ctx context.Context,
-	input branchInput,
+	identity EventIdentity,
 	norm ResponseNormalization,
 ) {
-	now := proxy.now().UTC()
-	identity := proxy.identity(input.sessionID, input.host, now)
-
 	proxy.record(ctx, InboundEvent(identity, norm))
 }
 

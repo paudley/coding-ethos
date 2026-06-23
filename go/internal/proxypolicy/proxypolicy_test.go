@@ -15,6 +15,9 @@ import (
 const outboundExfiltrationWhen = `proxy.direction == "outbound" && proxy.has_dlp_facts &&
 	proxy.dlp_facts.exists(f, f.type in ["secret", "credential_file", "protected_path"])`
 
+const inboundUnsafeToolCallWhen = `proxy.direction == "inbound" &&
+	proxy.tool_calls.exists(call, call.name in ["run_command", "apply_patch"])`
+
 // outboundExfiltrationPolicy returns a proxy-scoped outbound policy mirroring the
 // compiled seed policy so tests exercise real CEL evaluation.
 func outboundExfiltrationPolicy(when string) policy.Policy {
@@ -40,10 +43,113 @@ func outboundExfiltrationPolicy(when string) policy.Policy {
 	}
 }
 
+// inboundUnsafeToolCallPolicy returns a proxy-scoped inbound policy mirroring
+// the compiled seed policy shape so tests exercise real CEL evaluation.
+func inboundUnsafeToolCallPolicy(when string) policy.Policy {
+	return policy.Policy{
+		ID:              "proxy.inbound_unsafe_tool_call",
+		Category:        "proxy",
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message:         "Inbound provider response requested an unsafe tool call.",
+		Suggestion:      "Route required local actions through the managed path.",
+		PrincipleIDs:    []string{"security-by-design"},
+		Evaluators: []policy.Evaluator{{
+			Kind: "cel",
+			Name: "cel.expression",
+			Options: map[string]any{
+				"scope":           "proxy",
+				"proxy_direction": "inbound",
+				"mode":            "block",
+				"skill_id":        "security-by-design",
+				"when":            when,
+			},
+		}},
+	}
+}
+
 // bundleWith wraps a single policy in a bundle for construction tests.
 func bundleWith(policyDef policy.Policy) policy.Bundle {
 	return policy.Bundle{
 		Policies: map[string]policy.Policy{policyDef.ID: policyDef},
+	}
+}
+
+func TestEvaluateInboundDeniesUnsafeToolCall(t *testing.T) {
+	t.Parallel()
+
+	evaluator, err := proxypolicy.New(bundleWith(
+		inboundUnsafeToolCallPolicy(inboundUnsafeToolCallWhen),
+	))
+	if err != nil {
+		t.Fatalf("new evaluator: %v", err)
+	}
+
+	decision, err := evaluator.EvaluateInbound(
+		context.Background(),
+		agentproxy.ProxyDecisionInput{
+			Direction:   agentproxy.DirectionInbound,
+			Kind:        agentproxy.EventProviderResponse,
+			Provider:    "openai",
+			PayloadKind: agentproxy.PayloadResponse,
+			EventID:     "event-inbound",
+			SessionID:   "session-inbound",
+			ToolCalls: []agentproxy.ToolCall{{
+				Name:     "run_command",
+				ArgsHash: "sha256:args",
+			}},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate inbound: %v", err)
+	}
+
+	if decision.Allowed {
+		t.Fatal("expected unsafe inbound tool call to be denied")
+	}
+
+	if decision.PolicyID != "proxy.inbound_unsafe_tool_call" {
+		t.Fatalf("policy id = %q", decision.PolicyID)
+	}
+
+	if decision.Metadata["proxy_event_id"] != "event-inbound" {
+		t.Fatalf("proxy_event_id metadata = %q", decision.Metadata["proxy_event_id"])
+	}
+
+	if decision.Metadata["proxy_direction"] != "inbound" {
+		t.Fatalf("proxy_direction metadata = %q", decision.Metadata["proxy_direction"])
+	}
+}
+
+func TestEvaluateInboundAllowsSafeToolCall(t *testing.T) {
+	t.Parallel()
+
+	evaluator, err := proxypolicy.New(bundleWith(
+		inboundUnsafeToolCallPolicy(inboundUnsafeToolCallWhen),
+	))
+	if err != nil {
+		t.Fatalf("new evaluator: %v", err)
+	}
+
+	decision, err := evaluator.EvaluateInbound(
+		context.Background(),
+		agentproxy.ProxyDecisionInput{
+			Direction: agentproxy.DirectionInbound,
+			Kind:      agentproxy.EventProviderResponse,
+			EventID:   "event-safe",
+			SessionID: "session-safe",
+			ToolCalls: []agentproxy.ToolCall{{
+				Name:     "lookup_document",
+				ArgsHash: "sha256:args",
+			}},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate inbound: %v", err)
+	}
+
+	if !decision.Allowed {
+		t.Fatalf("expected safe inbound tool call to be allowed, got %#v", decision)
 	}
 }
 

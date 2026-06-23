@@ -46,6 +46,7 @@ func toCelProxyInput(input agentproxy.ProxyDecisionInput) celexpr.ProxyInput {
 		TargetPath:   input.TargetPath,
 		InputHash:    input.InputHash,
 		OutputHash:   input.OutputHash,
+		ToolCalls:    celToolCalls(input.ToolCalls),
 		DLPFacts:     facts,
 		HasDLPFacts:  len(facts) > 0,
 		InputTokens:  int64(input.TokenUsage.InputTokens),
@@ -53,6 +54,21 @@ func toCelProxyInput(input agentproxy.ProxyDecisionInput) celexpr.ProxyInput {
 		TotalTokens:  int64(input.TokenUsage.TotalTokens),
 		PayloadBytes: int64(input.Payload.Bytes),
 	}
+}
+
+// celToolCalls converts proxy tool calls into their CEL projection. Only the
+// tool name and argument hash cross the boundary; raw argument JSON is never
+// available to policy evaluation.
+func celToolCalls(calls []agentproxy.ToolCall) []celexpr.ProxyToolCallInput {
+	converted := make([]celexpr.ProxyToolCallInput, 0, len(calls))
+	for _, call := range calls {
+		converted = append(converted, celexpr.ProxyToolCallInput{
+			Name:     call.Name,
+			ArgsHash: call.ArgsHash,
+		})
+	}
+
+	return converted
 }
 
 // celDLPFacts converts proxy DLP facts into their CEL projection. Only detector

@@ -273,6 +273,13 @@ type codeIntelHookUsageInput struct {
 	Limit         int    `json:"limit,omitempty"`
 }
 
+type codeIntelProxyDenialsInput struct {
+	SessionID string `json:"session_id,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	PolicyID  string `json:"policy_id,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
 type codeIntelIndexCodeInput struct {
 	Paths []string `json:"paths,omitempty"`
 }
@@ -1165,6 +1172,7 @@ func codeIntelCodeToolDefinitions() []map[string]any {
 		codeIntelChangeRiskToolDefinition(),
 		codeIntelHealthToolDefinition(),
 		codeIntelWhyToolDefinition(),
+		codeIntelProxyDenialsToolDefinition(),
 		codeIntelSessionSnapshotToolDefinition(),
 		codeIntelIndexCodeToolDefinition(),
 		toolDefinition(
@@ -1275,6 +1283,33 @@ func codeIntelWhyToolDefinition() map[string]any {
 			PreferredUse: toolText(
 				"ask why a design exists and inspect related decisions",
 				"before editing governed code",
+			),
+			TracePersisted: false,
+		},
+	)
+}
+
+func codeIntelProxyDenialsToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_proxy_denials",
+		toolText(
+			"Return proxy denial events with policy evidence and remediation",
+			"guidance filtered by session, policy, or provider.",
+		),
+		map[string]any{
+			"session_id": map[string]any{"type": "string"},
+			"provider":   map[string]any{"type": "string"},
+			"policy_id":  map[string]any{"type": "string"},
+			"limit":      map[string]any{"type": "integer"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    false,
+			PreferredUse: toolText(
+				"explain denied proxy traffic and choose the next",
+				"operator action from stored evidence",
 			),
 			TracePersisted: false,
 		},

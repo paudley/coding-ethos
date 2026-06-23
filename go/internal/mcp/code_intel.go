@@ -489,6 +489,87 @@ func (server Server) codeIntelHookUsage(args json.RawMessage) (any, error) {
 	}, nil
 }
 
+func (server Server) codeIntelProxyDenials(args json.RawMessage) (any, error) {
+	var input codeIntelProxyDenialsInput
+
+	inlineErr3 := json.Unmarshal(args, &input)
+	if inlineErr3 != nil {
+		return nil, fmt.Errorf(
+			"parse code intelligence proxy-denials arguments: %w",
+			inlineErr3,
+		)
+	}
+
+	store, closeStore, err := server.openCodeIntelStore()
+	if err != nil {
+		return nil, fmt.Errorf("open code intelligence store: %w", err)
+	}
+	defer closeStore()
+
+	events, err := store.ProxyEvents(argsContext(), codeintel.ProxyEventQuery{
+		SessionID: input.SessionID,
+		Provider:  input.Provider,
+		PolicyID:  input.PolicyID,
+		Decision:  "deny",
+		Limit:     input.Limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query proxy denials: %w", err)
+	}
+
+	explanations := make([]map[string]any, 0, len(events))
+	for _, event := range events {
+		explanations = append(explanations, proxyDenialExplanation(event))
+	}
+
+	return map[string]any{
+		"kind":         "code_intel_proxy_denials",
+		"results":      events,
+		"explanations": explanations,
+		"next_actions": []string{
+			"Inspect the policy_id, proxy_event_id, and proxy_session_id before retrying.",
+			"Route any required local action through the managed hook or MCP path.",
+		},
+	}, nil
+}
+
+func proxyDenialExplanation(event codeintel.ProxyEvent) map[string]any {
+	policyID := firstNonEmpty(event.Policy.PolicyID, event.PolicyID)
+	reason := strings.TrimSpace(event.Policy.Reason)
+
+	if reason == "" {
+		reason = "proxy policy denied the event"
+	}
+
+	action := "Review the denied provider response and retry only after " +
+		"removing the unsafe request or tool call."
+	if event.Policy.SkillID != "" {
+		action = fmt.Sprintf(
+			"Load skill %q, review the proxy evidence, then retry through the managed path.",
+			event.Policy.SkillID,
+		)
+	}
+
+	return map[string]any{
+		"event_id":            event.ID,
+		"session_id":          event.SessionID,
+		"policy_id":           policyID,
+		"decision":            event.Decision,
+		"reason":              reason,
+		"recommended_action":  action,
+		"proxy_event_id":      event.Metadata["proxy_event_id"],
+		"proxy_session_id":    event.Metadata["proxy_session_id"],
+		"proxy_direction":     event.Metadata["proxy_direction"],
+		"proxy_payload_kind":  event.Metadata["proxy_payload_kind"],
+		"proxy_tracking_id":   event.Metadata["proxy_tracking_id"],
+		"policy_skill_id":     event.Policy.SkillID,
+		"policy_evidence_id":  event.Policy.EvidenceID,
+		"policy_principles":   event.Policy.PrincipleIDs,
+		"policy_mcp_tool":     event.Policy.MCPTool,
+		"stream_denial_event": event.Metadata["stream_denial_surface"] == "true",
+	}
+}
+
 func (server Server) codeIntelIndexCode(args json.RawMessage) (any, error) {
 	var input codeIntelIndexCodeInput
 

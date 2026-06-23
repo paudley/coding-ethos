@@ -4658,6 +4658,36 @@ principles:
           advice: >-
             Remove the secret/credential or protected file from the request;
             never transmit it to an external model provider.
+        - id: proxy.inbound_unsafe_tool_call
+          scope: proxy
+          proxy_direction: inbound
+          severity: block
+          protected: true
+          principle_ids:
+            - security-by-design
+            - one-path-for-critical-operations
+          when: >
+            proxy.direction == "inbound" && proxy.tool_calls.exists(call,
+            call.name in [
+              "bash",
+              "shell",
+              "sh",
+              "exec",
+              "execute",
+              "run_command",
+              "apply_patch",
+              "write_file",
+              "delete_file",
+              "remove_file",
+              "git"
+            ])
+          message: >-
+            Inbound provider response requested an unsafe local tool call and
+            was blocked or surfaced.
+          advice: >-
+            Do not execute provider-requested shell, git, patch, or file-write
+            tool calls directly; route required local actions through the
+            managed hook or MCP path.
     sections:
       - id: overview
         kind: overview

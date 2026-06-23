@@ -16,9 +16,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/mcp"
@@ -49,8 +51,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 33 {
-		t.Fatalf("tool count = %d, want 33: %#v", len(tools), tools)
+	if len(tools) != 34 {
+		t.Fatalf("tool count = %d, want 34: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -81,6 +83,7 @@ func TestServerListsTools(t *testing.T) {
 		"code_intel_change_risk",
 		"code_intel_health",
 		"code_intel_why",
+		"code_intel_proxy_denials",
 		"code_intel_session_snapshot",
 		"code_intel_index_code",
 		"code_intel_embedding_candidates",
@@ -866,6 +869,81 @@ func TestServerSemanticSearchReturnsCodeChunks(t *testing.T) {
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("semantic search output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestServerCodeIntelProxyDenialsExplainsStoredDenial(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ctx := context.Background()
+
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+
+	inlineErr0 := store.RecordProxyEvent(ctx, agentproxy.ProviderEvent{
+		ID:            "proxy-deny-1",
+		SessionID:     "session-deny",
+		Kind:          agentproxy.EventProviderResponse,
+		Provider:      "openai",
+		PolicyID:      "proxy.inbound_unsafe_tool_call",
+		Decision:      "deny",
+		Direction:     agentproxy.DirectionInbound,
+		PayloadKind:   agentproxy.PayloadResponse,
+		RecordedAtUTC: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Metadata: map[string]string{
+			"proxy_event_id":        "proxy-deny-1",
+			"proxy_session_id":      "session-deny",
+			"proxy_direction":       "inbound",
+			"proxy_payload_kind":    "response",
+			"stream_denial_surface": "true",
+		},
+		Policy: agentproxy.PolicyEvidence{
+			PolicyID:   "proxy.inbound_unsafe_tool_call",
+			SkillID:    "security-by-design",
+			Decision:   "deny",
+			Reason:     "unsafe tool call requested",
+			EvidenceID: "proxy-deny-1",
+			PrincipleIDs: []string{
+				"security-by-design",
+				"one-path-for-critical-operations",
+			},
+		},
+	})
+	if inlineErr0 != nil {
+		t.Fatalf("record proxy denial: %v", inlineErr0)
+	}
+
+	inlineErr1 := store.Close()
+	if inlineErr1 != nil {
+		t.Fatalf("close code-intel store: %v", inlineErr1)
+	}
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":61,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_proxy_denials",
+			"arguments":{
+				"session_id":"session-deny",
+				"policy_id":"proxy.inbound_unsafe_tool_call"
+			}
+		}
+	}`), mcp.Runtime{ConsumerRoot: root, InvocationCwd: root})
+
+	for _, want := range []string{
+		`"kind":"code_intel_proxy_denials"`,
+		`"event_id":"proxy-deny-1"`,
+		`"policy_id":"proxy.inbound_unsafe_tool_call"`,
+		`"recommended_action"`,
+		`"stream_denial_event":true`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("proxy denials output missing %q:\n%s", want, output)
 		}
 	}
 }
