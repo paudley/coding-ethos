@@ -287,6 +287,7 @@ func newInterceptHarness(
 // proxyConfig bundles the inputs needed to build a test InterceptProxy.
 type proxyConfig struct {
 	now          func() time.Time
+	evaluator    agentproxy.ProxyPolicyEvaluator
 	issuer       *inTestIssuer
 	recorder     *recordingRecorder
 	upstreamPool *x509.CertPool
@@ -314,12 +315,17 @@ func buildProxy(t *testing.T, config proxyConfig) *agentproxy.InterceptProxy {
 		},
 	}
 
+	evaluator := config.evaluator
+	if evaluator == nil {
+		evaluator = allowEvaluator{}
+	}
+
 	proxy, err := agentproxy.NewInterceptProxy(agentproxy.InterceptOptions{
 		Now:          config.now,
 		Recorder:     config.recorder,
 		Registry:     adapter.DefaultRegistry(),
 		Issuer:       config.issuer,
-		Evaluator:    allowEvaluator{},
+		Evaluator:    evaluator,
 		Client:       client,
 		AllowHosts:   config.allow,
 		Provider:     "fixture",
