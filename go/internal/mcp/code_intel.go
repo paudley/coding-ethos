@@ -33,6 +33,7 @@ const (
 	codeIntelQualityHigh       = "high"
 	codeIntelQualityMedium     = "medium"
 	codeIntelQualityLow        = "low"
+	codeIntelQualityNone       = "none"
 	contextCardCommunityLimit  = 200
 	codeIntelReviewerLimit     = 3
 	contextCardTOONHeaderLines = 3
@@ -506,12 +507,14 @@ func (server Server) codeIntelProxyDenials(args json.RawMessage) (any, error) {
 	}
 	defer closeStore()
 
+	limit := boundedCodeIntelLimit(input.Limit)
+
 	events, err := store.ProxyEvents(argsContext(), codeintel.ProxyEventQuery{
 		SessionID: input.SessionID,
 		Provider:  input.Provider,
 		PolicyID:  input.PolicyID,
 		Decision:  "deny",
-		Limit:     input.Limit,
+		Limit:     limit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("query proxy denials: %w", err)
@@ -1274,7 +1277,7 @@ func citationsFromHybridResults(
 func retrievalQuality(citationCount int, meta codeIntelTaskMeta) string {
 	switch {
 	case citationCount == 0:
-		return "none"
+		return codeIntelQualityNone
 	case meta.Fresh && citationCount >= 3:
 		return codeIntelQualityHigh
 	case meta.Fresh:
@@ -1296,7 +1299,7 @@ func answerConfidence(quality string) string {
 }
 
 func answerSummaryForRetrieval(quality string) string {
-	if quality == "none" {
+	if quality == codeIntelQualityNone {
 		return strings.Join([]string{
 			"No indexed evidence matched the question;",
 			"inspect next actions instead of relying on an answer.",

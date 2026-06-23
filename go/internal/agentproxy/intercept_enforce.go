@@ -175,7 +175,9 @@ func (proxy *InterceptProxy) evaluateInbound(
 		inboundDecisionInput(identity, *norm),
 	)
 	if err != nil {
-		recordInboundEvalError(norm)
+		if ctx.Err() == nil {
+			recordInboundEvalError(norm)
+		}
 
 		return ProxyDecision{Allowed: true}, true
 	}
@@ -377,6 +379,10 @@ func denyInboundEvent(input denyInboundInput) ProviderEvent {
 		Reason:       input.reason,
 		EvidenceID:   denyInboundEvidenceID(input),
 		PrincipleIDs: append([]string(nil), input.decision.PrincipleIDs...),
+	}
+
+	if event.Metadata == nil {
+		event.Metadata = map[string]string{}
 	}
 
 	maps.Copy(event.Metadata, input.decision.Metadata)

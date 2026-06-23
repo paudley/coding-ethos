@@ -188,7 +188,10 @@ func TestCodeIntelAnswerHelpers(t *testing.T) {
 		t.Fatalf("citation = %#v, want first hybrid result", citations[0])
 	}
 
-	if got := retrievalQuality(0, codeIntelTaskMeta{Fresh: true}); got != "none" {
+	if got := retrievalQuality(
+		0,
+		codeIntelTaskMeta{Fresh: true},
+	); got != codeIntelQualityNone {
 		t.Fatalf("retrievalQuality no citations = %q, want none", got)
 	}
 	if got := retrievalQuality(
@@ -214,7 +217,10 @@ func TestCodeIntelAnswerHelpers(t *testing.T) {
 		t.Fatalf("answerConfidence partial = %q, want low", got)
 	}
 
-	if !strings.Contains(answerSummaryForRetrieval("none"), "No indexed evidence") {
+	if !strings.Contains(
+		answerSummaryForRetrieval(codeIntelQualityNone),
+		"No indexed evidence",
+	) {
 		t.Fatal("answerSummaryForRetrieval none did not explain missing evidence")
 	}
 	if !strings.Contains(
