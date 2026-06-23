@@ -331,17 +331,7 @@ func syncSettingsFile(path string, merge func(map[string]any)) error {
 		return err
 	}
 
-	err = os.MkdirAll(filepath.Dir(path), settingsDirMode)
-	if err != nil {
-		return fmt.Errorf("create settings directory: %w", err)
-	}
-
-	err = os.WriteFile(path, []byte(content), settingsFileMode)
-	if err != nil {
-		return fmt.Errorf("write settings: %w", err)
-	}
-
-	return nil
+	return writeSettingsFile(path, content)
 }
 
 func renderSettingsFileContent(
@@ -375,7 +365,11 @@ func syncTextSettingsFile(path string, mutate func(string) string) error {
 		return err
 	}
 
-	err = os.MkdirAll(filepath.Dir(path), settingsDirMode)
+	return writeSettingsFile(path, content)
+}
+
+func writeSettingsFile(path, content string) error {
+	err := os.MkdirAll(filepath.Dir(path), settingsDirMode)
 	if err != nil {
 		return fmt.Errorf("create settings directory: %w", err)
 	}
