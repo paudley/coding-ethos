@@ -124,6 +124,15 @@ func TestParseOptionsRespectsDoubleDash(t *testing.T) {
 	}
 }
 
+func TestParseOptionsReturnsInvalidFlagError(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseOptions("search", []string{"--unknown"})
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("parse options error = %v, want invalid flag", err)
+	}
+}
+
 func TestRetrieveWritesJSONFromCache(t *testing.T) {
 	root := t.TempDir()
 	now := time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)
@@ -206,6 +215,16 @@ func captureStdout(t *testing.T, fn func()) string {
 
 	var buffer bytes.Buffer
 	done := make(chan struct{})
+	cleaned := false
+	defer func() {
+		os.Stdout = original
+		if !cleaned {
+			_ = writeFile.Close()
+			<-done
+			_ = readFile.Close()
+		}
+	}()
+
 	go func() {
 		_, _ = io.Copy(&buffer, readFile)
 		close(done)
@@ -214,9 +233,9 @@ func captureStdout(t *testing.T, fn func()) string {
 	fn()
 
 	_ = writeFile.Close()
-	os.Stdout = original
 	<-done
 	_ = readFile.Close()
+	cleaned = true
 
 	return buffer.String()
 }

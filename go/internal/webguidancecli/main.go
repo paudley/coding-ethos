@@ -7,6 +7,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -129,7 +130,9 @@ type options struct {
 }
 
 func parseOptions(name string, args []string) (options, error) {
-	flags := flag.NewFlagSet(name, flag.ExitOnError)
+	flags := flag.NewFlagSet(name, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+
 	root := flags.String(
 		"root",
 		".",

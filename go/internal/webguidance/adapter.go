@@ -864,9 +864,50 @@ func writeCacheRecord(path string, record cacheRecord) error {
 		return fmt.Errorf("encode modern web guidance cache: %w", err)
 	}
 
-	err = os.WriteFile(filepath.Clean(path), append(data, '\n'), cacheFileMode)
+	err = replaceCacheFile(path, append(data, '\n'))
 	if err != nil {
 		return fmt.Errorf("write modern web guidance cache %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func replaceCacheFile(path string, data []byte) error {
+	cleanPath := filepath.Clean(path)
+
+	tempFile, err := os.CreateTemp(filepath.Dir(cleanPath), "modern-web-guidance-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp modern web guidance cache: %w", err)
+	}
+
+	tempPath := tempFile.Name()
+
+	defer func() {
+		_ = os.Remove(tempPath)
+	}()
+
+	_, err = tempFile.Write(data)
+	if err != nil {
+		_ = tempFile.Close()
+
+		return fmt.Errorf("write temp modern web guidance cache: %w", err)
+	}
+
+	err = tempFile.Chmod(cacheFileMode)
+	if err != nil {
+		_ = tempFile.Close()
+
+		return fmt.Errorf("chmod temp modern web guidance cache: %w", err)
+	}
+
+	err = tempFile.Close()
+	if err != nil {
+		return fmt.Errorf("close temp modern web guidance cache: %w", err)
+	}
+
+	err = os.Rename(tempPath, cleanPath)
+	if err != nil {
+		return fmt.Errorf("replace modern web guidance cache %s: %w", path, err)
 	}
 
 	return nil

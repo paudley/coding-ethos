@@ -14,6 +14,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
@@ -27,11 +28,12 @@ import (
 )
 
 const (
-	protocolVersion         = "2025-06-18"
-	maxSARIFHistoryPayloads = 1000
-	skillSummaryLimit       = 100
-	fallbackSkillMatchScore = 5
-	repoMapResourceURI      = "coding-ethos://code-intel/repo-map"
+	protocolVersion          = "2025-06-18"
+	maxSARIFHistoryPayloads  = 1000
+	skillSummaryLimit        = 100
+	fallbackSkillMatchScore  = 5
+	repoMapResourceURI       = "coding-ethos://code-intel/repo-map"
+	modernWebGuidanceTimeout = 30 * time.Second
 )
 
 var (
@@ -244,8 +246,11 @@ func (server Server) modernWebGuidanceSearch(args json.RawMessage) (any, error) 
 		return nil, fmt.Errorf("parse modern web guidance search arguments: %w", inlineErr)
 	}
 
+	ctx, cancel := modernWebGuidanceContext()
+	defer cancel()
+
 	response, err := webguidance.Adapter{Root: server.runtimeRoot()}.Search(
-		context.Background(),
+		ctx,
 		webguidance.SearchInput{
 			Query:         input.Query,
 			Limit:         input.Limit,
@@ -275,8 +280,11 @@ func (server Server) modernWebGuidanceRetrieve(args json.RawMessage) (any, error
 		ids = append(ids, input.ID)
 	}
 
+	ctx, cancel := modernWebGuidanceContext()
+	defer cancel()
+
 	response, err := webguidance.Adapter{Root: server.runtimeRoot()}.Retrieve(
-		context.Background(),
+		ctx,
 		webguidance.RetrieveInput{
 			IDs:           ids,
 			BrowserPolicy: input.BrowserPolicy,
@@ -298,8 +306,11 @@ func (server Server) modernWebGuidanceList(args json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("parse modern web guidance list arguments: %w", inlineErr)
 	}
 
+	ctx, cancel := modernWebGuidanceContext()
+	defer cancel()
+
 	response, err := webguidance.Adapter{Root: server.runtimeRoot()}.List(
-		context.Background(),
+		ctx,
 		webguidance.ListInput{Refresh: input.Refresh},
 	)
 	if err != nil {
@@ -311,6 +322,10 @@ func (server Server) modernWebGuidanceList(args json.RawMessage) (any, error) {
 
 func (server Server) runtimeRoot() string {
 	return firstNonEmpty(server.runtime.ConsumerRoot, server.runtime.InvocationCwd, ".")
+}
+
+func modernWebGuidanceContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), modernWebGuidanceTimeout)
 }
 
 func (server Server) toolCapabilitiesHandler(json.RawMessage) (any, error) {
