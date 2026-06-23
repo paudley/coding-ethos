@@ -11,6 +11,14 @@
 - [ ] `uv run pytest`
 - [ ] docs/examples updated if behavior changed
 
+## Capability Surface
+
+- chosen surface: CEL/policy/hook, generated skill, MCP, CLI,
+  SARIF/code-intel/outputsurface, provider registry, docs-only, or not
+  applicable
+- why this surface owns the behavior:
+- grounding docs, metadata, policy IDs, tool definitions, or command docs:
+
 ## Checklist
 
 - [ ] scope is intentional and limited to this change

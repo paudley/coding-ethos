@@ -50,6 +50,18 @@ body:
       required: true
 
   - type: textarea
+    id: surface_grounding
+    attributes:
+      label: Capability surface grounding
+      description: >-
+        Why should this be CEL/policy/hook enforcement or SARIF-only evidence
+        instead of a generated skill, MCP tool, CLI command,
+        SARIF/code-intel/outputsurface-only contract, or provider-registry
+        behavior?
+    validations:
+      required: true
+
+  - type: textarea
     id: block_examples
     attributes:
       label: Examples that should be blocked or flagged
