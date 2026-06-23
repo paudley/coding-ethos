@@ -162,6 +162,14 @@ func TestProviderCapabilityMatrixSyncAndCheckDetectDrift(t *testing.T) {
 		t.Fatalf("written provider matrix paths = %#v", written)
 	}
 
+	info, err := os.Stat(written[0])
+	if err != nil {
+		t.Fatalf("stat provider matrix: %v", err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("provider matrix mode = %s, want -rw-r--r--", info.Mode())
+	}
+
 	mismatched, err := agenthooks.CheckProviderCapabilityMatrix(root)
 	if err != nil {
 		t.Fatalf("check provider matrix: %v", err)
@@ -196,7 +204,7 @@ func TestProviderCapabilityMatrixDocsStayInSync(t *testing.T) {
 		filepath.FromSlash(agenthooks.ProviderCapabilityMatrixRelativePath),
 	)
 
-	current, err := os.ReadFile(filepath.Clean(path))
+	current, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read provider matrix doc: %v", err)
 	}

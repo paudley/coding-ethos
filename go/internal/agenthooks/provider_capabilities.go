@@ -13,7 +13,7 @@ import (
 
 const (
 	providerCapabilityMatrixDirMode  = 0o755
-	providerCapabilityMatrixFileMode = 0o600
+	providerCapabilityMatrixFileMode = 0o644
 
 	// ProviderCapabilityMatrixRelativePath is the generated provider report path.
 	ProviderCapabilityMatrixRelativePath = "docs/PROVIDER_CAPABILITY_MATRIX.md"
@@ -295,7 +295,7 @@ func SyncProviderCapabilityMatrix(root string) ([]string, error) {
 func CheckProviderCapabilityMatrix(root string) ([]string, error) {
 	path := providerCapabilityMatrixPath(root)
 
-	current, err := os.ReadFile(filepath.Clean(path))
+	current, err := os.ReadFile(path)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("read provider capability matrix: %w", err)
@@ -408,9 +408,6 @@ func markdownCell(value string) string {
 	}
 
 	escaped := strings.ReplaceAll(trimmed, "|", "\\|")
-	escaped = strings.ReplaceAll(escaped, "codex/", "codex&#47;")
-	escaped = strings.ReplaceAll(escaped, "claude/", "claude&#47;")
-	escaped = strings.ReplaceAll(escaped, "gemini/", "gemini&#47;")
 
 	return escaped
 }

@@ -578,7 +578,7 @@ sync-provider-matrix: ensure-go go-tools-install ## Generate the provider capabi
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-agent-hooks" \
 		sync-provider-matrix --root "$(LOCAL_REPO_ROOT)"
 
-check-provider-matrix: ensure-hook-runtime ## Fail if the provider capability matrix is out of sync.
+check-provider-matrix: ensure-go go-tools-install ## Fail if the provider capability matrix is out of sync.
 	@$(call print_step,Checking provider capability matrix)
 	@$(call print_info,repo: $(LOCAL_REPO_ROOT))
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-agent-hooks" \

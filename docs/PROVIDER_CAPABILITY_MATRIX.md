@@ -24,7 +24,7 @@ It lists supported, partially supported, and unsupported adapter surfaces.
 
 - Provider id: `claude`
 - Coverage: full
-- Settings target: .claude&#47;settings.local.json
+- Settings target: .claude/settings.local.json
 - MCP setup: project .mcp.json stdio server
 - Block response shape: hookSpecificOutput.permissionDecision = deny
 - Context/advice shape: hookSpecificOutput additionalContext and updatedInput
@@ -34,7 +34,7 @@ It lists supported, partially supported, and unsupported adapter surfaces.
 
 Native settings:
 
-- .claude&#47;settings.local.json
+- .claude/settings.local.json
 - .mcp.json
 
 Hook events:
@@ -53,8 +53,8 @@ Hook events:
 Generated targets:
 
 - CLAUDE.md
-- .claude&#47;skills/*/SKILL.md
-- .claude&#47;ethos/MEMORY.md
+- .claude/skills/*/SKILL.md
+- .claude/ethos/MEMORY.md
 - .mcp.json
 
 Supported surfaces:
@@ -89,8 +89,8 @@ Safety caveats:
 
 - Provider id: `codex`
 - Coverage: partial
-- Settings target: .codex&#47;config.toml
-- MCP setup: .codex&#47;config.toml mcp_servers.coding-ethos stdio server
+- Settings target: .codex/config.toml
+- MCP setup: .codex/config.toml mcp_servers.coding-ethos stdio server
 - Block response shape: decision = block plus permissionDecision = deny for PreToolUse
 - Context/advice shape: additionalContext where native; compact systemMessage otherwise
 - Memory interception: provider memory imports into .coding-ethos/memories
@@ -99,7 +99,7 @@ Safety caveats:
 
 Native settings:
 
-- .codex&#47;config.toml
+- .codex/config.toml
 
 Hook events:
 
@@ -112,8 +112,8 @@ Hook events:
 Generated targets:
 
 - AGENTS.md
-- .codex&#47;skills/*/SKILL.md
-- .codex&#47;config.toml
+- .codex/skills/*/SKILL.md
+- .codex/config.toml
 
 Supported surfaces:
 
@@ -147,8 +147,8 @@ Safety caveats:
 
 - Provider id: `gemini`
 - Coverage: partial
-- Settings target: .gemini&#47;settings.json
-- MCP setup: .gemini&#47;settings.json mcpServers.coding-ethos stdio server
+- Settings target: .gemini/settings.json
+- MCP setup: .gemini/settings.json mcpServers.coding-ethos stdio server
 - Block response shape: decision = deny plus systemMessage
 - Context/advice shape: additionalContext on supported lifecycle hooks
 - Memory interception: provider memory imports into .coding-ethos/memories
@@ -157,7 +157,7 @@ Safety caveats:
 
 Native settings:
 
-- .gemini&#47;settings.json
+- .gemini/settings.json
 
 Hook events:
 
@@ -171,10 +171,10 @@ Hook events:
 Generated targets:
 
 - GEMINI.md
-- .gemini&#47;extensions/coding-ethos/gemini-extension.json
-- .gemini&#47;extensions/coding-ethos/skills/*/SKILL.md
-- .coding-ethos/gemini&#47;prompt-pack.json
-- .gemini&#47;settings.json
+- .gemini/extensions/coding-ethos/gemini-extension.json
+- .gemini/extensions/coding-ethos/skills/*/SKILL.md
+- .coding-ethos/gemini/prompt-pack.json
+- .gemini/settings.json
 
 Supported surfaces:
 
