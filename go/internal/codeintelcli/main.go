@@ -41,6 +41,9 @@ var (
 	errUnknownDownstreamAnalysisFormat = apperror.StaticError(
 		"unknown downstream analysis format",
 	)
+	errUnknownContextAdviceFormat = apperror.StaticError(
+		"unknown context-advice format",
+	)
 )
 
 func run(ctx context.Context, args []string) error {
@@ -64,6 +67,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"centrality":                printCentrality,
 		"code-chunks":               printCodeChunks,
 		"compact-context":           printCompactContext,
+		"context-advice":            printContextAdvice,
 		"code-context":              printCodeContext,
 		"downstream-analysis":       printDownstreamAnalysis,
 		"decisions":                 decisions,
