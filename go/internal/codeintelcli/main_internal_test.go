@@ -954,6 +954,61 @@ func runCodeIntelCommands(
 	}
 }
 
+func TestSkillHealthCommandReportsJSONAndTOON(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
+	baseArgs := []string{"--root", root, "--db", dbPath}
+
+	runCodeIntelCommands(
+		t,
+		context.Background(),
+		[][]string{append([]string{
+			"record-outcome",
+			"--remediation-id", "rem-skill",
+			"--finding-id", "finding-skill",
+			"--policy-id", "policy.one",
+			"--skill-id", "skill-one",
+			"--path", "pkg/app.py",
+			"--provider", "codex",
+			"--tool", "Edit",
+			"--outcome", "repeated",
+			"--attempt", "2",
+		}, baseArgs...)},
+	)
+
+	var jsonErr error
+	jsonOutput := captureStdout(t, func() {
+		jsonErr = run(context.Background(), append([]string{
+			"skill-health",
+			"--skill-id", "skill-one",
+			"--format", "json",
+		}, baseArgs...))
+	})
+	if jsonErr != nil {
+		t.Fatalf("skill-health JSON returned error: %v", jsonErr)
+	}
+	if !strings.Contains(jsonOutput, `"kind": "code_intel.skill_health.v1"`) ||
+		!strings.Contains(jsonOutput, `"skill_id": "skill-one"`) {
+		t.Fatalf("skill-health JSON missing stable fields:\n%s", jsonOutput)
+	}
+
+	var toonErr error
+	toonOutput := captureStdout(t, func() {
+		toonErr = run(context.Background(), append([]string{
+			"skill-health",
+			"--skill-id", "skill-one",
+			"--format", "toon",
+		}, baseArgs...))
+	})
+	if toonErr != nil {
+		t.Fatalf("skill-health TOON returned error: %v", toonErr)
+	}
+	if !strings.Contains(toonOutput, "code_intel_skill_health:") ||
+		!strings.Contains(toonOutput, "skill-one") {
+		t.Fatalf("skill-health TOON missing stable fields:\n%s", toonOutput)
+	}
+}
+
 func recordCommandArgs(root string, baseArgs []string) [][]string {
 	return [][]string{
 		append([]string{
@@ -1046,6 +1101,9 @@ func queryCommandArgs(root string, baseArgs []string) [][]string {
 			baseArgs...),
 		append(
 			[]string{"remediation-effectiveness", "--policy-id", "policy.one"},
+			baseArgs...),
+		append(
+			[]string{"skill-health", "--skill-id", "skill-one"},
 			baseArgs...),
 		append(
 			[]string{"embedding-records", "--record-kind", "remediation"},

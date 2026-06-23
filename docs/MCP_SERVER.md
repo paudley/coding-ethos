@@ -68,6 +68,9 @@ skill metadata used by those enforcement paths.
 - `code_intel_change_risk`: summarize modification risk for target files from
   indexed chunks, git-history signals, reviewer suggestions, repeated
   failures, and recommended checks.
+- `code_intel_skill_health`: report generated skill provenance, recent usage
+  windows, unused skills, frequently failing skills, improving skills, stale
+  skills, and unknown skill IDs from code-intel outcome evidence.
 - `code_intel_why`: return architectural decisions and decision-health signals
   for a query, path, symbol, or status before changing code.
 - `code_intel_proxy_denials`: explain stored proxy denial events by session,
@@ -98,6 +101,13 @@ surgical diffs, and verifiable success criteria.
 Tool definitions include `coding_ethos` metadata so clients can distinguish
 advisory tools from managed execution tools and know whether a tool reads
 files, runs managed binaries, may mutate state, or persists traces.
+
+When the MCP runtime is configured with a code-intel root, `skill_lookup` and
+`skill_recommend` persist unknown-outcome skill observations in the repo-local
+code-intel store. `code_intel_skill_health` reads those observations together
+with explicit remediation outcomes and reports 7-day and 30-day trends. The
+report is measurement-only; it does not promote learned or evolved skills into
+generated repo artifacts.
 
 ## SARIF Remediation
 

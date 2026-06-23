@@ -225,6 +225,7 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "code_intel_context_card", Handler: server.codeIntelContextCard},
 		{Name: "code_intel_change_risk", Handler: server.codeIntelChangeRisk},
 		{Name: "code_intel_health", Handler: server.codeIntelHealth},
+		{Name: "code_intel_skill_health", Handler: server.codeIntelSkillHealth},
 		{Name: "code_intel_why", Handler: server.codeIntelWhy},
 		{Name: "code_intel_proxy_denials", Handler: server.codeIntelProxyDenials},
 		{Name: "code_intel_session_snapshot", Handler: server.codeIntelSessionSnapshot},
@@ -838,6 +839,11 @@ func (server Server) lookupSkill(args json.RawMessage) (any, error) {
 		)
 	}
 
+	err = server.recordSkillLookupObservation(input)
+	if err != nil {
+		return nil, err
+	}
+
 	principles := make([]map[string]any, 0, len(skill.PrincipleIDs))
 	for _, principleID := range skill.PrincipleIDs {
 		if principle, found := server.bundle.Principles[principleID]; found {
@@ -876,9 +882,14 @@ func (server Server) recommendSkills(args json.RawMessage) (any, error) {
 		limit = 3
 	}
 
-	return map[string]any{
-		"recommendations": server.skillRecommendations(input, limit),
-	}, nil
+	recommendations := server.skillRecommendations(input, limit)
+
+	err = server.recordSkillRecommendationObservations(input, recommendations)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"recommendations": recommendations}, nil
 }
 
 func argsContext() context.Context {

@@ -51,8 +51,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 34 {
-		t.Fatalf("tool count = %d, want 34: %#v", len(tools), tools)
+	if len(tools) != 35 {
+		t.Fatalf("tool count = %d, want 35: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -82,6 +82,7 @@ func TestServerListsTools(t *testing.T) {
 		"code_intel_context_card",
 		"code_intel_change_risk",
 		"code_intel_health",
+		"code_intel_skill_health",
 		"code_intel_why",
 		"code_intel_proxy_denials",
 		"code_intel_session_snapshot",
@@ -2022,6 +2023,83 @@ func TestServerSkillRecommendFallsBackForFixIntent(t *testing.T) {
 	if !strings.Contains(output, "agent-operating-discipline") ||
 		!strings.Contains(output, "recommendations") {
 		t.Fatalf("missing fallback skill recommendation:\n%s", output)
+	}
+}
+
+func TestServerRecordsSkillToolUsageAndReportsSkillHealth(t *testing.T) {
+	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
+
+	root := t.TempDir()
+	runtime := mcp.Runtime{ConsumerRoot: root}
+
+	lookupOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":19,
+		"method":"tools/call",
+		"params":{
+			"name":"skill_lookup",
+			"arguments":{"skill_id":"safe-git-workflow"}
+		}
+	}`), runtime)
+	if !strings.Contains(lookupOutput, "safe-git-workflow") {
+		t.Fatalf("skill lookup output missing skill:\n%s", lookupOutput)
+	}
+
+	recommendOutput := runServerWithRuntime(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":20,
+		"method":"tools/call",
+		"params":{
+			"name":"skill_recommend",
+			"arguments":{
+				"intent":"fix a local import diagnostic",
+				"diagnostic":{
+					"tool":"ruff",
+					"code":%q,
+					"message":"import should be at the top-level of a file"
+				}
+			}
+		}
+	}`, "PLC"+"0415")), runtime)
+	if !strings.Contains(recommendOutput, "conditional-imports") {
+		t.Fatalf("skill recommend output missing skill:\n%s", recommendOutput)
+	}
+
+	store, err := codeintel.Open(context.Background(), codeintel.DefaultDBPath(root))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	defer store.Close()
+
+	outcomes, err := store.RemediationOutcomes(
+		context.Background(),
+		codeintel.RemediationOutcomeQuery{
+			SkillID: "safe-git-workflow",
+			Limit:   10,
+		},
+	)
+	if err != nil {
+		t.Fatalf("query skill lookup observation: %v", err)
+	}
+	if len(outcomes) != 1 || outcomes[0].Tool != "skill_lookup" ||
+		outcomes[0].Outcome != "unknown" {
+		t.Fatalf("lookup outcomes = %#v", outcomes)
+	}
+
+	healthOutput := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":21,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_skill_health",
+			"arguments":{"format":"toon","limit":20}
+		}
+	}`), runtime)
+	if !strings.Contains(healthOutput, "code_intel.skill_health.v1") ||
+		!strings.Contains(healthOutput, "safe-git-workflow") ||
+		!strings.Contains(healthOutput, "conditional-imports") {
+		t.Fatalf("skill health output missing observations:\n%s", healthOutput)
 	}
 }
 
