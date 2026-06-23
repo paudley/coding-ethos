@@ -132,6 +132,37 @@ func TestSyncSettingsDryRunDoesNotWriteSettingsOrState(t *testing.T) {
 	}
 }
 
+func TestSyncSettingsUsesEthosRootForInstallState(t *testing.T) {
+	root := t.TempDir()
+	ethosRoot := t.TempDir()
+	t.Setenv("CODEX_HOME", filepath.Join(root, "codex-home"))
+
+	writeAgentHooksCLITestFile(
+		t,
+		filepath.Join(ethosRoot, "pyproject.toml"),
+		"version = \"7.8.9\"\n",
+	)
+
+	hookCommand := filepath.Join(root, "bin", "coding-ethos-run") + " agent-hook"
+
+	err := syncSettings([]string{
+		"--root", root,
+		"--ethos-root", ethosRoot,
+		"--hook-command", hookCommand,
+	})
+	if err != nil {
+		t.Fatalf("syncSettings returned error: %v", err)
+	}
+
+	state, err := syncstate.Read(root)
+	if err != nil {
+		t.Fatalf("read install sync state: %v", err)
+	}
+	if state.RuntimeVersion != "7.8.9" {
+		t.Fatalf("runtime version = %q", state.RuntimeVersion)
+	}
+}
+
 func TestRunCLIDispatchesAgentHookCommands(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CODEX_HOME", filepath.Join(root, "codex-home"))
@@ -154,6 +185,20 @@ func TestRunCLIDispatchesAgentHookCommands(t *testing.T) {
 		[]string{"verify", "--root", root, "--hook-command", hookCommand},
 	); code != 1 {
 		t.Fatalf("verify exit code = %d, want 1 for missing executable probe", code)
+	}
+}
+
+func writeAgentHooksCLITestFile(t *testing.T, path, content string) {
+	t.Helper()
+
+	err := os.MkdirAll(filepath.Dir(path), 0o700)
+	if err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+
+	err = os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }
 

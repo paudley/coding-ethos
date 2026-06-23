@@ -38,7 +38,10 @@ const (
 	stateFileMode             = 0o600
 )
 
-var errArtifactOutsideRepo = errors.New("artifact path is outside repo root")
+var (
+	errArtifactOutsideRepo = errors.New("artifact path is outside repo root")
+	errInvalidSyncState    = errors.New("invalid sync state")
+)
 
 type State struct {
 	TargetRepoRoot    string           `json:"target_repo_root"`
@@ -165,12 +168,12 @@ func Upsert(options UpsertOptions) (State, error) {
 	path := FilePath(options.RepoRoot)
 
 	state, err := ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return State{}, err
-	}
-
-	if errors.Is(err, os.ErrNotExist) {
+	switch {
+	case err == nil:
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, errInvalidSyncState):
 		state = State{SchemaVersion: SchemaVersion}
+	default:
+		return State{}, err
 	}
 
 	state.SchemaVersion = SchemaVersion
@@ -211,7 +214,12 @@ func ReadFile(path string) (State, error) {
 
 	err = json.Unmarshal(payload, &state)
 	if err != nil {
-		return State{}, fmt.Errorf("parse sync state %s: %w", path, err)
+		return State{}, fmt.Errorf(
+			"parse sync state %s: %w: %w",
+			path,
+			errInvalidSyncState,
+			err,
+		)
 	}
 
 	return state, nil
@@ -694,6 +702,15 @@ func hashBytes(payload []byte) string {
 func repoRelativePath(repoRoot, path string) (string, error) {
 	cleaned := filepath.Clean(path)
 	if !filepath.IsAbs(cleaned) {
+		if pathEscapesRoot(cleaned) {
+			return "", fmt.Errorf(
+				"artifact path %s is outside repo root %s: %w",
+				path,
+				repoRoot,
+				errArtifactOutsideRepo,
+			)
+		}
+
 		return filepath.ToSlash(cleaned), nil
 	}
 
@@ -702,7 +719,7 @@ func repoRelativePath(repoRoot, path string) (string, error) {
 		return "", fmt.Errorf("resolve relative artifact path %s: %w", path, err)
 	}
 
-	if strings.HasPrefix(relative, "..") {
+	if pathEscapesRoot(relative) {
 		return "", fmt.Errorf(
 			"artifact path %s is outside repo root %s: %w",
 			path,
@@ -712,6 +729,10 @@ func repoRelativePath(repoRoot, path string) (string, error) {
 	}
 
 	return filepath.ToSlash(relative), nil
+}
+
+func pathEscapesRoot(path string) bool {
+	return path == ".." || strings.HasPrefix(path, ".."+string(filepath.Separator))
 }
 
 func runtimeVersion(ethosRoot string) string {

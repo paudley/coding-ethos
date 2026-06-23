@@ -894,7 +894,7 @@ Dry-run sync reports the exact writes it would perform without mutating files:
 bin/coding-ethos-run policy sync-tool-configs --repo /path/to/repo --dry-run --format json
 bin/coding-ethos-run policy sync-gemini-prompts --repo /path/to/repo --dry-run --format toon
 bin/coding-ethos-run policy sync-agent-skills --repo /path/to/repo --dry-run --format toon
-bin/coding-ethos-run agent-hooks sync --root /path/to/repo --dry-run --format toon
+bin/coding-ethos-run agent-hooks sync --root /path/to/repo --ethos-root . --dry-run --format toon
 ```
 
 Doctor and repair planning are read-only. Doctor compares recorded source hashes
@@ -1481,7 +1481,7 @@ Render or verify repo-local agent hook settings:
 ```bash
 bin/coding-ethos-run agent-hooks print
 bin/coding-ethos-run agent-hooks sync
-bin/coding-ethos-run agent-hooks sync --dry-run --format toon
+bin/coding-ethos-run agent-hooks sync --root /path/to/repo --ethos-root . --dry-run --format toon
 bin/coding-ethos-run agent-hooks doctor
 bin/coding-ethos-run agent-hooks verify
 ```

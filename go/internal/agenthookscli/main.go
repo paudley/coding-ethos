@@ -91,6 +91,7 @@ func printSettings(args []string) error {
 func syncSettings(args []string) error {
 	flags := flag.NewFlagSet("sync", flag.ContinueOnError)
 	root := flags.String("root", ".", "Repository root for agent settings")
+	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
 	dryRun := flags.Bool("dry-run", false, "Report planned writes without mutating files")
 	format := flags.String(
@@ -130,7 +131,7 @@ func syncSettings(args []string) error {
 
 	_, err = syncstate.Upsert(syncstate.UpsertOptions{
 		RepoRoot:        *root,
-		EthosRoot:       ".",
+		EthosRoot:       *ethosRoot,
 		RequestedAction: "agent-hooks sync",
 		ProviderTargets: []syncstate.ProviderTarget{
 			{Provider: "agent-hooks", Root: *root},

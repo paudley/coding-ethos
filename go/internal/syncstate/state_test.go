@@ -4,6 +4,7 @@
 package syncstate
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -140,6 +141,45 @@ func TestRepairPlanOnlyIncludesCodingEthosOwnedArtifacts(t *testing.T) {
 
 	if len(repair.Artifacts) != 1 || repair.Artifacts[0].Path != "managed.txt" {
 		t.Fatalf("repair artifacts = %#v", repair.Artifacts)
+	}
+}
+
+func TestUpsertRebuildsCorruptedRuntimeState(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	writeTestFile(t, FilePath(repoRoot), "{not-json")
+
+	state, err := Upsert(UpsertOptions{
+		RepoRoot:        repoRoot,
+		RequestedAction: "sync-tool-configs",
+	})
+	if err != nil {
+		t.Fatalf("upsert corrupted state: %v", err)
+	}
+
+	if state.SchemaVersion != SchemaVersion ||
+		state.RequestedAction != "sync-tool-configs" {
+		t.Fatalf("state = %#v", state)
+	}
+}
+
+func TestRepoRelativePathRejectsOnlyRealTraversal(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := filepath.Join(t.TempDir(), "repo")
+
+	_, err := repoRelativePath(repoRoot, "../../etc/passwd")
+	if !errors.Is(err, errArtifactOutsideRepo) {
+		t.Fatalf("relative traversal error = %v", err)
+	}
+
+	valid, err := repoRelativePath(repoRoot, filepath.Join(repoRoot, "..foo", "bar.txt"))
+	if err != nil {
+		t.Fatalf("valid path returned error: %v", err)
+	}
+	if valid != filepath.ToSlash(filepath.Join("..foo", "bar.txt")) {
+		t.Fatalf("valid path = %q", valid)
 	}
 }
 
