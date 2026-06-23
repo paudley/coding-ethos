@@ -20,6 +20,9 @@ gaps are tracked in the [OpenSSF Gold checklist](OPENSSF_GOLD_CHECKLIST.md).
   generated artifacts, and verification model.
 - [Strategic roadmap](STRATEGIC_ROADMAP.md): major platform directions for MCP,
   CEL, SARIF, sandboxing, and agent remediation loops.
+- [Capability surface decision guide](CAPABILITY_SURFACE_DECISION.md): routing
+  rules for choosing CEL/policy/hooks, generated skills, MCP, CLI,
+  SARIF/code-intel/outputsurface, or provider registries.
 - [AST/CEL/SARIF architecture](AST_CEL_SARIF_ARCHITECTURE.md): the preferred
   path for turning parsed source facts into principle-owned CEL policy,
   stable SARIF, and code-intelligence storage.
@@ -59,6 +62,8 @@ gaps are tracked in the [OpenSSF Gold checklist](OPENSSF_GOLD_CHECKLIST.md).
 `coding-ethos` is built for agentic development workflows where Codex, Claude
 Code, Gemini CLI, and human contributors need the same enforceable rules.
 
+- [Capability surface decision guide](CAPABILITY_SURFACE_DECISION.md): choose
+  the owning public surface before adding new agent-facing capabilities.
 - [MCP server](MCP_SERVER.md): stdio MCP tools for policy checks, lint advice,
   SARIF remediation, risk summaries, and capability inspection.
 - [Code intelligence](CODE_INTEL.md): MCP-backed search over stored SARIF,

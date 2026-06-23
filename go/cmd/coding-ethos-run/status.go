@@ -20,6 +20,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/agentproxy/ca"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/contextadvisor"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 	"blackcat.ca/coding-ethos/go/lintcapture"
@@ -42,20 +43,22 @@ const (
 var errUnsupportedStatusFormat = apperror.StaticError("unsupported status format")
 
 type operatorStatusReport struct {
-	GeneratedAtUTC     string                `json:"generated_at_utc"`
-	Kind               string                `json:"kind"`
-	Root               string                `json:"root"`
-	Status             string                `json:"status"`
-	Summary            string                `json:"summary"`
-	Checks             []operatorStatusCheck `json:"checks"`
-	Recommendations    []string              `json:"recommendations,omitempty"`
-	OutputSurfaceTotal int                   `json:"output_surface_total"`
-	OutputSurfaceStale int                   `json:"output_surface_stale"`
-	OutputSurfaceError int                   `json:"output_surface_error"`
-	RecentHookRuns     int                   `json:"recent_hook_runs"`
-	RecentHookFailures int                   `json:"recent_hook_failures"`
-	HookReviews        int                   `json:"hook_reviews"`
-	FalsePositives     int                   `json:"false_positives"`
+	GeneratedAtUTC     string                  `json:"generated_at_utc"`
+	Kind               string                  `json:"kind"`
+	Root               string                  `json:"root"`
+	Status             string                  `json:"status"`
+	Summary            string                  `json:"summary"`
+	Checks             []operatorStatusCheck   `json:"checks"`
+	Recommendations    []string                `json:"recommendations,omitempty"`
+	ContextMetrics     *contextadvisor.Metrics `json:"context_metrics,omitempty"`
+	ContextAdvice      []contextadvisor.Advice `json:"context_advice,omitempty"`
+	OutputSurfaceTotal int                     `json:"output_surface_total"`
+	OutputSurfaceStale int                     `json:"output_surface_stale"`
+	OutputSurfaceError int                     `json:"output_surface_error"`
+	RecentHookRuns     int                     `json:"recent_hook_runs"`
+	RecentHookFailures int                     `json:"recent_hook_failures"`
+	HookReviews        int                     `json:"hook_reviews"`
+	FalsePositives     int                     `json:"false_positives"`
 }
 
 type operatorStatusCheck struct {
@@ -131,11 +134,64 @@ func buildOperatorStatus(
 		report.Checks,
 		hookRuntimeChecks(hookRuns, hookFailures, hookReviews, falsePositives)...,
 	)
+
+	contextReport, contextAdvisorErr := buildContextAdvisorStatus(
+		ctx,
+		paths,
+		surfaceReport,
+		now,
+	)
+	if contextAdvisorErr != nil {
+		report.Checks = append(
+			report.Checks,
+			contextAdvisorUnavailableCheck(contextAdvisorErr),
+		)
+	} else {
+		report.ContextMetrics = &contextReport.Metrics
+		report.ContextAdvice = contextReport.Advice
+
+		if len(contextReport.Advice) > 0 {
+			report.Checks = append(report.Checks, contextAdvisorStatusCheck(contextReport))
+		}
+	}
+
 	report.Status = aggregateOperatorStatus(report.Checks)
 	report.Recommendations = operatorStatusRecommendations(report)
 	report.Summary = operatorStatusSummary(report)
 
 	return report, nil
+}
+
+func buildContextAdvisorStatus(
+	ctx context.Context,
+	paths runtimePaths,
+	surfaceReport outputsurface.Report,
+	now time.Time,
+) (contextadvisor.Report, error) {
+	store, err := codeintel.OpenReadOnly(ctx, codeintel.DefaultDBPath(paths.Root))
+	if err != nil {
+		return contextadvisor.Report{}, fmt.Errorf("open code-intel store: %w", err)
+	}
+	defer store.Close()
+
+	snapshot, err := store.SessionSnapshot(ctx, codeintel.SessionSnapshotQuery{
+		Root:     paths.Root,
+		Worktree: paths.Root,
+		Now:      now,
+	})
+	if err != nil {
+		return contextadvisor.Report{}, fmt.Errorf(
+			"query code-intel session snapshot: %w",
+			err,
+		)
+	}
+
+	thresholds, err := contextadvisor.LoadThresholds(paths.Root)
+	if err != nil {
+		return contextadvisor.Report{}, fmt.Errorf("load context advisor thresholds: %w", err)
+	}
+
+	return contextadvisor.Analyze(snapshot, surfaceReport, thresholds, now), nil
 }
 
 func runtimeArtifactChecks(paths runtimePaths) []operatorStatusCheck {
@@ -341,6 +397,33 @@ func hookRuntimeChecks(
 	return checks
 }
 
+func contextAdvisorStatusCheck(report contextadvisor.Report) operatorStatusCheck {
+	status := operatorStatusPass
+	if report.Status != contextadvisor.StatusOK {
+		status = operatorStatusWarn
+	}
+
+	return operatorStatusCheck{
+		Name:   "context_token_economy",
+		Status: status,
+		Detail: fmt.Sprintf(
+			"status=%s advice=%d tokens=%d spill_files=%d",
+			report.Status,
+			len(report.Advice),
+			report.Metrics.TotalTokens,
+			report.Metrics.SpillFiles,
+		),
+	}
+}
+
+func contextAdvisorUnavailableCheck(err error) operatorStatusCheck {
+	return operatorStatusCheck{
+		Name:   "context_token_economy",
+		Status: operatorStatusWarn,
+		Detail: "advisor unavailable: " + err.Error(),
+	}
+}
+
 func fileStatusCheck(name, path string) operatorStatusCheck {
 	info, err := os.Stat(path)
 	if err == nil && !info.IsDir() {
@@ -461,6 +544,10 @@ func operatorStatusRecommendations(report operatorStatusReport) []string {
 			recommendations,
 			"Review code-intel hook-reviews before clearing operator handoff.",
 		)
+	}
+
+	for _, advice := range report.ContextAdvice {
+		recommendations = append(recommendations, advice.Recommendation)
 	}
 
 	if len(recommendations) == 0 {
@@ -667,6 +754,22 @@ func formatOperatorStatusTOON(report operatorStatusReport) string {
 		lines = append(lines, "  "+toonCell(recommendation))
 	}
 
+	if len(report.ContextAdvice) > 0 {
+		lines = append(lines, fmt.Sprintf(
+			"context_advice[%d]{id,severity,signal,recommendation}:",
+			len(report.ContextAdvice),
+		))
+		for _, advice := range report.ContextAdvice {
+			lines = append(lines, fmt.Sprintf(
+				"  %s,%s,%s,%s",
+				toonCell(advice.ID),
+				toonCell(advice.Severity),
+				toonCell(advice.Signal),
+				toonCell(advice.Recommendation),
+			))
+		}
+	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -699,6 +802,18 @@ func formatOperatorStatusHuman(report operatorStatusReport) string {
 	lines = append(lines, "", "Recommendations:")
 	for _, recommendation := range report.Recommendations {
 		lines = append(lines, "- "+recommendation)
+	}
+
+	if len(report.ContextAdvice) > 0 {
+		lines = append(lines, "", "Context economy advice:")
+		for _, advice := range report.ContextAdvice {
+			lines = append(lines, fmt.Sprintf(
+				"- %s: %s - %s",
+				advice.Severity,
+				advice.Signal,
+				advice.Recommendation,
+			))
+		}
 	}
 
 	return strings.Join(lines, "\n") + "\n"

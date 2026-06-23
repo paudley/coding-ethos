@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	. "blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
@@ -5036,6 +5037,83 @@ func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 		!strings.Contains(codexOutput, `guidance[2]{message}:`) ||
 		!strings.Contains(codexOutput, `coding_ethos_repo_map:`) {
 		t.Fatalf("Codex session context missing TOON guidance:\n%s", codexOutput)
+	}
+}
+
+func TestRunInjectsContextAdviceOnSessionStartWhenThresholdCrossed(t *testing.T) {
+	t.Parallel()
+	acquireCodeIntelHookTestSlot(t)
+
+	repo := initHookRepo(t)
+	err := os.WriteFile(
+		filepath.Join(repo, "repo_config.yaml"),
+		[]byte(
+			"proxy:\n  context_advisor:\n    warning_file_reads: 1\n    warning_spill_files: 1\n",
+		),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	evidence, err := os.CreateTemp("", "coding-ethos-tool-output-session-start-*.log")
+	if err != nil {
+		t.Fatalf("create temp evidence: %v", err)
+	}
+	t.Cleanup(func() {
+		removeErr := os.Remove(evidence.Name())
+		if removeErr != nil && !os.IsNotExist(removeErr) {
+			t.Fatalf("remove temp evidence: %v", removeErr)
+		}
+	})
+	if err := evidence.Close(); err != nil {
+		t.Fatalf("close temp evidence: %v", err)
+	}
+
+	store, err := codeintel.Open(context.Background(), codeintel.DefaultDBPath(repo))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	err = store.RecordProxyEvent(context.Background(), agentproxy.ProviderEvent{
+		ID:        "session-start-context-advice-1",
+		SessionID: "session-context-advice",
+		Kind:      agentproxy.EventFileRead,
+		Provider:  "codex",
+		RepoRoot:  repo,
+		Decision:  "allow",
+	})
+	if err != nil {
+		t.Fatalf("record proxy event: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close code-intel store: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventSessionStart,
+			Cwd:           repo,
+			SessionID:     "session-context-advice",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run session start: %v", err)
+	}
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing session output: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"context_token_economy_advice:",
+		"repeated_file_reads",
+		"proxy_file_reads=1",
+		"spill_files",
+		"output_spill_files=",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("session context missing %q:\n%s", expected, context)
+		}
 	}
 }
 

@@ -64,6 +64,17 @@ body:
       required: true
 
   - type: textarea
+    id: surface_grounding
+    attributes:
+      label: Capability surface grounding
+      description: >-
+        Why should this be an MCP tool instead of CEL/policy/hook enforcement,
+        a generated skill, a CLI command, SARIF/code-intel/outputsurface
+        evidence, or provider-registry behavior?
+    validations:
+      required: true
+
+  - type: textarea
     id: storage
     attributes:
       label: Storage or code-intel needs
