@@ -189,6 +189,15 @@ which targets are frequently involved without reparsing raw provider payloads.
 Operator review rows can label a hook event as a correct block, false positive,
 unclear message, over-broad policy, or missing allow-list case.
 
+Skill use is measured through the same remediation-outcome evidence store. MCP
+`skill_lookup` and `skill_recommend` record unknown-outcome observations when a
+code-intel root is configured, while explicit remediation outcomes record
+observable success, repeated failure, abandonment, and retry counts.
+`skill-health` and MCP `code_intel_skill_health` report unused, frequently
+failing, improving, stale, and unknown skill IDs with 7-day and 30-day windows
+in JSON or TOON. Learned or evolved skills are not promoted into generated repo
+artifacts by this report; promotion requires a separate explicit policy change.
+
 Agent Proxy foundation data uses the same store. Proxy events are
 provider-neutral records for outbound provider calls, tool calls, file reads,
 file listings, payload injections, payload truncations, cache hits, and edit
@@ -251,9 +260,11 @@ bin/coding-ethos-run code-intel git-signals --path pkg/app.go --paths pkg/app.go
 bin/coding-ethos-run code-intel anatomy-map --path pkg --format toon
 ls pkg | bin/coding-ethos-run code-intel enrich-listing --command 'ls pkg'
 bin/coding-ethos-run code-intel code-chunks --path pkg/app.go --symbol-name BuildMessage
+bin/coding-ethos-run code-intel code-context --path pkg/app.go --symbol-path BuildMessage
 bin/coding-ethos-run code-intel repo-map --path pkg/app.go
 bin/coding-ethos-run code-intel centrality --path pkg --format toon
 bin/coding-ethos-run code-intel surprises --path pkg --format toon
+bin/coding-ethos-run code-intel downstream-analysis --root .
 bin/coding-ethos-run code-intel decisions add --title 'Use explicit startup' --rationale 'Startup should be inspectable.' --path pkg/app.go
 bin/coding-ethos-run code-intel decisions import docs/decisions
 bin/coding-ethos-run code-intel decisions list --path pkg/app.go --query startup
@@ -266,14 +277,22 @@ bin/coding-ethos-run code-intel record-proxy-event --event-id evt-1 --session-id
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel proxy-events --session-id sess-1
 bin/coding-ethos-run code-intel session-snapshot --session-id sess-1 --format toon
+bin/coding-ethos-run code-intel context-advice --format toon
 bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
 bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports
+bin/coding-ethos-run code-intel skill-health --format toon
+bin/coding-ethos-run code-intel repeated-edits --path pkg/app.go
 bin/coding-ethos-run code-intel embedding-candidates --record-kind remediation_outcome
+bin/coding-ethos-run code-intel record-embedding --backend duckdb-vss --collection remediations --model-id voyage-code-3 --record-kind remediation --record-id rem-1 --dimension 3
+bin/coding-ethos-run code-intel record-outcome --remediation-id rem-1 --outcome fixed
 bin/coding-ethos-run code-intel upsert-vector --id rem-1 --model-id voyage-code-3 --vector '0.1,0.2,0.3'
 bin/coding-ethos-run code-intel embedding-records --backend duckdb-vss
 bin/coding-ethos-run code-intel hybrid-search --text 'unused import' --model-id voyage-code-3 --vector '0.1,0.2,0.3'
 bin/coding-ethos-run code-intel index-status --model-id voyage-code-3
+bin/coding-ethos-run code-intel vector-stats
 bin/coding-ethos-run code-intel search --text 'unused import'
+bin/coding-ethos-run code-intel rebuild-index --root .
+bin/coding-ethos-run code-intel workspace status --root ..
 ```
 
 These commands read retained `.coding-ethos` traces and write only the
@@ -583,6 +602,9 @@ Add tools only after the store has a stable schema:
   backend, and failed indexing tasks.
 - `code_intel_hook_usage`: summarize normalized hook usage by provider,
   operation, target, risk, status, policy, and skill.
+- `code_intel_skill_health`: report generated skill provenance, 7-day and
+  30-day usage windows, unknown skill IDs, stale skills, improving trends, and
+  repeated failure trends from remediation-outcome evidence.
 - `code_intel_explain_result`: explain why a search result was returned,
   including term-index score, vector score, filters, and policy links.
 

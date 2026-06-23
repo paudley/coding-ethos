@@ -34,6 +34,16 @@ body:
     validations:
       required: true
   - type: textarea
+    id: surface_choice
+    attributes:
+      label: Capability surface choice
+      description: >-
+        Which surface should own this: CEL/policy/hook, generated skill, MCP,
+        CLI, SARIF/code-intel/outputsurface, provider registry, or docs-only?
+        Explain why that surface is the right owner.
+    validations:
+      required: true
+  - type: textarea
     id: examples
     attributes:
       label: Examples or prior art

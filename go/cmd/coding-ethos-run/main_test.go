@@ -212,6 +212,28 @@ func TestOutputArgsKeepExplicitRoot(t *testing.T) {
 	}
 }
 
+func TestWebGuidanceArgsInsertRootAfterSubcommand(t *testing.T) {
+	t.Parallel()
+
+	args := webGuidanceArgs("/repo", []string{"search", "navigation drawer"})
+
+	want := []string{"search", "--root", "/repo", "navigation drawer"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("webGuidanceArgs() = %#v, want %#v", args, want)
+	}
+}
+
+func TestWebGuidanceArgsKeepExplicitRoot(t *testing.T) {
+	t.Parallel()
+
+	args := webGuidanceArgs("/repo", []string{"list", "--root", "/other"})
+
+	want := []string{"list", "--root", "/other"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("webGuidanceArgs() = %#v, want %#v", args, want)
+	}
+}
+
 func TestRuntimePathSetDerivesManagedPaths(t *testing.T) {
 	t.Parallel()
 

@@ -25,6 +25,12 @@ func TestBuildReportInventoriesRepoSurfaces(t *testing.T) {
 		"hook output\n",
 	)
 	writeReportFixture(t, root, ".coding-ethos/lint-runs/ruff.json", "{}\n")
+	writeReportFixture(
+		t,
+		root,
+		".coding-ethos/cache/modern-web-guidance/responses/cache.json",
+		"{}\n",
+	)
 	writeReportFixture(t, root, ".coding-ethos/state/commit-head.json", `{"head":"abc"}`)
 
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
@@ -64,6 +70,11 @@ func TestBuildReportInventoriesRepoSurfaces(t *testing.T) {
 	lintTraces := inventoryByID(t, report, "lint_traces")
 	if !lintTraces.Exists || lintTraces.FileCount != 1 {
 		t.Fatalf("lint_traces inventory = %#v", lintTraces)
+	}
+
+	modernWebCache := inventoryByID(t, report, "modern_web_guidance_cache")
+	if !modernWebCache.Exists || modernWebCache.FileCount != 1 {
+		t.Fatalf("modern_web_guidance_cache inventory = %#v", modernWebCache)
 	}
 
 	codeIntelDB := inventoryByID(t, report, "code_intel_db")

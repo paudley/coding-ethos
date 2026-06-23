@@ -14,6 +14,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
@@ -22,15 +23,17 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/managedcapture"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/webguidance"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 const (
-	protocolVersion         = "2025-06-18"
-	maxSARIFHistoryPayloads = 1000
-	skillSummaryLimit       = 100
-	fallbackSkillMatchScore = 5
-	repoMapResourceURI      = "coding-ethos://code-intel/repo-map"
+	protocolVersion          = "2025-06-18"
+	maxSARIFHistoryPayloads  = 1000
+	skillSummaryLimit        = 100
+	fallbackSkillMatchScore  = 5
+	repoMapResourceURI       = "coding-ethos://code-intel/repo-map"
+	modernWebGuidanceTimeout = 30 * time.Second
 )
 
 var (
@@ -206,6 +209,9 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "policy_explain", Handler: server.explainPolicy},
 		{Name: "skill_lookup", Handler: server.lookupSkill},
 		{Name: "remediation_explain", Handler: server.explainRemediation},
+		{Name: "modern_web_guidance_search", Handler: server.modernWebGuidanceSearch},
+		{Name: "modern_web_guidance_retrieve", Handler: server.modernWebGuidanceRetrieve},
+		{Name: "modern_web_guidance_list", Handler: server.modernWebGuidanceList},
 		{Name: "code_intel_overview", Handler: server.codeIntelOverview},
 		{Name: "code_intel_workspace_status", Handler: server.codeIntelWorkspaceStatus},
 		{Name: "code_intel_search", Handler: server.codeIntelSearch},
@@ -225,11 +231,102 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "code_intel_context_card", Handler: server.codeIntelContextCard},
 		{Name: "code_intel_change_risk", Handler: server.codeIntelChangeRisk},
 		{Name: "code_intel_health", Handler: server.codeIntelHealth},
+		{Name: "code_intel_skill_health", Handler: server.codeIntelSkillHealth},
 		{Name: "code_intel_why", Handler: server.codeIntelWhy},
 		{Name: "code_intel_proxy_denials", Handler: server.codeIntelProxyDenials},
 		{Name: "code_intel_session_snapshot", Handler: server.codeIntelSessionSnapshot},
 		{Name: "skill_recommend", Handler: server.recommendSkills},
 	}
+}
+
+func (server Server) modernWebGuidanceSearch(args json.RawMessage) (any, error) {
+	var input modernWebGuidanceSearchInput
+
+	inlineErr := json.Unmarshal(args, &input)
+	if inlineErr != nil {
+		return nil, fmt.Errorf("parse modern web guidance search arguments: %w", inlineErr)
+	}
+
+	ctx, cancel := modernWebGuidanceContext()
+	defer cancel()
+
+	response, err := webguidance.Adapter{Root: server.runtimeRoot()}.Search(
+		ctx,
+		webguidance.SearchInput{
+			Query:         input.Query,
+			Limit:         input.Limit,
+			BrowserPolicy: input.BrowserPolicy,
+			Refresh:       input.Refresh,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("search modern web guidance: %w", err)
+	}
+
+	return response, nil
+}
+
+func (server Server) modernWebGuidanceRetrieve(args json.RawMessage) (any, error) {
+	var input modernWebGuidanceRetrieveInput
+
+	inlineErr := json.Unmarshal(args, &input)
+	if inlineErr != nil {
+		return nil, fmt.Errorf("parse modern web guidance retrieve arguments: %w", inlineErr)
+	}
+
+	ids := append([]string{}, input.IDs...)
+	ids = append(ids, input.GuideIDs...)
+
+	if strings.TrimSpace(input.ID) != "" {
+		ids = append(ids, input.ID)
+	}
+
+	ctx, cancel := modernWebGuidanceContext()
+	defer cancel()
+
+	response, err := webguidance.Adapter{Root: server.runtimeRoot()}.Retrieve(
+		ctx,
+		webguidance.RetrieveInput{
+			IDs:           ids,
+			BrowserPolicy: input.BrowserPolicy,
+			Refresh:       input.Refresh,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("retrieve modern web guidance: %w", err)
+	}
+
+	return response, nil
+}
+
+func (server Server) modernWebGuidanceList(args json.RawMessage) (any, error) {
+	var input modernWebGuidanceListInput
+
+	inlineErr := json.Unmarshal(args, &input)
+	if inlineErr != nil {
+		return nil, fmt.Errorf("parse modern web guidance list arguments: %w", inlineErr)
+	}
+
+	ctx, cancel := modernWebGuidanceContext()
+	defer cancel()
+
+	response, err := webguidance.Adapter{Root: server.runtimeRoot()}.List(
+		ctx,
+		webguidance.ListInput{Refresh: input.Refresh},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list modern web guidance: %w", err)
+	}
+
+	return response, nil
+}
+
+func (server Server) runtimeRoot() string {
+	return firstNonEmpty(server.runtime.ConsumerRoot, server.runtime.InvocationCwd, ".")
+}
+
+func modernWebGuidanceContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), modernWebGuidanceTimeout)
 }
 
 func (server Server) toolCapabilitiesHandler(json.RawMessage) (any, error) {
@@ -838,6 +935,11 @@ func (server Server) lookupSkill(args json.RawMessage) (any, error) {
 		)
 	}
 
+	err = server.recordSkillLookupObservation(input)
+	if err != nil {
+		logSkillObservationWarning("skill_lookup", input.SkillID, err)
+	}
+
 	principles := make([]map[string]any, 0, len(skill.PrincipleIDs))
 	for _, principleID := range skill.PrincipleIDs {
 		if principle, found := server.bundle.Principles[principleID]; found {
@@ -876,9 +978,14 @@ func (server Server) recommendSkills(args json.RawMessage) (any, error) {
 		limit = 3
 	}
 
-	return map[string]any{
-		"recommendations": server.skillRecommendations(input, limit),
-	}, nil
+	recommendations := server.skillRecommendations(input, limit)
+
+	err = server.recordSkillRecommendationObservations(input, recommendations)
+	if err != nil {
+		logSkillObservationWarning("skill_recommend", "", err)
+	}
+
+	return map[string]any{"recommendations": recommendations}, nil
 }
 
 func argsContext() context.Context {

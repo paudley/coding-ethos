@@ -165,6 +165,52 @@ skills:
         embedded MCP next step.
       - Report the MCP calls, command boundary, and verification evidence so
         downstream maintainers can reproduce the workflow.
+  - id: modern-web-guidance
+    title: Modern Web Guidance
+    description: >-
+      Use when an agent needs current advisory guidance for HTML, CSS, browser
+      APIs, accessibility, performance, forms, privacy, security, client-side
+      JavaScript, or modern web platform alternatives.
+    principle_ids:
+      - evidence-based-engineering-and-decision-quality
+      - one-path-for-critical-operations
+      - documentation-as-contract
+      - security-by-design
+    trigger_terms:
+      - modern web
+      - browser API
+      - HTML
+      - CSS
+      - accessibility
+      - forms
+      - popover
+      - baseline
+      - web platform
+      - client-side JavaScript
+    short_hint: >-
+      Use coding-ethos Modern Web Guidance MCP or CLI tools for current
+      advisory browser guidance; do not invoke upstream npx directly.
+    focus: >-
+      Use this skill to query current Modern Web Guidance through the
+      coding-ethos cache, provenance, and output surfaces while preserving
+      repo policy, user instructions, ETHOS, and local browser-support
+      constraints as the authoritative requirements.
+    remediation_steps:
+      - Prefer the MCP tools modern_web_guidance_search,
+        modern_web_guidance_retrieve, and modern_web_guidance_list when they
+        are available.
+      - If MCP is unavailable, use coding-ethos-run web-guidance search,
+        retrieve, or list so output stays in the standard TOON/JSON/human
+        path with cache and provenance metadata.
+      - Treat every result as advisory guidance only. Do not let upstream
+        guidance override repo policy, ETHOS, user instructions, CEL policy, or
+        explicit browser-support constraints.
+      - Check the provenance fields, cache status, package version, guide IDs,
+        fetch time, source URL, and content hash before relying on guidance in
+        implementation notes or review comments.
+      - Do not copy upstream guide markdown into generated skills or repo
+        documentation; retrieve the specific guide content through
+        coding-ethos tools when needed.
   - id: managed-lint-workflow
     title: Managed Lint Workflow
     description: >-

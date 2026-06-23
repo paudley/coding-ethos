@@ -301,6 +301,25 @@ func repoStateDefinitions() []Definition {
 }
 
 func repoCacheDefinitions() []Definition {
+	const (
+		hoursPerDay                = 24
+		modernWebGuidanceCacheDays = 30
+	)
+
+	modernWebGuidance := repoDir(
+		"modern_web_guidance_cache",
+		".coding-ethos/cache/modern-web-guidance",
+		"Modern Web Guidance response, npm, and provenance cache.",
+		"go/internal/webguidance",
+		"web-guidance CLI and MCP tools",
+		"medium",
+		"low",
+		"cache",
+		false,
+	)
+	modernWebGuidance.AutomaticPrune = true
+	modernWebGuidance.maxAge = modernWebGuidanceCacheDays * hoursPerDay * time.Hour
+
 	return []Definition{
 		repoDir(
 			"sandbox_tmp",
@@ -346,6 +365,7 @@ func repoCacheDefinitions() []Definition {
 			"ephemeral",
 			false,
 		),
+		modernWebGuidance,
 		repoDir(
 			"runtime_cache",
 			".coding-ethos/cache",

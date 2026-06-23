@@ -71,6 +71,9 @@ High-value tools:
 - `policy_explain`
 - `skill_lookup`
 - `skill_recommend`
+- `modern_web_guidance_search`
+- `modern_web_guidance_retrieve`
+- `modern_web_guidance_list`
 
 Agents should prefer MCP calls for policy and lint context because MCP exposes
 the same compiled policy, generated skills, managed tool metadata, and SARIF

@@ -22,6 +22,7 @@ const (
 	defaultGraphReportSymbols   = 4
 	defaultResultLimit          = 20
 	defaultSearchLimit          = 10
+	defaultSkillHealthStaleDays = 30
 )
 
 var (
@@ -40,6 +41,9 @@ var (
 	)
 	errUnknownDownstreamAnalysisFormat = apperror.StaticError(
 		"unknown downstream analysis format",
+	)
+	errUnknownContextAdviceFormat = apperror.StaticError(
+		"unknown context-advice format",
 	)
 )
 
@@ -64,6 +68,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"centrality":                printCentrality,
 		"code-chunks":               printCodeChunks,
 		"compact-context":           printCompactContext,
+		"context-advice":            printContextAdvice,
 		"code-context":              printCodeContext,
 		"downstream-analysis":       printDownstreamAnalysis,
 		"decisions":                 decisions,
@@ -96,6 +101,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"sarif-results":             printSARIFResults,
 		"search":                    search,
 		"session-snapshot":          printSessionSnapshot,
+		"skill-health":              printSkillHealth,
 		"stats":                     printStats,
 		"surprises":                 printSurprises,
 		"upsert-vector":             upsertVector,
@@ -199,6 +205,61 @@ func printHealth(ctx context.Context, args []string) error {
 		"kind":   "code_intel_health",
 		"health": health,
 	})
+}
+
+func printSkillHealth(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("skill-health", flag.ExitOnError)
+	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
+	skillID := flags.String("skill-id", "", "Filter by skill ID")
+	format := flags.String("format", outputFormatJSON, "Output format: json or toon")
+	limit := addResultLimit(flags)
+	staleDays := flags.Int(
+		"stale-days",
+		defaultSkillHealthStaleDays,
+		"Days without use before a skill is stale",
+	)
+
+	err := parseCommandFlags(flags, args, "skill-health")
+	if err != nil {
+		return err
+	}
+
+	store, err := openStore(ctx, *storeFlags.root, *storeFlags.dbPath)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	report, err := store.SkillHealth(ctx, codeintel.SkillHealthQuery{
+		SkillID:   *skillID,
+		Limit:     *limit,
+		StaleDays: *staleDays,
+	})
+	if err != nil {
+		return fmt.Errorf("query skill health: %w", err)
+	}
+
+	switch strings.TrimSpace(*format) {
+	case "", outputFormatJSON:
+		return encodeJSON(os.Stdout, report)
+	case outputFormatTOON:
+		err = feedback.WriteRendered(
+			os.Stdout,
+			codeintel.FormatSkillHealthTOON(report),
+			feedback.FormatTOON,
+		)
+		if err != nil {
+			return fmt.Errorf("write skill health TOON: %w", err)
+		}
+
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: %q",
+			errUnknownDownstreamAnalysisFormat,
+			*format,
+		)
+	}
 }
 
 type storeFlags struct {

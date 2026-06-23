@@ -49,14 +49,25 @@ skill metadata used by those enforcement paths.
 - `code_intel_overview`: return a task-shaped repository orientation with
   ranked files, freshness metadata, evidence counts, and exact follow-up MCP
   calls.
+- `code_intel_workspace_status`: report registered workspace repositories,
+  stale code-intel stores, cross-repo co-change candidates, and conservative
+  contract evidence.
 - `code_intel_search`: query stored SARIF, remediation, and embedding evidence
   with FTS plus duckdb-vss when a query vector is supplied.
 - `code_intel_answer`: retrieve cited code-intel evidence for a repository
   question while reporting retrieval quality separately from confidence.
+- `modern_web_guidance_search`: search current advisory Modern Web Guidance
+  content through the repo-local cache and upstream npm package.
+- `modern_web_guidance_retrieve`: retrieve one or more Modern Web Guidance
+  guides with provenance, cache status, and advisory metadata.
+- `modern_web_guidance_list`: list available Modern Web Guidance guide IDs and
+  descriptions through the same cached adapter.
 - `semantic_search`: query indexed repository code and return exact code chunks
   with path and line metadata before agents fall back to broad grep.
 - `code_intel_index_status`: report code-intelligence store freshness,
   embedding metadata counts, and duckdb-vss row counts.
+- `code_intel_hook_usage`: summarize normalized hook usage by provider,
+  operation, target, risk, status, policy, and skill.
 - `code_similarity_check`: compare proposed code against indexed repository
   symbols using normalized hashes and MinHash LSH before an agent writes a
   duplicate implementation.
@@ -68,10 +79,18 @@ skill metadata used by those enforcement paths.
 - `code_intel_change_risk`: summarize modification risk for target files from
   indexed chunks, git-history signals, reviewer suggestions, repeated
   failures, and recommended checks.
+- `code_intel_skill_health`: report generated skill provenance, 7-day and
+  30-day usage windows, unused skills, frequently failing skills, improving
+  skills, stale skills, and unknown skill IDs from code-intel outcome evidence.
+- `code_intel_health`: rank deterministic code-health and refactoring targets
+  from indexed structure, git signals, coverage, clones, and repeated failure
+  evidence.
 - `code_intel_why`: return architectural decisions and decision-health signals
   for a query, path, symbol, or status before changing code.
 - `code_intel_proxy_denials`: explain stored proxy denial events by session,
   provider, or policy using the code-intel ledger.
+- `code_intel_session_snapshot`: return the canonical session snapshot derived
+  from hook traces, proxy telemetry, memory activity, and code-intel freshness.
 - `code_intel_index_code`: parse selected repository paths with Tree-sitter
   and persist symbol/config chunks in the repo-local code-intelligence store.
 - `code_intel_code_chunks`: return focused Tree-sitter chunks by path,
@@ -97,7 +116,15 @@ surgical diffs, and verifiable success criteria.
 
 Tool definitions include `coding_ethos` metadata so clients can distinguish
 advisory tools from managed execution tools and know whether a tool reads
-files, runs managed binaries, may mutate state, or persists traces.
+files, runs managed binaries, may mutate state, may require network access, or
+persists traces.
+
+When the MCP runtime is configured with a code-intel root, `skill_lookup` and
+`skill_recommend` persist unknown-outcome skill observations in the repo-local
+code-intel store. `code_intel_skill_health` reads those observations together
+with explicit remediation outcomes and reports 7-day and 30-day trends. The
+report is measurement-only; it does not promote learned or evolved skills into
+generated repo artifacts.
 
 ## SARIF Remediation
 
