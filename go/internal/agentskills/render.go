@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/syncstate"
 )
 
 const (
@@ -70,6 +72,39 @@ func Sync(options Options) ([]string, error) {
 	sort.Strings(written)
 
 	return written, nil
+}
+
+func StateArtifacts(options Options) ([]syncstate.Artifact, error) {
+	rendered, err := Render(options)
+	if err != nil {
+		return nil, err
+	}
+
+	inputs := make([]syncstate.ArtifactInput, 0, len(rendered))
+	for relativePath, content := range rendered {
+		inputs = append(inputs, syncstate.ArtifactInput{
+			RelativePath:        relativePath,
+			Content:             content,
+			Provider:            "agent-skills",
+			Surface:             agentSkillSurface(relativePath),
+			VerificationCommand: "make check-agent-skills",
+		})
+	}
+
+	artifacts, err := syncstate.Artifacts(options.RepoRoot, inputs)
+	if err != nil {
+		return nil, fmt.Errorf("build agent skill state artifacts: %w", err)
+	}
+
+	return artifacts, nil
+}
+
+func agentSkillSurface(path string) string {
+	if path == geminiManifestPath {
+		return "gemini-extension-manifest"
+	}
+
+	return "generated-agent-skill"
 }
 
 func Check(options Options) ([]string, error) {

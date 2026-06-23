@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/syncstate"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
@@ -221,6 +222,74 @@ func TestValidateRepoConfigSectionsRejectsUnknownCodeIntelKey(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "code_intel.exlude_paths") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSyncToolConfigsDryRunDoesNotWriteFiles(t *testing.T) {
+	t.Parallel()
+
+	ethosRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	writePolicyCLITestFile(
+		t,
+		filepath.Join(ethosRoot, "config.yaml"),
+		"project:\n  name: example\n",
+	)
+
+	var err error
+	captureStdout(t, func() {
+		err = syncToolConfigs([]string{
+			"--ethos-root", ethosRoot,
+			"--repo", repoRoot,
+			"--dry-run",
+			"--format", "json",
+		})
+	})
+	if err != nil {
+		t.Fatalf("syncToolConfigs dry-run: %v", err)
+	}
+
+	if _, err = os.Stat(filepath.Join(repoRoot, "pyrightconfig.json")); err == nil {
+		t.Fatal("dry-run wrote pyrightconfig.json")
+	}
+
+	if _, err = os.Stat(syncstate.FilePath(repoRoot)); err == nil {
+		t.Fatal("dry-run wrote install sync state")
+	}
+}
+
+func TestSyncToolConfigsWritesInstallSyncState(t *testing.T) {
+	t.Parallel()
+
+	ethosRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	writePolicyCLITestFile(
+		t,
+		filepath.Join(ethosRoot, "config.yaml"),
+		"project:\n  name: example\n",
+	)
+	writePolicyCLITestFile(
+		t,
+		filepath.Join(ethosRoot, "pyproject.toml"),
+		"version = \"1.2.3\"\n",
+	)
+
+	var err error
+	captureStdout(t, func() {
+		err = syncToolConfigs([]string{"--ethos-root", ethosRoot, "--repo", repoRoot})
+	})
+	if err != nil {
+		t.Fatalf("syncToolConfigs: %v", err)
+	}
+
+	state, err := syncstate.Read(repoRoot)
+	if err != nil {
+		t.Fatalf("read install sync state: %v", err)
+	}
+
+	if state.RequestedAction != "sync-tool-configs" || state.RuntimeVersion != "1.2.3" ||
+		len(state.Artifacts) == 0 {
+		t.Fatalf("state = %#v", state)
 	}
 }
 
@@ -741,6 +810,20 @@ func TestConfigTraceReportsConfigAndRepoSections(t *testing.T) {
 
 	if strings.Join(sections, ",") != "repo" {
 		t.Fatalf("sections = %#v", sections)
+	}
+}
+
+func writePolicyCLITestFile(t *testing.T, path, content string) {
+	t.Helper()
+
+	err := os.MkdirAll(filepath.Dir(path), 0o700)
+	if err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+
+	err = os.WriteFile(path, []byte(content), 0o600)
+	if err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }
 

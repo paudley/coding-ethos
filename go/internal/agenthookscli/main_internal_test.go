@@ -5,10 +5,14 @@ package agenthookscli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/syncstate"
+	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
 func TestDefaultHookCommandPrefersExplicitValue(t *testing.T) {
@@ -96,6 +100,38 @@ func TestPrintSyncDoctorVerifySettingsCommands(t *testing.T) {
 	}
 }
 
+func TestSyncSettingsDryRunDoesNotWriteSettingsOrState(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CODEX_HOME", filepath.Join(root, "codex-home"))
+
+	hookCommand := filepath.Join(root, "bin", "coding-ethos-run") + " agent-hook"
+
+	var err error
+	captureStdout(t, func() {
+		err = syncSettings([]string{
+			"--root", root,
+			"--hook-command", hookCommand,
+			"--dry-run",
+			"--format", "json",
+		})
+	})
+	if err != nil {
+		t.Fatalf("syncSettings dry-run returned error: %v", err)
+	}
+
+	for _, path := range []string{
+		filepath.Join(root, ".claude", "settings.local.json"),
+		filepath.Join(root, ".mcp.json"),
+		filepath.Join(root, ".codex", "config.toml"),
+		filepath.Join(root, ".gemini", "settings.json"),
+		syncstate.FilePath(root),
+	} {
+		if _, statErr := os.Stat(path); statErr == nil {
+			t.Fatalf("dry-run wrote %s", path)
+		}
+	}
+}
+
 func TestRunCLIDispatchesAgentHookCommands(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CODEX_HOME", filepath.Join(root, "codex-home"))
@@ -119,6 +155,47 @@ func TestRunCLIDispatchesAgentHookCommands(t *testing.T) {
 	); code != 1 {
 		t.Fatalf("verify exit code = %d, want 1 for missing executable probe", code)
 	}
+}
+
+func captureStdout(t *testing.T, run func()) string {
+	t.Helper()
+
+	release := testlock.ProcessStateScope(t, "coding-ethos-agent-hooks")
+	defer release()
+
+	original := os.Stdout
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdout: %v", err)
+	}
+
+	os.Stdout = writer
+
+	defer func() {
+		os.Stdout = original
+	}()
+
+	run()
+
+	closeErr := writer.Close()
+	if closeErr != nil {
+		t.Fatalf("close stdout writer: %v", closeErr)
+	}
+
+	var buffer bytes.Buffer
+
+	_, err = io.Copy(&buffer, reader)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+
+	closeErr = reader.Close()
+	if closeErr != nil {
+		t.Fatalf("close stdout reader: %v", closeErr)
+	}
+
+	return buffer.String()
 }
 
 func TestRunCLIReturnsUsageAndCommandErrors(t *testing.T) {

@@ -20,6 +20,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/syncstate"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
@@ -94,19 +95,21 @@ type policyCommandHandler func([]string) error
 
 func policyCommandHandlers() map[string]policyCommandHandler {
 	return map[string]policyCommandHandler{
-		"compile":              compile,
-		"dump-example":         dumpExample,
-		"write-example":        writeExample,
-		"validate":             validate,
-		"validate-metadata":    validateMetadata,
-		"explain":              explain,
-		"config-trace":         configTrace,
-		"sync-tool-configs":    syncToolConfigs,
-		"check-tool-configs":   checkToolConfigs,
-		"sync-gemini-prompts":  syncGeminiPrompts,
-		"check-gemini-prompts": checkGeminiPrompts,
-		"sync-agent-skills":    syncAgentSkills,
-		"check-agent-skills":   checkAgentSkills,
+		"compile":                   compile,
+		"dump-example":              dumpExample,
+		"write-example":             writeExample,
+		"validate":                  validate,
+		"validate-metadata":         validateMetadata,
+		"explain":                   explain,
+		"config-trace":              configTrace,
+		"sync-tool-configs":         syncToolConfigs,
+		"check-tool-configs":        checkToolConfigs,
+		"sync-gemini-prompts":       syncGeminiPrompts,
+		"check-gemini-prompts":      checkGeminiPrompts,
+		"sync-agent-skills":         syncAgentSkills,
+		"check-agent-skills":        checkAgentSkills,
+		"install-state-doctor":      installStateDoctor,
+		"install-state-repair-plan": installStateRepairPlan,
 	}
 }
 
@@ -114,6 +117,22 @@ func syncToolConfigs(args []string) error {
 	options, err := parseToolConfigFlags("sync-tool-configs", args)
 	if err != nil {
 		return err
+	}
+
+	artifacts, err := toolconfigs.StateArtifacts(
+		options.ethosRoot,
+		options.repo,
+		options.repoConfig,
+	)
+	if err != nil {
+		return fmt.Errorf("plan generated tool configs: %w", err)
+	}
+
+	if options.dryRun {
+		return writeSyncStateReport(
+			syncstate.Plan(options.repo, "sync-tool-configs", artifacts),
+			options.format,
+		)
 	}
 
 	written, err := toolconfigs.Sync(
@@ -125,9 +144,24 @@ func syncToolConfigs(args []string) error {
 		return fmt.Errorf("sync generated tool configs: %w", err)
 	}
 
+	err = upsertSyncState(syncStateOptions{
+		EthosRoot:       options.ethosRoot,
+		RepoRoot:        options.repo,
+		RepoConfig:      options.repoConfig,
+		RequestedAction: "sync-tool-configs",
+		Provider:        "tool-configs",
+		Artifacts:       artifacts,
+		SourcePaths:     toolConfigSourcePaths(options),
+	})
+	if err != nil {
+		return err
+	}
+
 	for _, path := range written {
 		writePolicyOutput(path)
 	}
+
+	writePolicyOutput(syncstate.FilePath(options.repo))
 
 	return nil
 }
@@ -162,6 +196,8 @@ type toolConfigOptions struct {
 	ethosRoot  string
 	repo       string
 	repoConfig string
+	dryRun     bool
+	format     string
 }
 
 func parseToolConfigFlags(command string, args []string) (toolConfigOptions, error) {
@@ -169,6 +205,12 @@ func parseToolConfigFlags(command string, args []string) (toolConfigOptions, err
 	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
 	repo := flags.String("repo", "", "Repository root where configs are generated")
 	repoConfig := flags.String("repo-config", "", "Optional repo override config")
+	dryRun := flags.Bool("dry-run", false, "Report planned writes without mutating files")
+	format := flags.String(
+		"format",
+		feedback.FormatTOON,
+		"Output format for dry-run reports",
+	)
 
 	err := flags.Parse(args)
 	if err != nil {
@@ -183,6 +225,8 @@ func parseToolConfigFlags(command string, args []string) (toolConfigOptions, err
 		ethosRoot:  *ethosRoot,
 		repo:       *repo,
 		repoConfig: *repoConfig,
+		dryRun:     *dryRun,
+		format:     *format,
 	}, nil
 }
 
@@ -192,14 +236,41 @@ func syncGeminiPrompts(args []string) error {
 		return err
 	}
 
-	written, err := geminiprompts.Sync(options)
+	artifacts, err := geminiprompts.StateArtifacts(options.Options)
+	if err != nil {
+		return fmt.Errorf("plan Gemini prompt pack: %w", err)
+	}
+
+	if options.dryRun {
+		return writeSyncStateReport(
+			syncstate.Plan(options.Options.RepoRoot, "sync-gemini-prompts", artifacts),
+			options.format,
+		)
+	}
+
+	written, err := geminiprompts.Sync(options.Options)
 	if err != nil {
 		return fmt.Errorf("sync Gemini prompt pack: %w", err)
+	}
+
+	err = upsertSyncState(syncStateOptions{
+		EthosRoot:       options.Options.EthosRoot,
+		RepoRoot:        options.Options.RepoRoot,
+		RepoConfig:      options.Options.RepoConfig,
+		RequestedAction: "sync-gemini-prompts",
+		Provider:        "gemini-prompts",
+		Artifacts:       artifacts,
+		SourcePaths:     geminiSourcePaths(options.Options),
+	})
+	if err != nil {
+		return err
 	}
 
 	for _, path := range written {
 		writePolicyOutput(path)
 	}
+
+	writePolicyOutput(syncstate.FilePath(options.Options.RepoRoot))
 
 	return nil
 }
@@ -210,7 +281,7 @@ func checkGeminiPrompts(args []string) error {
 		return err
 	}
 
-	mismatched, err := geminiprompts.Check(options)
+	mismatched, err := geminiprompts.Check(options.Options)
 	if err != nil {
 		return fmt.Errorf("check Gemini prompt pack: %w", err)
 	}
@@ -232,14 +303,40 @@ func syncAgentSkills(args []string) error {
 		return err
 	}
 
-	written, err := agentskills.Sync(options)
+	artifacts, err := agentskills.StateArtifacts(options.Options)
+	if err != nil {
+		return fmt.Errorf("plan agent skills: %w", err)
+	}
+
+	if options.dryRun {
+		return writeSyncStateReport(
+			syncstate.Plan(options.Options.RepoRoot, "sync-agent-skills", artifacts),
+			options.format,
+		)
+	}
+
+	written, err := agentskills.Sync(options.Options)
 	if err != nil {
 		return fmt.Errorf("sync agent skills: %w", err)
+	}
+
+	err = upsertSyncState(syncStateOptions{
+		EthosRoot:       options.Options.EthosRoot,
+		RepoRoot:        options.Options.RepoRoot,
+		RequestedAction: "sync-agent-skills",
+		Provider:        "agent-skills",
+		Artifacts:       artifacts,
+		SourcePaths:     agentSkillSourcePaths(options.Options),
+	})
+	if err != nil {
+		return err
 	}
 
 	for _, path := range written {
 		writePolicyOutput(path)
 	}
+
+	writePolicyOutput(syncstate.FilePath(options.Options.RepoRoot))
 
 	return nil
 }
@@ -250,7 +347,7 @@ func checkAgentSkills(args []string) error {
 		return err
 	}
 
-	mismatched, err := agentskills.Check(options)
+	mismatched, err := agentskills.Check(options.Options)
 	if err != nil {
 		return fmt.Errorf("check agent skills: %w", err)
 	}
@@ -266,57 +363,238 @@ func checkAgentSkills(args []string) error {
 	return nil
 }
 
-func parseAgentSkillFlags(command string, args []string) (agentskills.Options, error) {
+type agentSkillCLIOptions struct {
+	Options agentskills.Options
+	format  string
+	dryRun  bool
+}
+
+func parseAgentSkillFlags(command string, args []string) (agentSkillCLIOptions, error) {
 	flags := flag.NewFlagSet(command, flag.ExitOnError)
 	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
 	repo := flags.String("repo", "", "Repository root where skills are generated")
 	primary := flags.String("primary", "", "Path to coding_ethos.yml")
 	repoEthos := flags.String("repo-ethos", "", "Optional repo ethos overlay")
+	dryRun := flags.Bool("dry-run", false, "Report planned writes without mutating files")
+	format := flags.String(
+		"format",
+		feedback.FormatTOON,
+		"Output format for dry-run reports",
+	)
 
 	err := flags.Parse(args)
 	if err != nil {
-		return agentskills.Options{}, fmt.Errorf("parse %s flags: %w", command, err)
+		return agentSkillCLIOptions{}, fmt.Errorf("parse %s flags: %w", command, err)
 	}
 
 	if strings.TrimSpace(*repo) == "" {
-		return agentskills.Options{}, errAgentSkillRepoRequired
+		return agentSkillCLIOptions{}, errAgentSkillRepoRequired
 	}
 
-	return agentskills.Options{
-		EthosRoot: *ethosRoot,
-		RepoRoot:  *repo,
-		Primary:   *primary,
-		RepoEthos: *repoEthos,
+	return agentSkillCLIOptions{
+		Options: agentskills.Options{
+			EthosRoot: *ethosRoot,
+			RepoRoot:  *repo,
+			Primary:   *primary,
+			RepoEthos: *repoEthos,
+		},
+		dryRun: *dryRun,
+		format: *format,
 	}, nil
+}
+
+type geminiPromptCLIOptions struct {
+	Options geminiprompts.Options
+	format  string
+	dryRun  bool
 }
 
 func parseGeminiPromptFlags(
 	command string,
 	args []string,
-) (geminiprompts.Options, error) {
+) (geminiPromptCLIOptions, error) {
 	flags := flag.NewFlagSet(command, flag.ExitOnError)
 	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
 	repo := flags.String("repo", "", "Repository root where prompt pack is generated")
 	primary := flags.String("primary", "", "Path to coding_ethos.yml")
 	repoEthos := flags.String("repo-ethos", "", "Optional repo ethos overlay")
 	repoConfig := flags.String("repo-config", "", "Optional repo override config")
+	dryRun := flags.Bool("dry-run", false, "Report planned writes without mutating files")
+	format := flags.String(
+		"format",
+		feedback.FormatTOON,
+		"Output format for dry-run reports",
+	)
 
 	err := flags.Parse(args)
 	if err != nil {
-		return geminiprompts.Options{}, fmt.Errorf("parse %s flags: %w", command, err)
+		return geminiPromptCLIOptions{}, fmt.Errorf("parse %s flags: %w", command, err)
 	}
 
 	if strings.TrimSpace(*repo) == "" {
-		return geminiprompts.Options{}, errGeminiPromptRepoRequired
+		return geminiPromptCLIOptions{}, errGeminiPromptRepoRequired
 	}
 
-	return geminiprompts.Options{
-		EthosRoot:  *ethosRoot,
-		RepoRoot:   *repo,
-		Primary:    *primary,
-		RepoEthos:  *repoEthos,
-		RepoConfig: *repoConfig,
+	return geminiPromptCLIOptions{
+		Options: geminiprompts.Options{
+			EthosRoot:  *ethosRoot,
+			RepoRoot:   *repo,
+			Primary:    *primary,
+			RepoEthos:  *repoEthos,
+			RepoConfig: *repoConfig,
+		},
+		dryRun: *dryRun,
+		format: *format,
 	}, nil
+}
+
+func installStateDoctor(args []string) error {
+	options, err := parseInstallStateFlags("install-state-doctor", args)
+	if err != nil {
+		return err
+	}
+
+	report, err := syncstate.Doctor(options.repo)
+	if err != nil {
+		return fmt.Errorf("doctor install state: %w", err)
+	}
+
+	return writeSyncStateReport(report, options.format)
+}
+
+func installStateRepairPlan(args []string) error {
+	options, err := parseInstallStateFlags("install-state-repair-plan", args)
+	if err != nil {
+		return err
+	}
+
+	report, err := syncstate.RepairPlan(options.repo)
+	if err != nil {
+		return fmt.Errorf("plan install state repair: %w", err)
+	}
+
+	return writeSyncStateReport(report, options.format)
+}
+
+type installStateOptions struct {
+	repo   string
+	format string
+}
+
+func parseInstallStateFlags(
+	command string,
+	args []string,
+) (installStateOptions, error) {
+	flags := flag.NewFlagSet(command, flag.ExitOnError)
+	repo := flags.String("repo", "", "Repository root containing sync state")
+	format := flags.String("format", feedback.FormatTOON, "Output format")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return installStateOptions{}, fmt.Errorf("parse %s flags: %w", command, err)
+	}
+
+	if strings.TrimSpace(*repo) == "" {
+		return installStateOptions{}, errToolConfigRepoRequired
+	}
+
+	return installStateOptions{repo: *repo, format: *format}, nil
+}
+
+type syncStateOptions struct {
+	EthosRoot       string
+	RepoRoot        string
+	RepoConfig      string
+	RequestedAction string
+	Provider        string
+	Artifacts       []syncstate.Artifact
+	SourcePaths     []string
+}
+
+func upsertSyncState(options syncStateOptions) error {
+	_, err := syncstate.Upsert(syncstate.UpsertOptions{
+		RepoRoot:        options.RepoRoot,
+		EthosRoot:       options.EthosRoot,
+		RequestedAction: options.RequestedAction,
+		SourcePaths:     options.SourcePaths,
+		ProviderTargets: []syncstate.ProviderTarget{
+			{Provider: options.Provider, Root: options.RepoRoot},
+		},
+		Artifacts: options.Artifacts,
+	})
+	if err != nil {
+		return fmt.Errorf("write install sync state: %w", err)
+	}
+
+	return nil
+}
+
+func writeSyncStateReport(report syncstate.Report, format string) error {
+	err := feedback.Write(os.Stdout, report, format)
+	if err != nil {
+		return fmt.Errorf("write install sync state report: %w", err)
+	}
+
+	return nil
+}
+
+func toolConfigSourcePaths(options toolConfigOptions) []string {
+	return compactExistingOrCandidatePaths([]string{
+		filepath.Join(options.ethosRoot, "config.yaml"),
+		options.repoConfig,
+		filepath.Join(options.repo, "repo_config.yaml"),
+		filepath.Join(options.repo, "repo_config.yml"),
+		filepath.Join(options.repo, "coding-ethos.repo.yaml"),
+		filepath.Join(options.repo, "coding-ethos.repo.yml"),
+	})
+}
+
+func geminiSourcePaths(options geminiprompts.Options) []string {
+	return compactExistingOrCandidatePaths([]string{
+		filepath.Join(options.EthosRoot, "config.yaml"),
+		defaultPath(options.Primary, filepath.Join(options.EthosRoot, "coding_ethos.yml")),
+		defaultPath(options.RepoEthos, filepath.Join(options.RepoRoot, "repo_ethos.yml")),
+		options.RepoConfig,
+		filepath.Join(options.RepoRoot, "repo_config.yaml"),
+		filepath.Join(options.RepoRoot, "repo_config.yml"),
+	})
+}
+
+func agentSkillSourcePaths(options agentskills.Options) []string {
+	return compactExistingOrCandidatePaths([]string{
+		defaultPath(options.Primary, filepath.Join(options.EthosRoot, "coding_ethos.yml")),
+		defaultPath(options.RepoEthos, filepath.Join(options.RepoRoot, "repo_ethos.yml")),
+	})
+}
+
+func defaultPath(path, fallback string) string {
+	if strings.TrimSpace(path) != "" {
+		return path
+	}
+
+	return fallback
+}
+
+func compactExistingOrCandidatePaths(paths []string) []string {
+	compacted := make([]string, 0, len(paths))
+	seen := map[string]bool{}
+
+	for _, path := range paths {
+		cleaned := strings.TrimSpace(path)
+		if cleaned == "" {
+			continue
+		}
+
+		cleaned = filepath.Clean(cleaned)
+		if seen[cleaned] {
+			continue
+		}
+
+		seen[cleaned] = true
+		compacted = append(compacted, cleaned)
+	}
+
+	return compacted
 }
 
 func validateMetadata(args []string) error {
@@ -1060,19 +1338,22 @@ func usage() {
   coding-ethos-policy config-trace [--primary coding_ethos.yml] [--config config.yaml]
       [--repo-config repo_config.yaml] [--json]
   coding-ethos-policy sync-tool-configs --repo REPO [--ethos-root .]
-      [--repo-config repo_config.yaml]
+      [--repo-config repo_config.yaml] [--dry-run] [--format json|toon]
   coding-ethos-policy check-tool-configs --repo REPO [--ethos-root .]
       [--repo-config repo_config.yaml]
   coding-ethos-policy sync-gemini-prompts --repo REPO [--ethos-root .]
       [--primary coding_ethos.yml] [--repo-ethos repo_ethos.yml]
-      [--repo-config repo_config.yaml]
+      [--repo-config repo_config.yaml] [--dry-run] [--format json|toon]
   coding-ethos-policy check-gemini-prompts --repo REPO [--ethos-root .]
       [--primary coding_ethos.yml] [--repo-ethos repo_ethos.yml]
       [--repo-config repo_config.yaml]
   coding-ethos-policy sync-agent-skills --repo REPO [--ethos-root .]
       [--primary coding_ethos.yml] [--repo-ethos repo_ethos.yml]
+      [--dry-run] [--format json|toon]
   coding-ethos-policy check-agent-skills --repo REPO [--ethos-root .]
       [--primary coding_ethos.yml] [--repo-ethos repo_ethos.yml]
+  coding-ethos-policy install-state-doctor --repo REPO [--format json|toon]
+  coding-ethos-policy install-state-repair-plan --repo REPO [--format json|toon]
 `)
 }
 
