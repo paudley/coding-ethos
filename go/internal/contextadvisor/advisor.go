@@ -180,76 +180,108 @@ func ThresholdsFromConfig(config configdata.Map, base Thresholds) Thresholds {
 	}
 
 	base.Enabled = boolAt(settings, "enabled", base.Enabled)
-	base.WarningFileReads = positiveIntAt(
-		settings,
-		"warning_file_reads",
-		base.WarningFileReads,
-	)
-	base.HighFileReads = positiveIntAt(settings, "high_file_reads", base.HighFileReads)
-	base.WarningFileListings = positiveIntAt(
-		settings,
-		"warning_file_listings",
-		base.WarningFileListings,
-	)
-	base.HighFileListings = positiveIntAt(
-		settings,
-		"high_file_listings",
-		base.HighFileListings,
-	)
-	base.WarningToolCalls = positiveIntAt(
-		settings,
-		"warning_tool_calls",
-		base.WarningToolCalls,
-	)
-	base.HighToolCalls = positiveIntAt(settings, "high_tool_calls", base.HighToolCalls)
-	base.WarningTruncations = positiveIntAt(
-		settings,
-		"warning_truncations",
-		base.WarningTruncations,
-	)
-	base.HighTruncations = positiveIntAt(
-		settings,
-		"high_truncations",
-		base.HighTruncations,
-	)
-	base.WarningOutputCompression = positiveIntAt(
-		settings,
-		"warning_output_compression",
-		base.WarningOutputCompression,
-	)
-	base.HighOutputCompression = positiveIntAt(
-		settings,
-		"high_output_compression",
-		base.HighOutputCompression,
-	)
-	base.WarningSpillFiles = positiveIntAt(
-		settings,
-		"warning_spill_files",
-		base.WarningSpillFiles,
-	)
-	base.HighSpillFiles = positiveIntAt(settings, "high_spill_files", base.HighSpillFiles)
-	base.WarningStaleSurfaces = positiveIntAt(
-		settings,
-		"warning_stale_surfaces",
-		base.WarningStaleSurfaces,
-	)
-	base.HighStaleSurfaces = positiveIntAt(
-		settings,
-		"high_stale_surfaces",
-		base.HighStaleSurfaces,
-	)
-	base.WarningTotalTokens = positiveIntAt(
-		settings,
-		"warning_total_tokens",
-		base.WarningTotalTokens,
-	)
-	base.HighTotalTokens = positiveIntAt(
-		settings,
-		"high_total_tokens",
-		base.HighTotalTokens,
-	)
+	applyReadThresholds(settings, &base)
+	applyToolThresholds(settings, &base)
+	applyCompressionThresholds(settings, &base)
+	applyOutputSurfaceThresholds(settings, &base)
+	applyTokenThresholds(settings, &base)
 
 	return base
+}
+
+func applyReadThresholds(settings configdata.Map, thresholds *Thresholds) {
+	thresholds.WarningFileReads = configuredIntAt(
+		settings,
+		"warning_file_reads",
+		thresholds.WarningFileReads,
+	)
+	thresholds.HighFileReads = configuredIntAt(
+		settings,
+		"high_file_reads",
+		thresholds.HighFileReads,
+	)
+	thresholds.WarningFileListings = configuredIntAt(
+		settings,
+		"warning_file_listings",
+		thresholds.WarningFileListings,
+	)
+	thresholds.HighFileListings = configuredIntAt(
+		settings,
+		"high_file_listings",
+		thresholds.HighFileListings,
+	)
+}
+
+func applyToolThresholds(settings configdata.Map, thresholds *Thresholds) {
+	thresholds.WarningToolCalls = configuredIntAt(
+		settings,
+		"warning_tool_calls",
+		thresholds.WarningToolCalls,
+	)
+	thresholds.HighToolCalls = configuredIntAt(
+		settings,
+		"high_tool_calls",
+		thresholds.HighToolCalls,
+	)
+}
+
+func applyCompressionThresholds(settings configdata.Map, thresholds *Thresholds) {
+	thresholds.WarningTruncations = configuredIntAt(
+		settings,
+		"warning_truncations",
+		thresholds.WarningTruncations,
+	)
+	thresholds.HighTruncations = configuredIntAt(
+		settings,
+		"high_truncations",
+		thresholds.HighTruncations,
+	)
+	thresholds.WarningOutputCompression = configuredIntAt(
+		settings,
+		"warning_output_compression",
+		thresholds.WarningOutputCompression,
+	)
+	thresholds.HighOutputCompression = configuredIntAt(
+		settings,
+		"high_output_compression",
+		thresholds.HighOutputCompression,
+	)
+}
+
+func applyOutputSurfaceThresholds(settings configdata.Map, thresholds *Thresholds) {
+	thresholds.WarningSpillFiles = configuredIntAt(
+		settings,
+		"warning_spill_files",
+		thresholds.WarningSpillFiles,
+	)
+	thresholds.HighSpillFiles = configuredIntAt(
+		settings,
+		"high_spill_files",
+		thresholds.HighSpillFiles,
+	)
+	thresholds.WarningStaleSurfaces = configuredIntAt(
+		settings,
+		"warning_stale_surfaces",
+		thresholds.WarningStaleSurfaces,
+	)
+	thresholds.HighStaleSurfaces = configuredIntAt(
+		settings,
+		"high_stale_surfaces",
+		thresholds.HighStaleSurfaces,
+	)
+}
+
+func applyTokenThresholds(settings configdata.Map, thresholds *Thresholds) {
+	thresholds.WarningTotalTokens = configuredIntAt(
+		settings,
+		"warning_total_tokens",
+		thresholds.WarningTotalTokens,
+	)
+	thresholds.HighTotalTokens = configuredIntAt(
+		settings,
+		"high_total_tokens",
+		thresholds.HighTotalTokens,
+	)
 }
 
 // Analyze converts a session snapshot and output-surface inventory into compact
@@ -615,10 +647,9 @@ func boolAt(values configdata.Map, key string, fallback bool) bool {
 	return fallback
 }
 
-func positiveIntAt(values configdata.Map, key string, fallback int) int {
-	value := configdata.IntAt(values, key)
-	if value > 0 {
-		return value
+func configuredIntAt(values configdata.Map, key string, fallback int) int {
+	if _, present := values[key]; present {
+		return configdata.IntAt(values, key)
 	}
 
 	return fallback

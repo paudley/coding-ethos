@@ -139,6 +139,37 @@ func TestThresholdsFromConfigOverridesDefaults(t *testing.T) {
 	}
 }
 
+func TestThresholdsFromConfigAllowsDisabledThresholds(t *testing.T) {
+	t.Parallel()
+
+	thresholds := ThresholdsFromConfig(
+		configdata.Map{
+			"proxy": map[string]any{
+				"context_advisor": map[string]any{
+					"warning_file_reads": 0,
+					"high_file_reads":    -1,
+				},
+			},
+		},
+		DefaultThresholds(),
+	)
+
+	if thresholds.WarningFileReads != 0 || thresholds.HighFileReads != -1 {
+		t.Fatalf("disabled thresholds were not preserved: %#v", thresholds)
+	}
+
+	snapshot := readySnapshot()
+	snapshot.Proxy.FileReads = defaultHighFileReads
+
+	report := Analyze(snapshot, outputsurface.Report{}, thresholds, time.Time{})
+	if report.Status != StatusOK {
+		t.Fatalf("status = %q, want %q", report.Status, StatusOK)
+	}
+	if len(report.Advice) != 0 {
+		t.Fatalf("disabled threshold produced advice: %#v", report.Advice)
+	}
+}
+
 func readySnapshot() codeintel.SessionSnapshot {
 	return codeintel.SessionSnapshot{
 		CodeIntel: codeintel.SessionCodeIntelSummary{
