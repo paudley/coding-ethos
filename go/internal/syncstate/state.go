@@ -130,7 +130,6 @@ type SourceReport struct {
 
 func Artifacts(repoRoot string, inputs []ArtifactInput) ([]Artifact, error) {
 	artifacts := make([]Artifact, 0, len(inputs))
-	now := time.Now().UTC().Format(time.RFC3339)
 
 	for _, input := range inputs {
 		relativePath, err := repoRelativePath(repoRoot, input.RelativePath)
@@ -150,7 +149,6 @@ func Artifacts(repoRoot string, inputs []ArtifactInput) ([]Artifact, error) {
 			Ownership:           ownership,
 			ExpectedSHA256:      hashString(input.Content),
 			VerificationCommand: strings.TrimSpace(input.VerificationCommand),
-			LastWrittenUTC:      now,
 		})
 	}
 
@@ -701,20 +699,13 @@ func hashBytes(payload []byte) string {
 
 func repoRelativePath(repoRoot, path string) (string, error) {
 	cleaned := filepath.Clean(path)
-	if !filepath.IsAbs(cleaned) {
-		if pathEscapesRoot(cleaned) {
-			return "", fmt.Errorf(
-				"artifact path %s is outside repo root %s: %w",
-				path,
-				repoRoot,
-				errArtifactOutsideRepo,
-			)
-		}
+	root := filepath.Clean(repoRoot)
 
-		return filepath.ToSlash(cleaned), nil
+	if !filepath.IsAbs(cleaned) {
+		cleaned = filepath.Join(root, cleaned)
 	}
 
-	relative, err := filepath.Rel(filepath.Clean(repoRoot), cleaned)
+	relative, err := filepath.Rel(root, cleaned)
 	if err != nil {
 		return "", fmt.Errorf("resolve relative artifact path %s: %w", path, err)
 	}
@@ -741,8 +732,25 @@ func runtimeVersion(ethosRoot string) string {
 		return ""
 	}
 
+	inProject := false
 	for line := range strings.SplitSeq(string(payload), "\n") {
 		trimmed := strings.TrimSpace(line)
+		if trimmed == "[project]" {
+			inProject = true
+
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "[") {
+			inProject = false
+
+			continue
+		}
+
+		if !inProject {
+			continue
+		}
+
 		if !strings.HasPrefix(trimmed, "version = ") {
 			continue
 		}

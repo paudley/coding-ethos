@@ -946,14 +946,14 @@ func runCodeIntelCommands(
 ) {
 	t.Helper()
 
-	captureStdout(t, func() {
-		for _, args := range commands {
+	for _, args := range commands {
+		captureStdout(t, func() {
 			err := run(ctx, args)
 			if err != nil {
 				t.Fatalf("run(%s) returned error: %v", args[0], err)
 			}
-		}
-	})
+		})
+	}
 }
 
 func recordCommandArgs(root string, baseArgs []string) [][]string {

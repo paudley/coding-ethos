@@ -47,6 +47,9 @@ var (
 	errToolConfigRepoRequired = apperror.StaticError(
 		"tool config command requires --repo",
 	)
+	errInstallStateRepoRequired = apperror.StaticError(
+		"install-state command requires --repo",
+	)
 	errGeminiPromptRepoRequired = apperror.StaticError(
 		"gemini prompt command requires --repo",
 	)
@@ -495,7 +498,7 @@ func parseInstallStateFlags(
 	}
 
 	if strings.TrimSpace(*repo) == "" {
-		return installStateOptions{}, errToolConfigRepoRequired
+		return installStateOptions{}, errInstallStateRepoRequired
 	}
 
 	return installStateOptions{repo: *repo, format: *format}, nil
@@ -539,7 +542,7 @@ func writeSyncStateReport(report syncstate.Report, format string) error {
 }
 
 func toolConfigSourcePaths(options toolConfigOptions) []string {
-	return compactExistingOrCandidatePaths([]string{
+	return compactCandidatePaths([]string{
 		filepath.Join(options.ethosRoot, "config.yaml"),
 		options.repoConfig,
 		filepath.Join(options.repo, "repo_config.yaml"),
@@ -550,7 +553,7 @@ func toolConfigSourcePaths(options toolConfigOptions) []string {
 }
 
 func geminiSourcePaths(options geminiprompts.Options) []string {
-	return compactExistingOrCandidatePaths([]string{
+	return compactCandidatePaths([]string{
 		filepath.Join(options.EthosRoot, "config.yaml"),
 		defaultPath(options.Primary, filepath.Join(options.EthosRoot, "coding_ethos.yml")),
 		defaultPath(options.RepoEthos, filepath.Join(options.RepoRoot, "repo_ethos.yml")),
@@ -561,7 +564,7 @@ func geminiSourcePaths(options geminiprompts.Options) []string {
 }
 
 func agentSkillSourcePaths(options agentskills.Options) []string {
-	return compactExistingOrCandidatePaths([]string{
+	return compactCandidatePaths([]string{
 		defaultPath(options.Primary, filepath.Join(options.EthosRoot, "coding_ethos.yml")),
 		defaultPath(options.RepoEthos, filepath.Join(options.RepoRoot, "repo_ethos.yml")),
 	})
@@ -575,7 +578,7 @@ func defaultPath(path, fallback string) string {
 	return fallback
 }
 
-func compactExistingOrCandidatePaths(paths []string) []string {
+func compactCandidatePaths(paths []string) []string {
 	compacted := make([]string, 0, len(paths))
 	seen := map[string]bool{}
 

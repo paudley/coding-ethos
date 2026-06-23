@@ -19,7 +19,11 @@ func TestInstallSyncStatePlansRecordsAndDoctorsArtifacts(t *testing.T) {
 	configPath := filepath.Join(ethosRoot, "config.yaml")
 	artifactPath := filepath.Join(repoRoot, "generated", "artifact.txt")
 
-	writeTestFile(t, filepath.Join(ethosRoot, "pyproject.toml"), "version = \"9.8.7\"\n")
+	writeTestFile(
+		t,
+		filepath.Join(ethosRoot, "pyproject.toml"),
+		"[project]\nversion = \"9.8.7\"\n",
+	)
 	writeTestFile(t, configPath, "project:\n  name: example\n")
 
 	artifacts, err := Artifacts(repoRoot, []ArtifactInput{
@@ -180,6 +184,21 @@ func TestRepoRelativePathRejectsOnlyRealTraversal(t *testing.T) {
 	}
 	if valid != filepath.ToSlash(filepath.Join("..foo", "bar.txt")) {
 		t.Fatalf("valid path = %q", valid)
+	}
+}
+
+func TestRuntimeVersionUsesProjectTable(t *testing.T) {
+	t.Parallel()
+
+	ethosRoot := t.TempDir()
+	writeTestFile(
+		t,
+		filepath.Join(ethosRoot, "pyproject.toml"),
+		"[tool.example]\nversion = \"0.0.1\"\n\n[project]\nversion = \"2.3.4\"\n",
+	)
+
+	if got := runtimeVersion(ethosRoot); got != "2.3.4" {
+		t.Fatalf("runtime version = %q", got)
 	}
 }
 

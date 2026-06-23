@@ -271,7 +271,7 @@ func TestSyncToolConfigsWritesInstallSyncState(t *testing.T) {
 	writePolicyCLITestFile(
 		t,
 		filepath.Join(ethosRoot, "pyproject.toml"),
-		"version = \"1.2.3\"\n",
+		"[project]\nversion = \"1.2.3\"\n",
 	)
 
 	var err error

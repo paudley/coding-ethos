@@ -140,7 +140,7 @@ func TestSyncSettingsUsesEthosRootForInstallState(t *testing.T) {
 	writeAgentHooksCLITestFile(
 		t,
 		filepath.Join(ethosRoot, "pyproject.toml"),
-		"version = \"7.8.9\"\n",
+		"[project]\nversion = \"7.8.9\"\n",
 	)
 
 	hookCommand := filepath.Join(root, "bin", "coding-ethos-run") + " agent-hook"
