@@ -68,6 +68,16 @@ func (server Server) recordSkillRecommendationObservations(
 	input skillRecommendInput,
 	recommendations []map[string]any,
 ) error {
+	if len(recommendations) == 0 || strings.TrimSpace(server.codeIntelRoot()) == "" {
+		return nil
+	}
+
+	store, closeStore, err := server.openCodeIntelStore()
+	if err != nil {
+		return fmt.Errorf("open code intelligence store for skill observations: %w", err)
+	}
+	defer closeStore()
+
 	enriched := server.enrichedDiagnostic(input.Diagnostic)
 
 	for _, recommendation := range recommendations {
@@ -76,7 +86,7 @@ func (server Server) recordSkillRecommendationObservations(
 			return apperror.StaticError("skill recommendation missing id")
 		}
 
-		err := server.recordSkillObservation(codeintel.SkillObservation{
+		err = store.RecordSkillObservation(argsContext(), codeintel.SkillObservation{
 			SkillID:  skillID,
 			PolicyID: enriched.PolicyID,
 			Path: firstNonEmpty(
@@ -97,7 +107,7 @@ func (server Server) recordSkillRecommendationObservations(
 			}), " "),
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("record skill observation: %w", err)
 		}
 	}
 

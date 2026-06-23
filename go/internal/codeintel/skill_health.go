@@ -200,7 +200,12 @@ func (store *Store) SkillHealth(
 		},
 	}
 
-	records := buildSkillHealthRecords(query, outcomes)
+	now, err := parseSkillHealthTime(query.NowUTC)
+	if err != nil {
+		return SkillHealthReport{}, fmt.Errorf("parse skill health query time: %w", err)
+	}
+
+	records := buildSkillHealthRecords(query, outcomes, now)
 	sortSkillHealthRecords(records)
 
 	if query.Limit > 0 && len(records) > query.Limit {
@@ -285,13 +290,14 @@ func (store *Store) skillOutcomeRows(
 func buildSkillHealthRecords(
 	query SkillHealthQuery,
 	outcomes []RemediationOutcome,
+	now time.Time,
 ) []SkillHealthRecord {
 	known := skillProvenanceMap(query.KnownSkills)
 	observed := map[string]*SkillHealthRecord{}
 
 	for _, outcome := range outcomes {
 		record := skillHealthRecordFor(observed, known, outcome.SkillID)
-		accumulateSkillOutcome(record, outcome, query.NowUTC)
+		accumulateSkillOutcome(record, outcome, now)
 	}
 
 	for _, provenance := range query.KnownSkills {
@@ -312,7 +318,7 @@ func buildSkillHealthRecords(
 	for _, record := range observed {
 		finalizeSkillHealthRecord(
 			record,
-			query.NowUTC,
+			now,
 			query.StaleDays,
 			len(query.KnownSkills) > 0,
 		)
@@ -382,7 +388,7 @@ func newKnownSkillHealthRecord(provenance SkillProvenance) *SkillHealthRecord {
 func accumulateSkillOutcome(
 	record *SkillHealthRecord,
 	outcome RemediationOutcome,
-	nowUTC string,
+	now time.Time,
 ) {
 	record.Total++
 	record.RetryCount += retryCount(outcome.AttemptOrdinal)
@@ -404,11 +410,11 @@ func accumulateSkillOutcome(
 		outcome.Outcome,
 	)
 
-	if outcomeWithinWindow(outcome.RecordedAtUTC, nowUTC, skillHealthWeekDays) {
+	if outcomeWithinWindow(outcome.RecordedAtUTC, now, skillHealthWeekDays) {
 		accumulateSkillWindow(&record.Window7, outcome)
 	}
 
-	if outcomeWithinWindow(outcome.RecordedAtUTC, nowUTC, skillHealthMonthDays) {
+	if outcomeWithinWindow(outcome.RecordedAtUTC, now, skillHealthMonthDays) {
 		accumulateSkillWindow(&record.Window30, outcome)
 	}
 }
@@ -454,7 +460,7 @@ func accumulateOutcomeCounters(
 
 func finalizeSkillHealthRecord(
 	record *SkillHealthRecord,
-	nowUTC string,
+	now time.Time,
 	staleDays int,
 	knownCatalog bool,
 ) {
@@ -465,7 +471,7 @@ func finalizeSkillHealthRecord(
 	record.RecurrenceWindow = recurrenceWindow(record)
 	record.UnknownSkill = knownCatalog && !record.Generated && record.Total > 0
 	record.Trend = skillTrend(record)
-	record.Status = skillStatus(record, nowUTC, staleDays)
+	record.Status = skillStatus(record, now, staleDays)
 }
 
 func recurrenceWindow(record *SkillHealthRecord) string {
@@ -495,7 +501,7 @@ func skillTrend(record *SkillHealthRecord) string {
 	}
 }
 
-func skillStatus(record *SkillHealthRecord, nowUTC string, staleDays int) string {
+func skillStatus(record *SkillHealthRecord, now time.Time, staleDays int) string {
 	switch {
 	case record.UnknownSkill:
 		return skillHealthStatusUnknownSkill
@@ -506,7 +512,7 @@ func skillStatus(record *SkillHealthRecord, nowUTC string, staleDays int) string
 		return skillHealthStatusFrequentlyFailing
 	case record.Trend == skillHealthTrendImproving:
 		return skillHealthStatusImproving
-	case skillLastUsedBefore(record.LastUsedUTC, nowUTC, staleDays):
+	case skillLastUsedBefore(record.LastUsedUTC, now, staleDays):
 		return skillHealthStatusStale
 	default:
 		return skillHealthStatusHealthy
@@ -585,13 +591,8 @@ func retryCount(attemptOrdinal int) int {
 	return attemptOrdinal - 1
 }
 
-func outcomeWithinWindow(recordedAtUTC, nowUTC string, days int) bool {
+func outcomeWithinWindow(recordedAtUTC string, now time.Time, days int) bool {
 	recordedAt, err := parseSkillHealthTime(recordedAtUTC)
-	if err != nil {
-		return false
-	}
-
-	now, err := parseSkillHealthTime(nowUTC)
 	if err != nil {
 		return false
 	}
@@ -601,17 +602,12 @@ func outcomeWithinWindow(recordedAtUTC, nowUTC string, days int) bool {
 	return !recordedAt.Before(cutoff) && !recordedAt.After(now)
 }
 
-func skillLastUsedBefore(lastUsedUTC, nowUTC string, days int) bool {
+func skillLastUsedBefore(lastUsedUTC string, now time.Time, days int) bool {
 	if strings.TrimSpace(lastUsedUTC) == "" {
 		return false
 	}
 
 	lastUsed, err := parseSkillHealthTime(lastUsedUTC)
-	if err != nil {
-		return false
-	}
-
-	now, err := parseSkillHealthTime(nowUTC)
 	if err != nil {
 		return false
 	}
@@ -643,30 +639,22 @@ func parseSkillHealthTime(value string) (time.Time, error) {
 }
 
 func maxUTC(left, right string) string {
-	if strings.TrimSpace(left) == "" {
-		return strings.TrimSpace(right)
-	}
+	left = strings.TrimSpace(left)
 
-	if strings.TrimSpace(right) == "" {
-		return strings.TrimSpace(left)
-	}
-
-	leftTime, leftErr := parseSkillHealthTime(left)
-
-	rightTime, rightErr := parseSkillHealthTime(right)
-	if leftErr != nil || rightErr != nil {
-		if strings.Compare(left, right) >= 0 {
-			return left
-		}
-
+	right = strings.TrimSpace(right)
+	if left == "" {
 		return right
 	}
 
-	if rightTime.After(leftTime) {
-		return right
+	if right == "" {
+		return left
 	}
 
-	return left
+	if left >= right {
+		return left
+	}
+
+	return right
 }
 
 func appendUniqueString(values []string, value string) []string {
