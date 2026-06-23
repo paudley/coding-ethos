@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"blackcat.ca/coding-ethos/go/internal/syncstate"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
@@ -113,6 +114,28 @@ func Sync(options Options) ([]string, error) {
 	}
 
 	return []string{path}, nil
+}
+
+func StateArtifacts(options Options) ([]syncstate.Artifact, error) {
+	rendered, err := Render(options)
+	if err != nil {
+		return nil, err
+	}
+
+	artifacts, err := syncstate.Artifacts(options.RepoRoot, []syncstate.ArtifactInput{
+		{
+			RelativePath:        PromptPackPath,
+			Content:             rendered,
+			Provider:            "gemini-prompts",
+			Surface:             "prompt-pack",
+			VerificationCommand: "make check-gemini-prompts",
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build Gemini prompt state artifacts: %w", err)
+	}
+
+	return artifacts, nil
 }
 
 func Check(options Options) ([]string, error) {

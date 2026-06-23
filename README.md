@@ -338,6 +338,12 @@ The first tools are intentionally narrow and auditable:
 - `skill_lookup`: return an ETHOS-derived skill playbook by skill ID.
 - `remediation_explain`: expand an emitted `agent_remediation` item into
   policy, principle, skill, and retry guidance.
+- `modern_web_guidance_search`: search current advisory Modern Web Guidance
+  through coding-ethos cache, provenance, and standard output handling.
+- `modern_web_guidance_retrieve`: retrieve one or more Modern Web Guidance
+  guides by ID without invoking upstream `npx` directly from agent prompts.
+- `modern_web_guidance_list`: list available Modern Web Guidance guide IDs and
+  categories with package provenance and cache status.
 - `code_intel_overview`: return a task-shaped repository orientation with
   ranked files, freshness metadata, evidence counts, and exact follow-up MCP
   calls.
@@ -365,6 +371,10 @@ The first tools are intentionally narrow and auditable:
 - `code_intel_health`: rank deterministic refactoring targets from indexed
   structure, structural clones, git signals, LCOV coverage, and repeated
   failure evidence with persisted trend snapshots.
+- `code_intel_skill_health`: report generated skill provenance, 7-day and
+  30-day usage windows, unused skills, frequently failing skills, improving
+  skills, stale skills, and unknown skill IDs from remediation-outcome
+  evidence.
 - `code_intel_why`: return architectural decisions and decision-health signals
   for a query, path, symbol, or status before changing code.
 - `code_intel_session_snapshot`: return the canonical
@@ -427,10 +437,13 @@ Agent-facing output stays compact: TOON and human output emit the skill ID,
 short hint, and next action instead of dumping the full skill body into the
 agent context.
 
-Skill hints are also logged under `.coding-ethos/lint-runs/`. Those traces let
-the project measure which remediation playbooks appear in real work and promote
-recurring unmapped findings into stronger evidence maps or repo-specific
-skills.
+Skill use and observable outcomes are measured in the repo-local code-intel
+store. `skill_lookup` and `skill_recommend` record unknown-outcome observations
+when a code-intel root is configured, explicit remediation outcomes record
+success or repeat failure, and `skill-health`/`code_intel_skill_health` report
+7-day and 30-day trends. These reports are measurement-only: learned or evolved
+skills are not promoted into generated repo artifacts without a separate
+explicit policy change.
 
 `coding-ethos` can also import retained lint and hook traces into a local
 DuckDB code-intelligence store for repeated-failure and remediation search:
@@ -460,9 +473,11 @@ bin/coding-ethos-run code-intel proxy-file-read --session-id sess-1 --path pkg/a
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel proxy-events --session-id sess-1
 bin/coding-ethos-run code-intel session-snapshot --session-id sess-1 --format toon
+bin/coding-ethos-run code-intel context-advice --session-id sess-1 --format toon
 bin/coding-ethos-run code-intel repeated-edits --path pkg/app.py
 bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
 bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports
+bin/coding-ethos-run code-intel skill-health --format toon
 bin/coding-ethos-run code-intel embedding-candidates --record-kind remediation_outcome
 bin/coding-ethos-run code-intel embedding-records --backend duckdb-vss
 bin/coding-ethos-run code-intel hybrid-search --text 'unused import' --model-id voyage-code-3 --vector '0.1,0.2,0.3'
@@ -475,6 +490,37 @@ repo-local artifacts are derived from retained traces, SARIF, AST chunks, proxy
 session events, remediation records, hook review labels, LCOV coverage, health
 snapshots, architectural decisions, and vector metadata.
 They are not replacements for hooks or CEL policy evaluation.
+
+## Modern Web Guidance
+
+Modern Web Guidance is exposed as an advisory, latest-on-demand external
+guidance source. Agents should use the coding-ethos MCP tools first, or the CLI
+fallback when MCP is unavailable:
+
+```bash
+bin/coding-ethos-run web-guidance list
+bin/coding-ethos-run web-guidance search "navigation drawer CSS popover"
+bin/coding-ethos-run web-guidance retrieve navigation-drawer
+```
+
+The adapter resolves `modern-web-guidance@latest` only inside an explicit
+`list`, `search`, or `retrieve` operation. It stores response records and npm
+artifacts under `.coding-ethos/cache/modern-web-guidance/`, emits TOON by
+default, and includes package name, resolved version, dist-tag, fetch time,
+guide IDs, source URL, content hash, and cache status in every response. The
+guidance remains advisory: repo policy, user instructions, ETHOS, CEL policy,
+and local browser-support constraints stay authoritative.
+
+Configure the integration in `config.toml` or a consuming repo's
+`repo_config.toml`:
+
+```toml
+[web_guidance.modern_web]
+enabled = true
+cache_ttl = "24h"
+allow_network_refresh = true
+browser_policy = ""
+```
 
 The recent code-intel graph work gives agents a richer orientation layer before
 they edit. `graph-report` combines repo-map ranking, store counts, stored health
@@ -533,10 +579,11 @@ bin/coding-ethos-run output prune --scope code_intel_db --older-than 90d --apply
 
 The report is non-destructive. It inventories retained hook runs and component
 logs, lint traces, the code-intelligence database, sandbox/cache/state
-directories, runtime caches, local SARIF artifacts, prune traces, and optional
-OS temp evidence. Code-intelligence report rows include health snapshot, target,
-and LCOV coverage counts alongside trace, hook, proxy, and FTS row counts. The
-prune command uses the same registry, defaults to preview
+directories, Modern Web Guidance cache, runtime caches, local SARIF artifacts,
+prune traces, and optional OS temp evidence. Code-intelligence report rows
+include health snapshot, target, and LCOV coverage counts alongside trace,
+hook, proxy, and FTS row counts. The prune command uses the same registry,
+defaults to preview
 mode, refuses unknown surface IDs, skips symlinks, and requires `--apply` before
 deleting files. Retention policies support `max_age`, `keep_last`, `max_bytes`,
 code-intel row pruning through `row_retention_days` or `--older-than`, and
@@ -552,6 +599,19 @@ counts, and recommended next actions into TOON, JSON, or human output. Use
 `--write status.md` when handing a repo to another operator or agent; blocker
 exit semantics remain reserved for command execution errors, while degraded
 local state is represented in the report's `status` field.
+
+`code-intel context-advice` and `status` include context/token economy guidance
+only when advisory thresholds are crossed. The advisor reads the existing
+code-intel session snapshot, proxy events, token/compression counters, and
+output-surface inventory, then emits JSON or compact TOON recommendations for
+repeated file/listing reads, tool-call pressure, stale or spilled outputs,
+truncation/compression, and high session token volume. SessionStart receives the
+same compact advice block only when there is actionable pressure. Configure
+thresholds under `proxy.context_advisor` in `repo_config.yaml`; these heuristics
+are advisory and do not participate in enforcement decisions. Pass
+`--include-temp` to `code-intel context-advice` when the operator needs OS temp
+spill evidence included in the count.
+
 Code-intel maintenance treats database files as derived indexes and evidence
 logs as durable audit material. Automatic maintenance prunes old DuckDB rows,
 checkpoints and compacts the DuckDB index, removes stale DuckDB sidecar
@@ -790,6 +850,8 @@ results from the packages that own those concerns.
 | Sync Gemini prompt pack | `make sync-gemini-prompts` |
 | Check Gemini prompt-pack drift | `make check-gemini-prompts` |
 | Check generated agent skill drift | `make check-agent-skills` |
+| Inspect generated-surface install state | `bin/coding-ethos-run policy install-state-doctor --repo .` |
+| Plan generated-surface repair writes | `bin/coding-ethos-run policy install-state-repair-plan --repo .` |
 | Run staged-file hooks | `make pre-commit` |
 | Run hooks over all files | `make pre-commit-all` |
 | Run pre-push hooks | `make pre-push` |
@@ -862,6 +924,11 @@ Sync generated tool configs:
 
 ```bash
 make sync-tool-configs REPO=/path/to/repo
+bin/coding-ethos-run policy sync-tool-configs \
+  --repo /path/to/repo \
+  --ethos-root . \
+  --dry-run \
+  --format toon
 ```
 
 By default the same command writes the managed SARIF CI files and includes
@@ -873,6 +940,32 @@ Repos with a deliberate exception can set
 `generated_config.ci.gitlab.enabled: false` in their merged enforcement config.
 They are checked by `make check-tool-configs`; there is no separate CI sync
 path.
+
+Successful generated-surface sync writes a repo-local install/sync state file at
+`.coding-ethos/state/install-sync.json`. The state records schema version,
+source config hashes, runtime version/commit, target repo root, provider
+targets, requested action, coding-ethos-owned artifact paths, expected SHA-256
+hashes, last validation time, and the command that verifies each generated
+surface. The state file is ignored runtime state, not a source artifact.
+
+Dry-run sync reports the exact writes it would perform without mutating files:
+
+```bash
+bin/coding-ethos-run policy sync-tool-configs --repo /path/to/repo --dry-run --format json
+bin/coding-ethos-run policy sync-gemini-prompts --repo /path/to/repo --dry-run --format toon
+bin/coding-ethos-run policy sync-agent-skills --repo /path/to/repo --dry-run --format toon
+bin/coding-ethos-run agent-hooks sync --root /path/to/repo --ethos-root . --dry-run --format toon
+```
+
+Doctor and repair planning are read-only. Doctor compares recorded source hashes
+and artifact hashes against the current checkout and reports missing, stale, or
+drifted surfaces. Repair planning lists only `coding-ethos-managed` recorded
+outputs, so external or unrecorded files are never proposed for mutation:
+
+```bash
+bin/coding-ethos-run policy install-state-doctor --repo /path/to/repo --format toon
+bin/coding-ethos-run policy install-state-repair-plan --repo /path/to/repo --format json
+```
 
 Check generated tool config drift:
 
@@ -900,8 +993,8 @@ make sync-gemini-prompts REPO=/path/to/repo PRIMARY=coding_ethos.yml
 | `repo_ethos.yml` | repo-local context and overrides | repo-specific agent guidance and principle-derived tool config refinements |
 | `config.yaml` | bundle-wide enforcement defaults | tool configs, hooks, prompt grounding |
 | `repo_config.yaml` / `repo_config.yml` | consumer repo overrides | repo-specific enforcement |
-| `config.toml` | output lifecycle defaults | output report/prune retention policy |
-| `repo_config.toml` | consumer output lifecycle overrides | repo-specific output retention |
+| `config.toml` | output lifecycle and web-guidance defaults | output report/prune retention policy plus Modern Web Guidance defaults |
+| `repo_config.toml` | consumer output lifecycle and web-guidance overrides | repo-specific output retention and guidance settings |
 | `pre-commit/prompts/` | Gemini prompt templates | `.coding-ethos/gemini/prompt-pack.json` |
 | `pre-commit/` | hook bundle | repo-local Git and agent hook runtime |
 
@@ -1090,13 +1183,15 @@ See [repo_config.example.yaml](repo_config.example.yaml).
 
 ### `config.toml` and `repo_config.toml`
 
-Output lifecycle and central memory settings live in TOML. `config.toml`
+Output lifecycle, Modern Web Guidance, and central memory settings live in TOML.
+`config.toml`
 carries the bundle defaults for report format, automatic pruning, command
-pruning, per-surface retention, and `[memories]` behavior. A consuming repo can
+pruning, per-surface retention, `[web_guidance.modern_web]`, and `[memories]`
+behavior. A consuming repo can
 override those settings with `repo_config.toml` at its root. This TOML path is
 intentionally scoped to output surface lifecycle settings and provider-agnostic
-agent memory routing; existing YAML config remains the enforcement source for
-generated tool configs and hook policy.
+runtime guidance/memory routing; existing YAML config remains the enforcement
+source for generated tool configs and hook policy.
 
 Per-surface retention keys are `enabled`, `auto`, `max_age`, `keep_last`,
 `max_bytes`, `require_code_intel_ingest`, `row_retention_days`, and
@@ -1114,6 +1209,12 @@ code-intel maintenance preserves live database files and acts through row
 retention, checkpoint/compaction, sidecar reporting, and event-log retention.
 Use manual `output prune --scope code_intel_db --apply --vacuum` for explicit
 operator-requested database compaction.
+
+Modern Web Guidance settings use `enabled`, `cache_ttl`,
+`allow_network_refresh`, and `browser_policy`. When network refresh is disabled,
+cached responses are still usable and stale responses are marked as stale; an
+empty cache returns an actionable error instead of falling back to raw upstream
+execution.
 
 See [repo_config.example.toml](repo_config.example.toml).
 
@@ -1448,6 +1549,7 @@ Render or verify repo-local agent hook settings:
 ```bash
 bin/coding-ethos-run agent-hooks print
 bin/coding-ethos-run agent-hooks sync
+bin/coding-ethos-run agent-hooks sync --root /path/to/repo --ethos-root . --dry-run --format toon
 bin/coding-ethos-run agent-hooks doctor
 bin/coding-ethos-run agent-hooks verify
 ```

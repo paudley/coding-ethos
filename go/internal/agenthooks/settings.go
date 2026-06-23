@@ -325,70 +325,85 @@ func removeStaleCodexHooksFile(path string) error {
 	return nil
 }
 
-func syncSettingsFile(path string, merge func(map[string]any)) (err error) {
-	payload, err := existingSettingsPayload(path)
+func syncSettingsFile(path string, merge func(map[string]any)) error {
+	content, err := renderSettingsFileContent(path, merge)
 	if err != nil {
 		return err
 	}
-
-	merge(payload)
 
 	err = os.MkdirAll(filepath.Dir(path), settingsDirMode)
 	if err != nil {
 		return fmt.Errorf("create settings directory: %w", err)
 	}
 
-	file, err := os.OpenFile(
-		path,
-		os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
-		settingsFileMode,
-	)
+	err = os.WriteFile(path, []byte(content), settingsFileMode)
 	if err != nil {
-		return fmt.Errorf("open settings: %w", err)
-	}
-
-	defer func() {
-		closeErr := file.Close()
-		if err == nil && closeErr != nil {
-			err = fmt.Errorf("close settings: %w", closeErr)
-		}
-	}()
-
-	encoder := json.NewEncoder(file)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-
-	err = encoder.Encode(payload)
-	if err != nil {
-		return fmt.Errorf("encode settings: %w", err)
+		return fmt.Errorf("write settings: %w", err)
 	}
 
 	return nil
 }
 
+func renderSettingsFileContent(
+	path string,
+	merge func(map[string]any),
+) (string, error) {
+	payload, err := existingSettingsPayload(path)
+	if err != nil {
+		return "", err
+	}
+
+	merge(payload)
+
+	var buffer bytes.Buffer
+
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+
+	err = encoder.Encode(payload)
+	if err != nil {
+		return "", fmt.Errorf("encode settings: %w", err)
+	}
+
+	return buffer.String(), nil
+}
+
 func syncTextSettingsFile(path string, mutate func(string) string) error {
+	content, err := renderTextSettingsFileContent(path, mutate)
+	if err != nil {
+		return err
+	}
+
+	err = os.MkdirAll(filepath.Dir(path), settingsDirMode)
+	if err != nil {
+		return fmt.Errorf("create settings directory: %w", err)
+	}
+
+	err = os.WriteFile(path, []byte(content), settingsFileMode)
+	if err != nil {
+		return fmt.Errorf("write settings: %w", err)
+	}
+
+	return nil
+}
+
+func renderTextSettingsFileContent(
+	path string,
+	mutate func(string) string,
+) (string, error) {
 	content := ""
 
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("read settings: %w", err)
+		return "", fmt.Errorf("read settings: %w", err)
 	}
 
 	if err == nil {
 		content = string(data)
 	}
 
-	err = os.MkdirAll(filepath.Dir(path), settingsDirMode)
-	if err != nil {
-		return fmt.Errorf("create settings directory: %w", err)
-	}
-
-	err = os.WriteFile(path, []byte(mutate(content)), settingsFileMode)
-	if err != nil {
-		return fmt.Errorf("write settings: %w", err)
-	}
-
-	return nil
+	return mutate(content), nil
 }
 
 func ensureCodexHookFeature(content string) string {

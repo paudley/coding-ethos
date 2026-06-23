@@ -17,6 +17,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/agenthooks"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/syncstate"
 )
 
 const testHookCommand = "/repo/bin/coding-ethos-run agent-hook"
@@ -248,6 +249,50 @@ func TestProviderCapabilitiesMatchUpdatedInputBehavior(t *testing.T) {
 				t.Fatalf("capability drift for %s: %#v", provider, result)
 			}
 		})
+	}
+}
+
+func TestStateArtifactsDescribeManagedHookSurfaces(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	artifacts, err := agenthooks.StateArtifacts(root, testHookCommand)
+	if err != nil {
+		t.Fatalf("state artifacts: %v", err)
+	}
+
+	paths := agenthooks.DefaultSettingsPaths(root)
+	expected := map[string]string{
+		filepath.ToSlash(filepath.Join(".claude", "settings.local.json")): "claude-settings",
+		filepath.ToSlash(".mcp.json"):                                     "claude-mcp",
+		filepath.ToSlash(filepath.Join(".codex", "config.toml")):          "codex-config",
+		filepath.ToSlash(filepath.Join(".gemini", "settings.json")):       "gemini-settings",
+	}
+	if len(artifacts) != len(expected) {
+		t.Fatalf(
+			"artifact count = %d, want %d: %#v",
+			len(artifacts),
+			len(expected),
+			artifacts,
+		)
+	}
+
+	for _, artifact := range artifacts {
+		surface, found := expected[artifact.Path]
+		if !found {
+			t.Fatalf("unexpected artifact path %q from %#v", artifact.Path, paths)
+		}
+		if artifact.Provider != "agent-hooks" ||
+			artifact.Surface != surface ||
+			artifact.Ownership != syncstate.DefaultOwnership ||
+			artifact.VerificationCommand != "bin/coding-ethos-run agent-hooks doctor" ||
+			!strings.HasPrefix(artifact.ExpectedSHA256, "sha256:") {
+			t.Fatalf("artifact = %#v", artifact)
+		}
+		delete(expected, artifact.Path)
+	}
+	if len(expected) != 0 {
+		t.Fatalf("missing artifacts: %#v", expected)
 	}
 }
 

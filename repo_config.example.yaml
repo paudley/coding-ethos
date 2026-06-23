@@ -107,6 +107,27 @@ proxy:
     max_symbols: 6
     max_edges: 4
     max_failures: 4
+  context_advisor:
+    # Advisory context/token economy thresholds. These values only control when
+    # compact guidance appears in status, SessionStart, or code-intel
+    # context-advice output; they never block or enforce policy decisions.
+    enabled: true
+    warning_file_reads: 8
+    high_file_reads: 20
+    warning_file_listings: 3
+    high_file_listings: 8
+    warning_tool_calls: 10
+    high_tool_calls: 25
+    warning_truncations: 1
+    high_truncations: 3
+    warning_output_compression: 1
+    high_output_compression: 4
+    warning_spill_files: 1
+    high_spill_files: 5
+    warning_stale_surfaces: 1
+    high_stale_surfaces: 5
+    warning_total_tokens: 16000
+    high_total_tokens: 48000
   output_compression:
     # Repo-local defaults for Bash PostToolUse output returned to agents.
     # The token ledger records every session-scoped Bash action in code-intel.

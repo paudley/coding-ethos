@@ -14,6 +14,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/agenthooks"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
+	"blackcat.ca/coding-ethos/go/internal/syncstate"
 )
 
 const (
@@ -99,21 +100,64 @@ func printSettings(args []string) error {
 func syncSettings(args []string) error {
 	flags := flag.NewFlagSet("sync", flag.ContinueOnError)
 	root := flags.String("root", ".", "Repository root for agent settings")
+	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
+	dryRun := flags.Bool("dry-run", false, "Report planned writes without mutating files")
+	format := flags.String(
+		"format",
+		feedback.FormatTOON,
+		"Output format for dry-run reports",
+	)
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse sync flags: %w", err)
 	}
 
-	err = agenthooks.SyncSettings(*root, defaultHookCommand(*hookCommand))
+	resolvedHookCommand := defaultHookCommand(*hookCommand)
+
+	artifacts, err := agenthooks.StateArtifacts(*root, resolvedHookCommand)
+	if err != nil {
+		return fmt.Errorf("plan agent hook settings: %w", err)
+	}
+
+	if *dryRun {
+		return writeSyncStateReport(
+			syncstate.Plan(*root, "agent-hooks sync", artifacts),
+			*format,
+		)
+	}
+
+	err = agenthooks.SyncSettings(*root, resolvedHookCommand)
 	if err != nil {
 		return fmt.Errorf("sync agent hook settings: %w", err)
 	}
 
-	err = agenthooks.SyncCodexTrustState(*root, defaultHookCommand(*hookCommand), "")
+	err = agenthooks.SyncCodexTrustState(*root, resolvedHookCommand, "")
 	if err != nil {
 		return fmt.Errorf("sync Codex hook trust: %w", err)
+	}
+
+	_, err = syncstate.Upsert(syncstate.UpsertOptions{
+		RepoRoot:        *root,
+		EthosRoot:       *ethosRoot,
+		RequestedAction: "agent-hooks sync",
+		ProviderTargets: []syncstate.ProviderTarget{
+			{Provider: "agent-hooks", Root: *root},
+		},
+		Artifacts: artifacts,
+	})
+	if err != nil {
+		return fmt.Errorf("write install sync state: %w", err)
+	}
+
+	return nil
+}
+
+func writeSyncStateReport(report syncstate.Report, format string) error {
+	err := feedback.Write(os.Stdout, report, format)
+	if err != nil {
+		return fmt.Errorf("write install sync state report: %w", err)
 	}
 
 	return nil
@@ -279,12 +323,14 @@ func usage() {
 }
 
 func usageTo(writer io.Writer) {
+	const text = "Usage: coding-ethos-agent-hooks " +
+		"<print|sync|doctor|verify|sync-provider-matrix|check-provider-matrix> " +
+		"[flags]; sync supports --dry-run --format json|toon"
+
 	feedback.Emit(
 		writer,
 		feedback.Text{
-			Text: "Usage: coding-ethos-agent-hooks " +
-				"<print|sync|doctor|verify|sync-provider-matrix|" +
-				"check-provider-matrix> [flags]",
+			Text: text,
 		},
 		feedback.FormatTOON,
 	)
