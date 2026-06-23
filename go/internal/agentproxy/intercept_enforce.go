@@ -17,13 +17,13 @@ const (
 	reasonProxyEvalError = "proxy_eval_error"
 	// denyResponseError is the stable error label in a denial response body.
 	denyResponseError = "coding-ethos policy denial"
-	// streamDenyEvent names the terminal SSE event appended for streamed inbound
-	// denials after upstream bytes have already been flushed.
+	// streamDenyEvent names the terminal SSE event emitted for streamed inbound
+	// denials before unsafe upstream event frames reach the client.
 	streamDenyEvent = "coding-ethos-denial"
 	// metaDecision records the proxy decision verdict in event metadata.
 	metaDecision = "decision"
-	// metaStreamDenySurface records that a streamed denial was surfaced after
-	// response bytes had already been forwarded.
+	// metaStreamDenySurface records that a streamed denial used the SSE denial
+	// surface instead of a JSON 403 body.
 	metaStreamDenySurface = "stream_denial_surface"
 	// metaProxyTraceID carries the cross-event trace correlation ID.
 	metaProxyTraceID = "proxy_trace_id"
@@ -157,10 +157,9 @@ func outboundDecisionMetadata(identity EventIdentity) map[string]string {
 
 // evaluateInbound runs the proxy policy evaluator against a normalized inbound
 // response. Inbound evaluator errors are fail-open but recorded on the normal
-// inbound event metadata because a response may already be streaming to the
-// client. Explicit denial decisions are handled by the caller, which knows
-// whether it can still replace the response or must surface a terminal SSE
-// denial event.
+// inbound event metadata because the caller may need to preserve upstream
+// response semantics. Explicit denial decisions are handled by the caller,
+// which knows whether to replace the response or emit an SSE denial event.
 func (proxy *InterceptProxy) evaluateInbound(
 	ctx context.Context,
 	identity EventIdentity,
@@ -246,7 +245,7 @@ func (proxy *InterceptProxy) denyOutbound(
 
 // denyInboundInput bundles the facts needed to record an inbound denial. The
 // buffered path can still replace the response with a 403 body; the streaming
-// path records the same event after appending an explicit SSE denial surface.
+// path records the same event after emitting an explicit SSE denial surface.
 type denyInboundInput struct {
 	identity EventIdentity
 	norm     *ResponseNormalization
@@ -268,9 +267,8 @@ func (proxy *InterceptProxy) denyBufferedInbound(
 	proxy.record(ctx, denyInboundEvent(input))
 }
 
-// surfaceStreamedInboundDenial appends a terminal SSE denial event after the
-// upstream stream has been forwarded, then records exactly one inbound deny
-// event. It does not claim pre-flush byte blocking.
+// surfaceStreamedInboundDenial emits a terminal SSE denial event, then records
+// exactly one inbound deny event.
 func (proxy *InterceptProxy) surfaceStreamedInboundDenial(
 	writer http.ResponseWriter,
 	ctx context.Context,

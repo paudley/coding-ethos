@@ -55,7 +55,7 @@ const (
 	tlsFixtureToolCallBody = `{"model":"fixture-model",` +
 		`"choices":[{"message":{"role":"assistant","content":"","tool_calls":[` +
 		`{"id":"call_1","type":"function","function":{"name":"run_command",` +
-		`"arguments":{"cmd":"git status"}}}]}}],` +
+		`"arguments":"{\"cmd\":\"git status\"}"}}]}}],` +
 		`"usage":{"prompt_tokens":7,"completion_tokens":5,"total_tokens":12}}`
 	// tlsFixtureStreamBody is the canned SSE body the stream endpoint emits. It is
 	// a parseable OpenAI chat-completions stream so the interception proxy can
@@ -66,8 +66,8 @@ const (
 		"\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\n" +
 		"data: [DONE]\n\n"
 	// tlsFixtureToolCallStreamBody is a parseable OpenAI stream that reconstructs
-	// into a run_command tool call. The proxy cannot un-send these bytes, so
-	// inbound enforcement appends an explicit terminal denial SSE event.
+	// into a run_command tool call. Inbound enforcement emits an explicit
+	// terminal denial SSE event instead of forwarding this unsafe stream.
 	tlsFixtureToolCallStreamBody = "data: {\"model\":\"fixture-model\",\"choices\":" +
 		"[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0," +
 		"\"function\":{\"name\":\"run_command\",\"arguments\":\"{\\\"cmd\\\"\"}}]}}]}\n\n" +

@@ -55,6 +55,13 @@ var errEmptyProxyWhen = apperror.StaticError(
 	"proxy policy has an empty when expression",
 )
 
+// errUnsupportedProxyDirection reports a proxy-scoped policy whose direction
+// selector is absent or misspelled. Such a policy would otherwise select no
+// evaluator path and silently disable enforcement.
+var errUnsupportedProxyDirection = apperror.StaticError(
+	"proxy policy has unsupported proxy_direction",
+)
+
 // selectedPolicy is a selected proxy policy paired with its CEL evaluator. The
 // evaluator carries the option map EvaluateCELExpression reads (when, scope,
 // skill_id, mode); holding both avoids re-deriving the evaluator per request.
@@ -112,11 +119,26 @@ func New(bundle policy.Bundle) (*Evaluator, error) {
 		}
 
 		direction := stringOption(evaluator.Options, optionProxyDirection)
-		if outboundDirection(direction) {
+		selectsOutbound := outboundDirection(direction)
+		selectsInbound := inboundDirection(direction)
+
+		if !selectsOutbound && !selectsInbound {
+			return nil, fmt.Errorf(
+				"%w: policy %q has %q (want %q, %q, or %q)",
+				errUnsupportedProxyDirection,
+				policyDef.ID,
+				direction,
+				proxyDirectionOutbound,
+				proxyDirectionInbound,
+				proxyDirectionBoth,
+			)
+		}
+
+		if selectsOutbound {
 			outbound = append(outbound, selected)
 		}
 
-		if inboundDirection(direction) {
+		if selectsInbound {
 			inbound = append(inbound, selected)
 		}
 	}

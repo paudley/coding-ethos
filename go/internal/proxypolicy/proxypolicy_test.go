@@ -16,7 +16,8 @@ const outboundExfiltrationWhen = `proxy.direction == "outbound" && proxy.has_dlp
 	proxy.dlp_facts.exists(f, f.type in ["secret", "credential_file", "protected_path"])`
 
 const inboundUnsafeToolCallWhen = `proxy.direction == "inbound" &&
-	proxy.tool_calls.exists(call, call.name in ["run_command", "apply_patch"])`
+	proxy.tool_calls.exists(call,
+		call.name in ["bash", "run_command", "apply_patch", "write_file"])`
 
 // outboundExfiltrationPolicy returns a proxy-scoped outbound policy mirroring the
 // compiled seed policy so tests exercise real CEL evaluation.
@@ -118,6 +119,48 @@ func TestEvaluateInboundDeniesUnsafeToolCall(t *testing.T) {
 
 	if decision.Metadata["proxy_direction"] != "inbound" {
 		t.Fatalf("proxy_direction metadata = %q", decision.Metadata["proxy_direction"])
+	}
+}
+
+func TestEvaluateInboundNormalizesUnsafeToolCallNames(t *testing.T) {
+	t.Parallel()
+
+	evaluator, err := proxypolicy.New(bundleWith(
+		inboundUnsafeToolCallPolicy(inboundUnsafeToolCallWhen),
+	))
+	if err != nil {
+		t.Fatalf("new evaluator: %v", err)
+	}
+
+	for _, name := range []string{
+		"Bash",
+		"Run_Command",
+		"ApplyPatch",
+		"Write",
+		"Edit",
+		"MultiEdit",
+	} {
+		decision, inlineErr := evaluator.EvaluateInbound(
+			context.Background(),
+			agentproxy.ProxyDecisionInput{
+				Direction:   agentproxy.DirectionInbound,
+				Kind:        agentproxy.EventProviderResponse,
+				PayloadKind: agentproxy.PayloadResponse,
+				EventID:     "event-" + name,
+				SessionID:   "session-inbound",
+				ToolCalls: []agentproxy.ToolCall{{
+					Name:     name,
+					ArgsHash: "sha256:args",
+				}},
+			},
+		)
+		if inlineErr != nil {
+			t.Fatalf("evaluate inbound %q: %v", name, inlineErr)
+		}
+
+		if decision.Allowed {
+			t.Fatalf("expected unsafe inbound tool call %q to be denied", name)
+		}
 	}
 }
 
@@ -396,6 +439,18 @@ func TestNewFailsFastOnEmptyWhen(t *testing.T) {
 	_, err := proxypolicy.New(bundleWith(outboundExfiltrationPolicy("")))
 	if err == nil {
 		t.Fatal("expected New to fail on an empty when expression")
+	}
+}
+
+func TestNewFailsFastOnUnsupportedProxyDirection(t *testing.T) {
+	t.Parallel()
+
+	policyDef := inboundUnsafeToolCallPolicy(inboundUnsafeToolCallWhen)
+	policyDef.Evaluators[0].Options["proxy_direction"] = "sideways"
+
+	_, err := proxypolicy.New(bundleWith(policyDef))
+	if err == nil {
+		t.Fatal("expected New to fail on unsupported proxy_direction")
 	}
 }
 

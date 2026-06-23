@@ -211,9 +211,9 @@ func TestAgentProxyInterceptBlocksBufferedInboundToolCall(t *testing.T) {
 	assertInboundDenyEventRecorded(t, store, sessionID, false)
 }
 
-// TestAgentProxyInterceptSurfacesStreamedInboundToolCall proves SSE denials do
-// not claim pre-flush byte blocking. The stream reaches the client, then the
-// proxy appends a terminal denial event and records joinable denial evidence.
+// TestAgentProxyInterceptSurfacesStreamedInboundToolCall proves SSE denials are
+// surfaced as a terminal denial event before unsafe upstream frames reach the
+// client, while still recording joinable denial evidence.
 func TestAgentProxyInterceptSurfacesStreamedInboundToolCall(t *testing.T) {
 	if testing.Short() {
 		t.Skip("agent proxy intercept e2e uses a real CA and TLS handshakes")
@@ -256,8 +256,14 @@ func TestAgentProxyInterceptSurfacesStreamedInboundToolCall(t *testing.T) {
 		`"error":"coding-ethos policy denial"`,
 		inboundUnsafeToolCallPolicyID,
 	} {
-		if !strings.Contains(respBody, want) {
+		index := strings.Index(respBody, want)
+		if index < 0 {
 			t.Fatalf("streamed denial body missing %q:\n%s", want, respBody)
+		}
+
+		doneIndex := strings.Index(respBody, "data: [DONE]")
+		if doneIndex >= 0 && index > doneIndex {
+			t.Fatalf("streamed denial %q appears after terminal [DONE]:\n%s", want, respBody)
 		}
 	}
 

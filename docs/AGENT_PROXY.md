@@ -261,20 +261,21 @@ tool name and argument hash.
 Buffered inbound denials replace the provider response with the same explicit
 HTTP 403 coding-ethos denial body used by outbound enforcement, and record a
 single `Decision="deny"` inbound proxy event with policy evidence and stable
-`proxy_*` correlation metadata. Streamed SSE responses cannot retract bytes that
-were already flushed, so a streamed inbound denial appends a terminal
-`coding-ethos-denial` SSE event naming the policy and reason, then records the
-same inbound denial event with `stream_denial_surface=true`.
+`proxy_*` correlation metadata. Streamed SSE responses are normalized and
+evaluated before response headers or body frames are committed; a streamed
+inbound denial emits a terminal `coding-ethos-denial` SSE event naming the
+policy and reason, then records the same inbound denial event with
+`stream_denial_surface=true`.
 
 Inbound evaluator errors are fail-open and recorded on the inbound event with
 `proxy_eval_error`. That keeps transient policy evaluation faults visible
-without misclassifying a streamed response as blocked after bytes may already
-have reached the client.
+without misclassifying a streamed response as blocked when policy evaluation
+could not complete.
 
 The MCP `code_intel_proxy_denials` tool queries the repo-local proxy ledger for
-stored denial events by session, provider, policy, direction, host, or time
-window. It returns denial rows with policy evidence plus a short explanation and
-follow-up actions for agents investigating blocked provider behavior.
+stored denial events by session, provider, or policy. It returns denial rows
+with policy evidence plus a short explanation and follow-up actions for agents
+investigating blocked provider behavior.
 
 ## Code-Intel Ledger
 

@@ -187,50 +187,44 @@ func (proxy *InterceptProxy) branchResponse(
 	proxy.bufferAndForward(writer, request, response, input)
 }
 
-// streamSSE forwards a Server-Sent Events response verbatim with live flushing
-// while teeing a bounded copy of the bytes. After the stream completes it
-// reconstructs the accumulated copy into structural facts via the matched
-// adapter, falling back to a streamed marker only when reconstruction cannot
-// run or the copy failed mid-stream. The tee never alters the client bytes.
+// streamSSE buffers a bounded Server-Sent Events response before committing
+// headers so inbound policy can deny unsafe tool-call streams before a client
+// observes the upstream terminal frame. Allowed responses still forward the
+// exact upstream bytes; oversized and copy-failed streams fall back to a
+// streamed marker and replay every available byte.
 func (proxy *InterceptProxy) streamSSE(
 	writer http.ResponseWriter,
 	request *http.Request,
 	response *http.Response,
 	input branchInput,
 ) {
-	copyHeaders(writer.Header(), response.Header)
-	writer.Header().Del(contentLengthHeader)
-	writer.WriteHeader(response.StatusCode)
-
-	accumulator := newBoundedBuffer(proxy.maxNormalize)
-	teeReader := io.TeeReader(response.Body, accumulator)
-
-	var copyErr error
-	if flusher, ok := writer.(http.Flusher); ok {
-		_, copyErr = copyResponseBodyFlushing(writer, teeReader, flusher)
-	} else {
-		_, copyErr = io.Copy(writer, teeReader)
-	}
-
-	discardClientWriteError(copyErr)
+	respBytes, respBody, truncated, copyErr := readBoundedWithError(
+		response.Body,
+		proxy.maxNormalize,
+	)
 
 	respCtx := ResponseContext{
 		ContentType: response.Header.Get(contentTypeHeader),
 		StatusCode:  response.StatusCode,
 	}
 	norm := proxy.normalizeStreamedResponse(streamedNormalizeInput{
-		accumulated: accumulator.Bytes(),
+		accumulated: respBytes,
 		encoding:    response.Header.Get(contentEncodingHeader),
 		respCtx:     respCtx,
 		input:       input,
-		truncated:   accumulator.Truncated(),
+		truncated:   truncated,
 		copyFailed:  copyErr != nil,
 	})
 
 	identity := proxy.identity(input.sessionID, input.host, proxy.now().UTC())
 	decision, allowed := proxy.evaluateInbound(request.Context(), identity, &norm)
 
+	copyHeaders(writer.Header(), response.Header)
+	writer.Header().Del(contentLengthHeader)
+
 	if !allowed {
+		writer.Header().Del(contentEncodingHeader)
+		writer.WriteHeader(response.StatusCode)
 		proxy.surfaceStreamedInboundDenial(
 			writer,
 			request.Context(),
@@ -246,6 +240,20 @@ func (proxy *InterceptProxy) streamSSE(
 		)
 
 		return
+	}
+
+	writer.WriteHeader(response.StatusCode)
+
+	if truncated || copyErr != nil {
+		_, writeErr := io.Copy(writer, respBody)
+		discardClientWriteError(writeErr)
+	} else {
+		_, writeErr := writer.Write(respBytes)
+		discardClientWriteError(writeErr)
+	}
+
+	if flusher, ok := writer.(http.Flusher); ok {
+		flusher.Flush()
 	}
 
 	proxy.recordInboundEvent(request.Context(), identity, norm)
@@ -659,78 +667,36 @@ func minimalOutboundEvent(
 // prefix followed by the unread remainder so the full payload still forwards;
 // otherwise the reader replays only the buffered bytes. No bytes are dropped.
 func readBounded(reader io.Reader, limit int64) ([]byte, io.Reader, bool) {
+	buffered, replay, truncated, err := readBoundedWithError(reader, limit)
+	if err != nil {
+		return buffered, replay, truncated
+	}
+
+	return buffered, replay, truncated
+}
+
+// readBoundedWithError is the error-preserving form of readBounded for paths
+// that need to distinguish an upstream read failure from a complete body.
+func readBoundedWithError(
+	reader io.Reader,
+	limit int64,
+) ([]byte, io.Reader, bool, error) {
 	if reader == nil {
-		return nil, bytes.NewReader(nil), false
+		return nil, bytes.NewReader(nil), false, nil
 	}
 
 	limited := io.LimitReader(reader, limit+1)
 
 	buffered, err := io.ReadAll(limited)
 	if err != nil {
-		return buffered, io.MultiReader(bytes.NewReader(buffered), reader), false
+		return buffered, io.MultiReader(bytes.NewReader(buffered), reader), false, err
 	}
 
 	if int64(len(buffered)) > limit {
-		return buffered, io.MultiReader(bytes.NewReader(buffered), reader), true
+		return buffered, io.MultiReader(bytes.NewReader(buffered), reader), true, nil
 	}
 
-	return buffered, bytes.NewReader(buffered), false
-}
-
-// boundedBuffer accumulates a bounded copy of streamed bytes for structural
-// normalization. It retains at most limit bytes and flags truncation once the
-// stream exceeds the bound, so a large stream can never grow memory without
-// limit. Write always reports the full input length so an io.TeeReader or
-// io.Copy driving the buffer never observes a short write while the buffer
-// silently discards the overflow.
-type boundedBuffer struct {
-	data      []byte
-	limit     int64
-	truncated bool
-}
-
-// newBoundedBuffer returns a boundedBuffer that retains at most limit bytes.
-func newBoundedBuffer(limit int64) *boundedBuffer {
-	return &boundedBuffer{limit: limit}
-}
-
-// Write appends bytes up to the retention bound and discards the overflow,
-// setting the truncated flag once the bound is reached. It always returns the
-// full input length so the driving reader treats every byte as consumed.
-func (buffer *boundedBuffer) Write(payload []byte) (int, error) {
-	remaining := buffer.limit - int64(len(buffer.data))
-	if remaining <= 0 {
-		if len(payload) > 0 {
-			buffer.truncated = true
-		}
-
-		return len(payload), nil
-	}
-
-	if int64(len(payload)) > remaining {
-		// remaining is in (0, len(payload)] here, so it fits an int index without
-		// truncation; the explicit cast keeps the slice bound int-typed and
-		// satisfies gosec G115 against the int64 retention counter.
-		keep := int(remaining)
-		buffer.data = append(buffer.data, payload[:keep]...)
-		buffer.truncated = true
-
-		return len(payload), nil
-	}
-
-	buffer.data = append(buffer.data, payload...)
-
-	return len(payload), nil
-}
-
-// Bytes returns the retained prefix of the streamed body.
-func (buffer *boundedBuffer) Bytes() []byte {
-	return buffer.data
-}
-
-// Truncated reports whether the stream exceeded the retention bound.
-func (buffer *boundedBuffer) Truncated() bool {
-	return buffer.truncated
+	return buffered, bytes.NewReader(buffered), false, nil
 }
 
 // decodeForAdapter decompresses raw for structural normalization only, bounding

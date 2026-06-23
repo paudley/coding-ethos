@@ -71,7 +71,7 @@ skill metadata used by those enforcement paths.
 - `code_intel_why`: return architectural decisions and decision-health signals
   for a query, path, symbol, or status before changing code.
 - `code_intel_proxy_denials`: explain stored proxy denial events by session,
-  provider, policy, direction, host, or time window using the code-intel ledger.
+  provider, or policy using the code-intel ledger.
 - `code_intel_index_code`: parse selected repository paths with Tree-sitter
   and persist symbol/config chunks in the repo-local code-intelligence store.
 - `code_intel_code_chunks`: return focused Tree-sitter chunks by path,

@@ -371,7 +371,7 @@ The first tools are intentionally narrow and auditable:
   `coding_ethos.session.v1` snapshot derived from hook traces, proxy telemetry,
   memory activity, and code-intel freshness without broad source reads.
 - `code_intel_proxy_denials`: explain stored proxy denial events by session,
-  provider, policy, direction, host, or time window from the code-intel ledger.
+  provider, or policy from the code-intel ledger.
 - `code_intel_index_code`: refresh Tree-sitter chunks for Go, Python,
   JavaScript/TypeScript, shell, YAML, JSON, and TOML paths.
 - `code_intel_code_chunks`: fetch focused symbol/config chunks before broad
