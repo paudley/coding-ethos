@@ -126,6 +126,24 @@ func TestContextAdviceReportsMissingIndexWithoutStore(t *testing.T) {
 	}
 }
 
+func TestContextAdviceRejectsUnsupportedFormatWithContextError(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	err := run(context.Background(), []string{
+		"context-advice",
+		"--root", root,
+		"--format", "xml",
+	})
+	if err == nil {
+		t.Fatal("expected unsupported context-advice format error")
+	}
+	if !strings.Contains(err.Error(), "unknown context-advice format") {
+		t.Fatalf("error = %q, want context-advice format message", err)
+	}
+}
+
 func TestWorkspaceCommandsScanAndStatus(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()

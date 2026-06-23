@@ -5047,11 +5047,27 @@ func TestRunInjectsContextAdviceOnSessionStartWhenThresholdCrossed(t *testing.T)
 	repo := initHookRepo(t)
 	err := os.WriteFile(
 		filepath.Join(repo, "repo_config.yaml"),
-		[]byte("proxy:\n  context_advisor:\n    warning_file_reads: 1\n"),
+		[]byte(
+			"proxy:\n  context_advisor:\n    warning_file_reads: 1\n    warning_spill_files: 1\n",
+		),
 		0o600,
 	)
 	if err != nil {
 		t.Fatalf("write repo config: %v", err)
+	}
+
+	evidence, err := os.CreateTemp("", "coding-ethos-tool-output-session-start-*.log")
+	if err != nil {
+		t.Fatalf("create temp evidence: %v", err)
+	}
+	t.Cleanup(func() {
+		removeErr := os.Remove(evidence.Name())
+		if removeErr != nil && !os.IsNotExist(removeErr) {
+			t.Fatalf("remove temp evidence: %v", removeErr)
+		}
+	})
+	if err := evidence.Close(); err != nil {
+		t.Fatalf("close temp evidence: %v", err)
 	}
 
 	store, err := codeintel.Open(context.Background(), codeintel.DefaultDBPath(repo))
@@ -5092,6 +5108,8 @@ func TestRunInjectsContextAdviceOnSessionStartWhenThresholdCrossed(t *testing.T)
 		"context_token_economy_advice:",
 		"repeated_file_reads",
 		"proxy_file_reads=1",
+		"spill_files",
+		"output_spill_files=",
 	} {
 		if !strings.Contains(context, expected) {
 			t.Fatalf("session context missing %q:\n%s", expected, context)

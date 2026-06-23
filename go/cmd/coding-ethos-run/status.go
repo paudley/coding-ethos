@@ -135,7 +135,18 @@ func buildOperatorStatus(
 		hookRuntimeChecks(hookRuns, hookFailures, hookReviews, falsePositives)...,
 	)
 
-	if contextReport, ok := buildContextAdvisorStatus(ctx, paths, surfaceReport, now); ok {
+	contextReport, contextAdvisorErr := buildContextAdvisorStatus(
+		ctx,
+		paths,
+		surfaceReport,
+		now,
+	)
+	if contextAdvisorErr != nil {
+		report.Checks = append(
+			report.Checks,
+			contextAdvisorUnavailableCheck(contextAdvisorErr),
+		)
+	} else {
 		report.ContextMetrics = &contextReport.Metrics
 		report.ContextAdvice = contextReport.Advice
 
@@ -156,10 +167,10 @@ func buildContextAdvisorStatus(
 	paths runtimePaths,
 	surfaceReport outputsurface.Report,
 	now time.Time,
-) (contextadvisor.Report, bool) {
+) (contextadvisor.Report, error) {
 	store, err := codeintel.OpenReadOnly(ctx, codeintel.DefaultDBPath(paths.Root))
 	if err != nil {
-		return contextadvisor.Report{}, false
+		return contextadvisor.Report{}, fmt.Errorf("open code-intel store: %w", err)
 	}
 	defer store.Close()
 
@@ -169,15 +180,18 @@ func buildContextAdvisorStatus(
 		Now:      now,
 	})
 	if err != nil {
-		return contextadvisor.Report{}, false
+		return contextadvisor.Report{}, fmt.Errorf(
+			"query code-intel session snapshot: %w",
+			err,
+		)
 	}
 
 	thresholds, err := contextadvisor.LoadThresholds(paths.Root)
 	if err != nil {
-		return contextadvisor.Report{}, false
+		return contextadvisor.Report{}, fmt.Errorf("load context advisor thresholds: %w", err)
 	}
 
-	return contextadvisor.Analyze(snapshot, surfaceReport, thresholds, now), true
+	return contextadvisor.Analyze(snapshot, surfaceReport, thresholds, now), nil
 }
 
 func runtimeArtifactChecks(paths runtimePaths) []operatorStatusCheck {
@@ -399,6 +413,14 @@ func contextAdvisorStatusCheck(report contextadvisor.Report) operatorStatusCheck
 			report.Metrics.TotalTokens,
 			report.Metrics.SpillFiles,
 		),
+	}
+}
+
+func contextAdvisorUnavailableCheck(err error) operatorStatusCheck {
+	return operatorStatusCheck{
+		Name:   "context_token_economy",
+		Status: operatorStatusWarn,
+		Detail: "advisor unavailable: " + err.Error(),
 	}
 }
 

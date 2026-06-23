@@ -143,7 +143,7 @@ func startupContextAdvice(cwd string) string {
 
 	surfaces, err := outputsurface.BuildReport(ctx, outputsurface.Options{
 		Root:        root,
-		IncludeTemp: false,
+		IncludeTemp: true,
 		Now:         now,
 	})
 	if err != nil {

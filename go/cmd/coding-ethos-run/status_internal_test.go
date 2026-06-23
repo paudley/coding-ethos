@@ -129,6 +129,31 @@ func TestRunStatusIncludesContextAdviceWhenThresholdCrossed(t *testing.T) {
 	}
 }
 
+func TestRunStatusWarnsWhenContextAdvisorUnavailable(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "")
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "")
+
+	paths := operatorStatusTestPaths(t, true)
+	writeOperatorStatusHookRun(t, paths.Root, "run-pass", 0)
+
+	output := captureRuntimeStdout(t, func() {
+		err := runStatusHandler(paths, []string{"--format", "toon"})
+		if err != nil {
+			t.Fatalf("run status: %v", err)
+		}
+	})
+
+	for _, want := range []string{
+		"status: WARN",
+		"context_token_economy,WARN",
+		"advisor unavailable: open code-intel store",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("status output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func TestAgentAPIProxyRoutingCheckWarnsOnInvalidURL(t *testing.T) {
 	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "1")
 	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "127.0.0.1:8080")
@@ -361,7 +386,7 @@ func createOperatorStatusCodeIntelDB(t *testing.T, root string, review bool) {
 
 	store, err := codeintel.Open(
 		context.Background(),
-		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
+		codeintel.DefaultDBPath(root),
 	)
 	if err != nil {
 		t.Fatalf("open code-intel db: %v", err)
@@ -390,7 +415,7 @@ func recordOperatorStatusProxyEvent(t *testing.T, root, eventID string) {
 
 	store, err := codeintel.Open(
 		context.Background(),
-		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
+		codeintel.DefaultDBPath(root),
 	)
 	if err != nil {
 		t.Fatalf("open code-intel db: %v", err)

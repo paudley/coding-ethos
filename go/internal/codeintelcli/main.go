@@ -41,6 +41,9 @@ var (
 	errUnknownDownstreamAnalysisFormat = apperror.StaticError(
 		"unknown downstream analysis format",
 	)
+	errUnknownContextAdviceFormat = apperror.StaticError(
+		"unknown context-advice format",
+	)
 )
 
 func run(ctx context.Context, args []string) error {

@@ -77,7 +77,7 @@ func printContextAdvice(ctx context.Context, args []string) error {
 
 		return nil
 	default:
-		return fmt.Errorf("%w: %q", errUnknownDownstreamAnalysisFormat, *format)
+		return fmt.Errorf("%w: %q", errUnknownContextAdviceFormat, *format)
 	}
 }
 
