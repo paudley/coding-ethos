@@ -733,6 +733,7 @@ func runtimeVersion(ethosRoot string) string {
 	}
 
 	inProject := false
+
 	for line := range strings.SplitSeq(string(payload), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "[project]" {
