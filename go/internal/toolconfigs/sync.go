@@ -12,6 +12,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/configdata"
 	"blackcat.ca/coding-ethos/go/internal/configprofiles"
+	"blackcat.ca/coding-ethos/go/internal/syncstate"
 )
 
 const (
@@ -71,6 +72,48 @@ func Sync(ethosRoot, repoRoot, repoConfig string) ([]string, error) {
 	written = append(written, manifestPath)
 
 	return written, nil
+}
+
+func StateArtifacts(
+	ethosRoot,
+	repoRoot,
+	repoConfig string,
+) ([]syncstate.Artifact, error) {
+	rendered, err := renderForRepo(ethosRoot, repoRoot, repoConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	manifest, err := RenderHashManifest(rendered)
+	if err != nil {
+		return nil, err
+	}
+
+	inputs := make([]syncstate.ArtifactInput, 0, len(rendered)+1)
+	for relativePath, content := range rendered {
+		inputs = append(inputs, syncstate.ArtifactInput{
+			RelativePath:        relativePath,
+			Content:             content,
+			Provider:            "tool-configs",
+			Surface:             "generated-tool-config",
+			VerificationCommand: "make check-tool-configs",
+		})
+	}
+
+	inputs = append(inputs, syncstate.ArtifactInput{
+		RelativePath:        HashManifestPath,
+		Content:             manifest,
+		Provider:            "tool-configs",
+		Surface:             "hash-manifest",
+		VerificationCommand: "make check-tool-configs",
+	})
+
+	artifacts, err := syncstate.Artifacts(repoRoot, inputs)
+	if err != nil {
+		return nil, fmt.Errorf("build tool config state artifacts: %w", err)
+	}
+
+	return artifacts, nil
 }
 
 func Check(ethosRoot, repoRoot, repoConfig string) ([]string, error) {

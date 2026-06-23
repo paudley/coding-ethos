@@ -850,6 +850,8 @@ results from the packages that own those concerns.
 | Sync Gemini prompt pack | `make sync-gemini-prompts` |
 | Check Gemini prompt-pack drift | `make check-gemini-prompts` |
 | Check generated agent skill drift | `make check-agent-skills` |
+| Inspect generated-surface install state | `bin/coding-ethos-run policy install-state-doctor --repo .` |
+| Plan generated-surface repair writes | `bin/coding-ethos-run policy install-state-repair-plan --repo .` |
 | Run staged-file hooks | `make pre-commit` |
 | Run hooks over all files | `make pre-commit-all` |
 | Run pre-push hooks | `make pre-push` |
@@ -922,6 +924,11 @@ Sync generated tool configs:
 
 ```bash
 make sync-tool-configs REPO=/path/to/repo
+bin/coding-ethos-run policy sync-tool-configs \
+  --repo /path/to/repo \
+  --ethos-root . \
+  --dry-run \
+  --format toon
 ```
 
 By default the same command writes the managed SARIF CI files and includes
@@ -933,6 +940,32 @@ Repos with a deliberate exception can set
 `generated_config.ci.gitlab.enabled: false` in their merged enforcement config.
 They are checked by `make check-tool-configs`; there is no separate CI sync
 path.
+
+Successful generated-surface sync writes a repo-local install/sync state file at
+`.coding-ethos/state/install-sync.json`. The state records schema version,
+source config hashes, runtime version/commit, target repo root, provider
+targets, requested action, coding-ethos-owned artifact paths, expected SHA-256
+hashes, last validation time, and the command that verifies each generated
+surface. The state file is ignored runtime state, not a source artifact.
+
+Dry-run sync reports the exact writes it would perform without mutating files:
+
+```bash
+bin/coding-ethos-run policy sync-tool-configs --repo /path/to/repo --dry-run --format json
+bin/coding-ethos-run policy sync-gemini-prompts --repo /path/to/repo --dry-run --format toon
+bin/coding-ethos-run policy sync-agent-skills --repo /path/to/repo --dry-run --format toon
+bin/coding-ethos-run agent-hooks sync --root /path/to/repo --ethos-root . --dry-run --format toon
+```
+
+Doctor and repair planning are read-only. Doctor compares recorded source hashes
+and artifact hashes against the current checkout and reports missing, stale, or
+drifted surfaces. Repair planning lists only `coding-ethos-managed` recorded
+outputs, so external or unrecorded files are never proposed for mutation:
+
+```bash
+bin/coding-ethos-run policy install-state-doctor --repo /path/to/repo --format toon
+bin/coding-ethos-run policy install-state-repair-plan --repo /path/to/repo --format json
+```
 
 Check generated tool config drift:
 
@@ -1516,6 +1549,7 @@ Render or verify repo-local agent hook settings:
 ```bash
 bin/coding-ethos-run agent-hooks print
 bin/coding-ethos-run agent-hooks sync
+bin/coding-ethos-run agent-hooks sync --root /path/to/repo --ethos-root . --dry-run --format toon
 bin/coding-ethos-run agent-hooks doctor
 bin/coding-ethos-run agent-hooks verify
 ```
