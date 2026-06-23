@@ -105,8 +105,8 @@ type ProviderCapability struct {
 	Supported           []string `json:"supported"`
 	ProviderLimited     []string `json:"provider_limited,omitempty"`
 	Unsupported         []string `json:"unsupported,omitempty"`
-	SafetyCaveats       []string `json:"safety_caveats,omitempty"`
 	VerificationFixture string   `json:"verification_fixture"`
+	SafetyCaveats       []string `json:"safety_caveats,omitempty"`
 }
 
 type allSettings struct {
