@@ -14,10 +14,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _read_repo_text(*parts: str) -> str:
+    return ROOT.joinpath(*parts).read_text(encoding="utf-8")
+
+
 def test_capability_surface_guide_defines_required_routes() -> None:
-    guide = " ".join(
-        (ROOT / "docs" / "CAPABILITY_SURFACE_DECISION.md").read_text().split()
-    )
+    guide = " ".join(_read_repo_text("docs", "CAPABILITY_SURFACE_DECISION.md").split())
 
     for route in (
         "CEL/policy/hook",
@@ -31,7 +33,7 @@ def test_capability_surface_guide_defines_required_routes() -> None:
 
 
 def test_templates_require_capability_surface_grounding() -> None:
-    pr_template = (ROOT / ".github" / "pull_request_template.md").read_text()
+    pr_template = _read_repo_text(".github", "pull_request_template.md")
     assert "## Capability Surface" in pr_template
     assert "chosen surface" in pr_template
     assert "why this surface owns the behavior" in pr_template
@@ -43,6 +45,6 @@ def test_templates_require_capability_surface_grounding() -> None:
     }
 
     for filename, field_id in issue_templates.items():
-        template = (ROOT / ".github" / "ISSUE_TEMPLATE" / filename).read_text()
+        template = _read_repo_text(".github", "ISSUE_TEMPLATE", filename)
         assert field_id in template
         assert "Capability surface" in template

@@ -6,6 +6,7 @@ package codeintelcli
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -30,8 +31,7 @@ func TestPublicCodeIntelCommandsAreDocumented(t *testing.T) {
 	docs := string(payload)
 	var missing []string
 	for _, command := range commands {
-		if !strings.Contains(docs, "`"+command+"`") &&
-			!strings.Contains(docs, "code-intel "+command) {
+		if !documentedCodeIntelCommand(docs, command) {
 			missing = append(missing, command)
 		}
 	}
@@ -43,6 +43,15 @@ func TestPublicCodeIntelCommandsAreDocumented(t *testing.T) {
 			strings.Join(missing, ", "),
 		)
 	}
+}
+
+func documentedCodeIntelCommand(docs, command string) bool {
+	pattern := regexp.MustCompile(
+		"`" + regexp.QuoteMeta(command) + "`" +
+			"|code-intel " + regexp.QuoteMeta(command) + `($|[\s` + "`" + `])`,
+	)
+
+	return pattern.MatchString(docs)
 }
 
 func codeIntelRepoRoot(t *testing.T) string {
