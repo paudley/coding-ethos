@@ -76,6 +76,8 @@ Minimum grounding by category:
 - New MCP tools must appear in `docs/MCP_SERVER.md` and include
   `coding_ethos` tool metadata.
 - New `code-intel` CLI commands must appear in `docs/CODE_INTEL.md`.
+- Code-intel measurement features must document their storage table, schema,
+  and windowing contract in `docs/CODE_INTEL.md`.
 - New policy IDs must live with their ETHOS principle or bundle configuration
   metadata and emit stable SARIF rule IDs when they diagnose user work.
 - New provider-specific behavior must be declared in the provider adapter or

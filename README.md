@@ -373,7 +373,8 @@ The first tools are intentionally narrow and auditable:
   failure evidence with persisted trend snapshots.
 - `code_intel_skill_health`: report generated skill provenance, 7-day and
   30-day usage windows, unused skills, frequently failing skills, improving
-  skills, stale skills, and unknown skill IDs.
+  skills, stale skills, and unknown skill IDs from remediation-outcome
+  evidence.
 - `code_intel_why`: return architectural decisions and decision-health signals
   for a query, path, symbol, or status before changing code.
 - `code_intel_session_snapshot`: return the canonical

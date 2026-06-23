@@ -79,9 +79,9 @@ skill metadata used by those enforcement paths.
 - `code_intel_change_risk`: summarize modification risk for target files from
   indexed chunks, git-history signals, reviewer suggestions, repeated
   failures, and recommended checks.
-- `code_intel_skill_health`: report generated skill provenance, recent usage
-  windows, unused skills, frequently failing skills, improving skills, stale
-  skills, and unknown skill IDs from code-intel outcome evidence.
+- `code_intel_skill_health`: report generated skill provenance, 7-day and
+  30-day usage windows, unused skills, frequently failing skills, improving
+  skills, stale skills, and unknown skill IDs from code-intel outcome evidence.
 - `code_intel_health`: rank deterministic code-health and refactoring targets
   from indexed structure, git signals, coverage, clones, and repeated failure
   evidence.
