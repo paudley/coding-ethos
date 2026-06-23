@@ -494,14 +494,20 @@ func TestGitSignalsCommandRefreshesRealRepository(t *testing.T) {
 	runCodeIntelCLIGit(t, ctx, root, "commit", "-m", "test(repo): add app")
 
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
-	err := run(ctx, []string{
-		"git-signals",
-		"--root", root,
-		"--db", dbPath,
-		"--path", "pkg/app.go",
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = run(ctx, []string{
+			"git-signals",
+			"--root", root,
+			"--db", dbPath,
+			"--path", "pkg/app.go",
+		})
 	})
-	if err != nil {
-		t.Fatalf("git-signals command returned error: %v", err)
+	if runErr != nil {
+		t.Fatalf("git-signals command returned error: %v", runErr)
+	}
+	if !strings.Contains(output, `"kind": "git_signals"`) {
+		t.Fatalf("git-signals output missing kind:\n%s", output)
 	}
 }
 

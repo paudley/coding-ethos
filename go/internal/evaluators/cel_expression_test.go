@@ -318,6 +318,12 @@ func TestEvaluateCELExpressionAllowsAgentConfigPathReferences(t *testing.T) {
 				`"Update .gemini/extensions/coding-ethos/gemini-extension.json"`,
 			provider: "gemini",
 		},
+		{
+			name: "gemini prompt pack",
+			command: `gh pr edit 66 --body ` +
+				`"Update .coding-ethos/gemini/prompt-pack.json"`,
+			provider: "gemini",
+		},
 	}
 
 	for _, testCase := range testCases {

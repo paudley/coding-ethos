@@ -90,12 +90,23 @@ type claudeSettings struct {
 }
 
 type ProviderCapability struct {
-	Provider        string   `json:"provider"`
-	Coverage        string   `json:"coverage"`
-	NativeFiles     []string `json:"native_files"`
-	Supported       []string `json:"supported"`
-	ProviderLimited []string `json:"provider_limited,omitempty"`
-	Unsupported     []string `json:"unsupported,omitempty"`
+	Provider            string   `json:"provider"`
+	DisplayName         string   `json:"display_name"`
+	Coverage            string   `json:"coverage"`
+	NativeFiles         []string `json:"native_files"`
+	HookEvents          []string `json:"hook_events"`
+	BlockResponseShape  string   `json:"block_response_shape"`
+	ContextAdviceShape  string   `json:"context_advice_shape"`
+	MCPSetup            string   `json:"mcp_setup"`
+	SettingsTarget      string   `json:"settings_target"`
+	GeneratedTargets    []string `json:"generated_targets"`
+	MemoryInterception  string   `json:"memory_interception"`
+	MemoryFallback      string   `json:"memory_fallback"`
+	Supported           []string `json:"supported"`
+	ProviderLimited     []string `json:"provider_limited,omitempty"`
+	Unsupported         []string `json:"unsupported,omitempty"`
+	VerificationFixture string   `json:"verification_fixture"`
+	SafetyCaveats       []string `json:"safety_caveats,omitempty"`
 }
 
 type allSettings struct {
@@ -320,17 +331,7 @@ func syncSettingsFile(path string, merge func(map[string]any)) error {
 		return err
 	}
 
-	err = os.MkdirAll(filepath.Dir(path), settingsDirMode)
-	if err != nil {
-		return fmt.Errorf("create settings directory: %w", err)
-	}
-
-	err = os.WriteFile(path, []byte(content), settingsFileMode)
-	if err != nil {
-		return fmt.Errorf("write settings: %w", err)
-	}
-
-	return nil
+	return writeSettingsFile(path, content)
 }
 
 func renderSettingsFileContent(
@@ -364,7 +365,11 @@ func syncTextSettingsFile(path string, mutate func(string) string) error {
 		return err
 	}
 
-	err = os.MkdirAll(filepath.Dir(path), settingsDirMode)
+	return writeSettingsFile(path, content)
+}
+
+func writeSettingsFile(path, content string) error {
+	err := os.MkdirAll(filepath.Dir(path), settingsDirMode)
 	if err != nil {
 		return fmt.Errorf("create settings directory: %w", err)
 	}
@@ -989,7 +994,7 @@ func skillSurfacePaths(root, skillID string) []skillSurfacePath {
 
 	return []skillSurfacePath{
 		{
-			provider: "portable",
+			provider: string(ProviderGeneric),
 			path:     filepath.Join(root, ".agents", "skills", entrypoint),
 		},
 		{
@@ -1087,89 +1092,6 @@ func buildAllSettings(hookCommand string) (allSettings, error) {
 		Gemini:       buildGeminiSettings(RuntimeHookSpecs(), hookCommand),
 		Capabilities: ProviderCapabilities(),
 	}, nil
-}
-
-func ProviderCapabilities() []ProviderCapability {
-	return []ProviderCapability{
-		{
-			Provider:    string(ProviderClaude),
-			Coverage:    "full",
-			NativeFiles: []string{".claude/settings.local.json", ".mcp.json"},
-			Supported: []string{
-				"PreToolUse block",
-				"PreToolUse updatedInput rewrite",
-				"PostToolUse additionalContext",
-				"PostToolUse edit verification advice",
-				"PostToolBatch additionalContext",
-				"PreCompact capture",
-				"SessionStart additionalContext",
-				"UserPromptSubmit additionalContext",
-				"Stop additionalContext",
-				"SessionEnd additionalContext",
-				"SubagentStart additionalContext",
-				"SubagentStop additionalContext",
-				"MCP stdio server",
-			},
-		},
-		{
-			Provider:    string(ProviderCodex),
-			Coverage:    "partial",
-			NativeFiles: []string{".codex/config.toml"},
-			Supported: []string{
-				"PreToolUse block",
-				"PreToolUse native command hook",
-				"PreToolUse apply_patch/edit policy hook",
-				"PostToolUse compact additionalContext",
-				"PostToolUse edit verification advice",
-				"SessionStart additionalContext",
-				"UserPromptSubmit additionalContext",
-				"Stop compact systemMessage",
-				"MCP stdio server",
-			},
-			ProviderLimited: []string{
-				"lifecycle context is compacted because Codex flattens multiline allowed context",
-			},
-			Unsupported: []string{
-				"PreToolUse updatedInput rewrite",
-				"PostToolBatch additionalContext",
-				"SessionEnd additionalContext",
-				"SubagentStart additionalContext",
-				"SubagentStop additionalContext",
-			},
-		},
-		{
-			Provider:    string(ProviderGemini),
-			Coverage:    "partial",
-			NativeFiles: []string{".gemini/settings.json"},
-			Supported: []string{
-				"BeforeTool deny",
-				"BeforeTool systemMessage",
-				"PreToolUse updatedInput rewrite",
-				"AfterTool additionalContext",
-				"AfterTool edit verification advice",
-				"BeforeAgent additionalContext",
-				"AfterAgent additionalContext",
-				"SessionStart additionalContext",
-				"SessionEnd additionalContext",
-				"MCP stdio server",
-			},
-			ProviderLimited: []string{
-				providerLimitedToolMapping("BeforeTool", "PreToolUse"),
-				providerLimitedToolMapping("AfterTool", "PostToolUse"),
-			},
-			Unsupported: []string{
-				"PostToolBatch additionalContext",
-				"PreCompact capture",
-				"SubagentStart additionalContext",
-				"SubagentStop additionalContext",
-			},
-		},
-	}
-}
-
-func providerLimitedToolMapping(event, target string) string {
-	return event + " maps to " + target + " for run_shell_command, " +
-		"write_file, replace, and MultiEdit"
 }
 
 func buildClaudeSettings(specs []HookSpec, hookCommand string) claudeSettings {

@@ -496,6 +496,8 @@ func normalizedAdvertisingText(text string) string {
 		".codex\\",
 		".claude/",
 		".claude\\",
+		".coding-ethos/gemini/",
+		".coding-ethos\\gemini\\",
 		".gemini/",
 		".gemini\\",
 	} {

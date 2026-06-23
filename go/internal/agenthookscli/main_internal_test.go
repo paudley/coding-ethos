@@ -186,6 +186,18 @@ func TestRunCLIDispatchesAgentHookCommands(t *testing.T) {
 	); code != 1 {
 		t.Fatalf("verify exit code = %d, want 1 for missing executable probe", code)
 	}
+
+	if code := runCLI(
+		[]string{"sync-provider-matrix", "--root", root},
+	); code != 0 {
+		t.Fatalf("sync-provider-matrix exit code = %d, want 0", code)
+	}
+
+	if code := runCLI(
+		[]string{"check-provider-matrix", "--root", root},
+	); code != 0 {
+		t.Fatalf("check-provider-matrix exit code = %d, want 0", code)
+	}
 }
 
 func writeAgentHooksCLITestFile(t *testing.T, path, content string) {
@@ -256,6 +268,10 @@ func TestRunCLIReturnsUsageAndCommandErrors(t *testing.T) {
 
 	if code := runCLI([]string{"sync", "--root"}); code != 1 {
 		t.Fatalf("invalid flags exit code = %d, want 1", code)
+	}
+
+	if code := runCLI([]string{"check-provider-matrix", "--root"}); code != 1 {
+		t.Fatalf("invalid provider matrix flags exit code = %d, want 1", code)
 	}
 }
 

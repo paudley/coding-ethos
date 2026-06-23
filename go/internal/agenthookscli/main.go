@@ -21,7 +21,12 @@ const (
 	commandArgsOffset = 2
 )
 
-var errUnknownCommand = apperror.StaticError("unknown agent-hooks command")
+var (
+	errProviderMatrixDrift = apperror.StaticError(
+		"provider capability matrix out of sync",
+	)
+	errUnknownCommand = apperror.StaticError("unknown agent-hooks command")
+)
 
 func runCLI(args []string) int {
 	if len(args) == 0 {
@@ -41,6 +46,10 @@ func runCLI(args []string) int {
 		err = doctorSettings(args[1:])
 	case "verify":
 		err = verifySettings(args[1:])
+	case "sync-provider-matrix":
+		err = syncProviderMatrix(args[1:])
+	case "check-provider-matrix":
+		err = checkProviderMatrix(args[1:])
 	default:
 		usage()
 
@@ -236,6 +245,48 @@ func verifySettings(args []string) error {
 	return nil
 }
 
+func syncProviderMatrix(args []string) error {
+	flags := flag.NewFlagSet("sync-provider-matrix", flag.ContinueOnError)
+	root := flags.String("root", ".", "Repository root for generated docs")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return fmt.Errorf("parse sync-provider-matrix flags: %w", err)
+	}
+
+	_, err = agenthooks.SyncProviderCapabilityMatrix(*root)
+	if err != nil {
+		return fmt.Errorf("sync provider capability matrix: %w", err)
+	}
+
+	return nil
+}
+
+func checkProviderMatrix(args []string) error {
+	flags := flag.NewFlagSet("check-provider-matrix", flag.ContinueOnError)
+	root := flags.String("root", ".", "Repository root for generated docs")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return fmt.Errorf("parse check-provider-matrix flags: %w", err)
+	}
+
+	mismatched, err := agenthooks.CheckProviderCapabilityMatrix(*root)
+	if err != nil {
+		return fmt.Errorf("check provider capability matrix: %w", err)
+	}
+
+	if len(mismatched) != 0 {
+		return fmt.Errorf(
+			"%w: %s",
+			errProviderMatrixDrift,
+			strings.Join(mismatched, ", "),
+		)
+	}
+
+	return nil
+}
+
 func defaultHookCommand(hookCommand string) string {
 	if strings.TrimSpace(hookCommand) != "" {
 		return hookCommand
@@ -272,7 +323,8 @@ func usage() {
 }
 
 func usageTo(writer io.Writer) {
-	const text = "Usage: coding-ethos-agent-hooks <print|sync|doctor|verify> " +
+	const text = "Usage: coding-ethos-agent-hooks " +
+		"<print|sync|doctor|verify|sync-provider-matrix|check-provider-matrix> " +
 		"[flags]; sync supports --dry-run --format json|toon"
 
 	feedback.Emit(

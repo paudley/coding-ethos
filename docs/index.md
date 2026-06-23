@@ -71,6 +71,9 @@ Code, Gemini CLI, and human contributors need the same enforceable rules.
 - [Integrations](INTEGRATIONS.md): setup notes for Codex, Claude Code, Gemini
   CLI, MCP clients, GitHub Actions, GitLab CI, SARIF consumers, and managed
   tools.
+- [Provider capability matrix](PROVIDER_CAPABILITY_MATRIX.md): generated
+  adapter support, partial-support, unsupported-surface, MCP, memory, and
+  verification coverage by provider.
 - [Runtime sandboxing](RUNTIME_SANDBOXING.md): native namespaces, cgroups, seccomp,
   network isolation, and least-privilege tool capabilities.
 - [Red-team suite](RED_TEAM_SUITE.md): adversarial coverage for hook bypass,
