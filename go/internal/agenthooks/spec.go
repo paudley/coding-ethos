@@ -13,6 +13,8 @@ const (
 	ProviderCodex Provider = "codex"
 	// ProviderGemini renders a Gemini-owned coding-ethos hook manifest.
 	ProviderGemini Provider = "gemini"
+	// ProviderGeneric identifies portable agent surfaces with no native hooks.
+	ProviderGeneric Provider = "generic"
 )
 
 // HookSpec describes the provider-neutral hook surface the runtime protects.

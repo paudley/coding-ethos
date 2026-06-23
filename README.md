@@ -1453,13 +1453,10 @@ bin/coding-ethos-run agent-hooks verify
 ```
 
 Agent hook generation is all-or-nothing. `sync` writes every supported
-repo-local surface:
-
-| Provider | Native file | Coverage |
-| --- | --- | --- |
-| Claude | `.claude/settings.local.json`, `.mcp.json` | full runtime hook set plus MCP stdio server |
-| Codex | `.codex/config.toml` | native supported hook events plus MCP stdio server |
-| Gemini CLI | `.gemini/settings.json` | native supported hook events plus MCP stdio server |
+repo-local surface. Provider support levels, native settings files, hook events,
+MCP setup, generated targets, memory behavior, response shapes, and unsupported
+surfaces are generated from the registry into
+[Provider Capability Matrix](docs/PROVIDER_CAPABILITY_MATRIX.md).
 
 Codex runs one native command hook per supported event so current Codex
 sessions enter the same policy runtime without depending on unstable tool
@@ -1562,12 +1559,8 @@ and carries the denial details in the JSON result instead of duplicating a
 second compact denial line on stderr.
 
 Provider output uses the strongest native shape each agent supports:
-
-| Provider | Block shape | Context/advice shape |
-| --- | --- | --- |
-| Claude | `hookSpecificOutput.permissionDecision = deny` | full `hookSpecificOutput`, including `updatedInput` |
-| Codex | `decision: "block"` plus `permissionDecision: "deny"` for `PreToolUse`; JSON-mode block details on stdout with empty stderr | compact native `additionalContext` for supported lifecycle/post-tool advice; compact `systemMessage` only where Codex exposes no `additionalContext` |
-| Gemini | `decision: "deny"` plus `systemMessage` | `additionalContext` on supported lifecycle hooks |
+the generated [Provider Capability Matrix](docs/PROVIDER_CAPABILITY_MATRIX.md)
+is the source of truth for block response and context/advice shapes.
 
 ### Agent-Hook Scope
 

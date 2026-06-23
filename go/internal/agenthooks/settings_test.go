@@ -37,8 +37,14 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 		`"codex": {`,
 		`"gemini": {`,
 		`"capabilities": [`,
+		`"display_name": "Claude Code"`,
+		`"provider": "generic"`,
 		`"coverage": "full"`,
 		`"coverage": "partial"`,
+		`"coverage": "unsupported"`,
+		`"block_response_shape"`,
+		`"context_advice_shape"`,
+		`"verification_fixture"`,
 		`"provider_limited"`,
 		`"unsupported"`,
 		`"PreToolUse"`,
@@ -70,7 +76,7 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 	t.Parallel()
 
 	capabilities := agenthooks.ProviderCapabilities()
-	if len(capabilities) != 3 {
+	if len(capabilities) != 4 {
 		t.Fatalf("capability count mismatch: %#v", capabilities)
 	}
 
@@ -84,8 +90,24 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 		)
 	}
 
-	assertUnsupported(t, capabilities, "codex", "PreToolUse updatedInput rewrite")
-	assertUnsupported(t, capabilities, "gemini", "PostToolBatch additionalContext")
+	assertUnsupported(
+		t,
+		capabilities,
+		string(agenthooks.ProviderCodex),
+		"PreToolUse updatedInput rewrite",
+	)
+	assertUnsupported(
+		t,
+		capabilities,
+		string(agenthooks.ProviderGemini),
+		"PostToolBatch additionalContext",
+	)
+	assertUnsupported(
+		t,
+		capabilities,
+		string(agenthooks.ProviderGeneric),
+		"native hook settings generation",
+	)
 }
 
 type providerCapabilityExpectation struct {
@@ -96,23 +118,94 @@ type providerCapabilityExpectation struct {
 
 func providerCapabilityExpectations() []providerCapabilityExpectation {
 	return []providerCapabilityExpectation{
-		{"claude", "full", "PreToolUse updatedInput rewrite"},
-		{"claude", "full", "UserPromptSubmit additionalContext"},
-		{"claude", "full", "MCP stdio server"},
-		{"codex", "partial", "PreToolUse native command hook"},
-		{"codex", "partial", "PreToolUse apply_patch/edit policy hook"},
-		{"codex", "partial", "PostToolUse compact additionalContext"},
-		{"codex", "partial", "PostToolUse edit verification advice"},
-		{"codex", "partial", "SessionStart additionalContext"},
-		{"codex", "partial", "UserPromptSubmit additionalContext"},
-		{"codex", "partial", "Stop compact systemMessage"},
-		{"codex", "partial", "MCP stdio server"},
-		{"gemini", "partial", "BeforeTool deny"},
-		{"gemini", "partial", "PreToolUse updatedInput rewrite"},
-		{"gemini", "partial", "AfterTool additionalContext"},
-		{"gemini", "partial", "BeforeAgent additionalContext"},
-		{"gemini", "partial", "SessionEnd additionalContext"},
-		{"gemini", "partial", "MCP stdio server"},
+		{string(agenthooks.ProviderClaude), "full", "PreToolUse updatedInput rewrite"},
+		{string(agenthooks.ProviderClaude), "full", "UserPromptSubmit additionalContext"},
+		{string(agenthooks.ProviderClaude), "full", "MCP stdio server"},
+		{string(agenthooks.ProviderCodex), "partial", "PreToolUse native command hook"},
+		{
+			string(agenthooks.ProviderCodex),
+			"partial",
+			"PreToolUse apply_patch/edit policy hook",
+		},
+		{
+			string(agenthooks.ProviderCodex),
+			"partial",
+			"PostToolUse compact additionalContext",
+		},
+		{string(agenthooks.ProviderCodex), "partial", "PostToolUse edit verification advice"},
+		{string(agenthooks.ProviderCodex), "partial", "SessionStart additionalContext"},
+		{string(agenthooks.ProviderCodex), "partial", "UserPromptSubmit additionalContext"},
+		{string(agenthooks.ProviderCodex), "partial", "Stop compact systemMessage"},
+		{string(agenthooks.ProviderCodex), "partial", "MCP stdio server"},
+		{string(agenthooks.ProviderGemini), "partial", "BeforeTool deny"},
+		{string(agenthooks.ProviderGemini), "partial", "PreToolUse updatedInput rewrite"},
+		{string(agenthooks.ProviderGemini), "partial", "AfterTool additionalContext"},
+		{string(agenthooks.ProviderGemini), "partial", "BeforeAgent additionalContext"},
+		{string(agenthooks.ProviderGemini), "partial", "SessionEnd additionalContext"},
+		{string(agenthooks.ProviderGemini), "partial", "MCP stdio server"},
+		{string(agenthooks.ProviderGeneric), "unsupported", "portable skill surfaces"},
+	}
+}
+
+func TestProviderCapabilityMatrixSyncAndCheckDetectDrift(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	written, err := agenthooks.SyncProviderCapabilityMatrix(root)
+	if err != nil {
+		t.Fatalf("sync provider matrix: %v", err)
+	}
+
+	if len(written) != 1 ||
+		filepath.Base(written[0]) != "PROVIDER_CAPABILITY_MATRIX.md" {
+		t.Fatalf("written provider matrix paths = %#v", written)
+	}
+
+	mismatched, err := agenthooks.CheckProviderCapabilityMatrix(root)
+	if err != nil {
+		t.Fatalf("check provider matrix: %v", err)
+	}
+
+	if len(mismatched) != 0 {
+		t.Fatalf("provider matrix drift after sync = %#v", mismatched)
+	}
+
+	err = os.WriteFile(written[0], []byte("drift\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write provider matrix drift: %v", err)
+	}
+
+	mismatched, err = agenthooks.CheckProviderCapabilityMatrix(root)
+	if err != nil {
+		t.Fatalf("check provider matrix after drift: %v", err)
+	}
+
+	if len(mismatched) != 1 || mismatched[0] != written[0] {
+		t.Fatalf("provider matrix drift = %#v, want %s", mismatched, written[0])
+	}
+}
+
+func TestProviderCapabilityMatrixDocsStayInSync(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(
+		"..",
+		"..",
+		"..",
+		filepath.FromSlash(agenthooks.ProviderCapabilityMatrixRelativePath),
+	)
+
+	current, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		t.Fatalf("read provider matrix doc: %v", err)
+	}
+
+	expected := agenthooks.ProviderCapabilityMatrixMarkdown()
+	if string(current) != expected {
+		t.Fatalf(
+			"provider matrix doc drifted; run make sync-provider-matrix",
+		)
 	}
 }
 
@@ -206,12 +299,7 @@ func TestGeminiSettingsDoNotClaimUnsupportedPostToolUse(t *testing.T) {
 
 	output := buffer.String()
 
-	geminiIndex := strings.Index(output, `"gemini": {`)
-	if geminiIndex == -1 {
-		t.Fatalf("missing gemini settings:\n%s", output)
-	}
-
-	geminiSettings := output[geminiIndex:]
+	geminiSettings := providerSettingsSection(t, output, "gemini", "capabilities")
 	if strings.Contains(geminiSettings, `"PostToolUse"`) {
 		t.Fatalf("Gemini must not claim unsupported PostToolUse:\n%s", output)
 	}
@@ -443,7 +531,7 @@ func providerSettingsSection(
 		t.Fatalf("missing %s settings:\n%s", provider, output)
 	}
 
-	end := strings.Index(output[start:], `"`+nextProvider+`": {`)
+	end := strings.Index(output[start:], `"`+nextProvider+`":`)
 	if end == -1 {
 		t.Fatalf("missing %s settings after %s:\n%s", nextProvider, provider, output)
 	}
@@ -602,7 +690,12 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("check count = %d, want 15: %#v", len(report.Checks), report.Checks)
 	}
 
+	knownProviders := providerIDsByRegistry()
 	for _, check := range report.Checks {
+		if !knownProviders[check.Provider] {
+			t.Fatalf("check uses unregistered provider %q: %#v", check.Provider, check)
+		}
+
 		if check.Status != "pass" {
 			t.Fatalf("failed check: %#v", check)
 		}
@@ -651,7 +744,7 @@ func TestVerifySettingsRejectsInvalidPortableSkillSurface(t *testing.T) {
 
 	for _, check := range report.Checks {
 		if check.Event == "skill-surface" &&
-			check.Provider == "portable" &&
+			check.Provider == string(agenthooks.ProviderGeneric) &&
 			check.Tool == "managed-toolchain" &&
 			check.Status == "fail" &&
 			strings.Contains(check.Detail, "missing YAML frontmatter") {
@@ -660,7 +753,7 @@ func TestVerifySettingsRejectsInvalidPortableSkillSurface(t *testing.T) {
 	}
 
 	if !found {
-		t.Fatalf("missing failed portable skill-surface check: %#v", report.Checks)
+		t.Fatalf("missing failed generic skill-surface check: %#v", report.Checks)
 	}
 }
 
@@ -1034,9 +1127,19 @@ func providersWithCapability(
 	return providers
 }
 
+func providerIDsByRegistry() map[string]bool {
+	providers := map[string]bool{}
+
+	for _, capability := range agenthooks.ProviderCapabilities() {
+		providers[capability.Provider] = true
+	}
+
+	return providers
+}
+
 func capabilityProbePayload(provider, cwd string) string {
 	switch provider {
-	case "claude":
+	case string(agenthooks.ProviderClaude):
 		return fmt.Sprintf(`{
 			"provider": "claude",
 			"hook_event_name": "PreToolUse",
@@ -1044,7 +1147,7 @@ func capabilityProbePayload(provider, cwd string) string {
 			"tool_name": "Bash",
 			"tool_input": {"command": "git add file.txt"}
 		}`, cwd)
-	case "codex":
+	case string(agenthooks.ProviderCodex):
 		return fmt.Sprintf(`{
 			"provider": "codex",
 			"event": "PreToolUse",
@@ -1052,7 +1155,7 @@ func capabilityProbePayload(provider, cwd string) string {
 			"tool": "exec_command",
 			"input": {"command": "git add file.txt"}
 		}`, cwd)
-	case "gemini":
+	case string(agenthooks.ProviderGemini):
 		return fmt.Sprintf(`{
 			"provider": "gemini-cli",
 			"hookEventName": "BeforeTool",

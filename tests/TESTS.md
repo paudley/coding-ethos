@@ -64,9 +64,9 @@ For the full current repo gate:
 make check
 ```
 
-`make check` runs tests plus generated tool-config and Gemini prompt-pack drift
-checks, including real Go end-to-end workflow tests that prepare the runtime
-through `make build`.
+`make check` runs tests plus generated tool-config, Gemini prompt-pack, agent
+skill, and provider-matrix drift checks, including real Go end-to-end workflow
+tests that prepare the runtime through `make build`.
 
 When hook runtime changes are involved, also run:
 

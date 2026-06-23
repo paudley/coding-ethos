@@ -7,6 +7,11 @@
 work: local Git hooks, AI coding assistants, MCP clients, GitHub Actions, GitLab
 CI, SARIF consumers, and managed static-analysis tools.
 
+The generated [Provider Capability Matrix](PROVIDER_CAPABILITY_MATRIX.md) is the
+source of truth for provider ids, supported hook events, block and advice shapes,
+MCP setup, generated targets, memory behavior, caveats, and verification
+fixtures.
+
 ## Codex
 
 Generated Codex surfaces include:

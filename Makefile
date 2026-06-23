@@ -442,7 +442,7 @@ python-coverage: ensure-uv ## Run Python tests with coverage enforcement.
 	@$(UV) run coverage report --fail-under="$(PYTHON_COVERAGE_MIN)"
 	@$(UV) run coverage xml -o "$(GO_COVERAGE_DIR)/coverage-python.xml"
 
-check: check-local-artifacts test check-tool-configs check-gemini-prompts check-agent-skills go-test go-e2e-test ## Run the repo's current verification gate.
+check: check-local-artifacts test check-tool-configs check-gemini-prompts check-agent-skills check-provider-matrix go-test go-e2e-test ## Run the repo's current verification gate.
 
 check-local-artifacts: ## Fail if local build artifacts escaped managed output dirs.
 	@$(call print_step,Checking for unmanaged local build artifacts)
@@ -572,7 +572,19 @@ check-agent-skills: ensure-hook-runtime ## Fail if provider skill surfaces are o
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" \
 		check-agent-skills --ethos-root "$(LOCAL_REPO_ROOT)" $(AGENT_SKILL_FLAGS)
 
-build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills go-tools-install repair-repo-ignores _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
+sync-provider-matrix: ensure-go go-tools-install ## Generate the provider capability matrix.
+	@$(call print_step,Syncing provider capability matrix)
+	@$(call print_info,repo: $(LOCAL_REPO_ROOT))
+	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-agent-hooks" \
+		sync-provider-matrix --root "$(LOCAL_REPO_ROOT)"
+
+check-provider-matrix: ensure-hook-runtime ## Fail if the provider capability matrix is out of sync.
+	@$(call print_step,Checking provider capability matrix)
+	@$(call print_info,repo: $(LOCAL_REPO_ROOT))
+	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-agent-hooks" \
+		check-provider-matrix --root "$(LOCAL_REPO_ROOT)"
+
+build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills sync-provider-matrix go-tools-install repair-repo-ignores _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
 
 sandbox-runtime-validate: ensure-go go-tools-install ## Validate required sandbox runtime.
 	@$(call print_step,Validating native sandbox runtime)
