@@ -174,6 +174,10 @@ func normalizeFlagOrder(args []string) []string {
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		switch {
+		case arg == "--":
+			positionals = append(positionals, args[index:]...)
+
+			return append(flagArgs, positionals...)
 		case arg == "--refresh":
 			flagArgs = append(flagArgs, arg)
 		case strings.HasPrefix(arg, "--refresh="):

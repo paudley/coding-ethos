@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +101,26 @@ func TestSearchAcceptsFlagsAfterQuery(t *testing.T) {
 	if !strings.Contains(output, "query: navigation drawer") ||
 		strings.Contains(output, "query: navigation drawer --root") {
 		t.Fatalf("search did not parse trailing flags correctly:\n%s", output)
+	}
+}
+
+func TestParseOptionsRespectsDoubleDash(t *testing.T) {
+	t.Parallel()
+
+	options, err := parseOptions(
+		"search",
+		[]string{"--root", "/repo", "--limit", "3", "--", "--literal", "query"},
+	)
+	if err != nil {
+		t.Fatalf("parse options: %v", err)
+	}
+
+	if options.root != "/repo" || options.limit != 3 {
+		t.Fatalf("options = %#v, want parsed flags before --", options)
+	}
+
+	if !slices.Equal(options.rest, []string{"--literal", "query"}) {
+		t.Fatalf("rest = %#v, want dash-prefixed positional query", options.rest)
 	}
 }
 

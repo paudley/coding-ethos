@@ -229,6 +229,17 @@ func TestRetrieveParsesGuideContentAndSections(t *testing.T) {
 	}
 }
 
+func TestParseSectionsDropsPreambleBeforeFirstHeading(t *testing.T) {
+	t.Parallel()
+
+	sections := parseSections("introductory preamble\n\n## Overview\n\nUse popover.")
+	if len(sections) != 1 ||
+		sections[0].Title != "Overview" ||
+		sections[0].Content != "Use popover." {
+		t.Fatalf("sections = %#v, want preamble discarded", sections)
+	}
+}
+
 func TestFormatTOONIncludesCacheProvenanceAndGuides(t *testing.T) {
 	t.Parallel()
 

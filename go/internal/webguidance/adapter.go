@@ -671,6 +671,8 @@ func parseSections(markdown string) []Section {
 
 	flush := func() {
 		if current.Title == "" {
+			body = []string{}
+
 			return
 		}
 
