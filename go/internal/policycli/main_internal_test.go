@@ -293,6 +293,65 @@ func TestSyncToolConfigsWritesInstallSyncState(t *testing.T) {
 	}
 }
 
+func TestRunCLIDispatchesInstallStateReports(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	artifactPath := filepath.Join(repoRoot, "generated.txt")
+	writePolicyCLITestFile(t, artifactPath, "expected\n")
+
+	artifacts, err := syncstate.Artifacts(repoRoot, []syncstate.ArtifactInput{
+		{
+			RelativePath:        "generated.txt",
+			Content:             "expected\n",
+			Provider:            "agent-hooks",
+			Surface:             "codex-config",
+			VerificationCommand: "bin/coding-ethos-run agent-hooks doctor",
+		},
+	})
+	if err != nil {
+		t.Fatalf("artifacts: %v", err)
+	}
+
+	_, err = syncstate.Upsert(syncstate.UpsertOptions{
+		RepoRoot:        repoRoot,
+		RequestedAction: "agent-hooks sync",
+		ProviderTargets: []syncstate.ProviderTarget{
+			{Provider: "agent-hooks", Root: repoRoot},
+		},
+		Artifacts: artifacts,
+	})
+	if err != nil {
+		t.Fatalf("upsert install state: %v", err)
+	}
+
+	doctorOutput := captureStdout(t, func() {
+		if code := runCLI(
+			[]string{"install-state-doctor", "--repo", repoRoot, "--format", "toon"},
+		); code != 0 {
+			t.Fatalf("install-state-doctor exit = %d", code)
+		}
+	})
+	if !strings.Contains(doctorOutput, "tool: install-sync-doctor") ||
+		!strings.Contains(doctorOutput, "status: pass") {
+		t.Fatalf("doctor output = %q", doctorOutput)
+	}
+
+	writePolicyCLITestFile(t, artifactPath, "drifted\n")
+
+	repairOutput := captureStdout(t, func() {
+		if code := runCLI(
+			[]string{"install-state-repair-plan", "--repo", repoRoot, "--format", "json"},
+		); code != 0 {
+			t.Fatalf("install-state-repair-plan exit = %d", code)
+		}
+	})
+	if !strings.Contains(repairOutput, `"tool": "install-sync-repair-plan"`) ||
+		!strings.Contains(repairOutput, `"planned_write_count": 1`) {
+		t.Fatalf("repair output = %q", repairOutput)
+	}
+}
+
 func TestValidateRepoConfigSectionsAllowsProxyOutputCompression(t *testing.T) {
 	t.Parallel()
 

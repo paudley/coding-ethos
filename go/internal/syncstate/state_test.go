@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -145,6 +146,79 @@ func TestRepairPlanOnlyIncludesCodingEthosOwnedArtifacts(t *testing.T) {
 
 	if len(repair.Artifacts) != 1 || repair.Artifacts[0].Path != "managed.txt" {
 		t.Fatalf("repair artifacts = %#v", repair.Artifacts)
+	}
+}
+
+func TestReportRendersAllFeedbackFormats(t *testing.T) {
+	t.Parallel()
+
+	report := Report{
+		Tool:              "install-sync-doctor",
+		Status:            "planned",
+		StatePath:         ".coding-ethos/state/install-sync.json",
+		TargetRepoRoot:    "/repo",
+		RequestedAction:   "agent-hooks sync",
+		RuntimeVersion:    "1.2.3",
+		RuntimeCommit:     "abc1234",
+		LastValidationUTC: "2026-02-03T04:05:06Z",
+		ProviderTargets: []ProviderTarget{
+			{Provider: "agent-hooks", Root: "/repo"},
+		},
+		Sources: []SourceReport{
+			{
+				Path:           "coding_ethos.yml",
+				Status:         sourceStatusCurrent,
+				ExpectedSHA256: "sha256:source",
+				ActualSHA256:   "sha256:source",
+			},
+		},
+		Artifacts: []ArtifactReport{
+			{
+				Path:                ".codex/config.toml",
+				Provider:            "agent-hooks",
+				Surface:             "codex-config",
+				Ownership:           DefaultOwnership,
+				Status:              artifactStatusMissing,
+				Plan:                "write",
+				ExpectedSHA256:      "sha256:expected",
+				VerificationCommand: "bin/coding-ethos-run agent-hooks doctor",
+			},
+		},
+		PlannedWriteCount: 1,
+	}
+
+	if got, ok := report.MarshalFeedbackJSON().(Report); !ok || got.Tool != report.Tool {
+		t.Fatalf("json feedback = %#v", got)
+	}
+
+	toon := report.MarshalFeedbackTOON()
+	for _, want := range []string{
+		"tool: install-sync-doctor",
+		"provider_targets[1]{provider,root}:",
+		"sources[1]{path,status,expected_sha256,actual_sha256}:",
+		"artifacts[1]{path,provider,surface,status,ownership,plan,expected_sha256,actual_sha256,verification_command}:",
+		"planned_write_count: 1",
+	} {
+		if !strings.Contains(toon, want) {
+			t.Fatalf("TOON output missing %q:\n%s", want, toon)
+		}
+	}
+
+	if human := report.MarshalFeedbackHuman(); human != toon {
+		t.Fatalf("human feedback differs from TOON:\n%s", human)
+	}
+
+	sarif := report.MarshalFeedbackSARIF()
+	if sarif.Version == "" || len(sarif.Runs) != 1 ||
+		len(sarif.Runs[0].Results) != 1 {
+		t.Fatalf("SARIF feedback = %#v", sarif)
+	}
+
+	fields := report.FeedbackLogFields()
+	if fields["tool"] != report.Tool ||
+		fields["status"] != report.Status ||
+		fields["planned_write_count"] != report.PlannedWriteCount {
+		t.Fatalf("log fields = %#v", fields)
 	}
 }
 
