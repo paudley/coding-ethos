@@ -288,6 +288,18 @@ func TestWorkspaceContractsFromEdgesMapsProviderRepos(t *testing.T) {
 			TargetPath: "/workspace/web/pkg/server.go",
 			RawText:    "import web",
 		},
+		{
+			Kind:       "package_dependency",
+			Path:       "package.json",
+			TargetPath: "web/package.json",
+			RawText:    `"@workspace/web": "workspace:*"`,
+		},
+		{
+			Kind:       "http_client",
+			Path:       "client.go",
+			TargetPath: "/workspace/web/routes/users.go",
+			RawText:    "GET /users",
+		},
 		{Kind: "calls", TargetPath: "/workspace/web/pkg/ignored.go"},
 		{Kind: "imports"},
 		{Kind: "imports", TargetPath: "/workspace/api/internal/self.go"},
@@ -295,14 +307,39 @@ func TestWorkspaceContractsFromEdgesMapsProviderRepos(t *testing.T) {
 
 	contracts := workspaceContractsFromEdges(registry.Repos[0], registry, edges)
 
-	if len(contracts) != 1 {
-		t.Fatalf("contracts = %#v, want one cross-repo import", contracts)
+	if len(contracts) != 3 {
+		t.Fatalf("contracts = %#v, want three cross-repo contracts", contracts)
 	}
-	contract := contracts[0]
-	if contract.ConsumerRepo != "api" || contract.ProviderRepo != "web" ||
-		contract.Kind != "imports" || contract.Evidence != "import web" {
-		t.Fatalf("contract = %#v, want api -> web import", contract)
+
+	for _, want := range []struct {
+		evidence string
+		kind     string
+	}{
+		{kind: "imports", evidence: "import web"},
+		{kind: "package_dependency", evidence: `"@workspace/web": "workspace:*"`},
+		{kind: "http_client", evidence: "GET /users"},
+	} {
+		if !workspaceContractsContain(contracts, want.kind, want.evidence) {
+			t.Fatalf("contracts = %#v, missing %s contract", contracts, want.kind)
+		}
 	}
+}
+
+func workspaceContractsContain(
+	contracts []WorkspaceContract,
+	kind string,
+	evidence string,
+) bool {
+	for _, contract := range contracts {
+		if contract.ConsumerRepo == "api" &&
+			contract.ProviderRepo == "web" &&
+			contract.Kind == kind &&
+			contract.Evidence == evidence {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestWorkspaceRepoForTargetPathSupportsAliasPrefixes(t *testing.T) {

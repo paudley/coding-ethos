@@ -85,6 +85,94 @@ func TestWorkspaceCommandsScanAndStatus(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCommandsAddListRefreshAndRemove(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	repo := filepath.Join(root, "api")
+	if err := os.MkdirAll(repo, 0o700); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	runCodeIntelCLIGit(t, ctx, repo, "init")
+	runCodeIntelCLIGit(t, ctx, repo, "config", "user.name", "Test User")
+	runCodeIntelCLIGit(t, ctx, repo, "config", "user.email", "test@example.invalid")
+	if err := os.WriteFile(
+		filepath.Join(repo, "README.md"),
+		[]byte("# api\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runCodeIntelCLIGit(t, ctx, repo, "add", ".")
+	runCodeIntelCLIGit(t, ctx, repo, "commit", "-m", "initial api")
+
+	var addErr error
+	addOutput := captureStdout(t, func() {
+		addErr = run(ctx, []string{
+			"workspace",
+			"add",
+			"--root", root,
+			"--alias", "api",
+			"--repo", repo,
+		})
+	})
+	if addErr != nil {
+		t.Fatalf("workspace add returned error: %v", addErr)
+	}
+	if !strings.Contains(addOutput, `"alias": "api"`) {
+		t.Fatalf("workspace add output missing api alias:\n%s", addOutput)
+	}
+
+	var listErr error
+	listOutput := captureStdout(t, func() {
+		listErr = run(ctx, []string{
+			"workspace",
+			"list",
+			"--root", root,
+			"--format", "toon",
+		})
+	})
+	if listErr != nil {
+		t.Fatalf("workspace list returned error: %v", listErr)
+	}
+	if !strings.Contains(listOutput, "coding_ethos_workspace:") ||
+		!strings.Contains(listOutput, `alias: "api"`) {
+		t.Fatalf("workspace list output missing TOON registry:\n%s", listOutput)
+	}
+
+	var refreshErr error
+	refreshOutput := captureStdout(t, func() {
+		refreshErr = run(ctx, []string{
+			"workspace",
+			"refresh",
+			"--root", root,
+			"--format", "toon",
+		})
+	})
+	if refreshErr != nil {
+		t.Fatalf("workspace refresh returned error: %v", refreshErr)
+	}
+	if !strings.Contains(refreshOutput, "coding_ethos_workspace_status:") ||
+		!strings.Contains(refreshOutput, `alias: "api"`) {
+		t.Fatalf("workspace refresh output missing TOON status:\n%s", refreshOutput)
+	}
+
+	var removeErr error
+	removeOutput := captureStdout(t, func() {
+		removeErr = run(ctx, []string{
+			"workspace",
+			"remove",
+			"--root", root,
+			"--alias", "api",
+		})
+	})
+	if removeErr != nil {
+		t.Fatalf("workspace remove returned error: %v", removeErr)
+	}
+	if !strings.Contains(removeOutput, `"repos": []`) {
+		t.Fatalf("workspace remove output retained repos:\n%s", removeOutput)
+	}
+}
+
 func TestWorkspaceListRejectsUnsupportedFormatWithWorkspaceError(t *testing.T) {
 	t.Parallel()
 

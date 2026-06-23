@@ -54,6 +54,7 @@ dmypy.json
 
 # Local tooling state
 .cache/
+.worktrees/
 .coding-ethos/cache/
 .coding-ethos/code-intel.db
 .coding-ethos/code-intel.db-shm
