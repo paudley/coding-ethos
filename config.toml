@@ -82,6 +82,12 @@ enabled = true
 auto = true
 max_age = "24h"
 
+[outputs.prune.surfaces.modern_web_guidance_cache]
+enabled = true
+auto = true
+max_age = "30d"
+max_bytes = "2GiB"
+
 [outputs.prune.surfaces.agent_shell_state]
 enabled = true
 auto = false
@@ -101,3 +107,9 @@ max_age = "30d"
 enabled = true
 auto = false
 max_age = "30d"
+
+[web_guidance.modern_web]
+enabled = true
+cache_ttl = "24h"
+allow_network_refresh = true
+browser_policy = ""

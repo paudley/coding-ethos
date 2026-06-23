@@ -35,6 +35,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/internal/toolchaincli"
+	"blackcat.ca/coding-ethos/go/internal/webguidancecli"
 )
 
 const (
@@ -1004,16 +1005,17 @@ type internalToolHandler func([]string) int
 
 func internalToolHandlers() map[string]internalToolHandler {
 	return map[string]internalToolHandler{
-		"coding-ethos-agent-hooks": agenthookscli.Run,
-		"coding-ethos-code-intel":  runCodeIntelCLI,
-		"coding-ethos-git":         runPolicyGitCLI,
-		"coding-ethos-git-hook":    githookcli.Run,
-		"coding-ethos-hook":        runHookCLI,
-		"coding-ethos-hook-log":    runHookLogCLI,
-		"coding-ethos-mcp":         runMCPCLI,
-		"coding-ethos-output":      runOutputCLI,
-		"coding-ethos-policy":      policycli.Run,
-		"coding-ethos-toolchain":   toolchaincli.Run,
+		"coding-ethos-agent-hooks":  agenthookscli.Run,
+		"coding-ethos-code-intel":   runCodeIntelCLI,
+		"coding-ethos-git":          runPolicyGitCLI,
+		"coding-ethos-git-hook":     githookcli.Run,
+		"coding-ethos-hook":         runHookCLI,
+		"coding-ethos-hook-log":     runHookLogCLI,
+		"coding-ethos-mcp":          runMCPCLI,
+		"coding-ethos-output":       runOutputCLI,
+		"coding-ethos-policy":       policycli.Run,
+		"coding-ethos-toolchain":    toolchaincli.Run,
+		"coding-ethos-web-guidance": runWebGuidanceCLI,
 	}
 }
 
@@ -1030,6 +1032,17 @@ func runCodeIntelCLI(args []string) int {
 
 func runOutputCLI(args []string) int {
 	err := outputcli.Run(context.Background(), args)
+	if err != nil {
+		emitRuntimeError(err)
+
+		return 1
+	}
+
+	return 0
+}
+
+func runWebGuidanceCLI(args []string) int {
+	err := webguidancecli.Run(context.Background(), args)
 	if err != nil {
 		emitRuntimeError(err)
 

@@ -53,6 +53,12 @@ skill metadata used by those enforcement paths.
   with FTS plus duckdb-vss when a query vector is supplied.
 - `code_intel_answer`: retrieve cited code-intel evidence for a repository
   question while reporting retrieval quality separately from confidence.
+- `modern_web_guidance_search`: search current advisory Modern Web Guidance
+  content through the repo-local cache and upstream npm package.
+- `modern_web_guidance_retrieve`: retrieve one or more Modern Web Guidance
+  guides with provenance, cache status, and advisory metadata.
+- `modern_web_guidance_list`: list available Modern Web Guidance guide IDs and
+  descriptions through the same cached adapter.
 - `semantic_search`: query indexed repository code and return exact code chunks
   with path and line metadata before agents fall back to broad grep.
 - `code_intel_index_status`: report code-intelligence store freshness,
@@ -97,7 +103,8 @@ surgical diffs, and verifiable success criteria.
 
 Tool definitions include `coding_ethos` metadata so clients can distinguish
 advisory tools from managed execution tools and know whether a tool reads
-files, runs managed binaries, may mutate state, or persists traces.
+files, runs managed binaries, may mutate state, may require network access, or
+persists traces.
 
 ## SARIF Remediation
 

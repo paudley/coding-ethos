@@ -30,6 +30,8 @@ PYTHON ?= python
 GO ?= go
 GOFMT ?= gofmt
 GO_BUILD_FLAGS ?= -trimpath -buildvcs=false
+GO_BUILD_CACHE_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/go-build
+export GOCACHE := $(GO_BUILD_CACHE_DIR)
 
 empty :=
 space := $(empty) $(empty)

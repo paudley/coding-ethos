@@ -22,6 +22,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/managedcapture"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/webguidance"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -206,6 +207,9 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "policy_explain", Handler: server.explainPolicy},
 		{Name: "skill_lookup", Handler: server.lookupSkill},
 		{Name: "remediation_explain", Handler: server.explainRemediation},
+		{Name: "modern_web_guidance_search", Handler: server.modernWebGuidanceSearch},
+		{Name: "modern_web_guidance_retrieve", Handler: server.modernWebGuidanceRetrieve},
+		{Name: "modern_web_guidance_list", Handler: server.modernWebGuidanceList},
 		{Name: "code_intel_overview", Handler: server.codeIntelOverview},
 		{Name: "code_intel_workspace_status", Handler: server.codeIntelWorkspaceStatus},
 		{Name: "code_intel_search", Handler: server.codeIntelSearch},
@@ -230,6 +234,83 @@ func (server Server) toolHandlers() []toolHandlerEntry {
 		{Name: "code_intel_session_snapshot", Handler: server.codeIntelSessionSnapshot},
 		{Name: "skill_recommend", Handler: server.recommendSkills},
 	}
+}
+
+func (server Server) modernWebGuidanceSearch(args json.RawMessage) (any, error) {
+	var input modernWebGuidanceSearchInput
+
+	inlineErr := json.Unmarshal(args, &input)
+	if inlineErr != nil {
+		return nil, fmt.Errorf("parse modern web guidance search arguments: %w", inlineErr)
+	}
+
+	response, err := webguidance.Adapter{Root: server.runtimeRoot()}.Search(
+		context.Background(),
+		webguidance.SearchInput{
+			Query:         input.Query,
+			Limit:         input.Limit,
+			BrowserPolicy: input.BrowserPolicy,
+			Refresh:       input.Refresh,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("search modern web guidance: %w", err)
+	}
+
+	return response, nil
+}
+
+func (server Server) modernWebGuidanceRetrieve(args json.RawMessage) (any, error) {
+	var input modernWebGuidanceRetrieveInput
+
+	inlineErr := json.Unmarshal(args, &input)
+	if inlineErr != nil {
+		return nil, fmt.Errorf("parse modern web guidance retrieve arguments: %w", inlineErr)
+	}
+
+	ids := append([]string{}, input.IDs...)
+	ids = append(ids, input.GuideIDs...)
+
+	if strings.TrimSpace(input.ID) != "" {
+		ids = append(ids, input.ID)
+	}
+
+	response, err := webguidance.Adapter{Root: server.runtimeRoot()}.Retrieve(
+		context.Background(),
+		webguidance.RetrieveInput{
+			IDs:           ids,
+			BrowserPolicy: input.BrowserPolicy,
+			Refresh:       input.Refresh,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("retrieve modern web guidance: %w", err)
+	}
+
+	return response, nil
+}
+
+func (server Server) modernWebGuidanceList(args json.RawMessage) (any, error) {
+	var input modernWebGuidanceListInput
+
+	inlineErr := json.Unmarshal(args, &input)
+	if inlineErr != nil {
+		return nil, fmt.Errorf("parse modern web guidance list arguments: %w", inlineErr)
+	}
+
+	response, err := webguidance.Adapter{Root: server.runtimeRoot()}.List(
+		context.Background(),
+		webguidance.ListInput{Refresh: input.Refresh},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list modern web guidance: %w", err)
+	}
+
+	return response, nil
+}
+
+func (server Server) runtimeRoot() string {
+	return firstNonEmpty(server.runtime.ConsumerRoot, server.runtime.InvocationCwd, ".")
 }
 
 func (server Server) toolCapabilitiesHandler(json.RawMessage) (any, error) {

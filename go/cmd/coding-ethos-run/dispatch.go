@@ -98,6 +98,7 @@ func runCommandEntries() []runCommandEntry {
 		{Command: "policy", Handler: runPolicyHandler},
 		{Command: "code-intel", Handler: runCodeIntelHandler},
 		{Command: "output", Handler: runOutputHandler},
+		{Command: "web-guidance", Handler: runWebGuidanceHandler},
 		{Command: "status", Handler: runStatusHandler},
 		{Command: "policy-tool", Handler: runPolicyTool},
 		{Command: "policy-tool-group", Handler: runPolicyToolGroup},
@@ -820,6 +821,15 @@ func runOutputHandler(paths runtimePaths, rest []string) error {
 		paths,
 		"coding-ethos-output",
 		outputArgs(paths.Root, rest)...)
+
+	return nil
+}
+
+func runWebGuidanceHandler(paths runtimePaths, rest []string) error {
+	runtimeExecTool(
+		paths,
+		"coding-ethos-web-guidance",
+		webGuidanceArgs(paths.Root, rest)...)
 
 	return nil
 }
