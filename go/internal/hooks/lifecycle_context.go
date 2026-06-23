@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/contextadvisor"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
+	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 )
 
 const (
@@ -100,12 +102,62 @@ func sessionStartContext(event Event) string {
 		context += "\n\n" + upgrade
 	}
 
+	advisor := startupContextAdvice(event.Cwd)
+	if advisor != "" {
+		context += "\n\n" + advisor
+	}
+
 	repoMap := startupRepoMap(event.Cwd)
 	if repoMap == "" {
 		return context
 	}
 
 	return context + "\n\n" + repoMap
+}
+
+func startupContextAdvice(cwd string) string {
+	root := gitRootFromPath(cwd)
+	if root == "" {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultStartupRepoMapTimeout)
+	defer cancel()
+
+	store, err := codeintel.OpenReadOnly(ctx, codeintel.DefaultDBPath(root))
+	if err != nil {
+		return ""
+	}
+	defer store.Close()
+
+	now := time.Now().UTC()
+
+	snapshot, err := store.SessionSnapshot(ctx, codeintel.SessionSnapshotQuery{
+		Root:     root,
+		Worktree: root,
+		Now:      now,
+	})
+	if err != nil {
+		return ""
+	}
+
+	surfaces, err := outputsurface.BuildReport(ctx, outputsurface.Options{
+		Root:        root,
+		IncludeTemp: false,
+		Now:         now,
+	})
+	if err != nil {
+		return ""
+	}
+
+	thresholds, err := contextadvisor.LoadThresholds(root)
+	if err != nil {
+		return ""
+	}
+
+	return contextadvisor.FormatAdviceTOON(
+		contextadvisor.Analyze(snapshot, surfaces, thresholds, now),
+	)
 }
 
 func sessionStartStorageUpgradeContext(cwd string) string {

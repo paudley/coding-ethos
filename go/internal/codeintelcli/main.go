@@ -64,6 +64,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"centrality":                printCentrality,
 		"code-chunks":               printCodeChunks,
 		"compact-context":           printCompactContext,
+		"context-advice":            printContextAdvice,
 		"code-context":              printCodeContext,
 		"downstream-analysis":       printDownstreamAnalysis,
 		"decisions":                 decisions,

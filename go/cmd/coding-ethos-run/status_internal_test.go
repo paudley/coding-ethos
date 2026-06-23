@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/outputsurface"
 )
@@ -87,6 +88,43 @@ func TestRunStatusReportsBlockersAsJSON(t *testing.T) {
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("status JSON missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestRunStatusIncludesContextAdviceWhenThresholdCrossed(t *testing.T) {
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY", "")
+	t.Setenv("CODE_ETHOS_AGENT_API_PROXY_URL", "")
+
+	paths := operatorStatusTestPaths(t, true)
+	writeOperatorStatusHookRun(t, paths.Root, "run-pass", 0)
+	createOperatorStatusCodeIntelDB(t, paths.Root, false)
+	recordOperatorStatusProxyEvent(t, paths.Root, "context-advice-read-1")
+
+	err := os.WriteFile(
+		filepath.Join(paths.Root, "repo_config.yaml"),
+		[]byte("proxy:\n  context_advisor:\n    warning_file_reads: 1\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	output := captureRuntimeStdout(t, func() {
+		err := runStatusHandler(paths, []string{"--format", "toon"})
+		if err != nil {
+			t.Fatalf("run status: %v", err)
+		}
+	})
+
+	for _, want := range []string{
+		"context_token_economy,WARN",
+		"context_advice[",
+		"repeated_file_reads",
+		"proxy_file_reads=1",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("status output missing %q:\n%s", want, output)
 		}
 	}
 }
@@ -344,5 +382,35 @@ func createOperatorStatusCodeIntelDB(t *testing.T, root string, review bool) {
 
 	if err := store.Close(); err != nil {
 		t.Fatalf("close code-intel db: %v", err)
+	}
+}
+
+func recordOperatorStatusProxyEvent(t *testing.T, root, eventID string) {
+	t.Helper()
+
+	store, err := codeintel.Open(
+		context.Background(),
+		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
+	)
+	if err != nil {
+		t.Fatalf("open code-intel db: %v", err)
+	}
+	defer func() {
+		closeErr := store.Close()
+		if closeErr != nil {
+			t.Fatalf("close code-intel db: %v", closeErr)
+		}
+	}()
+
+	err = store.RecordProxyEvent(context.Background(), agentproxy.ProviderEvent{
+		ID:        eventID,
+		SessionID: "context-advice-session",
+		Kind:      agentproxy.EventFileRead,
+		Provider:  "codex",
+		RepoRoot:  root,
+		Decision:  "allow",
+	})
+	if err != nil {
+		t.Fatalf("record proxy event: %v", err)
 	}
 }

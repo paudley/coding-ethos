@@ -460,6 +460,7 @@ bin/coding-ethos-run code-intel proxy-file-read --session-id sess-1 --path pkg/a
 bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel proxy-events --session-id sess-1
 bin/coding-ethos-run code-intel session-snapshot --session-id sess-1 --format toon
+bin/coding-ethos-run code-intel context-advice --session-id sess-1 --format toon
 bin/coding-ethos-run code-intel repeated-edits --path pkg/app.py
 bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
 bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports
@@ -552,6 +553,19 @@ counts, and recommended next actions into TOON, JSON, or human output. Use
 `--write status.md` when handing a repo to another operator or agent; blocker
 exit semantics remain reserved for command execution errors, while degraded
 local state is represented in the report's `status` field.
+
+`code-intel context-advice` and `status` include context/token economy guidance
+only when advisory thresholds are crossed. The advisor reads the existing
+code-intel session snapshot, proxy events, token/compression counters, and
+output-surface inventory, then emits JSON or compact TOON recommendations for
+repeated file/listing reads, tool-call pressure, stale or spilled outputs,
+truncation/compression, and high session token volume. SessionStart receives the
+same compact advice block only when there is actionable pressure. Configure
+thresholds under `proxy.context_advisor` in `repo_config.yaml`; these heuristics
+are advisory and do not participate in enforcement decisions. Pass
+`--include-temp` to `code-intel context-advice` when the operator needs OS temp
+spill evidence included in the count.
+
 Code-intel maintenance treats database files as derived indexes and evidence
 logs as durable audit material. Automatic maintenance prunes old DuckDB rows,
 checkpoints and compacts the DuckDB index, removes stale DuckDB sidecar

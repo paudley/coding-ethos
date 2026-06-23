@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/agentproxy"
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 )
 
@@ -37,6 +39,90 @@ func TestStatsCreatesStore(t *testing.T) {
 	err := run(context.Background(), []string{"stats", "--root", root, "--db", dbPath})
 	if err != nil {
 		t.Fatalf("stats command returned error: %v", err)
+	}
+}
+
+func TestContextAdviceEmitsTOON(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
+	store, err := codeintel.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	err = store.RecordProxyEvent(ctx, agentproxy.ProviderEvent{
+		ID:        "context-advice-event-1",
+		SessionID: "context-advice-session",
+		Kind:      agentproxy.EventFileRead,
+		Provider:  "codex",
+		RepoRoot:  root,
+		Decision:  "allow",
+	})
+	if err != nil {
+		t.Fatalf("record proxy event: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(root, "repo_config.yaml"),
+		[]byte("proxy:\n  context_advisor:\n    warning_file_reads: 1\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write repo config: %v", err)
+	}
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = run(ctx, []string{
+			"context-advice",
+			"--root", root,
+			"--db", dbPath,
+			"--format", "toon",
+		})
+	})
+	if runErr != nil {
+		t.Fatalf("context advice returned error: %v", runErr)
+	}
+
+	for _, want := range []string{
+		"kind: context_token_economy",
+		"status: WARN",
+		"advice[",
+		"repeated_file_reads",
+		"proxy_file_reads=1",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("context advice missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestContextAdviceReportsMissingIndexWithoutStore(t *testing.T) {
+	root := t.TempDir()
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = run(context.Background(), []string{
+			"context-advice",
+			"--root", root,
+			"--format", "json",
+		})
+	})
+	if runErr != nil {
+		t.Fatalf("context advice returned error: %v", runErr)
+	}
+
+	for _, want := range []string{
+		`"kind": "context_token_economy"`,
+		`"status": "OK"`,
+		`"code_intel_freshness": "missing_index"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("missing-index context advice missing %q:\n%s", want, output)
+		}
 	}
 }
 
