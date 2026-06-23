@@ -382,6 +382,13 @@ type codeIntelHealthInput struct {
 	Refresh bool   `json:"refresh,omitempty"`
 }
 
+type codeIntelSkillHealthInput struct {
+	SkillID   string `json:"skill_id,omitempty"`
+	Format    string `json:"format,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	StaleDays int    `json:"stale_days,omitempty"`
+}
+
 type codeIntelSessionSnapshotInput struct {
 	Provider  string `json:"provider,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
@@ -490,8 +497,8 @@ func toolResult(result any) map[string]any {
 }
 
 const (
-	toolDefinitionCapacity          = 37
-	codeIntelToolDefinitionCapacity = 17
+	toolDefinitionCapacity          = 38
+	codeIntelToolDefinitionCapacity = 18
 )
 
 func toolDefinitions() []map[string]any {
@@ -889,7 +896,7 @@ func skillToolDefinitions() []map[string]any {
 				ExecutesTools:  false,
 				ReadsFiles:     false,
 				PreferredUse:   "load the full remediation playbook for a known skill",
-				TracePersisted: false,
+				TracePersisted: true,
 			},
 		),
 		toolDefinition(
@@ -1018,6 +1025,7 @@ func codeIntelToolDefinitions() []map[string]any {
 	definitions = append(definitions, codeIntelSearchToolDefinitions()...)
 	definitions = append(definitions, codeIntelHookToolDefinitions()...)
 	definitions = append(definitions, codeIntelCodeToolDefinitions()...)
+	definitions = append(definitions, codeIntelSkillHealthToolDefinition())
 	definitions = append(definitions, codeIntelEmbeddingToolDefinitions()...)
 
 	return definitions
@@ -1360,6 +1368,33 @@ func codeIntelHealthToolDefinition() map[string]any {
 	)
 }
 
+func codeIntelSkillHealthToolDefinition() map[string]any {
+	return toolDefinition(
+		"code_intel_skill_health",
+		toolText(
+			"Report generated skill provenance, recent usage windows,",
+			"unknown IDs, stale skills, and repeated failure trends.",
+		),
+		map[string]any{
+			"skill_id":   map[string]any{"type": "string"},
+			"format":     map[string]any{"type": "string"},
+			"limit":      map[string]any{"type": "integer"},
+			"stale_days": map[string]any{"type": "integer"},
+		},
+		nil,
+		toolMetadata{
+			Advisory:      true,
+			ExecutesTools: false,
+			ReadsFiles:    false,
+			PreferredUse: toolText(
+				"audit whether generated skill guidance is unused,",
+				"stale, improving, or repeatedly failing",
+			),
+			TracePersisted: false,
+		},
+	)
+}
+
 func codeIntelWhyToolDefinition() map[string]any {
 	return toolDefinition(
 		"code_intel_why",
@@ -1653,7 +1688,7 @@ func codeIntelEmbeddingToolDefinitions() []map[string]any {
 				ExecutesTools:  false,
 				ReadsFiles:     false,
 				PreferredUse:   "choose the relevant skill before starting or repairing work",
-				TracePersisted: false,
+				TracePersisted: true,
 			},
 		),
 	}

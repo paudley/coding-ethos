@@ -371,6 +371,10 @@ The first tools are intentionally narrow and auditable:
 - `code_intel_health`: rank deterministic refactoring targets from indexed
   structure, structural clones, git signals, LCOV coverage, and repeated
   failure evidence with persisted trend snapshots.
+- `code_intel_skill_health`: report generated skill provenance, 7-day and
+  30-day usage windows, unused skills, frequently failing skills, improving
+  skills, stale skills, and unknown skill IDs from remediation-outcome
+  evidence.
 - `code_intel_why`: return architectural decisions and decision-health signals
   for a query, path, symbol, or status before changing code.
 - `code_intel_session_snapshot`: return the canonical
@@ -433,10 +437,13 @@ Agent-facing output stays compact: TOON and human output emit the skill ID,
 short hint, and next action instead of dumping the full skill body into the
 agent context.
 
-Skill hints are also logged under `.coding-ethos/lint-runs/`. Those traces let
-the project measure which remediation playbooks appear in real work and promote
-recurring unmapped findings into stronger evidence maps or repo-specific
-skills.
+Skill use and observable outcomes are measured in the repo-local code-intel
+store. `skill_lookup` and `skill_recommend` record unknown-outcome observations
+when a code-intel root is configured, explicit remediation outcomes record
+success or repeat failure, and `skill-health`/`code_intel_skill_health` report
+7-day and 30-day trends. These reports are measurement-only: learned or evolved
+skills are not promoted into generated repo artifacts without a separate
+explicit policy change.
 
 `coding-ethos` can also import retained lint and hook traces into a local
 DuckDB code-intelligence store for repeated-failure and remediation search:
@@ -470,6 +477,7 @@ bin/coding-ethos-run code-intel context-advice --session-id sess-1 --format toon
 bin/coding-ethos-run code-intel repeated-edits --path pkg/app.py
 bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
 bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports
+bin/coding-ethos-run code-intel skill-health --format toon
 bin/coding-ethos-run code-intel embedding-candidates --record-kind remediation_outcome
 bin/coding-ethos-run code-intel embedding-records --backend duckdb-vss
 bin/coding-ethos-run code-intel hybrid-search --text 'unused import' --model-id voyage-code-3 --vector '0.1,0.2,0.3'
