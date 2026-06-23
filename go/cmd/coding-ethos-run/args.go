@@ -56,6 +56,18 @@ func outputArgs(root string, args []string) []string {
 	return next
 }
 
+func webGuidanceArgs(root string, args []string) []string {
+	if len(args) == 0 || hasFlag(args, "--root") {
+		return args
+	}
+
+	next := make([]string, 0, injectedRootArgCount+len(args))
+	next = append(next, args[0], "--root", root)
+	next = append(next, args[1:]...)
+
+	return next
+}
+
 func policyToolLintArgs(
 	paths runtimePaths,
 	toolName string,

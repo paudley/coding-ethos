@@ -309,6 +309,25 @@ type codeIntelCodeContextInput struct {
 	Limit      int    `json:"limit,omitempty"`
 }
 
+type modernWebGuidanceSearchInput struct {
+	Query         string `json:"query"`
+	BrowserPolicy string `json:"browser_policy,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
+	Refresh       bool   `json:"refresh,omitempty"`
+}
+
+type modernWebGuidanceRetrieveInput struct {
+	ID            string   `json:"id,omitempty"`
+	BrowserPolicy string   `json:"browser_policy,omitempty"`
+	IDs           []string `json:"ids,omitempty"`
+	GuideIDs      []string `json:"guide_ids,omitempty"`
+	Refresh       bool     `json:"refresh,omitempty"`
+}
+
+type modernWebGuidanceListInput struct {
+	Refresh bool `json:"refresh,omitempty"`
+}
+
 type codeIntelRepoMapInput struct {
 	Path           string `json:"path,omitempty"`
 	Repo           string `json:"repo,omitempty"`
@@ -471,7 +490,7 @@ func toolResult(result any) map[string]any {
 }
 
 const (
-	toolDefinitionCapacity          = 32
+	toolDefinitionCapacity          = 37
 	codeIntelToolDefinitionCapacity = 17
 )
 
@@ -482,6 +501,7 @@ func toolDefinitions() []map[string]any {
 	definitions = append(definitions, lintToolDefinitions()...)
 	definitions = append(definitions, sarifToolDefinitions()...)
 	definitions = append(definitions, skillToolDefinitions()...)
+	definitions = append(definitions, modernWebGuidanceToolDefinitions()...)
 	definitions = append(definitions, codeIntelToolDefinitions()...)
 
 	return definitions
@@ -907,6 +927,87 @@ func skillToolDefinitions() []map[string]any {
 					"next-action guidance",
 				),
 				TracePersisted: false,
+			},
+		),
+	}
+}
+
+func modernWebGuidanceToolDefinitions() []map[string]any {
+	return []map[string]any{
+		toolDefinition(
+			"modern_web_guidance_search",
+			toolText(
+				"Search advisory Modern Web Guidance with coding-ethos cache,",
+				"provenance, and browser-policy context.",
+			),
+			map[string]any{
+				"query":          map[string]any{"type": "string"},
+				"limit":          map[string]any{"type": "integer"},
+				"browser_policy": map[string]any{"type": "string"},
+				"refresh":        map[string]any{"type": "boolean"},
+			},
+			[]string{"query"},
+			toolMetadata{
+				Advisory:        true,
+				ExecutesTools:   true,
+				ReadsFiles:      true,
+				RequiresNetwork: true,
+				PreferredUse: toolText(
+					"use for current web-platform guidance instead of raw",
+					"npx modern-web-guidance",
+				),
+				TracePersisted: true,
+			},
+		),
+		toolDefinition(
+			"modern_web_guidance_retrieve",
+			toolText(
+				"Retrieve advisory Modern Web Guidance guide content with",
+				"coding-ethos cache and provenance.",
+			),
+			map[string]any{
+				"ids": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
+				"guide_ids": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
+				"id":             map[string]any{"type": "string"},
+				"browser_policy": map[string]any{"type": "string"},
+				"refresh":        map[string]any{"type": "boolean"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:        true,
+				ExecutesTools:   true,
+				ReadsFiles:      true,
+				RequiresNetwork: true,
+				PreferredUse: toolText(
+					"retrieve a known guide through coding-ethos rather",
+					"than invoking upstream directly",
+				),
+				TracePersisted: true,
+			},
+		),
+		toolDefinition(
+			"modern_web_guidance_list",
+			"List available Modern Web Guidance guide IDs and categories with provenance.",
+			map[string]any{
+				"refresh": map[string]any{"type": "boolean"},
+			},
+			nil,
+			toolMetadata{
+				Advisory:        true,
+				ExecutesTools:   true,
+				ReadsFiles:      true,
+				RequiresNetwork: true,
+				PreferredUse: toolText(
+					"discover guide IDs through coding-ethos cache and",
+					"provenance before retrieve",
+				),
+				TracePersisted: true,
 			},
 		),
 	}
@@ -1559,12 +1660,13 @@ func codeIntelEmbeddingToolDefinitions() []map[string]any {
 }
 
 type toolMetadata struct {
-	PreferredUse   string
-	Advisory       bool
-	ExecutesTools  bool
-	Mutating       bool
-	ReadsFiles     bool
-	TracePersisted bool
+	PreferredUse    string
+	Advisory        bool
+	ExecutesTools   bool
+	Mutating        bool
+	ReadsFiles      bool
+	RequiresNetwork bool
+	TracePersisted  bool
 }
 
 func toolDefinition(
@@ -1595,12 +1697,13 @@ func toolDefinition(
 		},
 		"_meta": map[string]any{
 			"coding_ethos": map[string]any{
-				"advisory":        metadata.Advisory,
-				"executes_tools":  metadata.ExecutesTools,
-				"mutating":        metadata.Mutating,
-				"reads_files":     metadata.ReadsFiles,
-				"preferred_use":   metadata.PreferredUse,
-				"trace_persisted": metadata.TracePersisted,
+				"advisory":         metadata.Advisory,
+				"executes_tools":   metadata.ExecutesTools,
+				"mutating":         metadata.Mutating,
+				"reads_files":      metadata.ReadsFiles,
+				"requires_network": metadata.RequiresNetwork,
+				"preferred_use":    metadata.PreferredUse,
+				"trace_persisted":  metadata.TracePersisted,
 			},
 		},
 	}

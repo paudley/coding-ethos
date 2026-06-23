@@ -54,3 +54,14 @@ max_bytes = "2GiB"
 auto = true
 max_age = "7d"
 max_bytes = "2GiB"
+
+[outputs.prune.surfaces.modern_web_guidance_cache]
+auto = true
+max_age = "30d"
+max_bytes = "2GiB"
+
+[web_guidance.modern_web]
+enabled = true
+cache_ttl = "24h"
+allow_network_refresh = true
+browser_policy = ""

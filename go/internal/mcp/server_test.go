@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,6 +28,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
+	"blackcat.ca/coding-ethos/go/internal/webguidance"
 )
 
 const statusBlocked = "blocked"
@@ -51,8 +53,8 @@ func TestServerListsTools(t *testing.T) {
 	result := mapValue(t, response["result"])
 
 	tools := listValue(t, result["tools"])
-	if len(tools) != 34 {
-		t.Fatalf("tool count = %d, want 34: %#v", len(tools), tools)
+	if len(tools) != 37 {
+		t.Fatalf("tool count = %d, want 37: %#v", len(tools), tools)
 	}
 
 	for _, expected := range []string{
@@ -70,6 +72,9 @@ func TestServerListsTools(t *testing.T) {
 		"policy_explain",
 		"skill_lookup",
 		"remediation_explain",
+		"modern_web_guidance_search",
+		"modern_web_guidance_retrieve",
+		"modern_web_guidance_list",
 		"code_intel_overview",
 		"code_intel_workspace_status",
 		"code_intel_search",
@@ -104,8 +109,81 @@ func TestServerListsTools(t *testing.T) {
 
 	if !strings.Contains(output, "canonical lint path for agents") ||
 		!strings.Contains(output, "executes_tools") ||
-		!strings.Contains(output, "mutating") {
+		!strings.Contains(output, "mutating") ||
+		!strings.Contains(output, "requires_network") {
 		t.Fatalf("missing coding-ethos tool metadata:\n%s", output)
+	}
+}
+
+func TestServerListsModernWebGuidanceToolsAsNetworkCapable(t *testing.T) {
+	t.Parallel()
+
+	output := runServer(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	response := decodeResponse(t, output)
+	result := mapValue(t, response["result"])
+
+	for _, toolValue := range listValue(t, result["tools"]) {
+		tool := mapValue(t, toolValue)
+		if tool["name"] != "modern_web_guidance_search" {
+			continue
+		}
+
+		inputSchema := mapValue(t, tool["inputSchema"])
+		properties := mapValue(t, inputSchema["properties"])
+		for _, property := range []string{"query", "limit", "browser_policy", "refresh"} {
+			if _, found := properties[property]; !found {
+				t.Fatalf("modern web search schema missing %s: %#v", property, properties)
+			}
+		}
+
+		meta := mapValue(t, mapValue(t, tool["_meta"])["coding_ethos"])
+		if meta["advisory"] != true ||
+			meta["executes_tools"] != true ||
+			meta["requires_network"] != true ||
+			meta["trace_persisted"] != true {
+			t.Fatalf("modern web search metadata = %#v", meta)
+		}
+
+		return
+	}
+
+	t.Fatal("modern_web_guidance_search tool was not listed")
+}
+
+func TestServerCallsModernWebGuidanceSearchFromCache(t *testing.T) {
+	t.Parallel()
+
+	root := seedModernWebSearchCache(t)
+	writeMCPFile(t, filepath.Join(root, "repo_config.toml"), `
+[web_guidance.modern_web]
+allow_network_refresh = false
+`)
+
+	output := runServerWithRuntime(t, `{
+		"jsonrpc":"2.0",
+		"id":12,
+		"method":"tools/call",
+		"params":{
+			"name":"modern_web_guidance_search",
+			"arguments":{"query":"navigation drawer"}
+		}
+	}`, mcp.Runtime{ConsumerRoot: root, InvocationCwd: root})
+
+	content := structuredContent(t, decodeResponse(t, output))
+	if content["kind"] != "modern_web_guidance" ||
+		content["operation"] != "search" {
+		t.Fatalf("modern web guidance content = %#v", content)
+	}
+
+	cache := mapValue(t, content["cache"])
+	if cache["status"] != "hit" || cache["hit"] != true {
+		t.Fatalf("modern web guidance cache = %#v", cache)
+	}
+
+	results := listValue(t, content["results"])
+	if len(results) != 1 ||
+		mapValue(t, results[0])["id"] != "navigation-drawer" {
+		t.Fatalf("modern web guidance results = %#v", results)
 	}
 }
 
@@ -253,6 +331,66 @@ func TestServerNegotiatesClientProtocolVersion(t *testing.T) {
 			"protocolVersion = %#v, want client version",
 			result["protocolVersion"],
 		)
+	}
+}
+
+type modernWebFakeRunner struct{}
+
+func (runner modernWebFakeRunner) Run(
+	_ context.Context,
+	_ string,
+	args []string,
+) (webguidance.CommandOutput, error) {
+	joined := strings.Join(args, " ")
+	switch {
+	case strings.Contains(joined, " view "):
+		return webguidance.CommandOutput{Stdout: `{
+  "name": "modern-web-guidance",
+  "version": "0.0.174",
+  "dist-tags": {"latest": "0.0.174"},
+  "bin": {"modern-web-guidance": "skills/modern-web-guidance/modern-web.mjs"},
+  "repository": {"url": "git+https://github.com/GoogleChrome/modern-web-guidance-src.git"}
+}`}, nil
+	case strings.Contains(joined, " search "):
+		return webguidance.CommandOutput{Stdout: `[
+  {"id":"navigation-drawer","category":"user-experience","description":"Create a navigation drawer.","featuresUsed":["Popover"],"tokenCount":4317,"similarity":0.637}
+]`}, nil
+	default:
+		return webguidance.CommandOutput{
+				Stderr: "unexpected command",
+			}, errors.New(
+				"unexpected command",
+			)
+	}
+}
+
+func seedModernWebSearchCache(t *testing.T) string {
+	t.Helper()
+
+	root := t.TempDir()
+	now := time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)
+	_, err := webguidance.Adapter{
+		Root:   root,
+		Runner: modernWebFakeRunner{},
+		Now:    func() time.Time { return now },
+	}.Search(context.Background(), webguidance.SearchInput{Query: "navigation drawer"})
+	if err != nil {
+		t.Fatalf("seed modern web cache: %v", err)
+	}
+
+	return root
+}
+
+func writeMCPFile(t *testing.T, path, content string) {
+	t.Helper()
+
+	err := os.WriteFile(
+		filepath.Clean(path),
+		[]byte(strings.TrimSpace(content)+"\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }
 
