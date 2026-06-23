@@ -9,8 +9,11 @@ import (
 	"slices"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
+	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
@@ -133,6 +136,15 @@ func (server Server) recordSkillObservation(
 	}
 
 	return nil
+}
+
+func logSkillObservationWarning(tool, skillID string, err error) {
+	debuglog.Debug(
+		"mcp.skill_observation.warn",
+		zap.String("tool", tool),
+		zap.String("skill_id", skillID),
+		zap.Error(err),
+	)
 }
 
 func (server Server) skillHealthProvenance() []codeintel.SkillProvenance {

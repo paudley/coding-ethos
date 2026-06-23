@@ -119,6 +119,7 @@ type SkillHealthRecord struct {
 	Total            int               `json:"total"`
 	UnknownSkill     bool              `json:"unknown_skill"`
 	Generated        bool              `json:"generated"`
+	Known            bool              `json:"known"`
 }
 
 type SkillHealthWindow struct {
@@ -208,12 +209,13 @@ func (store *Store) SkillHealth(
 	records := buildSkillHealthRecords(query, outcomes, now)
 	sortSkillHealthRecords(records)
 
+	report.Summary = summarizeSkillHealth(query, records)
+
 	if query.Limit > 0 && len(records) > query.Limit {
 		records = records[:query.Limit]
 	}
 
 	report.Skills = records
-	report.Summary = summarizeSkillHealth(query, records)
 
 	return report, nil
 }
@@ -380,6 +382,7 @@ func newKnownSkillHealthRecord(provenance SkillProvenance) *SkillHealthRecord {
 		Status:     skillHealthStatusUnused,
 		Trend:      skillHealthTrendNone,
 		Generated:  provenance.Generated,
+		Known:      true,
 		Window7:    SkillHealthWindow{Days: skillHealthWeekDays},
 		Window30:   SkillHealthWindow{Days: skillHealthMonthDays},
 	}
@@ -469,7 +472,7 @@ func finalizeSkillHealthRecord(
 	record.Providers = sortedStrings(record.Providers)
 	record.Paths = sortedStrings(record.Paths)
 	record.RecurrenceWindow = recurrenceWindow(record)
-	record.UnknownSkill = knownCatalog && !record.Generated && record.Total > 0
+	record.UnknownSkill = knownCatalog && !record.Known && record.Total > 0
 	record.Trend = skillTrend(record)
 	record.Status = skillStatus(record, now, staleDays)
 }

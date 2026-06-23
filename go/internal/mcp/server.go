@@ -841,7 +841,7 @@ func (server Server) lookupSkill(args json.RawMessage) (any, error) {
 
 	err = server.recordSkillLookupObservation(input)
 	if err != nil {
-		return nil, err
+		logSkillObservationWarning("skill_lookup", input.SkillID, err)
 	}
 
 	principles := make([]map[string]any, 0, len(skill.PrincipleIDs))
@@ -886,7 +886,7 @@ func (server Server) recommendSkills(args json.RawMessage) (any, error) {
 
 	err = server.recordSkillRecommendationObservations(input, recommendations)
 	if err != nil {
-		return nil, err
+		logSkillObservationWarning("skill_recommend", "", err)
 	}
 
 	return map[string]any{"recommendations": recommendations}, nil

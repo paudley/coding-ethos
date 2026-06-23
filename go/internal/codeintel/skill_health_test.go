@@ -100,7 +100,7 @@ func TestStoreReportsSkillHealthTrendsAndUnknownSkillIDs(t *testing.T) {
 
 	failing := records["lint-remediation"]
 	if failing.Window30.Repeated != 2 || failing.RetryCount != 3 ||
-		failing.SourcePath != "skills.lint-remediation" {
+		failing.SourcePath != "skills.lint-remediation" || !failing.Known {
 		t.Fatalf("failing skill health = %#v", failing)
 	}
 
@@ -108,6 +108,34 @@ func TestStoreReportsSkillHealthTrendsAndUnknownSkillIDs(t *testing.T) {
 		report.Summary.Improving != 1 || report.Summary.Stale != 1 ||
 		report.Summary.Unused != 1 {
 		t.Fatalf("summary = %#v", report.Summary)
+	}
+}
+
+func TestStoreSkillHealthSummaryUsesFullRecordSetBeforeLimit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := openTestStore(t, ctx)
+
+	report, err := store.SkillHealth(ctx, SkillHealthQuery{
+		NowUTC: "2026-02-01T00:00:00Z",
+		Limit:  1,
+		KnownSkills: []SkillProvenance{
+			{ID: "unused-a", Source: "config.yaml", Generated: true},
+			{ID: "unused-b", Source: "config.yaml", Generated: true},
+			{ID: "unused-c", Source: "config.yaml", Generated: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("skill health: %v", err)
+	}
+
+	if len(report.Skills) != 1 {
+		t.Fatalf("skills = %#v, want limited page", report.Skills)
+	}
+
+	if report.Summary.Known != 3 || report.Summary.Unused != 3 {
+		t.Fatalf("summary = %#v, want full unpaginated counts", report.Summary)
 	}
 }
 
