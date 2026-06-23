@@ -5,19 +5,22 @@ package agentproxy
 
 import "context"
 
-// ProxyPolicyEvaluator decides whether an outbound proxy event is allowed from
-// body-free structural facts. It mirrors the injected-interface pattern used by
+// ProxyPolicyEvaluator decides whether a proxy event is allowed from body-free
+// structural facts. It mirrors the injected-interface pattern used by
 // EventRecorder and LeafIssuer: the contract lives in agentproxy so the package
 // stays a leaf, while the concrete CEL-backed implementation lives elsewhere.
 type ProxyPolicyEvaluator interface {
 	// EvaluateOutbound returns a decision for the structural facts in input.
 	EvaluateOutbound(ctx context.Context, input ProxyDecisionInput) (ProxyDecision, error)
+	// EvaluateInbound returns a decision for the structural facts in input.
+	EvaluateInbound(ctx context.Context, input ProxyDecisionInput) (ProxyDecision, error)
 }
 
 // ProxyDecisionInput carries only the structural, body-free facts a policy may
-// inspect for an outbound event. It never includes the raw request body; DLP
-// findings are summarized as detector-labeled facts, and payload size is given
-// as a measurement rather than content.
+// inspect for a proxy event. It never includes the raw request or response
+// body; DLP findings and tool calls are summarized as detector-labeled facts,
+// tool names, and argument hashes, and payload size is given as a measurement
+// rather than content.
 type ProxyDecisionInput struct {
 	Metadata    map[string]string
 	TargetPath  string

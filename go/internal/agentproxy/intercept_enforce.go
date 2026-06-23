@@ -4,6 +4,7 @@
 package agentproxy
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 	"net/http"
@@ -16,8 +17,14 @@ const (
 	reasonProxyEvalError = "proxy_eval_error"
 	// denyResponseError is the stable error label in a denial response body.
 	denyResponseError = "coding-ethos policy denial"
+	// streamDenyEvent names the terminal SSE event emitted for streamed inbound
+	// denials before unsafe upstream event frames reach the client.
+	streamDenyEvent = "coding-ethos-denial"
 	// metaDecision records the proxy decision verdict in event metadata.
 	metaDecision = "decision"
+	// metaStreamDenySurface records that a streamed denial used the SSE denial
+	// surface instead of a JSON 403 body.
+	metaStreamDenySurface = "stream_denial_surface"
 	// metaProxyTraceID carries the cross-event trace correlation ID.
 	metaProxyTraceID = "proxy_trace_id"
 	// metaProxyTrackingID carries the cross-event tracking correlation ID.
@@ -148,6 +155,70 @@ func outboundDecisionMetadata(identity EventIdentity) map[string]string {
 	return metadata
 }
 
+// evaluateInbound runs the proxy policy evaluator against a normalized inbound
+// response. Inbound evaluator errors are fail-open but recorded on the normal
+// inbound event metadata because the caller may need to preserve upstream
+// response semantics. Explicit denial decisions are handled by the caller,
+// which knows whether to replace the response or emit an SSE denial event.
+func (proxy *InterceptProxy) evaluateInbound(
+	ctx context.Context,
+	identity EventIdentity,
+	norm *ResponseNormalization,
+) (ProxyDecision, bool) {
+	if proxy.evaluator == nil {
+		return ProxyDecision{Allowed: true}, true
+	}
+
+	decision, err := proxy.evaluator.EvaluateInbound(
+		ctx,
+		inboundDecisionInput(identity, *norm),
+	)
+	if err != nil {
+		if ctx.Err() == nil {
+			recordInboundEvalError(norm)
+		}
+
+		return ProxyDecision{Allowed: true}, true
+	}
+
+	return decision, decision.Allowed
+}
+
+// inboundDecisionInput builds the body-free decision input from normalized
+// response facts. Tool calls include only the name and argument hash; no raw
+// response body or argument JSON is available to CEL.
+func inboundDecisionInput(
+	identity EventIdentity,
+	norm ResponseNormalization,
+) ProxyDecisionInput {
+	return ProxyDecisionInput{
+		Direction:   DirectionInbound,
+		Kind:        EventProviderResponse,
+		Provider:    identity.Provider,
+		Model:       norm.Model,
+		PayloadKind: PayloadResponse,
+		EventID:     identity.ID,
+		SessionID:   identity.SessionID,
+		OutputHash:  norm.BodyHash,
+		TokenUsage:  norm.Usage,
+		Payload:     norm.Measurement,
+		ToolCalls:   append([]ToolCall(nil), norm.ToolCalls...),
+		Metadata:    outboundDecisionMetadata(identity),
+	}
+}
+
+// recordInboundEvalError annotates a response event that was allowed because
+// inbound policy evaluation failed. This keeps the fail-open decision visible
+// without misclassifying the event as a policy denial.
+func recordInboundEvalError(norm *ResponseNormalization) {
+	if norm.Metadata == nil {
+		norm.Metadata = map[string]string{}
+	}
+
+	norm.Metadata[metaError] = reasonProxyEvalError
+	norm.Metadata[metaDecision] = interceptDecisionAllow
+}
+
 // denyOutboundInput bundles the facts needed to write a 403 and record a single
 // outbound deny event for a blocked or fail-closed request.
 type denyOutboundInput struct {
@@ -170,6 +241,41 @@ func (proxy *InterceptProxy) denyOutbound(
 ) {
 	writeDenyResponse(writer, input.policyID, input.reason)
 	proxy.record(request.Context(), denyOutboundEvent(input))
+}
+
+// denyInboundInput bundles the facts needed to record an inbound denial. The
+// buffered path can still replace the response with a 403 body; the streaming
+// path records the same event after emitting an explicit SSE denial surface.
+type denyInboundInput struct {
+	identity EventIdentity
+	norm     *ResponseNormalization
+	decision *ProxyDecision
+	host     string
+	policyID string
+	reason   string
+	streamed bool
+}
+
+// denyBufferedInbound writes a 403 JSON denial before any provider response
+// bytes are forwarded, then records exactly one inbound deny event.
+func (proxy *InterceptProxy) denyBufferedInbound(
+	writer http.ResponseWriter,
+	ctx context.Context,
+	input denyInboundInput,
+) {
+	writeDenyResponse(writer, input.policyID, input.reason)
+	proxy.record(ctx, denyInboundEvent(input))
+}
+
+// surfaceStreamedInboundDenial emits a terminal SSE denial event, then records
+// exactly one inbound deny event.
+func (proxy *InterceptProxy) surfaceStreamedInboundDenial(
+	writer http.ResponseWriter,
+	ctx context.Context,
+	input denyInboundInput,
+) {
+	writeStreamDenySurface(writer, input.policyID, input.reason)
+	proxy.record(ctx, denyInboundEvent(input))
 }
 
 // writeDenyResponse emits the 403 denial body identifying the policy and reason
@@ -195,6 +301,33 @@ func writeDenyResponse(writer http.ResponseWriter, policyID, reason string) {
 
 	_, writeErr := writer.Write(encoded)
 	discardClientWriteError(writeErr)
+}
+
+// writeStreamDenySurface emits a terminal SSE event naming the denial without
+// echoing response content or raw tool arguments.
+func writeStreamDenySurface(writer http.ResponseWriter, policyID, reason string) {
+	body := map[string]string{
+		"error":     denyResponseError,
+		"policy_id": policyID,
+		"reason":    reason,
+	}
+
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return
+	}
+
+	payload := append([]byte("\nevent: "), streamDenyEvent...)
+	payload = append(payload, "\ndata: "...)
+	payload = append(payload, encoded...)
+	payload = append(payload, "\n\n"...)
+
+	_, writeErr := writer.Write(payload)
+	discardClientWriteError(writeErr)
+
+	if flusher, ok := writer.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // denyOutboundEvent builds the single outbound deny event for a blocked request.
@@ -229,11 +362,61 @@ func denyOutboundEvent(input denyOutboundInput) ProviderEvent {
 	}
 }
 
+// denyInboundEvent builds the single inbound deny event for a blocked or
+// surfaced response. It starts from the normal body-free inbound event so tool
+// call counts and names stay available, then attaches policy evidence and
+// stable proxy correlation metadata.
+func denyInboundEvent(input denyInboundInput) ProviderEvent {
+	event := InboundEvent(input.identity, *input.norm)
+	event.PolicyID = input.policyID
+	event.Decision = interceptDecisionDeny
+	event.Policy = PolicyEvidence{
+		PolicyID:     input.policyID,
+		SkillID:      input.decision.SkillID,
+		Decision:     interceptDecisionDeny,
+		Reason:       input.reason,
+		EvidenceID:   denyInboundEvidenceID(input),
+		PrincipleIDs: append([]string(nil), input.decision.PrincipleIDs...),
+	}
+
+	if event.Metadata == nil {
+		event.Metadata = map[string]string{}
+	}
+
+	maps.Copy(event.Metadata, input.decision.Metadata)
+	maps.Copy(event.Metadata, proxyCorrelationMetadata(
+		input.identity,
+		EventProviderResponse,
+		DirectionInbound,
+		PayloadResponse,
+	))
+	event.Metadata[metaIntercepted] = metaValueTrue
+	event.Metadata[metaHost] = input.host
+	event.Metadata[metaDecision] = interceptDecisionDeny
+	event.Metadata[metaPayloadBodyRetained] = metaValueFalse
+
+	if input.streamed {
+		event.Metadata[metaStreamDenySurface] = metaValueTrue
+	}
+
+	return event
+}
+
 // denyEvidenceID returns the evidence ID correlating a deny event to its
 // request. A policy denial supplies decision.EvidenceID; a fail-closed
 // eval-error denial has a zero decision, so the originating event identity is
 // used instead, keeping every denial joinable in SARIF and code-intel.
 func denyEvidenceID(input denyOutboundInput) string {
+	if input.decision.EvidenceID != "" {
+		return input.decision.EvidenceID
+	}
+
+	return input.identity.ID
+}
+
+// denyInboundEvidenceID returns the policy-supplied evidence ID or falls back
+// to the response event ID so every inbound denial remains joinable.
+func denyInboundEvidenceID(input denyInboundInput) string {
 	if input.decision.EvidenceID != "" {
 		return input.decision.EvidenceID
 	}
@@ -250,7 +433,12 @@ func denyEventMetadata(input denyOutboundInput) map[string]string {
 	metadata := map[string]string{}
 	maps.Copy(metadata, input.decision.Metadata)
 
-	maps.Copy(metadata, proxyCorrelationMetadata(input.identity))
+	maps.Copy(metadata, proxyCorrelationMetadata(
+		input.identity,
+		EventProviderCall,
+		DirectionOutbound,
+		PayloadPrompt,
+	))
 
 	metadata[metaIntercepted] = metaValueTrue
 	metadata[metaHost] = input.host
@@ -265,14 +453,19 @@ func denyEventMetadata(input denyOutboundInput) map[string]string {
 // match, but are derived here so they are present on every denial — including the
 // fail-closed eval-error path where no decision metadata exists. Empty
 // correlation fields are omitted so the metadata stays sparse.
-func proxyCorrelationMetadata(identity EventIdentity) map[string]string {
+func proxyCorrelationMetadata(
+	identity EventIdentity,
+	kind EventKind,
+	direction EventDirection,
+	payloadKind PayloadKind,
+) map[string]string {
 	metadata := map[string]string{
 		metaProxyEventID:     identity.ID,
 		metaProxySessionID:   identity.SessionID,
-		metaProxyEventKind:   string(EventProviderCall),
+		metaProxyEventKind:   string(kind),
 		metaProxyProvider:    identity.Provider,
-		metaProxyDirection:   string(DirectionOutbound),
-		metaProxyPayloadKind: string(PayloadPrompt),
+		metaProxyDirection:   string(direction),
+		metaProxyPayloadKind: string(payloadKind),
 	}
 
 	if identity.TraceID != "" {

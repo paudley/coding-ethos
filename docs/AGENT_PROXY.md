@@ -245,9 +245,37 @@ what triggered it.
 
 Local hooks remain authoritative for local tool use. Proxy `scope: proxy`
 policies run only against proxied provider traffic; they never run on local tool
-invocations, and local-tool policies never run on proxy events. Inbound
-tool-call enforcement and the proxy-denial MCP tool are tracked in the follow-up
-(#235).
+invocations, and local-tool policies never run on proxy events.
+
+## Inbound Enforcement
+
+Inbound response enforcement evaluates the normalized provider response before a
+buffered response is returned to the client. The principle-owned
+`proxy.inbound_unsafe_tool_call` policy denies inbound tool calls that ask the
+agent to invoke unsafe local tools such as shells, command execution, file
+writes, file deletion, patch application, or Git. CEL receives body-free
+response facts: provider, model, direction, payload kind, token usage, payload
+measurements, output hash, and `proxy.tool_calls[]` entries containing only the
+tool name and argument hash.
+
+Buffered inbound denials replace the provider response with the same explicit
+HTTP 403 coding-ethos denial body used by outbound enforcement, and record a
+single `Decision="deny"` inbound proxy event with policy evidence and stable
+`proxy_*` correlation metadata. Streamed SSE responses are normalized and
+evaluated before response headers or body frames are committed; a streamed
+inbound denial emits a terminal `coding-ethos-denial` SSE event naming the
+policy and reason, then records the same inbound denial event with
+`stream_denial_surface=true`.
+
+Inbound evaluator errors are fail-open and recorded on the inbound event with
+`proxy_eval_error`. That keeps transient policy evaluation faults visible
+without misclassifying a streamed response as blocked when policy evaluation
+could not complete.
+
+The MCP `code_intel_proxy_denials` tool queries the repo-local proxy ledger for
+stored denial events by session, provider, or policy. It returns denial rows
+with policy evidence plus a short explanation and follow-up actions for agents
+investigating blocked provider behavior.
 
 ## Code-Intel Ledger
 

@@ -36,10 +36,26 @@ const (
 	// tlsFixtureStreamPath is the endpoint the TLS fake answers with a
 	// Server-Sent Events stream for the streaming interception assertion.
 	tlsFixtureStreamPath = "/v1/chat/completions/stream"
+	// tlsFixtureToolCallPath is the endpoint the TLS fake answers with a
+	// response containing an unsafe tool call so inbound enforcement can deny it
+	// before buffered bytes reach the client.
+	tlsFixtureToolCallPath = "/v1/chat/completions/tool-call"
+	// tlsFixtureToolCallStreamPath is the endpoint the TLS fake answers with a
+	// streamed unsafe tool call so inbound enforcement can surface it after
+	// already-flushed SSE bytes.
+	tlsFixtureToolCallStreamPath = "/v1/chat/completions/tool-call/stream"
 	// tlsFixtureChatBody is the canned chat-completions response body. Tests
 	// assert this exact string never appears in any recorded ledger event.
 	tlsFixtureChatBody = `{"model":"fixture-model",` +
 		`"choices":[{"message":{"role":"assistant","content":"fixture-secret-body"}}],` +
+		`"usage":{"prompt_tokens":7,"completion_tokens":5,"total_tokens":12}}`
+	// tlsFixtureToolCallBody is a canned chat-completions response containing a
+	// dangerous local tool name. The argument JSON is a synthetic fixture and is
+	// only retained as a hash by the proxy ledger.
+	tlsFixtureToolCallBody = `{"model":"fixture-model",` +
+		`"choices":[{"message":{"role":"assistant","content":"","tool_calls":[` +
+		`{"id":"call_1","type":"function","function":{"name":"run_command",` +
+		`"arguments":"{\"cmd\":\"git status\"}"}}]}}],` +
 		`"usage":{"prompt_tokens":7,"completion_tokens":5,"total_tokens":12}}`
 	// tlsFixtureStreamBody is the canned SSE body the stream endpoint emits. It is
 	// a parseable OpenAI chat-completions stream so the interception proxy can
@@ -47,6 +63,16 @@ const (
 	tlsFixtureStreamBody = "data: {\"model\":\"fixture-model\",\"choices\":" +
 		"[{\"delta\":{\"role\":\"assistant\",\"content\":\"fixture-stream-token\"}}]}\n\n" +
 		"data: {\"choices\":[{\"delta\":{}}]," +
+		"\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\n" +
+		"data: [DONE]\n\n"
+	// tlsFixtureToolCallStreamBody is a parseable OpenAI stream that reconstructs
+	// into a run_command tool call. Inbound enforcement emits an explicit
+	// terminal denial SSE event instead of forwarding this unsafe stream.
+	tlsFixtureToolCallStreamBody = "data: {\"model\":\"fixture-model\",\"choices\":" +
+		"[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"tool_calls\":[{\"index\":0," +
+		"\"function\":{\"name\":\"run_command\",\"arguments\":\"{\\\"cmd\\\"\"}}]}}]}\n\n" +
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0," +
+		"\"function\":{\"arguments\":\":\\\"git status\\\"}\"}}]}}]," +
 		"\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\n" +
 		"data: [DONE]\n\n"
 )
@@ -250,6 +276,10 @@ func (provider *TLSProxyProviderServer) handle(
 		writeFixtureBody(writer, "application/json", tlsFixtureChatBody)
 	case tlsFixtureStreamPath:
 		writeFixtureBody(writer, "text/event-stream", tlsFixtureStreamBody)
+	case tlsFixtureToolCallPath:
+		writeFixtureBody(writer, "application/json", tlsFixtureToolCallBody)
+	case tlsFixtureToolCallStreamPath:
+		writeFixtureBody(writer, "text/event-stream", tlsFixtureToolCallStreamBody)
 	default:
 		http.NotFound(writer, request)
 	}

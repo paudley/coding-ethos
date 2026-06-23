@@ -4,6 +4,8 @@
 package proxypolicy
 
 import (
+	"strings"
+
 	"blackcat.ca/coding-ethos/go/internal/agentproxy"
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
 )
@@ -46,12 +48,51 @@ func toCelProxyInput(input agentproxy.ProxyDecisionInput) celexpr.ProxyInput {
 		TargetPath:   input.TargetPath,
 		InputHash:    input.InputHash,
 		OutputHash:   input.OutputHash,
+		ToolCalls:    celToolCalls(input.ToolCalls),
 		DLPFacts:     facts,
 		HasDLPFacts:  len(facts) > 0,
 		InputTokens:  int64(input.TokenUsage.InputTokens),
 		OutputTokens: int64(input.TokenUsage.OutputTokens),
 		TotalTokens:  int64(input.TokenUsage.TotalTokens),
 		PayloadBytes: int64(input.Payload.Bytes),
+	}
+}
+
+// celToolCalls converts proxy tool calls into their CEL projection. Only the
+// tool name and argument hash cross the boundary; raw argument JSON is never
+// available to policy evaluation.
+func celToolCalls(calls []agentproxy.ToolCall) []celexpr.ProxyToolCallInput {
+	converted := make([]celexpr.ProxyToolCallInput, 0, len(calls))
+	for _, call := range calls {
+		converted = append(converted, celexpr.ProxyToolCallInput{
+			Name:     celToolCallName(call.Name),
+			ArgsHash: call.ArgsHash,
+		})
+	}
+
+	return converted
+}
+
+// celToolCallName normalizes common provider and agent tool-name spellings into
+// the lowercase tokens the CEL policy contract checks. Recorded proxy events
+// keep the original provider name; only the decision input is canonicalized.
+func celToolCallName(name string) string {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+
+	switch normalized {
+	case "runcommand", "run_command":
+		return "run_command"
+	case "applypatch", "apply_patch":
+		return "apply_patch"
+	case "write", "writefile", "edit", "multiedit", "write_file":
+		return "write_file"
+	case "deletefile", "delete_file":
+		return "delete_file"
+	case "removefile", "remove_file":
+		return "remove_file"
+	default:
+		return normalized
 	}
 }
 

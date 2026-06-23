@@ -244,6 +244,115 @@ func TestInterceptProxyReconstructsGzipSSEStream(t *testing.T) {
 	}
 }
 
+// inboundDenyEvaluator allows outbound requests and denies every inbound
+// response so streamed-denial behavior can be exercised without importing the
+// proxypolicy package into agentproxy tests.
+type inboundDenyEvaluator struct{}
+
+func (inboundDenyEvaluator) EvaluateOutbound(
+	context.Context,
+	agentproxy.ProxyDecisionInput,
+) (agentproxy.ProxyDecision, error) {
+	return agentproxy.ProxyDecision{Allowed: true}, nil
+}
+
+func (inboundDenyEvaluator) EvaluateInbound(
+	_ context.Context,
+	input agentproxy.ProxyDecisionInput,
+) (agentproxy.ProxyDecision, error) {
+	return agentproxy.ProxyDecision{
+		Allowed:    false,
+		EvidenceID: input.EventID,
+		PolicyID:   "proxy.inbound_unsafe_tool_call",
+		Reason:     "unsafe tool call",
+		SkillID:    "security-by-design",
+	}, nil
+}
+
+// TestInterceptProxyStreamsDenialBeforeEncodedUpstreamFrames proves a streamed
+// denial is emitted as identity-encoded SSE before any encoded upstream frames
+// or terminal marker reach the client.
+func TestInterceptProxyStreamsDenialBeforeEncodedUpstreamFrames(t *testing.T) {
+	t.Parallel()
+
+	now := testClock()
+	upstream := newTLSUpstream(t, gzipStreamHandler(t, openAIStreamBody))
+	issuer, caPool := newTestIssuer(t, now)
+	recorder := &recordingRecorder{}
+
+	proxy := buildProxy(t, proxyConfig{
+		now:          now,
+		evaluator:    inboundDenyEvaluator{},
+		issuer:       issuer,
+		recorder:     recorder,
+		allow:        []string{upstreamHostOf(t, upstream)},
+		upstreamPool: upstreamTrustPool(upstream),
+	})
+
+	proxyURL, cancel, wait := startProxy(t, proxy)
+
+	harness := &interceptHarness{
+		upstream: upstream,
+		recorder: recorder,
+		client:   connectClient(caPool),
+		proxyURL: proxyURL,
+		cancel:   cancel,
+		wait:     wait,
+	}
+	defer harness.close(t)
+
+	client := proxiedClient(harness.client, harness.proxyURL)
+	target := harness.upstream.URL + "/v1/chat/completions/stream"
+
+	request, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		target,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("new stream request: %v", err)
+	}
+
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("proxied stream request: %v", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("read streamed denial response: %v", err)
+	}
+
+	if response.Header.Get("Content-Encoding") != "" {
+		t.Fatalf("denial response kept content encoding: %#v", response.Header)
+	}
+
+	bodyText := string(body)
+	for _, want := range []string{
+		"event: coding-ethos-denial",
+		`"policy_id":"proxy.inbound_unsafe_tool_call"`,
+	} {
+		if !strings.Contains(bodyText, want) {
+			t.Fatalf("streamed denial missing %q:\n%s", want, bodyText)
+		}
+	}
+
+	if strings.Contains(bodyText, "data: [DONE]") {
+		t.Fatalf("streamed denial forwarded upstream terminal marker:\n%s", bodyText)
+	}
+
+	event := waitForInbound(t, recorder)
+	if event.Decision != "deny" {
+		t.Fatalf("recorded event decision = %q, want deny", event.Decision)
+	}
+
+	if event.Metadata["stream_denial_surface"] != "true" {
+		t.Fatalf("streamed denial metadata missing surface marker: %#v", event.Metadata)
+	}
+}
+
 // TestInterceptProxySkipsReconstructionOnStreamCopyFailure proves a stream whose
 // upstream connection aborts mid-body is not reconstructed: the incomplete
 // accumulator must yield a streamed marker, never streaming_reconstructed.

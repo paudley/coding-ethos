@@ -38,6 +38,8 @@ const (
 	scopeProxy = "proxy"
 	// proxyDirectionOutbound selects policies evaluated for outbound traffic.
 	proxyDirectionOutbound = "outbound"
+	// proxyDirectionInbound selects policies evaluated for inbound traffic.
+	proxyDirectionInbound = "inbound"
 	// proxyDirectionBoth selects policies evaluated in both directions.
 	proxyDirectionBoth = "both"
 	// decisionBlock is the matched-decision verdict that denies a request.
@@ -53,10 +55,17 @@ var errEmptyProxyWhen = apperror.StaticError(
 	"proxy policy has an empty when expression",
 )
 
-// outboundPolicy is a selected proxy policy paired with its CEL evaluator. The
+// errUnsupportedProxyDirection reports a proxy-scoped policy whose direction
+// selector is absent or misspelled. Such a policy would otherwise select no
+// evaluator path and silently disable enforcement.
+var errUnsupportedProxyDirection = apperror.StaticError(
+	"proxy policy has unsupported proxy_direction",
+)
+
+// selectedPolicy is a selected proxy policy paired with its CEL evaluator. The
 // evaluator carries the option map EvaluateCELExpression reads (when, scope,
 // skill_id, mode); holding both avoids re-deriving the evaluator per request.
-type outboundPolicy struct {
+type selectedPolicy struct {
 	evaluator policy.Evaluator
 	policy    policy.Policy
 }
@@ -66,25 +75,27 @@ type outboundPolicy struct {
 // than a direct call from the context-bearing EvaluateOutbound method.
 type celEvaluator func(policy.Policy, evaluators.Context) ([]policy.Decision, error)
 
-// Evaluator decides outbound proxy requests against the proxy-scoped policies
-// compiled into a bundle. It holds the validated outbound policy set and
+// Evaluator decides proxy requests against the proxy-scoped policies compiled
+// into a bundle. It holds validated directional policy sets and
 // satisfies agentproxy.ProxyPolicyEvaluator.
 type Evaluator struct {
 	evaluateCEL celEvaluator
-	outbound    []outboundPolicy
+	inbound     []selectedPolicy
+	outbound    []selectedPolicy
 }
 
-// New selects the outbound proxy-scoped policies from bundle and validates each
-// policy's CEL expression once. A policy is outbound when its CEL evaluator is
-// scoped "proxy" with proxy_direction "outbound" or "both". Any policy whose
-// when fails to compile makes New return an error so the CLI refuses to start
-// enforcement on an un-evaluatable policy.
+// New selects proxy-scoped policies from bundle and validates each policy's CEL
+// expression once. A policy is selected for a direction when its CEL evaluator
+// is scoped "proxy" with the matching proxy_direction or "both". Any policy
+// whose when fails to compile makes New return an error so the CLI refuses to
+// start enforcement on an un-evaluatable policy.
 func New(bundle policy.Bundle) (*Evaluator, error) {
-	outbound := make([]outboundPolicy, 0, len(bundle.Policies))
+	inbound := make([]selectedPolicy, 0, len(bundle.Policies))
+	outbound := make([]selectedPolicy, 0, len(bundle.Policies))
 
 	for _, policyDef := range bundle.Policies {
-		evaluator, ok := outboundProxyEvaluator(policyDef)
-		if !ok {
+		evaluator, found := proxyEvaluator(policyDef)
+		if !found {
 			continue
 		}
 
@@ -102,21 +113,45 @@ func New(bundle policy.Bundle) (*Evaluator, error) {
 			)
 		}
 
-		outbound = append(outbound, outboundPolicy{
+		selected := selectedPolicy{
 			policy:    policyDef,
 			evaluator: evaluator,
-		})
+		}
+
+		direction := stringOption(evaluator.Options, optionProxyDirection)
+		selectsOutbound := outboundDirection(direction)
+		selectsInbound := inboundDirection(direction)
+
+		if !selectsOutbound && !selectsInbound {
+			return nil, fmt.Errorf(
+				"%w: policy %q has %q (want %q, %q, or %q)",
+				errUnsupportedProxyDirection,
+				policyDef.ID,
+				direction,
+				proxyDirectionOutbound,
+				proxyDirectionInbound,
+				proxyDirectionBoth,
+			)
+		}
+
+		if selectsOutbound {
+			outbound = append(outbound, selected)
+		}
+
+		if selectsInbound {
+			inbound = append(inbound, selected)
+		}
 	}
 
 	// bundle.Policies is a map, so the selection order above is nondeterministic.
 	// Sort by policy ID so evaluation order — and therefore the first-deny-wins
 	// winning policy — is stable and auditable across runs.
-	sort.Slice(outbound, func(i, j int) bool {
-		return outbound[i].policy.ID < outbound[j].policy.ID
-	})
+	sortPolicies(inbound)
+	sortPolicies(outbound)
 
 	return &Evaluator{
 		evaluateCEL: evaluators.EvaluateCELExpression,
+		inbound:     inbound,
 		outbound:    outbound,
 	}, nil
 }
@@ -129,6 +164,25 @@ func (evaluator *Evaluator) EvaluateOutbound(
 	ctx context.Context,
 	input agentproxy.ProxyDecisionInput,
 ) (agentproxy.ProxyDecision, error) {
+	return evaluator.evaluate(ctx, input, evaluator.outbound)
+}
+
+// EvaluateInbound evaluates input against every selected inbound policy in
+// turn. The first policy returning a block or deny decision wins and produces a
+// disallowed ProxyDecision carrying the matched policy identity, remediation,
+// and SARIF proxy metadata. When no policy matches, the response is allowed.
+func (evaluator *Evaluator) EvaluateInbound(
+	ctx context.Context,
+	input agentproxy.ProxyDecisionInput,
+) (agentproxy.ProxyDecision, error) {
+	return evaluator.evaluate(ctx, input, evaluator.inbound)
+}
+
+func (evaluator *Evaluator) evaluate(
+	ctx context.Context,
+	input agentproxy.ProxyDecisionInput,
+	policies []selectedPolicy,
+) (agentproxy.ProxyDecision, error) {
 	cancelErr := ctx.Err()
 	if cancelErr != nil {
 		return agentproxy.ProxyDecision{}, fmt.Errorf(
@@ -139,7 +193,7 @@ func (evaluator *Evaluator) EvaluateOutbound(
 
 	proxyInput := toCelProxyInput(input)
 
-	for _, selected := range evaluator.outbound {
+	for _, selected := range policies {
 		// Re-check cancellation each iteration so a cancelled request stops
 		// evaluating promptly instead of running every selected policy.
 		loopErr := ctx.Err()
@@ -176,10 +230,9 @@ func (evaluator *Evaluator) EvaluateOutbound(
 	return agentproxy.ProxyDecision{Allowed: true}, nil
 }
 
-// outboundProxyEvaluator returns policyDef's CEL evaluator when the policy is
-// proxy-scoped and applies to outbound traffic. The second result is false for
-// any non-proxy policy or proxy policy that only applies inbound.
-func outboundProxyEvaluator(policyDef policy.Policy) (policy.Evaluator, bool) {
+// proxyEvaluator returns policyDef's CEL evaluator when the policy is
+// proxy-scoped. The second result is false for any non-proxy policy.
+func proxyEvaluator(policyDef policy.Policy) (policy.Evaluator, bool) {
 	for _, evaluator := range policyDef.Evaluators {
 		if evaluator.Kind != evaluatorKindCEL ||
 			evaluator.Name != evaluatorNameCELExpression {
@@ -187,10 +240,6 @@ func outboundProxyEvaluator(policyDef policy.Policy) (policy.Evaluator, bool) {
 		}
 
 		if stringOption(evaluator.Options, optionScope) != scopeProxy {
-			continue
-		}
-
-		if !outboundDirection(stringOption(evaluator.Options, optionProxyDirection)) {
 			continue
 		}
 
@@ -204,6 +253,18 @@ func outboundProxyEvaluator(policyDef policy.Policy) (policy.Evaluator, bool) {
 // for outbound evaluation. Outbound and both apply; inbound does not.
 func outboundDirection(direction string) bool {
 	return direction == proxyDirectionOutbound || direction == proxyDirectionBoth
+}
+
+// inboundDirection reports whether a proxy_direction option selects a policy
+// for inbound evaluation. Inbound and both apply; outbound does not.
+func inboundDirection(direction string) bool {
+	return direction == proxyDirectionInbound || direction == proxyDirectionBoth
+}
+
+func sortPolicies(policies []selectedPolicy) {
+	sort.Slice(policies, func(i, j int) bool {
+		return policies[i].policy.ID < policies[j].policy.ID
+	})
 }
 
 // isDenial reports whether a matched CEL decision verdict denies the request.

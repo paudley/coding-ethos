@@ -339,6 +339,43 @@ func TestProxyInputExposesPolicyAndDLPFacts(t *testing.T) {
 	}
 }
 
+func TestProxyInputExposesToolCalls(t *testing.T) {
+	t.Parallel()
+
+	program, err := Program(
+		"test.proxy_tool_calls",
+		`proxy.direction == "inbound" &&
+proxy.tool_calls.exists(call,
+  call.name == "run_command" &&
+  call.args_hash == "sha256:args")`,
+	)
+	if err != nil {
+		t.Fatalf("compile proxy CEL expression: %v", err)
+	}
+
+	output, _, err := program.Eval(Activation(ActivationInput{
+		Proxy: ProxyInput{
+			Direction: "inbound",
+			ToolCalls: []ProxyToolCallInput{{
+				Name:     "run_command",
+				ArgsHash: "sha256:args",
+			}},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("evaluate proxy CEL expression: %v", err)
+	}
+
+	matched, ok := output.Value().(bool)
+	if !ok {
+		t.Fatalf("proxy CEL expression returned %T", output.Value())
+	}
+
+	if !matched {
+		t.Fatalf("proxy CEL expression did not match tool call")
+	}
+}
+
 func TestValidateRejectsUnknownInputs(t *testing.T) {
 	t.Parallel()
 
