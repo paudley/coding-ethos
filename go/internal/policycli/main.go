@@ -196,8 +196,8 @@ type toolConfigOptions struct {
 	ethosRoot  string
 	repo       string
 	repoConfig string
-	dryRun     bool
 	format     string
+	dryRun     bool
 }
 
 func parseToolConfigFlags(command string, args []string) (toolConfigOptions, error) {
