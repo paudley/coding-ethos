@@ -118,6 +118,7 @@ type Capabilities struct {
 	GitTargetPaths     []string `json:"git_target_paths,omitempty"`
 	ReadPaths          []string `json:"read_paths,omitempty"`
 	WritePaths         []string `json:"write_paths,omitempty"`
+	EnvBindings        []string `json:"env_bindings,omitempty"`
 	CPUQuotaPercent    int      `json:"cpu_quota_percent,omitempty"`
 	MemoryMB           int      `json:"memory_mb,omitempty"`
 	TimeoutSeconds     int      `json:"timeout_seconds,omitempty"`
@@ -158,6 +159,7 @@ type Evidence struct {
 	Reason               string   `json:"reason,omitempty"`
 	ReadPaths            []string `json:"read_paths,omitempty"`
 	WritePaths           []string `json:"write_paths,omitempty"`
+	EnvBindings          []string `json:"env_bindings,omitempty"`
 	HiddenCredentialDirs []string `json:"hidden_credential_dirs,omitempty"`
 	Tags                 []string `json:"tags,omitempty"`
 	Command              []string `json:"command,omitempty"`
@@ -681,6 +683,7 @@ func (request Request) evidence() Evidence {
 		Tags:              append([]string(nil), request.Capabilities.Tags...),
 		ReadPaths:         readPaths,
 		WritePaths:        writePaths,
+		EnvBindings:       append([]string(nil), request.Capabilities.EnvBindings...),
 		TimeoutSeconds:    request.Capabilities.TimeoutSeconds,
 		MemoryMB:          request.Capabilities.MemoryMB,
 		CPUQuotaPercent:   request.Capabilities.CPUQuotaPercent,
