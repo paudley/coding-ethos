@@ -4,6 +4,7 @@
 package hooks_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -4499,6 +4500,197 @@ func TestRunSurfacesContinuationCaptureFailure(t *testing.T) {
 	}
 }
 
+func TestRunInjectsSemanticPolicyForGitMutation(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "bin/coding-ethos-run policy-git commit -m test",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("missing semantic policy context: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"semantic_policy_injection[1]",
+		"git_mutation",
+		"safe-git-workflow",
+		"bin/coding-ethos-run policy-git",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("missing %q in semantic context: %s", expected, context)
+		}
+	}
+}
+
+func TestRunInjectsSemanticPolicyForGitMutationWithGlobalOptions(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"bin/coding-ethos-run policy-git -C /repo commit -m test",
+		"bin/coding-ethos-run policy-git -c user.name=test commit -m test",
+	} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					HookEventName: eventPreToolUse,
+					ToolName:      toolBash,
+					ToolInput: map[string]any{
+						"command": command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+			if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+				t.Fatalf("missing semantic policy context: %#v", result)
+			}
+
+			context := result.HookSpecificOutput.AdditionalContext
+			if !strings.Contains(context, "git_mutation") {
+				t.Fatalf("missing git mutation context: %s", context)
+			}
+		})
+	}
+}
+
+func TestRunSkipsSemanticPolicyForReadOnlyGitInspectionWithGlobalOptions(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "bin/coding-ethos-run policy-git -C /repo status --short",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("read-only git inspection should stay quiet: %#v", result)
+	}
+}
+
+func TestRunSkipsSemanticPolicyForReadOnlyGitInspection(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "bin/coding-ethos-run policy-git status --short",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("read-only git inspection should stay quiet: %#v", result)
+	}
+}
+
+func TestRunInjectsSemanticPolicyForPythonFileTarget(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      "Read",
+			ToolInput: map[string]any{
+				"file_path": "pkg/app.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+		t.Fatalf("missing semantic policy context: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"semantic_policy_injection[1]",
+		"python_file",
+		"conditional-imports",
+		"ruff/mypy",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("missing %q in semantic context: %s", expected, context)
+		}
+	}
+}
+
+func TestEncodeGeminiSemanticPolicyInjection(t *testing.T) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ProviderHint:  "gemini",
+			ToolName:      "Read",
+			ToolInput: map[string]any{
+				"file_path": "pkg/app.py",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	var output bytes.Buffer
+	err = EncodeProviderResult(&output, result)
+	if err != nil {
+		t.Fatalf("encode provider result: %v", err)
+	}
+
+	encoded := output.String()
+
+	var decoded struct {
+		Decision           string `json:"decision"`
+		HookSpecificOutput struct {
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+		SystemMessage string `json:"systemMessage"`
+	}
+	if err := json.Unmarshal([]byte(encoded), &decoded); err != nil {
+		t.Fatalf("encoded output is not valid JSON: %v\n%s", err, encoded)
+	}
+
+	if decoded.Decision != permissionAllow {
+		t.Fatalf("decision = %q, want %q", decoded.Decision, permissionAllow)
+	}
+	if decoded.SystemMessage != "coding-ethos added hook context for this turn." {
+		t.Fatalf("unexpected system message: %q", decoded.SystemMessage)
+	}
+
+	context := decoded.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{"semantic_policy_injection", "python_file"} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("missing %q in encoded context: %s", expected, context)
+		}
+	}
+}
+
 func TestRunAddsUserPromptGuidance(t *testing.T) {
 	t.Parallel()
 
@@ -5110,6 +5302,36 @@ func TestRunInjectsContextAdviceOnSessionStartWhenThresholdCrossed(t *testing.T)
 		"proxy_file_reads=1",
 		"spill_files",
 		"output_spill_files=",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("session context missing %q:\n%s", expected, context)
+		}
+	}
+}
+
+func TestRunKeepsSessionStartLifecycleContextWhenMemoryImportFails(t *testing.T) {
+	repo := initHookRepo(t)
+	t.Setenv("HOME", filepath.Join(t.TempDir(), strings.Repeat("x", 300)))
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventSessionStart,
+			Cwd:           repo,
+			SessionID:     "session-memory-warning-with-lifecycle",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run session start: %v", err)
+	}
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing session output: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"event: SessionStart",
+		"guidance[2]{message}:",
+		"summary: memory import failed",
 	} {
 		if !strings.Contains(context, expected) {
 			t.Fatalf("session context missing %q:\n%s", expected, context)
@@ -5830,6 +6052,276 @@ func TestRunAddsPostEditCompiledLintFindings(t *testing.T) {
 	}
 }
 
+func TestRunSilentlyAppliesPostEditLintShieldForCodex(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	sourcePath := filepath.Join(dir, "app.py")
+
+	err := os.WriteFile(sourcePath, []byte("import os\nprint(\"ok\")\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	writeLintShieldRuffFixture(t, binDir)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"cwd": %q,
+		"input": {"file_path": "app.py"}
+	}`, dir)))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.HookSpecificOutput != nil {
+		t.Fatalf(
+			"fully remediated Codex edit should stay quiet: %#v",
+			result.HookSpecificOutput,
+		)
+	}
+
+	content, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	if string(content) != "print(\"ok\")\n" {
+		t.Fatalf("lint shield did not apply expected content: %q", string(content))
+	}
+}
+
+func TestRunReportsAppliedPostEditLintShield(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	sourcePath := filepath.Join(dir, "app.py")
+
+	err := os.WriteFile(sourcePath, []byte("import os\nprint(\"ok\")\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	writeLintShieldRuffFixture(t, binDir)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: Event{
+		HookEventName: eventPostToolUse,
+		ToolName:      "Write",
+		Cwd:           dir,
+		ToolInput: map[string]any{
+			"file_path": "app.py",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "lint_shield:") ||
+		!strings.Contains(context, "- status: applied") ||
+		!strings.Contains(context, "- app.py") {
+		t.Fatalf("missing lint shield context: %s", context)
+	}
+}
+
+func TestRunReportsPostEditLintShieldError(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	sourcePath := filepath.Join(dir, "app.py")
+
+	err := os.WriteFile(sourcePath, []byte("import os\nprint(\"ok\")\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	writeFailingLintShieldRuffFixture(t, binDir)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"cwd": %q,
+		"input": {"file_path": "app.py"}
+	}`, dir)))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "lint_shield:") ||
+		!strings.Contains(context, "- status: blocked") ||
+		!strings.Contains(context, "- detail: ruff command failed: format: exit status 2") {
+		t.Fatalf("missing lint shield error context: %s", context)
+	}
+}
+
+func TestRunSkipsEscapingPostEditLintShieldFiles(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		eventPath func(repo, outside string) string
+	}{
+		{
+			name: "relative traversal",
+			eventPath: func(_, _ string) string {
+				return "../outside.py"
+			},
+		},
+		{
+			name: "absolute outside path",
+			eventPath: func(_, outside string) string {
+				return outside
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := t.TempDir()
+			repo := filepath.Join(parent, "repo")
+			outside := filepath.Join(parent, "outside.py")
+			binDir := t.TempDir()
+
+			err := os.Mkdir(repo, 0o700)
+			if err != nil {
+				t.Fatalf("create repo: %v", err)
+			}
+			err = os.WriteFile(outside, []byte("import os\nprint(\"outside\")\n"), 0o600)
+			if err != nil {
+				t.Fatalf("write outside source: %v", err)
+			}
+
+			writeLintShieldRuffFixture(t, binDir)
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			result, err := Run(policy.ExampleBundle(), Options{Event: Event{
+				HookEventName: eventPostToolUse,
+				ToolName:      "Write",
+				Cwd:           repo,
+				ToolInput: map[string]any{
+					"file_path": tc.eventPath(repo, outside),
+				},
+			}})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.HookSpecificOutput != nil &&
+				strings.Contains(result.HookSpecificOutput.AdditionalContext, "lint_shield:") {
+				t.Fatalf(
+					"escaping file should not run lint shield: %s",
+					result.HookSpecificOutput.AdditionalContext,
+				)
+			}
+
+			content, err := os.ReadFile(outside)
+			if err != nil {
+				t.Fatalf("read outside source: %v", err)
+			}
+			if string(content) != "import os\nprint(\"outside\")\n" {
+				t.Fatalf("lint shield changed outside source: %q", string(content))
+			}
+		})
+	}
+}
+
+func TestRunAllowsSeparatorSafePostEditLintShieldPath(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	sourceDir := filepath.Join(dir, "..safe")
+	sourcePath := filepath.Join(sourceDir, "app.py")
+
+	err := os.Mkdir(sourceDir, 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	err = os.WriteFile(sourcePath, []byte("import os\nprint(\"ok\")\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	writeLintShieldRuffFixture(t, binDir)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: Event{
+		HookEventName: eventPostToolUse,
+		ToolName:      "Write",
+		Cwd:           dir,
+		ToolInput: map[string]any{
+			"file_path": "..safe/app.py",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "lint_shield:") ||
+		!strings.Contains(context, "- status: applied") ||
+		!strings.Contains(context, "- ..safe/app.py") {
+		t.Fatalf("missing lint shield context: %s", context)
+	}
+
+	content, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	if string(content) != "print(\"ok\")\n" {
+		t.Fatalf("lint shield did not apply expected content: %q", string(content))
+	}
+}
+
+func TestRunReusesPostEditLintShieldDiagnosticsForFastLint(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "ruff.log")
+	sourcePath := filepath.Join(dir, "app.py")
+	ruffCode := "PLC" + "0415"
+
+	err := os.WriteFile(sourcePath, []byte("import os\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	writeDiagnosticLintShieldRuffFixture(t, binDir, logPath, ruffCode)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: Event{
+		HookEventName: eventPostToolUse,
+		ToolName:      "Write",
+		Cwd:           dir,
+		ToolInput: map[string]any{
+			"file_path": "app.py",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "fast_lint:") ||
+		!strings.Contains(context, ruffCode) {
+		t.Fatalf("missing cached fast lint diagnostic: %s", context)
+	}
+
+	invocations, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read ruff log: %v", err)
+	}
+	if string(invocations) != "format\ncheck\n" {
+		t.Fatalf("unexpected ruff invocations: %q", string(invocations))
+	}
+}
+
 func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 	dir := t.TempDir()
 	binDir := t.TempDir()
@@ -5873,21 +6365,88 @@ func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 	}
 }
 
+func writeLintShieldRuffFixture(t *testing.T, binDir string) {
+	t.Helper()
+
+	writeRuffFixture(t, binDir, `#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  format)
+    target="${@: -1}"
+    printf 'print("ok")\n' > "$target"
+    ;;
+  check)
+    exit 0
+    ;;
+esac
+`)
+}
+
+func writeFailingLintShieldRuffFixture(t *testing.T, binDir string) {
+	t.Helper()
+
+	writeRuffFixture(t, binDir, `#!/usr/bin/env bash
+if [ "$1" = "format" ]; then
+  exit 2
+fi
+exit 0
+`)
+}
+
+func writeDiagnosticLintShieldRuffFixture(
+	t *testing.T,
+	binDir string,
+	logPath string,
+	ruffCode string,
+) {
+	t.Helper()
+
+	writeRuffFixture(
+		t,
+		binDir,
+		fmt.Sprintf(
+			`#!/usr/bin/env bash
+set -euo pipefail
+printf '%%s\n' "$1" >> %q
+case "$1" in
+  format)
+    exit 0
+    ;;
+  check)
+    printf '%%s\n' '[{"filename":"app.py","code":"%s","message":"import outside top-level","location":{"row":1,"column":8}}]'
+    exit 1
+    ;;
+esac
+`,
+			logPath,
+			ruffCode,
+		),
+	)
+}
+
 func writeFastRuffFixture(t *testing.T, binDir, ruffCode string) {
+	t.Helper()
+
+	writeRuffFixture(
+		t,
+		binDir,
+		"#!/usr/bin/env bash\n"+
+			"printf '%s\\n' '[{\"filename\":\"app.py\",\"code\":\""+
+			ruffCode+
+			"\",\"message\":\"import outside top-level\",\"location\":"+
+			"{\"row\":1,\"column\":8}}]'\n"+
+			"exit 1\n",
+	)
+}
+
+func writeRuffFixture(t *testing.T, binDir, script string) {
 	t.Helper()
 
 	ruffPath := filepath.Join(binDir, "ruff")
 
 	err := os.WriteFile(
 		ruffPath,
-		[]byte(
-			"#!/usr/bin/env bash\n"+
-				"printf '%s\\n' '[{\"filename\":\"app.py\",\"code\":\""+
-				ruffCode+
-				"\",\"message\":\"import outside top-level\",\"location\":"+
-				"{\"row\":1,\"column\":8}}]'\n"+
-				"exit 1\n",
-		),
+		[]byte(script),
 		0o600,
 	)
 	if err != nil {

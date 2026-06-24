@@ -135,7 +135,7 @@ func TestParseOptionsReturnsInvalidFlagError(t *testing.T) {
 
 func TestRetrieveWritesJSONFromCache(t *testing.T) {
 	root := t.TempDir()
-	now := time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	_, err := webguidance.Adapter{
 		Root:   root,
 		Runner: cliFakeRunner{},
@@ -190,7 +190,7 @@ func seedSearchCache(t *testing.T) string {
 	t.Helper()
 
 	root := t.TempDir()
-	now := time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	_, err := webguidance.Adapter{
 		Root:   root,
 		Runner: cliFakeRunner{},

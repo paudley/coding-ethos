@@ -152,7 +152,7 @@ func textRequestsGitWork(text string) bool {
 	normalized := strings.ToLower(text)
 
 	if strings.Contains(normalized, "commit") ||
-		strings.Contains(normalized, "push") ||
+		strings.Contains(normalized, operationPush) ||
 		strings.Contains(normalized, "amend") ||
 		strings.Contains(normalized, "merge") ||
 		strings.Contains(normalized, "rebase") ||
@@ -600,7 +600,7 @@ func managedGitSegment(segment []string) bool {
 	command := segment[0]
 
 	commandBase := filepath.Base(command)
-	if commandBase == "coding-ethos-run" {
+	if commandBase == wrapperRunnerName {
 		return isTrustedRunnerCommand(command) &&
 			len(segment) > 1 &&
 			segment[1] == "policy-git"

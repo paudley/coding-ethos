@@ -5,6 +5,8 @@ package hooks
 
 import (
 	"context"
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,18 +26,30 @@ const (
 	fastPostEditTimeout        = 5 * time.Second
 )
 
+var (
+	errPostEditRuffFailed   = errors.New("ruff command failed")
+	errPostEditRuffTimedOut = errors.New("ruff command timed out")
+)
+
 func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
 	if event.HookEventName != eventPostToolUse || !isEditTool(event.ToolName) {
 		return nil
 	}
 
 	files := event.Files()
+	pythonFiles := existingPythonPostEditFiles(event.Cwd, files)
+	lintShieldState := postEditLintShieldState(event.Cwd, pythonFiles)
 	lintState := postEditLintState(bundle, event)
-	fastLintState := postEditFastLintState(bundle, event)
+	fastLintState := postEditFastLintState(bundle, event, pythonFiles, lintShieldState)
 
 	lintHistory := postEditLintHistory(event)
 	if event.Provider() == providerCodex &&
-		!postEditHasActionableSignal(lintState, fastLintState, lintHistory) {
+		!postEditHasActionableSignal(
+			lintShieldState,
+			lintState,
+			fastLintState,
+			lintHistory,
+		) {
 		return nil
 	}
 
@@ -44,6 +58,7 @@ func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
 		files,
 		bundle.Skills,
 		postToolReminder(bundle, event),
+		lintShieldState,
 		lintState,
 		fastLintState,
 		lintHistory,
@@ -56,11 +71,13 @@ func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
 }
 
 func postEditHasActionableSignal(
+	lintShieldState postEditLintShieldResult,
 	lintState postEditLintResult,
 	fastLintState postEditLintResult,
 	lintHistory postEditLintHistoryResult,
 ) bool {
-	return postEditLintResultHasSignal(lintState) ||
+	return lintShieldState.Error != "" ||
+		postEditLintResultHasSignal(lintState) ||
 		postEditLintResultHasSignal(fastLintState) ||
 		lintHistory.Checked
 }
@@ -84,6 +101,7 @@ func buildPostEditContext(
 	files []string,
 	skills map[string]policy.Skill,
 	reminders []renderedEthosReminder,
+	lintShieldState postEditLintShieldResult,
 	lintState postEditLintResult,
 	fastLintState postEditLintResult,
 	lintHistory postEditLintHistoryResult,
@@ -99,6 +117,7 @@ func buildPostEditContext(
 		}
 	}
 
+	lines = appendPostEditLintShield(lines, lintShieldState)
 	lines = appendPostEditLintState(lines, lintState)
 	lines = appendPostEditFastLintState(lines, fastLintState)
 	lines = appendPostEditLintHistory(lines, lintHistory)
@@ -203,9 +222,169 @@ type postEditLintResult struct {
 	Checked     bool
 }
 
+type postEditLintShieldResult struct {
+	Error        string
+	Status       string
+	ChangedFiles []string
+	Diagnostics  []diagnostics.Diagnostic
+	Checked      bool
+}
+
 type postEditLintHistoryResult struct {
 	Analysis lint.Analysis
 	Checked  bool
+}
+
+type postEditFileSnapshot struct {
+	Hash  [sha256.Size]byte
+	Found bool
+}
+
+func postEditLintShieldState(cwd string, files []string) postEditLintShieldResult {
+	if len(files) == 0 {
+		return postEditLintShieldResult{}
+	}
+
+	snapshots := postEditFileSnapshots(cwd, files)
+	parsedDiagnostics := []diagnostics.Diagnostic{}
+
+	for _, args := range postEditLintShieldCommands(files) {
+		parsed, err := runPostEditRuff(cwd, args)
+		if err != nil {
+			if errors.Is(err, exec.ErrNotFound) {
+				return postEditLintShieldResult{}
+			}
+
+			return postEditLintShieldResult{
+				Checked: true,
+				Status:  statusBlocked,
+				Error:   err.Error(),
+			}
+		}
+
+		parsedDiagnostics = append(parsedDiagnostics, parsed...)
+	}
+
+	changed := postEditChangedFiles(cwd, files, snapshots)
+	if len(changed) == 0 {
+		return postEditLintShieldResult{
+			Checked:     true,
+			Status:      statusAllowed,
+			Diagnostics: parsedDiagnostics,
+		}
+	}
+
+	return postEditLintShieldResult{
+		Checked:      true,
+		Status:       "applied",
+		ChangedFiles: changed,
+		Diagnostics:  parsedDiagnostics,
+	}
+}
+
+func postEditLintShieldCommands(files []string) [][]string {
+	return [][]string{
+		append([]string{"format", "--quiet"}, files...),
+		append(
+			[]string{
+				"check",
+				"--fix",
+				"--quiet",
+				"--ignore-noqa",
+				"--output-format",
+				"json",
+			},
+			files...,
+		),
+	}
+}
+
+func runPostEditRuff(cwd string, args []string) ([]diagnostics.Diagnostic, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), fastPostEditTimeout)
+	defer cancel()
+
+	command := exec.CommandContext(ctx, "ruff", args...)
+	command.Dir = cwd
+
+	output, err := command.CombinedOutput()
+	parsed := diagnostics.Parse("ruff", string(output), "")
+
+	if err == nil {
+		return parsed, nil
+	}
+
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf(
+			"%w: %s: %w",
+			errPostEditRuffTimedOut,
+			args[0],
+			ctx.Err(),
+		)
+	}
+
+	if errors.Is(err, exec.ErrNotFound) {
+		return nil, fmt.Errorf("run ruff: %w", err)
+	}
+
+	if len(parsed) > 0 {
+		return parsed, nil
+	}
+
+	return nil, fmt.Errorf("%w: %s: %w", errPostEditRuffFailed, args[0], err)
+}
+
+func postEditFileSnapshots(
+	cwd string,
+	files []string,
+) map[string]postEditFileSnapshot {
+	snapshots := make(map[string]postEditFileSnapshot, len(files))
+	for _, file := range files {
+		content, err := os.ReadFile(postEditFilePath(cwd, file))
+		if err != nil {
+			continue
+		}
+
+		snapshots[file] = postEditFileSnapshot{
+			Hash:  sha256.Sum256(content),
+			Found: true,
+		}
+	}
+
+	return snapshots
+}
+
+func postEditChangedFiles(
+	cwd string,
+	files []string,
+	snapshots map[string]postEditFileSnapshot,
+) []string {
+	changed := []string{}
+
+	for _, file := range files {
+		before, ok := snapshots[file]
+		if !ok || !before.Found {
+			continue
+		}
+
+		content, err := os.ReadFile(postEditFilePath(cwd, file))
+		if err != nil {
+			continue
+		}
+
+		if sha256.Sum256(content) != before.Hash {
+			changed = append(changed, file)
+		}
+	}
+
+	return changed
+}
+
+func postEditFilePath(cwd, file string) string {
+	if cwd != "" && !filepath.IsAbs(file) {
+		return filepath.Join(cwd, file)
+	}
+
+	return file
 }
 
 func postEditLintState(bundle policy.Bundle, event Event) postEditLintResult {
@@ -273,10 +452,21 @@ func postEditHistoryFiles(event Event) []string {
 	return files
 }
 
-func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult {
-	files := existingPythonPostEditFiles(event.Cwd, event.Files())
+func postEditFastLintState(
+	bundle policy.Bundle,
+	event Event,
+	files []string,
+	lintShieldState postEditLintShieldResult,
+) postEditLintResult {
 	if len(files) == 0 {
 		return postEditLintResult{}
+	}
+
+	if lintShieldState.Checked && lintShieldState.Error == "" {
+		return postEditFastLintResultFromDiagnostics(
+			bundle,
+			lintShieldState.Diagnostics,
+		)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), fastPostEditTimeout)
@@ -314,6 +504,24 @@ func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult
 	return postEditLintResult{Checked: true, Status: statusAllowed}
 }
 
+func postEditFastLintResultFromDiagnostics(
+	bundle policy.Bundle,
+	parsed []diagnostics.Diagnostic,
+) postEditLintResult {
+	if len(parsed) == 0 {
+		return postEditLintResult{Checked: true, Status: statusAllowed}
+	}
+
+	parsed = diagnostics.Enrich(parsed, bundle.EvidenceMaps)
+	parsed = diagnostics.Dedupe(parsed)
+
+	return postEditLintResult{
+		Checked:     true,
+		Status:      statusBlocked,
+		Diagnostics: parsed,
+	}
+}
+
 func pythonPostEditFiles(files []string) []string {
 	pythonFiles := []string{}
 
@@ -330,9 +538,9 @@ func existingPythonPostEditFiles(cwd string, files []string) []string {
 	existing := []string{}
 
 	for _, file := range pythonPostEditFiles(files) {
-		path := file
-		if cwd != "" && !filepath.IsAbs(path) {
-			path = filepath.Join(cwd, path)
+		path, safe := containedPostEditFilePath(cwd, file)
+		if !safe {
+			continue
 		}
 
 		info, err := os.Stat(path)
@@ -344,6 +552,53 @@ func existingPythonPostEditFiles(cwd string, files []string) []string {
 	}
 
 	return existing
+}
+
+func containedPostEditFilePath(cwd, file string) (string, bool) {
+	root := cwd
+	if root == "" {
+		root = "."
+	}
+
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+
+	rootPath, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		rootPath = filepath.Clean(absRoot)
+	}
+
+	path := file
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(rootPath, path)
+	}
+
+	absPath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", false
+	}
+
+	resolvedPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		resolvedPath = absPath
+	}
+
+	if !postEditPathContained(rootPath, resolvedPath) {
+		return "", false
+	}
+
+	return resolvedPath, true
+}
+
+func postEditPathContained(root, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+
+	return relative != ".." && !strings.HasPrefix(filepath.ToSlash(relative), "../")
 }
 
 func appendPostEditLintHistory(
@@ -390,6 +645,31 @@ func appendPostEditLintHistory(
 	lines = append(lines, "guidance_candidates:")
 	for _, candidate := range analysis.GuidanceCandidates {
 		lines = append(lines, "- "+postEditGuidanceCandidateLine(candidate))
+	}
+
+	return lines
+}
+
+func appendPostEditLintShield(
+	lines []string,
+	state postEditLintShieldResult,
+) []string {
+	if !state.Checked {
+		return lines
+	}
+
+	lines = append(lines, "", "lint_shield:", "- tool: ruff", "- status: "+state.Status)
+	if state.Error != "" {
+		return append(lines, "- detail: "+state.Error)
+	}
+
+	if len(state.ChangedFiles) == 0 {
+		return append(lines, "- changed_files: none")
+	}
+
+	lines = append(lines, "changed_files:")
+	for _, file := range state.ChangedFiles {
+		lines = append(lines, "- "+file)
 	}
 
 	return lines

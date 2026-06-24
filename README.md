@@ -674,6 +674,13 @@ does not block the tool result; the hook emits a concise refresh hint with
 `coding-ethos-code-intel rebuild-index`. Repositories can disable or cap this
 context with `proxy.code_intel_enrichment` in `repo_config.yaml`.
 
+PreToolUse hooks also perform narrow semantic policy injection. Mutating Git
+intents such as `policy-git commit` inject the `safe-git-workflow` skill pointer
+and policy-git reminder only for that turn. File-target tool calls that name
+Python files inject compact Python static-analysis guidance and the relevant
+skill pointer instead of front-loading every Python policy into startup context.
+Read-only Git inspection commands stay quiet.
+
 Provider-native file read tools are the supported path for reading source.
 Claude-style Bash file-tool emulation such as `cat <path>`,
 `sed -n '1,20p' <path>`, `awk ... <path>`, `tee <path>`, and `echo`/`printf`
@@ -690,6 +697,9 @@ identity and the terminal failure tail. The token ledger uses a conservative
 UTF-8 rune estimator, records every Bash `PostToolUse` action that includes a
 session id, and stores the resolved budget source, payload measurements, token
 usage, decision, and ordered transform records in `.coding-ethos/code-intel.duckdb`.
+Post-edit file hooks also run a narrow Python lint shield first: Ruff formatting
+and safe autofixes apply to the edited Python files before remaining diagnostics
+are returned to the agent.
 Unknown model/context windows default to 2,000 output tokens; events that carry
 model context metadata use bounded tiers of 4,000 (<=32k context), 8,000
 (<=128k), 12,000 (<=256k), 24,000 (<=1M), or 32,000 (>1M), and an explicit
