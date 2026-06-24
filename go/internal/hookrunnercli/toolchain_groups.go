@@ -212,12 +212,7 @@ func runGoVet(_ Config, paths []string) int {
 		return 0
 	}
 
-	worktree, ok := configuredGoWorktreeName()
-	if !ok {
-		return 1
-	}
-
-	return runManagedPolicyTool("go-vet", []string{worktree})
+	return runManagedPolicyTool("go-vet", nil)
 }
 
 func runGoTests(_ Config, paths []string) int {
@@ -225,12 +220,7 @@ func runGoTests(_ Config, paths []string) int {
 		return 0
 	}
 
-	worktree, ok := configuredGoWorktreeName()
-	if !ok {
-		return 1
-	}
-
-	return runManagedPolicyTool(goTestToolName, []string{worktree})
+	return runManagedPolicyTool(goTestToolName, nil)
 }
 
 func runGoCoverageThreshold(cfg Config, paths []string) int {
@@ -760,17 +750,10 @@ func runGolangciLint(cfg Config, paths []string) int {
 		return 0
 	}
 
-	worktree, ok := configuredGoWorktreeName()
-	if !ok {
-		return 1
-	}
-
-	args := []string{}
+	args := []string{"run"}
 	if cfg.HookStage == hookStagePreCommit {
 		args = append(args, "--new-from-rev=HEAD")
 	}
-
-	args = append(args, worktree)
 
 	return runManagedPolicyTool("golangci-lint", args)
 }

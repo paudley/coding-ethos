@@ -457,6 +457,23 @@ work includes AST affected-symbol evidence, durable proxy trace/code-intel
 storage for patch outcomes, and transactional rollback around future proxy-owned
 edit application.
 
+## Post-Edit Lint Shielding
+
+The first #60 shielding slice runs in the local agent hook path after
+`Write`/`Edit`/`MultiEdit` completes. For existing Python files named by the
+provider event, the hook runs Ruff formatting and safe autofixes before the
+existing compiled lint and fast Ruff feedback checks. If the shield fully repairs
+the file, Codex receives no extra post-edit context; if the shield cannot run or
+remaining diagnostics persist, the normal post-edit context reports the failure
+without dumping raw linter output.
+
+This is intentionally narrower than the full auto-remediation roadmap. It does
+not call an LLM sub-agent, apply broad multi-language rewrites, or claim
+transactional provider/API proxy ownership of edits. Remaining work includes
+durable proxy trace records for shield outcomes, rollback around future
+proxy-owned edit application, and carefully bounded non-Python fixers where the
+managed toolchain can prove file-scoped safety.
+
 ## Feature Work Rules
 
 Before implementing an Agent Proxy issue, confirm that the feature uses:
