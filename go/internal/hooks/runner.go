@@ -330,9 +330,9 @@ func mergeAdvisoryHookOutputs(outputs ...*HookSpecificOutput) *HookSpecificOutpu
 		}
 
 		if merged == nil {
-			next := *output
-			next.AdditionalContext = ""
-			merged = &next
+			merged = &HookSpecificOutput{
+				HookEventName: output.HookEventName,
+			}
 		}
 
 		if output.AdditionalContext != "" {

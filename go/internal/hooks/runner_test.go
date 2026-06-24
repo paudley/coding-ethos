@@ -4532,6 +4532,62 @@ func TestRunInjectsSemanticPolicyForGitMutation(t *testing.T) {
 	}
 }
 
+func TestRunInjectsSemanticPolicyForGitMutationWithGlobalOptions(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{
+		"bin/coding-ethos-run policy-git -C /repo commit -m test",
+		"bin/coding-ethos-run policy-git -c user.name=test commit -m test",
+	} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := Run(policy.ExampleBundle(), Options{
+				Event: Event{
+					HookEventName: eventPreToolUse,
+					ToolName:      toolBash,
+					ToolInput: map[string]any{
+						"command": command,
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+			if result.Status != statusAllowed || result.HookSpecificOutput == nil {
+				t.Fatalf("missing semantic policy context: %#v", result)
+			}
+
+			context := result.HookSpecificOutput.AdditionalContext
+			if !strings.Contains(context, "git_mutation") {
+				t.Fatalf("missing git mutation context: %s", context)
+			}
+		})
+	}
+}
+
+func TestRunSkipsSemanticPolicyForReadOnlyGitInspectionWithGlobalOptions(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventPreToolUse,
+			ToolName:      toolBash,
+			ToolInput: map[string]any{
+				"command": "bin/coding-ethos-run policy-git -C /repo status --short",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+	if result.HookSpecificOutput != nil {
+		t.Fatalf("read-only git inspection should stay quiet: %#v", result)
+	}
+}
+
 func TestRunSkipsSemanticPolicyForReadOnlyGitInspection(t *testing.T) {
 	t.Parallel()
 
@@ -4608,14 +4664,29 @@ func TestEncodeGeminiSemanticPolicyInjection(t *testing.T) {
 	}
 
 	encoded := output.String()
-	for _, expected := range []string{
-		`"decision": "allow"`,
-		`"systemMessage": "coding-ethos added hook context for this turn."`,
-		"semantic_policy_injection",
-		"python_file",
-	} {
-		if !strings.Contains(encoded, expected) {
-			t.Fatalf("missing %q in encoded output: %s", expected, encoded)
+
+	var decoded struct {
+		Decision           string `json:"decision"`
+		HookSpecificOutput struct {
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+		SystemMessage string `json:"systemMessage"`
+	}
+	if err := json.Unmarshal([]byte(encoded), &decoded); err != nil {
+		t.Fatalf("encoded output is not valid JSON: %v\n%s", err, encoded)
+	}
+
+	if decoded.Decision != permissionAllow {
+		t.Fatalf("decision = %q, want %q", decoded.Decision, permissionAllow)
+	}
+	if decoded.SystemMessage != "coding-ethos added hook context for this turn." {
+		t.Fatalf("unexpected system message: %q", decoded.SystemMessage)
+	}
+
+	context := decoded.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{"semantic_policy_injection", "python_file"} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("missing %q in encoded context: %s", expected, context)
 		}
 	}
 }

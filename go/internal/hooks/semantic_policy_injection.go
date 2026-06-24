@@ -108,16 +108,58 @@ func shellCommandMutatesGit(command shellparse.Command) bool {
 
 	switch shellCommandName(command) {
 	case tokenGit:
-		return len(args) > 1 && semanticGitMutation(args[1])
+		return semanticGitMutation(semanticGitSubcommand(args[1:]))
 	case wrapperRunnerName:
 		return len(args) > 2 &&
 			args[1] == "policy-git" &&
-			semanticGitMutation(args[2])
+			semanticGitMutation(semanticGitSubcommand(args[2:]))
 	case "coding-ethos-git":
-		return len(args) > 1 && semanticGitMutation(args[1])
+		return semanticGitMutation(semanticGitSubcommand(args[1:]))
 	}
 
 	return false
+}
+
+func semanticGitSubcommand(args []string) string {
+	for index := 0; index < len(args); index++ {
+		arg := strings.TrimSpace(args[index])
+		if arg == "" {
+			continue
+		}
+
+		if arg == "--" {
+			return ""
+		}
+
+		if !strings.HasPrefix(arg, "-") {
+			return arg
+		}
+
+		if semanticGitGlobalOptionConsumesNext(arg) {
+			index++
+		}
+	}
+
+	return ""
+}
+
+func semanticGitGlobalOptionConsumesNext(option string) bool {
+	if strings.Contains(option, "=") {
+		return false
+	}
+
+	switch option {
+	case "-C",
+		"-c",
+		"--config-env",
+		"--exec-path",
+		"--git-dir",
+		"--namespace",
+		"--work-tree":
+		return true
+	default:
+		return false
+	}
 }
 
 func semanticGitMutation(operation string) bool {
