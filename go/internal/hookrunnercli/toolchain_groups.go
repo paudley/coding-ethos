@@ -840,31 +840,6 @@ func openPolicyBundleFile(path string) (*os.File, error) {
 	return file, nil
 }
 
-func configuredGoWorktreeName() (string, bool) {
-	_, _, rootConfig, err := loadBundleConsumerAndConfig()
-	if err != nil {
-		writef(os.Stderr, "FATAL: %v\n", err)
-
-		return "", false
-	}
-
-	worktree := configuredGoWorktreeValue(rootConfig)
-	path := repoPath(worktree)
-
-	info, err := os.Stat(path)
-	if err != nil || !info.IsDir() {
-		fmt.Fprintf(
-			os.Stderr,
-			"FATAL: go.worktree is set to %q, but that directory does not exist\n",
-			worktree,
-		)
-
-		return "", false
-	}
-
-	return worktree, true
-}
-
 func configuredGoWorktree() (string, bool) {
 	_, _, rootConfig, err := loadBundleConsumerAndConfig()
 	if err != nil {
