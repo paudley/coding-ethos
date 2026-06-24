@@ -6088,6 +6088,48 @@ func TestRunAllowsSeparatorSafePostEditLintShieldPath(t *testing.T) {
 	}
 }
 
+func TestRunReusesPostEditLintShieldDiagnosticsForFastLint(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "ruff.log")
+	sourcePath := filepath.Join(dir, "app.py")
+	ruffCode := "PLC" + "0415"
+
+	err := os.WriteFile(sourcePath, []byte("import os\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	writeDiagnosticLintShieldRuffFixture(t, binDir, logPath, ruffCode)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: Event{
+		HookEventName: eventPostToolUse,
+		ToolName:      "Write",
+		Cwd:           dir,
+		ToolInput: map[string]any{
+			"file_path": "app.py",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "fast_lint:") ||
+		!strings.Contains(context, ruffCode) {
+		t.Fatalf("missing cached fast lint diagnostic: %s", context)
+	}
+
+	invocations, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read ruff log: %v", err)
+	}
+	if string(invocations) != "format\ncheck\n" {
+		t.Fatalf("unexpected ruff invocations: %q", string(invocations))
+	}
+}
+
 func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 	dir := t.TempDir()
 	binDir := t.TempDir()
@@ -6157,6 +6199,37 @@ if [ "$1" = "format" ]; then
 fi
 exit 0
 `)
+}
+
+func writeDiagnosticLintShieldRuffFixture(
+	t *testing.T,
+	binDir string,
+	logPath string,
+	ruffCode string,
+) {
+	t.Helper()
+
+	writeRuffFixture(
+		t,
+		binDir,
+		fmt.Sprintf(
+			`#!/usr/bin/env bash
+set -euo pipefail
+printf '%%s\n' "$1" >> %q
+case "$1" in
+  format)
+    exit 0
+    ;;
+  check)
+    printf '%%s\n' '[{"filename":"app.py","code":"%s","message":"import outside top-level","location":{"row":1,"column":8}}]'
+    exit 1
+    ;;
+esac
+`,
+			logPath,
+			ruffCode,
+		),
+	)
 }
 
 func writeFastRuffFixture(t *testing.T, binDir, ruffCode string) {

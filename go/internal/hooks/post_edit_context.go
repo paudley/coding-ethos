@@ -37,9 +37,10 @@ func postEditOutput(bundle policy.Bundle, event Event) *HookSpecificOutput {
 	}
 
 	files := event.Files()
-	lintShieldState := postEditLintShieldState(event)
+	pythonFiles := existingPythonPostEditFiles(event.Cwd, files)
+	lintShieldState := postEditLintShieldState(event.Cwd, pythonFiles)
 	lintState := postEditLintState(bundle, event)
-	fastLintState := postEditFastLintState(bundle, event)
+	fastLintState := postEditFastLintState(bundle, event, pythonFiles, lintShieldState)
 
 	lintHistory := postEditLintHistory(event)
 	if event.Provider() == providerCodex &&
@@ -225,6 +226,7 @@ type postEditLintShieldResult struct {
 	Error        string
 	Status       string
 	ChangedFiles []string
+	Diagnostics  []diagnostics.Diagnostic
 	Checked      bool
 }
 
@@ -238,15 +240,16 @@ type postEditFileSnapshot struct {
 	Found bool
 }
 
-func postEditLintShieldState(event Event) postEditLintShieldResult {
-	files := existingPythonPostEditFiles(event.Cwd, event.Files())
+func postEditLintShieldState(cwd string, files []string) postEditLintShieldResult {
 	if len(files) == 0 {
 		return postEditLintShieldResult{}
 	}
 
-	snapshots := postEditFileSnapshots(event.Cwd, files)
+	snapshots := postEditFileSnapshots(cwd, files)
+	parsedDiagnostics := []diagnostics.Diagnostic{}
+
 	for _, args := range postEditLintShieldCommands(files) {
-		err := runPostEditRuff(event.Cwd, args)
+		parsed, err := runPostEditRuff(cwd, args)
 		if err != nil {
 			if errors.Is(err, exec.ErrNotFound) {
 				return postEditLintShieldResult{}
@@ -258,13 +261,16 @@ func postEditLintShieldState(event Event) postEditLintShieldResult {
 				Error:   err.Error(),
 			}
 		}
+
+		parsedDiagnostics = append(parsedDiagnostics, parsed...)
 	}
 
-	changed := postEditChangedFiles(event.Cwd, files, snapshots)
+	changed := postEditChangedFiles(cwd, files, snapshots)
 	if len(changed) == 0 {
 		return postEditLintShieldResult{
-			Checked: true,
-			Status:  statusAllowed,
+			Checked:     true,
+			Status:      statusAllowed,
+			Diagnostics: parsedDiagnostics,
 		}
 	}
 
@@ -272,6 +278,7 @@ func postEditLintShieldState(event Event) postEditLintShieldResult {
 		Checked:      true,
 		Status:       "applied",
 		ChangedFiles: changed,
+		Diagnostics:  parsedDiagnostics,
 	}
 }
 
@@ -292,7 +299,7 @@ func postEditLintShieldCommands(files []string) [][]string {
 	}
 }
 
-func runPostEditRuff(cwd string, args []string) error {
+func runPostEditRuff(cwd string, args []string) ([]diagnostics.Diagnostic, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), fastPostEditTimeout)
 	defer cancel()
 
@@ -300,23 +307,30 @@ func runPostEditRuff(cwd string, args []string) error {
 	command.Dir = cwd
 
 	output, err := command.CombinedOutput()
+	parsed := diagnostics.Parse("ruff", string(output), "")
+
 	if err == nil {
-		return nil
+		return parsed, nil
 	}
 
 	if ctx.Err() != nil {
-		return fmt.Errorf("%w: %s: %w", errPostEditRuffTimedOut, args[0], ctx.Err())
+		return nil, fmt.Errorf(
+			"%w: %s: %w",
+			errPostEditRuffTimedOut,
+			args[0],
+			ctx.Err(),
+		)
 	}
 
 	if errors.Is(err, exec.ErrNotFound) {
-		return fmt.Errorf("run ruff: %w", err)
+		return nil, fmt.Errorf("run ruff: %w", err)
 	}
 
-	if len(diagnostics.Parse("ruff", string(output), "")) > 0 {
-		return nil
+	if len(parsed) > 0 {
+		return parsed, nil
 	}
 
-	return fmt.Errorf("%w: %s: %w", errPostEditRuffFailed, args[0], err)
+	return nil, fmt.Errorf("%w: %s: %w", errPostEditRuffFailed, args[0], err)
 }
 
 func postEditFileSnapshots(
@@ -438,10 +452,21 @@ func postEditHistoryFiles(event Event) []string {
 	return files
 }
 
-func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult {
-	files := existingPythonPostEditFiles(event.Cwd, event.Files())
+func postEditFastLintState(
+	bundle policy.Bundle,
+	event Event,
+	files []string,
+	lintShieldState postEditLintShieldResult,
+) postEditLintResult {
 	if len(files) == 0 {
 		return postEditLintResult{}
+	}
+
+	if lintShieldState.Checked && lintShieldState.Error == "" {
+		return postEditFastLintResultFromDiagnostics(
+			bundle,
+			lintShieldState.Diagnostics,
+		)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), fastPostEditTimeout)
@@ -477,6 +502,24 @@ func postEditFastLintState(bundle policy.Bundle, event Event) postEditLintResult
 	}
 
 	return postEditLintResult{Checked: true, Status: statusAllowed}
+}
+
+func postEditFastLintResultFromDiagnostics(
+	bundle policy.Bundle,
+	parsed []diagnostics.Diagnostic,
+) postEditLintResult {
+	if len(parsed) == 0 {
+		return postEditLintResult{Checked: true, Status: statusAllowed}
+	}
+
+	parsed = diagnostics.Enrich(parsed, bundle.EvidenceMaps)
+	parsed = diagnostics.Dedupe(parsed)
+
+	return postEditLintResult{
+		Checked:     true,
+		Status:      statusBlocked,
+		Diagnostics: parsed,
+	}
 }
 
 func pythonPostEditFiles(files []string) []string {
