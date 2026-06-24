@@ -495,9 +495,9 @@ func existingPythonPostEditFiles(cwd string, files []string) []string {
 	existing := []string{}
 
 	for _, file := range pythonPostEditFiles(files) {
-		path := file
-		if cwd != "" && !filepath.IsAbs(path) {
-			path = filepath.Join(cwd, path)
+		path, safe := containedPostEditFilePath(cwd, file)
+		if !safe {
+			continue
 		}
 
 		info, err := os.Stat(path)
@@ -509,6 +509,53 @@ func existingPythonPostEditFiles(cwd string, files []string) []string {
 	}
 
 	return existing
+}
+
+func containedPostEditFilePath(cwd, file string) (string, bool) {
+	root := cwd
+	if root == "" {
+		root = "."
+	}
+
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+
+	rootPath, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		rootPath = filepath.Clean(absRoot)
+	}
+
+	path := file
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(rootPath, path)
+	}
+
+	absPath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", false
+	}
+
+	resolvedPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		resolvedPath = absPath
+	}
+
+	if !postEditPathContained(rootPath, resolvedPath) {
+		return "", false
+	}
+
+	return resolvedPath, true
+}
+
+func postEditPathContained(root, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+
+	return relative != ".." && !strings.HasPrefix(filepath.ToSlash(relative), "../")
 }
 
 func appendPostEditLintHistory(

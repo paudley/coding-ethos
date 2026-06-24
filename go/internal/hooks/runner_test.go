@@ -5975,6 +5975,119 @@ func TestRunReportsPostEditLintShieldError(t *testing.T) {
 	}
 }
 
+func TestRunSkipsEscapingPostEditLintShieldFiles(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		eventPath func(repo, outside string) string
+	}{
+		{
+			name: "relative traversal",
+			eventPath: func(_, _ string) string {
+				return "../outside.py"
+			},
+		},
+		{
+			name: "absolute outside path",
+			eventPath: func(_, outside string) string {
+				return outside
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := t.TempDir()
+			repo := filepath.Join(parent, "repo")
+			outside := filepath.Join(parent, "outside.py")
+			binDir := t.TempDir()
+
+			err := os.Mkdir(repo, 0o700)
+			if err != nil {
+				t.Fatalf("create repo: %v", err)
+			}
+			err = os.WriteFile(outside, []byte("import os\nprint(\"outside\")\n"), 0o600)
+			if err != nil {
+				t.Fatalf("write outside source: %v", err)
+			}
+
+			writeLintShieldRuffFixture(t, binDir)
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			result, err := Run(policy.ExampleBundle(), Options{Event: Event{
+				HookEventName: eventPostToolUse,
+				ToolName:      "Write",
+				Cwd:           repo,
+				ToolInput: map[string]any{
+					"file_path": tc.eventPath(repo, outside),
+				},
+			}})
+			if err != nil {
+				t.Fatalf("run hook: %v", err)
+			}
+
+			if result.HookSpecificOutput != nil &&
+				strings.Contains(result.HookSpecificOutput.AdditionalContext, "lint_shield:") {
+				t.Fatalf(
+					"escaping file should not run lint shield: %s",
+					result.HookSpecificOutput.AdditionalContext,
+				)
+			}
+
+			content, err := os.ReadFile(outside)
+			if err != nil {
+				t.Fatalf("read outside source: %v", err)
+			}
+			if string(content) != "import os\nprint(\"outside\")\n" {
+				t.Fatalf("lint shield changed outside source: %q", string(content))
+			}
+		})
+	}
+}
+
+func TestRunAllowsSeparatorSafePostEditLintShieldPath(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	sourceDir := filepath.Join(dir, "..safe")
+	sourcePath := filepath.Join(sourceDir, "app.py")
+
+	err := os.Mkdir(sourceDir, 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	err = os.WriteFile(sourcePath, []byte("import os\nprint(\"ok\")\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	writeLintShieldRuffFixture(t, binDir)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: Event{
+		HookEventName: eventPostToolUse,
+		ToolName:      "Write",
+		Cwd:           dir,
+		ToolInput: map[string]any{
+			"file_path": "..safe/app.py",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "lint_shield:") ||
+		!strings.Contains(context, "- status: applied") ||
+		!strings.Contains(context, "- ..safe/app.py") {
+		t.Fatalf("missing lint shield context: %s", context)
+	}
+
+	content, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	if string(content) != "print(\"ok\")\n" {
+		t.Fatalf("lint shield did not apply expected content: %q", string(content))
+	}
+}
+
 func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 	dir := t.TempDir()
 	binDir := t.TempDir()
