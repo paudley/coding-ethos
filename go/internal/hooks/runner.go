@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -289,15 +290,7 @@ func hookSpecificOutput(
 		}, nil
 	}
 
-	if output := sessionMemoryImportOutput(event); output != nil {
-		return output, nil
-	}
-
-	if output := continuationOutput(event); output != nil {
-		return output, nil
-	}
-
-	if output := lifecycleOutput(event); output != nil {
+	if output := advisoryHookOutput(event); output != nil {
 		return output, nil
 	}
 
@@ -316,6 +309,84 @@ func hookSpecificOutput(
 	}
 
 	return postToolBashOutput(bundle, event)
+}
+
+func advisoryHookOutput(event Event) *HookSpecificOutput {
+	return mergeHookSpecificOutputs(
+		lifecycleOutput(event),
+		continuationOutput(event),
+		sessionMemoryImportOutput(event),
+	)
+}
+
+func mergeHookSpecificOutputs(outputs ...*HookSpecificOutput) *HookSpecificOutput {
+	var merged *HookSpecificOutput
+
+	contexts := make([]string, 0, len(outputs))
+
+	for _, output := range outputs {
+		if output == nil {
+			continue
+		}
+
+		if merged == nil {
+			merged = &HookSpecificOutput{
+				HookEventName:            output.HookEventName,
+				PermissionDecision:       output.PermissionDecision,
+				PermissionDecisionReason: output.PermissionDecisionReason,
+				UpdatedInput:             cloneUpdatedInput(output.UpdatedInput),
+			}
+		} else {
+			mergeHookOutputFields(merged, output)
+		}
+
+		if context := strings.TrimSpace(output.AdditionalContext); context != "" {
+			contexts = append(contexts, context)
+		}
+	}
+
+	if merged == nil {
+		return nil
+	}
+
+	merged.AdditionalContext = strings.Join(contexts, "\n\n")
+
+	return merged
+}
+
+func mergeHookOutputFields(merged, output *HookSpecificOutput) {
+	if merged.HookEventName == "" {
+		merged.HookEventName = output.HookEventName
+	}
+
+	if merged.PermissionDecision == "" {
+		merged.PermissionDecision = output.PermissionDecision
+	}
+
+	if merged.PermissionDecisionReason == "" {
+		merged.PermissionDecisionReason = output.PermissionDecisionReason
+	}
+
+	if len(output.UpdatedInput) == 0 {
+		return
+	}
+
+	if merged.UpdatedInput == nil {
+		merged.UpdatedInput = map[string]any{}
+	}
+
+	maps.Copy(merged.UpdatedInput, output.UpdatedInput)
+}
+
+func cloneUpdatedInput(input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return nil
+	}
+
+	clone := make(map[string]any, len(input))
+	maps.Copy(clone, input)
+
+	return clone
 }
 
 func postToolBashOutput(

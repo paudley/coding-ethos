@@ -5117,6 +5117,36 @@ func TestRunInjectsContextAdviceOnSessionStartWhenThresholdCrossed(t *testing.T)
 	}
 }
 
+func TestRunKeepsSessionStartLifecycleContextWhenMemoryImportFails(t *testing.T) {
+	repo := initHookRepo(t)
+	t.Setenv("HOME", filepath.Join(t.TempDir(), strings.Repeat("x", 300)))
+
+	result, err := Run(policy.ExampleBundle(), Options{
+		Event: Event{
+			HookEventName: eventSessionStart,
+			Cwd:           repo,
+			SessionID:     "session-memory-warning-with-lifecycle",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run session start: %v", err)
+	}
+	if result.HookSpecificOutput == nil {
+		t.Fatalf("missing session output: %#v", result)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	for _, expected := range []string{
+		"event: SessionStart",
+		"guidance[2]{message}:",
+		"summary: memory import failed",
+	} {
+		if !strings.Contains(context, expected) {
+			t.Fatalf("session context missing %q:\n%s", expected, context)
+		}
+	}
+}
+
 func TestRunFallsBackToLegacyRepoMapWhenDuckDBUpgradeIsLocked(t *testing.T) {
 	t.Parallel()
 	acquireCodeIntelHookTestSlot(t)
@@ -5830,6 +5860,121 @@ func TestRunAddsPostEditCompiledLintFindings(t *testing.T) {
 	}
 }
 
+func TestRunSilentlyAppliesPostEditLintShieldForCodex(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	sourcePath := filepath.Join(dir, "app.py")
+
+	err := os.WriteFile(sourcePath, []byte("import os\nprint(\"ok\")\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	writeLintShieldRuffFixture(t, binDir)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"cwd": %q,
+		"input": {"file_path": "app.py"}
+	}`, dir)))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	if result.HookSpecificOutput != nil {
+		t.Fatalf(
+			"fully remediated Codex edit should stay quiet: %#v",
+			result.HookSpecificOutput,
+		)
+	}
+
+	content, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	if string(content) != "print(\"ok\")\n" {
+		t.Fatalf("lint shield did not apply expected content: %q", string(content))
+	}
+}
+
+func TestRunReportsAppliedPostEditLintShield(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	sourcePath := filepath.Join(dir, "app.py")
+
+	err := os.WriteFile(sourcePath, []byte("import os\nprint(\"ok\")\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	writeLintShieldRuffFixture(t, binDir)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: Event{
+		HookEventName: eventPostToolUse,
+		ToolName:      "Write",
+		Cwd:           dir,
+		ToolInput: map[string]any{
+			"file_path": "app.py",
+		},
+	}})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "lint_shield:") ||
+		!strings.Contains(context, "- status: applied") ||
+		!strings.Contains(context, "- app.py") {
+		t.Fatalf("missing lint shield context: %s", context)
+	}
+}
+
+func TestRunReportsPostEditLintShieldError(t *testing.T) {
+	dir := t.TempDir()
+	binDir := t.TempDir()
+	sourcePath := filepath.Join(dir, "app.py")
+
+	err := os.WriteFile(sourcePath, []byte("import os\nprint(\"ok\")\n"), 0o600)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	writeFailingLintShieldRuffFixture(t, binDir)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	event, err := DecodeEvent(strings.NewReader(fmt.Sprintf(`{
+		"provider": "codex",
+		"event": "PostToolUse",
+		"tool": "write_file",
+		"cwd": %q,
+		"input": {"file_path": "app.py"}
+	}`, dir)))
+	if err != nil {
+		t.Fatalf("decode event: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: event})
+	if err != nil {
+		t.Fatalf("run hook: %v", err)
+	}
+
+	context := result.HookSpecificOutput.AdditionalContext
+	if !strings.Contains(context, "lint_shield:") ||
+		!strings.Contains(context, "- status: blocked") ||
+		!strings.Contains(context, "- detail: ruff command failed: format: exit status 2") {
+		t.Fatalf("missing lint shield error context: %s", context)
+	}
+}
+
 func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 	dir := t.TempDir()
 	binDir := t.TempDir()
@@ -5873,21 +6018,57 @@ func TestRunAddsPostEditFastRuffFindings(t *testing.T) {
 	}
 }
 
+func writeLintShieldRuffFixture(t *testing.T, binDir string) {
+	t.Helper()
+
+	writeRuffFixture(t, binDir, `#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  format)
+    target="${@: -1}"
+    printf 'print("ok")\n' > "$target"
+    ;;
+  check)
+    exit 0
+    ;;
+esac
+`)
+}
+
+func writeFailingLintShieldRuffFixture(t *testing.T, binDir string) {
+	t.Helper()
+
+	writeRuffFixture(t, binDir, `#!/usr/bin/env bash
+if [ "$1" = "format" ]; then
+  exit 2
+fi
+exit 0
+`)
+}
+
 func writeFastRuffFixture(t *testing.T, binDir, ruffCode string) {
+	t.Helper()
+
+	writeRuffFixture(
+		t,
+		binDir,
+		"#!/usr/bin/env bash\n"+
+			"printf '%s\\n' '[{\"filename\":\"app.py\",\"code\":\""+
+			ruffCode+
+			"\",\"message\":\"import outside top-level\",\"location\":"+
+			"{\"row\":1,\"column\":8}}]'\n"+
+			"exit 1\n",
+	)
+}
+
+func writeRuffFixture(t *testing.T, binDir, script string) {
 	t.Helper()
 
 	ruffPath := filepath.Join(binDir, "ruff")
 
 	err := os.WriteFile(
 		ruffPath,
-		[]byte(
-			"#!/usr/bin/env bash\n"+
-				"printf '%s\\n' '[{\"filename\":\"app.py\",\"code\":\""+
-				ruffCode+
-				"\",\"message\":\"import outside top-level\",\"location\":"+
-				"{\"row\":1,\"column\":8}}]'\n"+
-				"exit 1\n",
-		),
+		[]byte(script),
 		0o600,
 	)
 	if err != nil {
