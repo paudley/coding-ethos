@@ -1265,6 +1265,7 @@ func cloneSandboxEvidence(evidence sandbox.Evidence) sandbox.Evidence {
 	)
 	evidence.ReadPaths = append([]string(nil), evidence.ReadPaths...)
 	evidence.WritePaths = append([]string(nil), evidence.WritePaths...)
+	evidence.EnvBindings = append([]string(nil), evidence.EnvBindings...)
 
 	return evidence
 }

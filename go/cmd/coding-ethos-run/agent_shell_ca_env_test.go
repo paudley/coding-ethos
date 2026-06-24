@@ -4,6 +4,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -53,6 +54,43 @@ func TestAgentShellProcessEnvReplacesHostCAWhenInterceptionEnabled(t *testing.T)
 		value, found := envValue(env, key)
 		if !found || value != interceptCA {
 			t.Fatalf("%s = %q (found=%v), want intercept CA path", key, value, found)
+		}
+	}
+}
+
+func TestAgentShellProcessEnvOverridesHostProxyWhenRoutingEnabled(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://host-proxy.invalid:8080")
+	t.Setenv("HTTPS_PROXY", "http://host-proxy.invalid:8080")
+	t.Setenv("http_proxy", "http://host-proxy.invalid:8080")
+	t.Setenv("https_proxy", "http://host-proxy.invalid:8080")
+	t.Setenv(envAgentAPIProxyEnabled, "1")
+	t.Setenv(envAgentAPIProxyURL, "http://127.0.0.1:18080")
+
+	env := agentShellProcessEnv(t.TempDir(), "/wrapper/git", "/real/git", "")
+
+	for _, key := range agentShellProxyEnvNames() {
+		value, found := envValue(env, key)
+		if !found || value != "http://127.0.0.1:18080" {
+			t.Fatalf("%s = %q (found=%v), want explicit agent proxy URL", key, value, found)
+		}
+	}
+}
+
+func TestAgentShellEnvBindingsRecordNamesOnly(t *testing.T) {
+	t.Setenv(envAgentAPIProxyEnabled, "1")
+	t.Setenv(envAgentAPIProxyURL, "http://127.0.0.1:18080")
+
+	got := agentShellEnvBindings("/sandbox/intercept-ca.pem")
+
+	for _, want := range append(agentShellProxyEnvNames(), agentShellCAEnvNames()...) {
+		if !slices.Contains(got, want) {
+			t.Fatalf("env bindings missing %q: %#v", want, got)
+		}
+	}
+
+	for _, leaked := range []string{"127.0.0.1", "18080", "/sandbox/intercept-ca.pem"} {
+		if strings.Contains(strings.Join(got, "\n"), leaked) {
+			t.Fatalf("env bindings leaked value %q: %#v", leaked, got)
 		}
 	}
 }

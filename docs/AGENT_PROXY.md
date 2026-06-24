@@ -206,7 +206,9 @@ CA trust is scoped to the sandboxed child only. The interception CA certificate
 is bound into the child via a `ReadPaths` bind plus the
 `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS` environment
 variables, so OpenSSL-, Python-requests-, and Node-based agents trust the minted
-leaves. The host trust store is never modified.
+leaves. Sandbox evidence records only the injected environment variable names in
+`env_bindings`, never proxy URLs or CA paths. The host trust store is never
+modified.
 
 When interception cannot run for an allow-listed host (for example a leaf cannot
 be minted), `proxy.interception.on_error` decides the outcome: `fail_closed`

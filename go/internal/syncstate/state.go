@@ -34,6 +34,7 @@ const (
 	sourceStatusCurrent       = "current"
 	sourceStatusMissing       = "missing"
 	sourceStatusStale         = "stale"
+	reportStatusPass          = "pass"
 	stateDirMode              = 0o700
 	stateFileMode             = 0o600
 )
@@ -253,7 +254,7 @@ func Plan(repoRoot, requestedAction string, artifacts []Artifact) Report {
 	report.PlannedWriteCount = plannedWriteCount(report.Artifacts)
 
 	if report.PlannedWriteCount == 0 {
-		report.Status = "pass"
+		report.Status = reportStatusPass
 	} else {
 		report.Status = artifactStatusPlanned
 	}
@@ -295,7 +296,7 @@ func RepairPlan(repoRoot string) (Report, error) {
 	report.PlannedWriteCount = plannedWriteCount(report.Artifacts)
 
 	if report.PlannedWriteCount == 0 {
-		report.Status = "pass"
+		report.Status = reportStatusPass
 	} else {
 		report.Status = artifactStatusPlanned
 	}
@@ -466,7 +467,7 @@ func doctorStatus(report Report) string {
 		}
 	}
 
-	return "pass"
+	return reportStatusPass
 }
 
 func plannedWriteCount(artifacts []ArtifactReport) int {

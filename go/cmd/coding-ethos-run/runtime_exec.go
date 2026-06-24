@@ -197,6 +197,7 @@ func agentShellSandboxPlan(
 	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
 	interceptEvidence := agentShellInterceptEvidence(paths)
 	interceptCACertPath := agentShellInterceptCACertPath(interceptEvidence)
+	envBindings := agentShellEnvBindings(interceptCACertPath)
 
 	plan, err := sandbox.BuildPlan(sandbox.Request{
 		Cwd:         paths.InvocationCWD,
@@ -210,6 +211,7 @@ func agentShellSandboxPlan(
 			StrategicIntent:   agentShellStrategicIntent(),
 			WritePaths:        append(agentShellProtectedWritePaths(paths), agentWritePaths...),
 			ReadPaths:         agentShellInterceptReadPaths(interceptEvidence),
+			EnvBindings:       envBindings,
 			AllowGitWrites:    true,
 			RequiresGit:       true,
 			RequiresNetwork:   true,
@@ -547,6 +549,7 @@ func agentShellProcessEnv(
 	root, gitWrapper, realGitBind, interceptCACertPath string,
 ) []string {
 	env := os.Environ()
+	proxyEnv := agentAPIProxyRoutingEnv()
 	wrapperDir := filepath.Dir(gitWrapper)
 	pathValue := wrapperDir + string(os.PathListSeparator) + os.Getenv("PATH")
 	tempDir := filepath.Join(root, sandbox.SandboxTempWritePath)
@@ -555,16 +558,15 @@ func agentShellProcessEnv(
 	// replacement CA; otherwise they are preserved so a configured custom trust
 	// bundle continues to apply inside the agent shell.
 	replaceCAEnv := strings.TrimSpace(interceptCACertPath) != ""
+	replaceProxyEnv := len(proxyEnv) > 0
+	filterOptions := agentShellEnvFilterOptions{
+		ReplaceCAEnv:    replaceCAEnv,
+		ReplaceProxyEnv: replaceProxyEnv,
+	}
 
 	filtered := make([]string, 0, len(env)+agentShellInjectedEnv)
 	for _, item := range env {
-		if strings.HasPrefix(item, "PATH=") ||
-			strings.HasPrefix(item, realgit.Env+"=") ||
-			strings.HasPrefix(item, "CODING_ETHOS_AGENT_SHELL_SANDBOX=") ||
-			strings.HasPrefix(item, "GPG_TTY=") ||
-			strings.HasPrefix(item, "TMPDIR=") ||
-			(replaceCAEnv && agentShellFilteredCAEnv(item)) ||
-			agentShellFilteredGUIEnv(item) {
+		if agentShellFilteredEnv(item, filterOptions) {
 			continue
 		}
 
@@ -591,7 +593,31 @@ func agentShellProcessEnv(
 		)
 	}
 
+	if replaceProxyEnv {
+		filtered = append(filtered, agentShellProxyEnv(proxyEnv)...)
+	}
+
 	return filtered
+}
+
+type agentShellEnvFilterOptions struct {
+	ReplaceCAEnv    bool
+	ReplaceProxyEnv bool
+}
+
+func agentShellFilteredEnv(item string, options agentShellEnvFilterOptions) bool {
+	return agentShellFilteredRuntimeEnv(item) ||
+		(options.ReplaceCAEnv && agentShellFilteredCAEnv(item)) ||
+		(options.ReplaceProxyEnv && agentShellFilteredProxyEnv(item)) ||
+		agentShellFilteredGUIEnv(item)
+}
+
+func agentShellFilteredRuntimeEnv(item string) bool {
+	return strings.HasPrefix(item, "PATH=") ||
+		strings.HasPrefix(item, realgit.Env+"=") ||
+		strings.HasPrefix(item, "CODING_ETHOS_AGENT_SHELL_SANDBOX=") ||
+		strings.HasPrefix(item, "GPG_TTY=") ||
+		strings.HasPrefix(item, "TMPDIR=")
 }
 
 // agentShellFilteredCAEnv reports whether an inherited env entry names one of
@@ -603,6 +629,54 @@ func agentShellFilteredCAEnv(item string) bool {
 		strings.HasPrefix(item, "NODE_EXTRA_CA_CERTS=")
 }
 
+func agentShellFilteredProxyEnv(item string) bool {
+	for _, name := range agentShellProxyEnvNames() {
+		if strings.HasPrefix(item, name+"=") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func agentShellProxyEnv(proxyEnv map[string]string) []string {
+	items := []string{}
+
+	for _, name := range agentShellProxyEnvNames() {
+		value := strings.TrimSpace(proxyEnv[name])
+		if value != "" {
+			items = append(items, name+"="+value)
+		}
+	}
+
+	return items
+}
+
+func agentShellEnvBindings(interceptCACertPath string) []string {
+	bindings := []string{}
+	proxyEnv := agentAPIProxyRoutingEnv()
+
+	for _, name := range agentShellProxyEnvNames() {
+		if strings.TrimSpace(proxyEnv[name]) != "" {
+			bindings = append(bindings, name)
+		}
+	}
+
+	if strings.TrimSpace(interceptCACertPath) != "" {
+		bindings = append(bindings, agentShellCAEnvNames()...)
+	}
+
+	return bindings
+}
+
+func agentShellProxyEnvNames() []string {
+	return []string{"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"}
+}
+
+func agentShellCAEnvNames() []string {
+	return []string{"SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS"}
+}
+
 // agentShellInterceptCAEnv returns the CA trust variables that point the
 // sandboxed child at the local interception CA, or nil when interception is
 // disabled and no cert path was bound.
@@ -612,11 +686,12 @@ func agentShellInterceptCAEnv(interceptCACertPath string) []string {
 		return nil
 	}
 
-	return []string{
-		"SSL_CERT_FILE=" + path,
-		"REQUESTS_CA_BUNDLE=" + path,
-		"NODE_EXTRA_CA_CERTS=" + path,
+	items := make([]string, 0, len(agentShellCAEnvNames()))
+	for _, name := range agentShellCAEnvNames() {
+		items = append(items, name+"="+path)
 	}
+
+	return items
 }
 
 func agentShellGPGTTY() string {

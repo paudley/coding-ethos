@@ -1478,6 +1478,8 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	t.Setenv("TMPDIR", "/tmp/stale")
 	t.Setenv("WAYLAND_DISPLAY", "wayland-1")
 	t.Setenv("XAUTHORITY", filepath.Join(home, ".Xauthority"))
+	t.Setenv(envAgentAPIProxyEnabled, "1")
+	t.Setenv(envAgentAPIProxyURL, "http://127.0.0.1:18080")
 
 	paths := runtimeTestPaths(t)
 	paths.GitDir = filepath.Join(
@@ -1516,6 +1518,11 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	}
 	if !slices.Contains(env, "CODING_ETHOS_AGENT_SHELL_SANDBOX=1") {
 		t.Fatalf("agent-shell env does not mark sandbox execution: %#v", env)
+	}
+	for _, want := range agentShellProxyEnvNames() {
+		if !slices.Contains(plan.Evidence.EnvBindings, want) {
+			t.Fatalf("sandbox evidence missing env binding %q: %#v", want, plan.Evidence)
+		}
 	}
 	if !slices.Contains(
 		env,

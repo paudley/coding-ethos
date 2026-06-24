@@ -661,6 +661,10 @@ status report includes `agent_api_proxy`, and pass-through requests record
 body-free `proxy.pass_through` evidence with
 `payload_body_retained=false`.
 
+When the sandboxed agent shell receives explicit proxy routing or interception
+CA trust, sandbox evidence records only the injected variable names in
+`env_bindings`; proxy URLs and CA paths are not copied into the evidence.
+
 Agent search, glob, and read PostToolUse hooks add compact code-intel
 enrichment when the repo-local index is available. The TOON hint includes
 detected repo paths, likely symbols, direct graph edges, repeated-failure
