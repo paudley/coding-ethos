@@ -670,6 +670,13 @@ does not block the tool result; the hook emits a concise refresh hint with
 `coding-ethos-code-intel rebuild-index`. Repositories can disable or cap this
 context with `proxy.code_intel_enrichment` in `repo_config.yaml`.
 
+PreToolUse hooks also perform narrow semantic policy injection. Mutating Git
+intents such as `policy-git commit` inject the `safe-git-workflow` skill pointer
+and policy-git reminder only for that turn. File-target tool calls that name
+Python files inject compact Python static-analysis guidance and the relevant
+skill pointer instead of front-loading every Python policy into startup context.
+Read-only Git inspection commands stay quiet.
+
 Provider-native file read tools are the supported path for reading source.
 Claude-style Bash file-tool emulation such as `cat <path>`,
 `sed -n '1,20p' <path>`, `awk ... <path>`, `tee <path>`, and `echo`/`printf`

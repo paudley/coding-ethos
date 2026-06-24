@@ -34,6 +34,7 @@ const (
 	modeRecord       = "record"
 	statusAllowed    = "allowed"
 	statusBlocked    = "blocked"
+	operationPush    = "push"
 	slowHookBudgetMS = int64(2500)
 	hookDividerWidth = 50
 )
@@ -290,11 +291,13 @@ func hookSpecificOutput(
 		}, nil
 	}
 
-	if output := advisoryHookOutput(event); output != nil {
-		return output, nil
-	}
-
-	if output := postEditOutput(bundle, event); output != nil {
+	if output := mergeHookSpecificOutputs(
+		semanticPolicyInjectionOutput(bundle, event),
+		sessionMemoryImportOutput(event),
+		continuationOutput(event),
+		lifecycleOutput(event),
+		postEditOutput(bundle, event),
+	); output != nil {
 		return output, nil
 	}
 
@@ -309,14 +312,6 @@ func hookSpecificOutput(
 	}
 
 	return postToolBashOutput(bundle, event)
-}
-
-func advisoryHookOutput(event Event) *HookSpecificOutput {
-	return mergeHookSpecificOutputs(
-		lifecycleOutput(event),
-		continuationOutput(event),
-		sessionMemoryImportOutput(event),
-	)
 }
 
 func mergeHookSpecificOutputs(outputs ...*HookSpecificOutput) *HookSpecificOutput {
@@ -566,7 +561,7 @@ func hookOperation(command string) string {
 	operation := "commit"
 
 	if strings.Contains(strings.ToLower(command), "git push") {
-		operation = "push"
+		operation = operationPush
 	}
 
 	if strings.Contains(strings.ToLower(command), "pre-commit") {
@@ -591,7 +586,7 @@ func buildHookOutputContextHuman(
 	reminders []renderedEthosReminder,
 ) string {
 	hookType := "PRE-COMMIT"
-	if operation == "push" {
+	if operation == operationPush {
 		hookType = "PRE-PUSH"
 	}
 

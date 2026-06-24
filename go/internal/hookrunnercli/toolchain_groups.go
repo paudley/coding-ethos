@@ -212,12 +212,7 @@ func runGoVet(_ Config, paths []string) int {
 		return 0
 	}
 
-	worktree, ok := configuredGoWorktreeName()
-	if !ok {
-		return 1
-	}
-
-	return runManagedPolicyTool("go-vet", []string{worktree})
+	return runManagedPolicyTool("go-vet", nil)
 }
 
 func runGoTests(_ Config, paths []string) int {
@@ -225,12 +220,7 @@ func runGoTests(_ Config, paths []string) int {
 		return 0
 	}
 
-	worktree, ok := configuredGoWorktreeName()
-	if !ok {
-		return 1
-	}
-
-	return runManagedPolicyTool(goTestToolName, []string{worktree})
+	return runManagedPolicyTool(goTestToolName, nil)
 }
 
 func runGoCoverageThreshold(cfg Config, paths []string) int {
@@ -760,17 +750,10 @@ func runGolangciLint(cfg Config, paths []string) int {
 		return 0
 	}
 
-	worktree, ok := configuredGoWorktreeName()
-	if !ok {
-		return 1
-	}
-
-	args := []string{}
+	args := []string{"run"}
 	if cfg.HookStage == hookStagePreCommit {
 		args = append(args, "--new-from-rev=HEAD")
 	}
-
-	args = append(args, worktree)
 
 	return runManagedPolicyTool("golangci-lint", args)
 }
@@ -855,31 +838,6 @@ func openPolicyBundleFile(path string) (*os.File, error) {
 	}
 
 	return file, nil
-}
-
-func configuredGoWorktreeName() (string, bool) {
-	_, _, rootConfig, err := loadBundleConsumerAndConfig()
-	if err != nil {
-		writef(os.Stderr, "FATAL: %v\n", err)
-
-		return "", false
-	}
-
-	worktree := configuredGoWorktreeValue(rootConfig)
-	path := repoPath(worktree)
-
-	info, err := os.Stat(path)
-	if err != nil || !info.IsDir() {
-		fmt.Fprintf(
-			os.Stderr,
-			"FATAL: go.worktree is set to %q, but that directory does not exist\n",
-			worktree,
-		)
-
-		return "", false
-	}
-
-	return worktree, true
 }
 
 func configuredGoWorktree() (string, bool) {
