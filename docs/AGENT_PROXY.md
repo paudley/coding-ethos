@@ -359,6 +359,25 @@ pagination or cached-read transforms at the provider file-read boundary, but it
 must record `file_read` and `cache_hit` events in the provider-neutral proxy
 ledger rather than inferring file reads from shell output.
 
+## Semantic Policy Injection
+
+The first just-in-time policy injection slice runs in the local hook path at
+`PreToolUse`. It does not load every skill or policy into startup context.
+Instead, it emits compact, exact pointers only when the incoming tool call shows
+matching intent:
+
+- mutating Git commands, including managed `policy-git commit`, receive the
+  `safe-git-workflow` skill pointer and policy-git reminder;
+- file-target tool calls that name Python files receive compact Python
+  static-analysis guidance and the relevant Python skill pointer;
+- read-only Git inspection commands stay quiet.
+
+This is intentionally rule-based, not vector retrieval. The hook output records
+the trigger, reason, skill id, policy scope, and next action so the injected
+context is auditable and small. Provider adapters may still suppress pre-tool
+advice where a provider does not support allowed `PreToolUse` context; those
+capability limits are documented in `docs/PROVIDER_CAPABILITY_MATRIX.md`.
+
 ## Startup Repo Map
 
 On `SessionStart`, the hook runtime refreshes the repo-local Tree-sitter index

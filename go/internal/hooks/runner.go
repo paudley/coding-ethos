@@ -33,6 +33,7 @@ const (
 	modeRecord       = "record"
 	statusAllowed    = "allowed"
 	statusBlocked    = "blocked"
+	operationPush    = "push"
 	slowHookBudgetMS = int64(2500)
 	hookDividerWidth = 50
 )
@@ -289,19 +290,13 @@ func hookSpecificOutput(
 		}, nil
 	}
 
-	if output := sessionMemoryImportOutput(event); output != nil {
-		return output, nil
-	}
-
-	if output := continuationOutput(event); output != nil {
-		return output, nil
-	}
-
-	if output := lifecycleOutput(event); output != nil {
-		return output, nil
-	}
-
-	if output := postEditOutput(bundle, event); output != nil {
+	if output := mergeAdvisoryHookOutputs(
+		semanticPolicyInjectionOutput(bundle, event),
+		sessionMemoryImportOutput(event),
+		continuationOutput(event),
+		lifecycleOutput(event),
+		postEditOutput(bundle, event),
+	); output != nil {
 		return output, nil
 	}
 
@@ -316,6 +311,42 @@ func hookSpecificOutput(
 	}
 
 	return postToolBashOutput(bundle, event)
+}
+
+func mergeAdvisoryHookOutputs(outputs ...*HookSpecificOutput) *HookSpecificOutput {
+	var merged *HookSpecificOutput
+
+	contexts := []string{}
+
+	for _, output := range outputs {
+		if output == nil {
+			continue
+		}
+
+		if output.PermissionDecision != "" ||
+			output.PermissionDecisionReason != "" ||
+			len(output.UpdatedInput) > 0 {
+			return output
+		}
+
+		if merged == nil {
+			next := *output
+			next.AdditionalContext = ""
+			merged = &next
+		}
+
+		if output.AdditionalContext != "" {
+			contexts = append(contexts, output.AdditionalContext)
+		}
+	}
+
+	if merged == nil {
+		return nil
+	}
+
+	merged.AdditionalContext = strings.Join(contexts, "\n")
+
+	return merged
 }
 
 func postToolBashOutput(
@@ -495,7 +526,7 @@ func hookOperation(command string) string {
 	operation := "commit"
 
 	if strings.Contains(strings.ToLower(command), "git push") {
-		operation = "push"
+		operation = operationPush
 	}
 
 	if strings.Contains(strings.ToLower(command), "pre-commit") {
@@ -520,7 +551,7 @@ func buildHookOutputContextHuman(
 	reminders []renderedEthosReminder,
 ) string {
 	hookType := "PRE-COMMIT"
-	if operation == "push" {
+	if operation == operationPush {
 		hookType = "PRE-PUSH"
 	}
 
