@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/execguard"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 )
 
@@ -298,7 +299,17 @@ func runCutoverCommand(args []string, env map[string]string) (string, error) {
 
 	command := safeexec.Command(args[0], args[1:]...)
 
-	command.Env = os.Environ()
+	// Verification children are legitimate nested coding-ethos invocations;
+	// without scrubbing the exec-guard stack they block themselves as
+	// recursive and every cutover verify fails.
+	command.Env = make([]string, 0, len(os.Environ())+len(env))
+	stackPrefix := execguard.EnvStack + "="
+
+	for _, item := range os.Environ() {
+		if !strings.HasPrefix(item, stackPrefix) {
+			command.Env = append(command.Env, item)
+		}
+	}
 	for key, value := range env {
 		command.Env = append(command.Env, key+"="+value)
 	}

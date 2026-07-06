@@ -2544,9 +2544,20 @@ func TestManagedLintUsesParentPythonTargetsForUnscopedFormatters(t *testing.T) {
 		}
 	}
 
-	for _, unwanted := range []string{"coding_ethos", "missing"} {
-		if strings.Contains(got, unwanted) {
-			t.Fatalf("managed lint calls contain %q:\n%s", unwanted, got)
+	// Only inspect the lint target list after the "--" separator. The
+	// surrounding argv carries sandbox temp paths that legitimately contain
+	// the parent repo directory name (for example "coding_ethos") when the
+	// tests run under hook-managed sandboxes.
+	for _, call := range calls {
+		_, targets, found := strings.Cut(call, " -- ")
+		if !found {
+			continue
+		}
+
+		for _, unwanted := range []string{"coding_ethos", "missing"} {
+			if strings.Contains(targets, unwanted) {
+				t.Fatalf("managed lint call targets contain %q:\n%s", unwanted, call)
+			}
 		}
 	}
 }
