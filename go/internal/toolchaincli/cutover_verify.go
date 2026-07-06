@@ -310,6 +310,7 @@ func runCutoverCommand(args []string, env map[string]string) (string, error) {
 			command.Env = append(command.Env, item)
 		}
 	}
+
 	for key, value := range env {
 		command.Env = append(command.Env, key+"="+value)
 	}
