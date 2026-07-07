@@ -1470,7 +1470,7 @@ func codexHookProbes() []hookProbe {
 				"tool": "functions.exec_command",
 				"input": {"cmd": "git switch main"}
 			}`,
-			validate: validateCodexBlockProbe,
+			validate: validateCodexGitPolicyBlockProbe,
 		},
 		{
 			provider: string(ProviderCodex),
@@ -1482,7 +1482,7 @@ func codexHookProbes() []hookProbe {
 				"tool": "exec_command",
 				"input": {"command": "/usr/bin/git status --short"}
 			}`,
-			validate: validateCodexBlockProbe,
+			validate: validateCodexWrapperRefusalProbe,
 		},
 		{
 			provider: string(ProviderCodex),
@@ -1494,21 +1494,21 @@ func codexHookProbes() []hookProbe {
 				"tool": "exec_command",
 				"input": {"command": "bash -c 'git status --short'"}
 			}`,
-			validate: validateCodexBlockProbe,
+			validate: validateCodexWrapperRefusalProbe,
 		},
 		{
 			provider: string(ProviderCodex),
 			event:    eventPreToolUse,
 			tool:     "exec_command",
 			payload:  codexExecProbePayload(pythonSubprocessGitProbeCommand),
-			validate: validateCodexBlockProbe,
+			validate: validateCodexWrapperRefusalProbe,
 		},
 		{
 			provider: string(ProviderCodex),
 			event:    eventPreToolUse,
 			tool:     "exec_command",
 			payload:  codexExecProbePayload(hookTamperProbeCommand),
-			validate: validateCodexBlockProbe,
+			validate: validateCodexPolicyBlockProbe,
 		},
 	}
 }
@@ -1809,7 +1809,38 @@ func validateRewriteProbe(result hookProbeResult, provider string) error {
 	return nil
 }
 
+// validateCodexBlockProbe checks the managed rewrite-remediation block
+// shape: the wrapper policy must block and carry a concrete cerun resubmit
+// command.
 func validateCodexBlockProbe(result hookProbeResult) error {
+	return validateCodexBlockReason(result, "git.wrapper_required", "cerun --")
+}
+
+// validateCodexGitPolicyBlockProbe checks that a git policy blocked the
+// command. The winning policy id is configuration-dependent: semantic git
+// policies such as git.checkout_protected_branch legitimately preempt the
+// wrapper remediation for protected-branch targets.
+func validateCodexGitPolicyBlockProbe(result hookProbeResult) error {
+	return validateCodexBlockReason(result, "git.")
+}
+
+// validateCodexWrapperRefusalProbe checks the circumvention-refusal block
+// shape: the wrapper policy refuses the command without offering a cerun
+// resubmit template.
+func validateCodexWrapperRefusalProbe(result hookProbeResult) error {
+	return validateCodexBlockReason(result, "git.wrapper_required")
+}
+
+// validateCodexPolicyBlockProbe checks that enforcement hard-blocked the
+// command with an actionable reason, regardless of which policy fired.
+func validateCodexPolicyBlockProbe(result hookProbeResult) error {
+	return validateCodexBlockReason(result)
+}
+
+func validateCodexBlockReason(
+	result hookProbeResult,
+	reasonMarkers ...string,
+) error {
 	if result.exitCode == 0 {
 		return apperror.StaticError("codex raw git probe should block")
 	}
@@ -1833,13 +1864,15 @@ func validateCodexBlockProbe(result hookProbeResult) error {
 		)
 	}
 
-	if !strings.Contains(reason, "git.wrapper_required") ||
-		!strings.Contains(reason, "cerun --") {
-		return apperror.Wrapf(
-			apperror.StaticError("codex block reason lost git remediation: %s"),
-			"codex block reason lost git remediation: %s",
-			reason,
-		)
+	for _, marker := range reasonMarkers {
+		if !strings.Contains(reason, marker) {
+			return apperror.Wrapf(
+				apperror.StaticError("codex block reason lost marker %q: %s"),
+				"codex block reason lost marker %q: %s",
+				marker,
+				reason,
+			)
+		}
 	}
 
 	permissionReason, found := nestedString(

@@ -29,8 +29,8 @@ func TestHookCLIBlocksBashBypass(t *testing.T) {
 			"command": "git commit --no-verify -m test",
 		}),
 	)
-	if status != 0 {
-		t.Fatalf("status mismatch: got %d", status)
+	if status != blockedExitCode {
+		t.Fatalf("status mismatch: got %d, want %d", status, blockedExitCode)
 	}
 
 	if !hookOutputDenies(result) {
@@ -139,8 +139,12 @@ func TestRunWithIOBlocksBashBypass(t *testing.T) {
 		&stdout,
 		&stderr,
 	)
-	if status != 0 {
-		t.Fatalf("status = %d, want provider JSON deny exit 0", status)
+	if status != blockedExitCode {
+		t.Fatalf(
+			"status = %d, want blocked provider JSON deny exit %d",
+			status,
+			blockedExitCode,
+		)
 	}
 
 	result := map[string]any{}

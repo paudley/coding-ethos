@@ -62,8 +62,9 @@ func agentHookFixtureCases() []agentHookFixtureCase {
 			},
 		},
 		{
-			name:    "codex pretool read-only git denial",
-			fixture: "codex-pretool-git-status.json",
+			name:     "codex pretool read-only git denial",
+			fixture:  "codex-pretool-git-status.json",
+			wantExit: 1,
 			wantStdout: []string{
 				`"decision": "block"`,
 				`"permissionDecision": "deny"`,
@@ -72,8 +73,9 @@ func agentHookFixtureCases() []agentHookFixtureCase {
 			},
 		},
 		{
-			name:    "codex pretool git bypass denial",
-			fixture: "codex-pretool-git-bypass.json",
+			name:     "codex pretool git bypass denial",
+			fixture:  "codex-pretool-git-bypass.json",
+			wantExit: 1,
 			wantStdout: []string{
 				`"decision": "block"`,
 				`"permissionDecision": "deny"`,

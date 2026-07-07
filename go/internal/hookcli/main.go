@@ -110,18 +110,10 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			printBlocked(stderr, result)
 		}
 
-		return blockedResultExitCode(result, *jsonOutput)
+		return blockedExitCode
 	}
 
 	return 0
-}
-
-func blockedResultExitCode(result hooks.Result, jsonOutput bool) int {
-	if jsonOutput && result.Provider != "" {
-		return 0
-	}
-
-	return blockedExitCode
 }
 
 func persistHookResult(event hooks.Event, result hooks.Result) error {
