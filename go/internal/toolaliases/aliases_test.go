@@ -64,6 +64,14 @@ func TestProviderAliasesAndNoopCanonical(t *testing.T) {
 		t.Fatal("Codex shell aliases should be registered")
 	}
 
+	kimiAliases := toolaliases.ProviderAliases(
+		toolaliases.ProviderKimi,
+		toolaliases.CanonicalNoop,
+	)
+	if len(kimiAliases) == 0 {
+		t.Fatal("Kimi no-op aliases should be registered")
+	}
+
 	if !toolaliases.NoopCanonical("functions.update_plan") {
 		t.Fatal("known no-op tool should be recognized")
 	}

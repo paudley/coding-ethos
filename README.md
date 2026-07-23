@@ -1566,6 +1566,7 @@ bin/coding-ethos-run agent-hooks sync
 bin/coding-ethos-run agent-hooks sync --root /path/to/repo --ethos-root . --dry-run --format toon
 bin/coding-ethos-run agent-hooks doctor
 bin/coding-ethos-run agent-hooks verify
+bin/coding-ethos-run agent-hooks capabilities --json
 ```
 
 Agent hook generation is all-or-nothing. `sync` writes every supported
@@ -1573,6 +1574,48 @@ repo-local surface. Provider support levels, native settings files, hook events,
 MCP setup, generated targets, memory behavior, response shapes, and unsupported
 surfaces are generated from the registry into
 [Provider Capability Matrix](docs/PROVIDER_CAPABILITY_MATRIX.md).
+
+Supervisors can keep provider settings outside the target checkout. In overlay
+mode, `--root` is the private settings/state root and `--repo-root` is the
+actual repository used as the hook probe working directory:
+
+```bash
+bin/coding-ethos-run agent-hooks sync \
+  --root /private/settings-overlay \
+  --repo-root /path/to/repo
+bin/coding-ethos-run agent-hooks verify \
+  --root /private/settings-overlay \
+  --repo-root /path/to/repo
+```
+
+Omitting `--repo-root` preserves the repo-local behavior. Capability discovery
+reports both flags and `supports_private_overlay: true`.
+
+An external supervisor can own provider hook execution while Coding Ethos keeps
+ownership of MCP and code intelligence. Pass the same split commands to
+`sync`, `doctor`, and `verify`:
+
+```bash
+bin/coding-ethos-run agent-hooks sync \
+  --root /private/settings-overlay \
+  --repo-root /path/to/repo \
+  --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
+  --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
+bin/coding-ethos-run agent-hooks verify \
+  --root /private/settings-overlay \
+  --repo-root /path/to/repo \
+  --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
+  --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
+```
+
+`--hook-command` accepts one static command: the existing
+`coding-ethos-run agent-hook`, or an absolute external `... hook` executable
+optionally prefixed by `env KEY=value ...`. Shell operators, substitutions,
+redirects, background execution, raw leading assignments, and relative
+external executables are rejected. An explicit `--mcp-command` must be exactly
+an absolute `coding-ethos-run mcp` command. When `--mcp-command` is omitted,
+the current MCP command is still derived from `--hook-command`; this preserves
+existing repo-local behavior.
 
 Codex runs one native command hook per supported event so current Codex
 sessions enter the same policy runtime without depending on unstable tool
@@ -1585,9 +1628,11 @@ reports.
 The same sync path also installs the local `coding-ethos` MCP server for all
 supported agents. Claude receives a project `.mcp.json` entry, Codex receives a
 managed `[mcp_servers.coding-ethos]` block in `.codex/config.toml`, and Gemini
-receives a `mcpServers.coding-ethos` entry in `.gemini/settings.json`. `doctor`
-checks those entries along with hooks so MCP drift is not a separate hidden
-setup step.
+receives a `mcpServers.coding-ethos` entry in `.gemini/settings.json`. Kimi
+receives managed hooks in `.kimi-code/config.toml` and the MCP server in
+`.kimi-code/mcp.json`; launch it with `KIMI_CODE_HOME` set to that generated
+overlay. `doctor` checks those entries along with hooks so MCP drift is not a
+separate hidden setup step.
 
 Generated ETHOS skills and native agent settings use the same managed-output
 model. `make build` refreshes the checkout-local skill surfaces, hook settings,
@@ -1604,13 +1649,16 @@ repo-local surface. Providers that cannot rewrite a memory file tool request get
 a `memory.centralized` denial that points at the allowed memory path instead of
 silently writing durable notes into provider-private state.
 
-`agent-hooks verify` runs doctor first, then invokes the configured hook command
-with provider-native Claude, Codex, and Gemini payloads. The probes cover:
+`agent-hooks verify` runs doctor first, then safely invokes the configured hook
+command—including an external supervisor wrapper—with provider-native Claude,
+Codex, Gemini, and Kimi payloads. The probes cover:
 
 - Claude transparent Git wrapper rewrite
 - Codex blocks for raw Git, absolute Git paths, nested shell Git, and Python
   subprocess Git when rewrite is unavailable
 - Gemini deny responses for raw shell Git and write-tool policy denial
+- Kimi exit-2 policy denial with a stderr reason and structured-deny Stop
+  continuation
 - managed hook-binary tampering:
   `rm ...coding-ethos-git-hook && go build -o ...coding-ethos-git-hook`
 
@@ -1669,10 +1717,25 @@ policy failures, not ordinary lint failures. Blocked tamper and Git-bypass
 responses use the normal structured provider output with a policy-specific
 finding and remediation that points back to the approved git workflow.
 
-Agent hook JSON mode writes the hook result to stdout and keeps stderr reserved
-for runner/configuration errors. A blocked provider decision exits with code 1
-and carries the denial details in the JSON result instead of duplicating a
-second compact denial line on stderr.
+Agent hook JSON mode keeps the existing provider-native response as its default.
+Existing blocked decisions exit with code 1 and carry denial details in JSON.
+Kimi policy denials use its native exit code 2 plus a stderr reason; Kimi Stop
+guidance uses a successful structured deny so the agent can continue the turn
+once.
+
+Supervisors select the stable provider-neutral contract explicitly:
+
+```bash
+bin/coding-ethos-run agent-hook --json --contract neutral-v1 < event.json
+```
+
+The v1 response includes `contract_version`, `correlation_id`, a normalized
+event identity, `decision`, `effect`, policy decisions/advice, optional
+`updated_input`, and the denial tracking ID. The request accepts the normal
+hook event shape plus optional `contract_version` and `correlation_id`.
+Provider-native output remains unchanged unless the selector (or
+`CODE_ETHOS_HOOK_CONTRACT=neutral-v1`) is present. See
+[Provider-Neutral Hook Contract v1](docs/HOOK_CONTRACT_V1.md).
 
 Provider output uses the strongest native shape each agent supports:
 the generated [Provider Capability Matrix](docs/PROVIDER_CAPABILITY_MATRIX.md)

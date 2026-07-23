@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"blackcat.ca/coding-ethos/go/internal/agenthooks"
@@ -24,6 +25,9 @@ const (
 var (
 	errProviderMatrixDrift = apperror.StaticError(
 		"provider capability matrix out of sync",
+	)
+	errRuntimeVersionUnavailable = apperror.StaticError(
+		"runtime version is unavailable from pyproject.toml",
 	)
 	errUnknownCommand = apperror.StaticError("unknown agent-hooks command")
 )
@@ -46,6 +50,8 @@ func runCLI(args []string) int {
 		err = doctorSettings(args[1:])
 	case "verify":
 		err = verifySettings(args[1:])
+	case "capabilities":
+		err = capabilities(args[1:])
 	case "sync-provider-matrix":
 		err = syncProviderMatrix(args[1:])
 	case "check-provider-matrix":
@@ -67,6 +73,32 @@ func runCLI(args []string) int {
 	}
 
 	return 0
+}
+
+func capabilities(args []string) error {
+	flags := flag.NewFlagSet("capabilities", flag.ContinueOnError)
+	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
+	_ = flags.Bool("json", false, "Emit JSON capability report")
+
+	err := flags.Parse(args)
+	if err != nil {
+		return fmt.Errorf("parse capabilities flags: %w", err)
+	}
+
+	runtimeVersion := syncstate.RuntimeVersion(*ethosRoot)
+	if runtimeVersion == "" {
+		return fmt.Errorf("%w: %s", errRuntimeVersionUnavailable, *ethosRoot)
+	}
+
+	err = feedback.WriteJSON(
+		os.Stdout,
+		agenthooks.Capabilities(runtimeVersion),
+	)
+	if err != nil {
+		return fmt.Errorf("encode agent hook capabilities: %w", err)
+	}
+
+	return nil
 }
 
 func printSettings(args []string) error {
@@ -100,8 +132,18 @@ func printSettings(args []string) error {
 func syncSettings(args []string) error {
 	flags := flag.NewFlagSet("sync", flag.ContinueOnError)
 	root := flags.String("root", ".", "Repository root for agent settings")
+	repoRoot := flags.String(
+		"repo-root",
+		"",
+		"Actual repository root when --root is a private settings overlay",
+	)
 	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
+	mcpCommand := flags.String(
+		"mcp-command",
+		"",
+		"Coding Ethos MCP command; derived from --hook-command when omitted",
+	)
 	dryRun := flags.Bool("dry-run", false, "Report planned writes without mutating files")
 	format := flags.String(
 		"format",
@@ -115,8 +157,13 @@ func syncSettings(args []string) error {
 	}
 
 	resolvedHookCommand := defaultHookCommand(*hookCommand)
+	resolvedRepoRoot := defaultRepoRoot(*root, *repoRoot)
 
-	artifacts, err := agenthooks.StateArtifacts(*root, resolvedHookCommand)
+	artifacts, err := agenthooks.StateArtifactsWithMCPCommand(
+		*root,
+		resolvedHookCommand,
+		*mcpCommand,
+	)
 	if err != nil {
 		return fmt.Errorf("plan agent hook settings: %w", err)
 	}
@@ -128,22 +175,50 @@ func syncSettings(args []string) error {
 		)
 	}
 
-	err = agenthooks.SyncSettings(*root, resolvedHookCommand)
+	err = agenthooks.SyncSettingsForRepositoryWithMCPCommand(
+		*root,
+		resolvedRepoRoot,
+		resolvedHookCommand,
+		*mcpCommand,
+	)
 	if err != nil {
 		return fmt.Errorf("sync agent hook settings: %w", err)
 	}
 
-	err = agenthooks.SyncCodexTrustState(*root, resolvedHookCommand, "")
+	err = agenthooks.SyncCodexTrustState(
+		*root,
+		resolvedHookCommand,
+		codexTrustConfigForRoots(*root, resolvedRepoRoot),
+	)
 	if err != nil {
 		return fmt.Errorf("sync Codex hook trust: %w", err)
 	}
 
-	_, err = syncstate.Upsert(syncstate.UpsertOptions{
-		RepoRoot:        *root,
-		EthosRoot:       *ethosRoot,
+	if privateSettingsOverlay(*root, resolvedRepoRoot) {
+		artifacts, err = agenthooks.StateArtifactsWithMCPCommand(
+			*root,
+			resolvedHookCommand,
+			*mcpCommand,
+		)
+		if err != nil {
+			return fmt.Errorf("refresh private overlay state artifacts: %w", err)
+		}
+	}
+
+	return upsertAgentHookSyncState(*root, *ethosRoot, artifacts)
+}
+
+func upsertAgentHookSyncState(
+	root string,
+	ethosRoot string,
+	artifacts []syncstate.Artifact,
+) error {
+	_, err := syncstate.Upsert(syncstate.UpsertOptions{
+		RepoRoot:        root,
+		EthosRoot:       ethosRoot,
 		RequestedAction: "agent-hooks sync",
 		ProviderTargets: []syncstate.ProviderTarget{
-			{Provider: "agent-hooks", Root: *root},
+			{Provider: "agent-hooks", Root: root},
 		},
 		Artifacts: artifacts,
 	})
@@ -166,19 +241,40 @@ func writeSyncStateReport(report syncstate.Report, format string) error {
 func doctorSettings(args []string) error {
 	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	root := flags.String("root", ".", "Repository root for agent settings")
+	repoRoot := flags.String(
+		"repo-root",
+		"",
+		"Actual repository root when --root is a private settings overlay",
+	)
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
+	mcpCommand := flags.String(
+		"mcp-command",
+		"",
+		"Coding Ethos MCP command; derived from --hook-command when omitted",
+	)
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse doctor flags: %w", err)
 	}
 
-	err = agenthooks.DoctorSettings(*root, defaultHookCommand(*hookCommand))
+	err = agenthooks.DoctorSettingsForRepositoryWithMCPCommand(
+		*root,
+		defaultRepoRoot(*root, *repoRoot),
+		defaultHookCommand(*hookCommand),
+		*mcpCommand,
+	)
 	if err != nil {
 		return fmt.Errorf("doctor agent hook settings: %w", err)
 	}
 
-	err = agenthooks.VerifyCodexTrustState(*root, defaultHookCommand(*hookCommand), "")
+	resolvedRepoRoot := defaultRepoRoot(*root, *repoRoot)
+
+	err = agenthooks.VerifyCodexTrustState(
+		*root,
+		defaultHookCommand(*hookCommand),
+		codexTrustConfigForRoots(*root, resolvedRepoRoot),
+	)
 	if err != nil {
 		return fmt.Errorf("doctor Codex hook trust: %w", err)
 	}
@@ -194,14 +290,29 @@ func doctorSettings(args []string) error {
 func verifySettings(args []string) error {
 	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
 	root := flags.String("root", ".", "Repository root for agent settings")
+	repoRoot := flags.String(
+		"repo-root",
+		"",
+		"Actual repository root when --root is a private settings overlay",
+	)
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
+	mcpCommand := flags.String(
+		"mcp-command",
+		"",
+		"Coding Ethos MCP command; derived from --hook-command when omitted",
+	)
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse verify flags: %w", err)
 	}
 
-	report, err := agenthooks.VerifySettings(*root, defaultHookCommand(*hookCommand))
+	report, err := agenthooks.VerifySettingsForRepositoryWithMCPCommand(
+		*root,
+		defaultRepoRoot(*root, *repoRoot),
+		defaultHookCommand(*hookCommand),
+		*mcpCommand,
+	)
 	if err != nil {
 		encodeErr := writeJSONReport(os.Stdout, report)
 		if encodeErr != nil {
@@ -211,7 +322,13 @@ func verifySettings(args []string) error {
 		return fmt.Errorf("verify agent hook settings: %w", err)
 	}
 
-	err = agenthooks.VerifyCodexTrustState(*root, defaultHookCommand(*hookCommand), "")
+	resolvedRepoRoot := defaultRepoRoot(*root, *repoRoot)
+
+	err = agenthooks.VerifyCodexTrustState(
+		*root,
+		defaultHookCommand(*hookCommand),
+		codexTrustConfigForRoots(*root, resolvedRepoRoot),
+	)
 	if err != nil {
 		report.Status = "invalid"
 		report.Checks = append(report.Checks, agenthooks.VerifyCheck{
@@ -300,6 +417,35 @@ func defaultHookCommand(hookCommand string) string {
 	return runner + " agent-hook"
 }
 
+func defaultRepoRoot(settingsRoot, repoRoot string) string {
+	if strings.TrimSpace(repoRoot) != "" {
+		return repoRoot
+	}
+
+	return settingsRoot
+}
+
+func privateSettingsOverlay(settingsRoot, repoRoot string) bool {
+	var (
+		settingsPath, settingsErr = filepath.Abs(settingsRoot)
+		repoPath, repoErr         = filepath.Abs(repoRoot)
+	)
+
+	if settingsErr != nil || repoErr != nil {
+		return filepath.Clean(settingsRoot) != filepath.Clean(repoRoot)
+	}
+
+	return filepath.Clean(settingsPath) != filepath.Clean(repoPath)
+}
+
+func codexTrustConfigForRoots(settingsRoot, repoRoot string) string {
+	if !privateSettingsOverlay(settingsRoot, repoRoot) {
+		return ""
+	}
+
+	return agenthooks.DefaultSettingsPaths(settingsRoot).CodexConfig
+}
+
 func writeDoctorReport(file *os.File) error {
 	payload := map[string]any{
 		"status":       "valid",
@@ -324,7 +470,8 @@ func usage() {
 
 func usageTo(writer io.Writer) {
 	const text = "Usage: coding-ethos-agent-hooks " +
-		"<print|sync|doctor|verify|sync-provider-matrix|check-provider-matrix> " +
+		"<print|sync|doctor|verify|capabilities|" +
+		"sync-provider-matrix|check-provider-matrix> " +
 		"[flags]; sync supports --dry-run --format json|toon"
 
 	feedback.Emit(

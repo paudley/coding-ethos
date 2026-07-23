@@ -163,6 +163,182 @@ func TestRunWithIOBlocksBashBypass(t *testing.T) {
 	}
 }
 
+func TestRunWithIOEmitsNeutralV1Contract(t *testing.T) {
+	t.Parallel()
+
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
+
+	status := runWithIO(
+		[]string{
+			"--bundle", writeCLITestBundle(t),
+			"--json",
+			"--contract", "neutral-v1",
+		},
+		strings.NewReader(`{
+			"provider": "codex",
+			"event": "SessionStart",
+			"correlation_id": "nyar-001"
+		}`),
+		&stdout,
+		&stderr,
+	)
+	if status != 0 {
+		t.Fatalf(
+			"status=%d stdout=%q stderr=%q",
+			status,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+
+	for _, expected := range []string{
+		`"contract_version": "coding-ethos.hook/v1"`,
+		`"correlation_id": "nyar-001"`,
+		`"decision": "allow"`,
+		`"effect":`,
+		`"advice":`,
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("neutral output missing %q:\n%s", expected, stdout.String())
+		}
+	}
+}
+
+func TestRunWithIOKeepsNeutralV1BlockSemanticsProviderIndependent(t *testing.T) {
+	t.Parallel()
+
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
+
+	status := runWithIO(
+		[]string{
+			"--bundle", writeCLITestBundle(t),
+			"--json",
+			"--contract", "neutral-v1",
+			"--provider", "kimi",
+		},
+		strings.NewReader(`{
+			"hook_event_name": "PreToolUse",
+			"tool_name": "Bash",
+			"tool_input": {"command": "git commit --no-verify -m test"}
+		}`),
+		&stdout,
+		&stderr,
+	)
+	if status != blockedExitCode ||
+		!strings.Contains(stdout.String(), `"decision": "deny"`) ||
+		!strings.Contains(stdout.String(), `"action": "block"`) ||
+		strings.TrimSpace(stderr.String()) != "" {
+		t.Fatalf(
+			"status=%d stdout=%q stderr=%q",
+			status,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+}
+
+func TestRunWithIOSelectsNeutralV1ContractFromEnvironment(t *testing.T) {
+	t.Setenv("CODE_ETHOS_HOOK_CONTRACT", "neutral-v1")
+
+	var (
+		stdout bytes.Buffer
+		stderr bytes.Buffer
+	)
+
+	status := runWithIO(
+		[]string{"--bundle", writeCLITestBundle(t), "--json"},
+		strings.NewReader(`{
+			"provider": "codex",
+			"event": "SessionStart"
+		}`),
+		&stdout,
+		&stderr,
+	)
+	if status != 0 ||
+		!strings.Contains(stdout.String(), `"contract_version": "coding-ethos.hook/v1"`) {
+		t.Fatalf(
+			"status=%d stdout=%q stderr=%q",
+			status,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+}
+
+func TestRunWithIOUsesKimiNativeBlockAndStopSemantics(t *testing.T) {
+	t.Parallel()
+
+	t.Run("policy block exits two with reason", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			stdout bytes.Buffer
+			stderr bytes.Buffer
+		)
+
+		status := runWithIO(
+			[]string{
+				"--bundle", writeCLITestBundle(t),
+				"--json",
+				"--provider", "kimi",
+			},
+			strings.NewReader(`{
+				"hook_event_name": "PreToolUse",
+				"tool_name": "Bash",
+				"tool_input": {"command": "git commit --no-verify -m test"}
+			}`),
+			&stdout,
+			&stderr,
+		)
+		if status != 2 ||
+			!strings.Contains(stdout.String(), `"permissionDecision": "deny"`) ||
+			strings.TrimSpace(stderr.String()) == "" {
+			t.Fatalf(
+				"status=%d stdout=%q stderr=%q",
+				status,
+				stdout.String(),
+				stderr.String(),
+			)
+		}
+	})
+
+	t.Run("Stop guidance continues through structured deny", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			stdout bytes.Buffer
+			stderr bytes.Buffer
+		)
+
+		status := runWithIO(
+			[]string{
+				"--bundle", writeCLITestBundle(t),
+				"--json",
+				"--provider", "kimi",
+			},
+			strings.NewReader(`{"hook_event_name":"Stop"}`),
+			&stdout,
+			&stderr,
+		)
+		if status != 0 ||
+			!strings.Contains(stdout.String(), `"permissionDecision": "deny"`) ||
+			strings.TrimSpace(stderr.String()) != "" {
+			t.Fatalf(
+				"status=%d stdout=%q stderr=%q",
+				status,
+				stdout.String(),
+				stderr.String(),
+			)
+		}
+	})
+}
+
 func TestRunWithIOReturnsErrorsWithoutExiting(t *testing.T) {
 	t.Parallel()
 

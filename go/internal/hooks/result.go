@@ -9,14 +9,28 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-// AgentHookBlockedExitCode is the standalone hook CLI exit code for a denied
-// action when no provider JSON contract is active. Provider hooks communicate
-// denies through their JSON payload and still exit successfully.
-const AgentHookBlockedExitCode = 1
+// AgentHookBlockedExitCode is the historical hook CLI exit code for a denied
+// action. Provider-native adapters may override it when their hook protocol
+// assigns a different blocking status.
+const (
+	AgentHookBlockedExitCode = 1
+	kimiBlockedExitCode      = 2
+)
+
+// AgentHookBlockedExitCodeForProvider returns the provider-native blocking exit
+// status while preserving the historical standalone status for existing hooks.
+func AgentHookBlockedExitCodeForProvider(provider string) int {
+	if provider == providerKimi {
+		return kimiBlockedExitCode
+	}
+
+	return AgentHookBlockedExitCode
+}
 
 type Result struct {
 	HookSpecificOutput *HookSpecificOutput        `json:"hookSpecificOutput,omitempty"`
 	ProxyEvents        []agentproxy.ProviderEvent `json:"-"`
+	CorrelationID      string                     `json:"correlation_id,omitempty"`
 	Event              string                     `json:"event"`
 	Provider           string                     `json:"provider,omitempty"`
 	Status             string                     `json:"status"`

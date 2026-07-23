@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"blackcat.ca/coding-ethos/go/internal/hooks"
 )
 
 const (
@@ -25,7 +27,43 @@ func ProviderCapabilities() []ProviderCapability {
 		claudeProviderCapability(),
 		codexProviderCapability(),
 		geminiProviderCapability(),
+		kimiProviderCapability(),
 		genericProviderCapability(),
+	}
+}
+
+// AgentHooksAPIVersion identifies the capability-discovery response schema.
+const AgentHooksAPIVersion = "coding-ethos.agent-hooks/v1"
+
+// CapabilityReport is the machine-readable agent-hook capability response.
+type CapabilityReport struct {
+	APIVersion           string `json:"api_version"`
+	RuntimeVersion       string `json:"runtime_version"`
+	SettingsRootFlag     string `json:"settings_root_flag"`
+	RepositoryRootFlag   string `json:"repository_root_flag"`
+	MCPCommandFlag       string `json:"mcp_command_flag"`
+	RuntimePolicyCommand string `json:"runtime_policy_command"`
+
+	HookContracts []hooks.HookContractCapability `json:"hook_contracts"`
+	Providers     []ProviderCapability           `json:"providers"`
+
+	SupportsPrivateOverlay bool `json:"supports_private_overlay"`
+}
+
+// Capabilities returns versioned hook contracts and provider adapters.
+func Capabilities(runtimeVersion string) CapabilityReport {
+	return CapabilityReport{
+		APIVersion:     AgentHooksAPIVersion,
+		RuntimeVersion: runtimeVersion,
+		HookContracts: []hooks.HookContractCapability{
+			hooks.HookContractV1Capability(),
+		},
+		Providers:              ProviderCapabilities(),
+		SettingsRootFlag:       "--root",
+		RepositoryRootFlag:     "--repo-root",
+		MCPCommandFlag:         "--mcp-command",
+		RuntimePolicyCommand:   "runtime-policy",
+		SupportsPrivateOverlay: true,
 	}
 }
 
@@ -177,6 +215,80 @@ func geminiProviderCapability() ProviderCapability {
 			"PreCompact capture",
 			"SubagentStart additionalContext",
 			"SubagentStop additionalContext",
+		},
+		VerificationFixture: "TestSyncAndVerifySettingsRunsProviderSmokePayloads",
+	}
+}
+
+func kimiProviderCapability() ProviderCapability {
+	return ProviderCapability{
+		Provider:    string(ProviderKimi),
+		DisplayName: "Kimi Code CLI",
+		Coverage:    "partial",
+		NativeFiles: []string{
+			".kimi-code/config.toml",
+			".kimi-code/mcp.json",
+		},
+		HookEvents: []string{
+			"PreToolUse",
+			"PostToolUse",
+			"PostToolUseFailure",
+			"PermissionRequest",
+			"PermissionResult",
+			"UserPromptSubmit",
+			"Stop",
+			"StopFailure",
+			"Interrupt",
+			"SessionStart",
+			"SessionEnd",
+			"SubagentStart",
+			"SubagentStop",
+			"PreCompact",
+			"PostCompact",
+			"Notification",
+		},
+		SettingsTarget: ".kimi-code/config.toml",
+		BlockResponseShape: "exit 2 with stderr reason or " +
+			"hookSpecificOutput.permissionDecision = deny",
+		ContextAdviceShape: "message for context; Stop deny continues the turn once",
+		MCPSetup: ".kimi-code/mcp.json stdio server in the generated " +
+			"KIMI_CODE_HOME overlay",
+		GeneratedTargets: []string{
+			"AGENTS.md",
+			".agents/skills/*/SKILL.md",
+			".kimi-code/config.toml",
+			".kimi-code/mcp.json",
+		},
+		MemoryInterception: "central memory guidance through portable AGENTS.md",
+		MemoryFallback:     "read and write .coding-ethos/memories/MEMORY.md",
+		Supported: []string{
+			"PreToolUse block",
+			"PostToolUse context",
+			"PostToolUseFailure observation",
+			"PermissionRequest observation",
+			"PermissionResult observation",
+			"UserPromptSubmit block and context",
+			"Stop continuation through deny",
+			"SessionStart context",
+			"SessionEnd observation",
+			"SubagentStart observation",
+			"SubagentStop observation",
+			"PreCompact observation",
+			"PostCompact observation",
+			"Notification observation",
+			"MCP stdio server",
+		},
+		ProviderLimited: []string{
+			"hook command failures other than exit 2 are fail-open in Kimi",
+			"only PreToolUse, UserPromptSubmit, and Stop are blockable by Kimi",
+		},
+		Unsupported: []string{
+			"PreToolUse updatedInput rewrite",
+			"provider-native skill generation",
+		},
+		SafetyCaveats: []string{
+			"launch Kimi with KIMI_CODE_HOME set to the generated .kimi-code overlay",
+			"Kimi hooks are not a substitute for provider permission approval",
 		},
 		VerificationFixture: "TestSyncAndVerifySettingsRunsProviderSmokePayloads",
 	}

@@ -1,0 +1,19 @@
+{
+  "contract_version": "coding-ethos.hook/v1",
+  "correlation_id": "request-allowed-001",
+  "event": {
+    "name": "PreToolUse",
+    "provider": "codex",
+    "tool": "Noop"
+  },
+  "decision": "allow",
+  "effect": {
+    "action": "allow"
+  },
+  "status": "allowed",
+  "advice": {
+    "reminders": {
+      "ambient_frequency_percent": 25
+    }
+  }
+}

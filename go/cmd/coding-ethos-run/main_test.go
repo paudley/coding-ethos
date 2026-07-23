@@ -61,6 +61,18 @@ func TestRunnerArgsPreserveExplicitCommand(t *testing.T) {
 	}
 }
 
+func TestRuntimePolicyRequiresKnownAction(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][]string{nil, {"remove", "--repo", "/repo"}} {
+		err := runRuntimePolicy(runtimePaths{}, args)
+		if err == nil ||
+			!strings.Contains(err.Error(), "runtime-policy requires sync or check") {
+			t.Fatalf("runRuntimePolicy(%#v) error = %v", args, err)
+		}
+	}
+}
+
 func TestDebugRunnerArgsStripInternalFlag(t *testing.T) {
 	t.Parallel()
 
@@ -187,6 +199,43 @@ func TestCodeIntelArgsKeepExplicitRoot(t *testing.T) {
 	want := []string{"stats", "--root", "/other"}
 	if !slices.Equal(args, want) {
 		t.Fatalf("codeIntelArgs() = %#v, want %#v", args, want)
+	}
+}
+
+func TestAgentHooksArgsInjectCapabilityEthosRootWithoutHookCommand(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimePaths{
+		EthosRoot: "/opt/coding-ethos",
+		RunBinary: "/opt/coding-ethos/bin/coding-ethos-run",
+	}
+
+	got := agentHooksArgs(paths, []string{"capabilities", "--json"})
+	want := []string{
+		"capabilities",
+		"--json",
+		"--ethos-root",
+		"/opt/coding-ethos",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("agentHooksArgs() = %#v, want %#v", got, want)
+	}
+}
+
+func TestFlagValueReadsPrivateOverlayRepoRoot(t *testing.T) {
+	t.Parallel()
+
+	args := []string{
+		"sync",
+		"--root",
+		"/private/overlay",
+		"--repo-root=/repo",
+	}
+	if got := rootFlagValue(args, "/fallback"); got != "/private/overlay" {
+		t.Fatalf("rootFlagValue() = %q", got)
+	}
+	if got := flagValue(args, "--repo-root", "/fallback"); got != "/repo" {
+		t.Fatalf("repo-root flagValue() = %q", got)
 	}
 }
 

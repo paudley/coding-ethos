@@ -114,6 +114,43 @@ func runParentLint(paths runtimePaths, rest []string) error {
 	return nil
 }
 
+func runRuntimePolicy(paths runtimePaths, rest []string) error {
+	if len(rest) == 0 || (rest[0] != "sync" && rest[0] != "check") {
+		return apperror.StaticError(
+			"runtime-policy requires sync or check followed by --repo <path>",
+		)
+	}
+
+	action := rest[0]
+
+	options, err := parseParentWorkflowFlags(
+		paths,
+		"runtime-policy "+action,
+		rest[1:],
+	)
+	if err != nil {
+		return err
+	}
+
+	step := runParentStep("policy_bundle", func() error {
+		if action == "sync" {
+			return syncParentPolicyBundle(paths, options)
+		}
+
+		return checkParentPolicyBundle(paths, options)
+	})
+	steps := []parentWorkflowStep{step}
+	printParentWorkflowReport(
+		"runtime-policy "+action,
+		parentStepStatus(steps),
+		options.Repo,
+		steps,
+	)
+	exitForFailedParentSteps(steps)
+
+	return nil
+}
+
 func parseParentWorkflowFlags(
 	paths runtimePaths,
 	command string,

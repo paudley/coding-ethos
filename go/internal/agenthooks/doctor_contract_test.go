@@ -39,6 +39,10 @@ func TestDoctorProbesCoverProviderRewriteContracts(t *testing.T) {
 			t.Fatalf("missing block doctor probe for %s", provider)
 		}
 	}
+
+	if !blockProviders[string(ProviderKimi)] {
+		t.Fatal("missing block doctor probe for Kimi")
+	}
 }
 
 func TestClaudeDoctorRewriteRequiresRedirection(t *testing.T) {

@@ -763,6 +763,11 @@ func runtimeVersion(ethosRoot string) string {
 	return ""
 }
 
+// RuntimeVersion returns the project version declared by pyproject.toml.
+func RuntimeVersion(ethosRoot string) string {
+	return runtimeVersion(ethosRoot)
+}
+
 func runtimeCommit(ethosRoot string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

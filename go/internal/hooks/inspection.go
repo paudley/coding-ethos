@@ -194,9 +194,10 @@ func providerSupportsUpdatedInput(provider string) bool {
 
 func (ctx InspectionContext) allowedResult() Result {
 	return Result{
-		Event:    ctx.Event.HookEventName,
-		Provider: ctx.Provider,
-		Tool:     ctx.Event.ToolName,
-		Status:   statusAllowed,
+		CorrelationID: ctx.Event.CorrelationID,
+		Event:         ctx.Event.HookEventName,
+		Provider:      ctx.Provider,
+		Tool:          ctx.Event.ToolName,
+		Status:        statusAllowed,
 	}
 }

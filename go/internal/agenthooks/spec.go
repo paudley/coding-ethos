@@ -13,6 +13,8 @@ const (
 	ProviderCodex Provider = "codex"
 	// ProviderGemini renders a Gemini-owned coding-ethos hook manifest.
 	ProviderGemini Provider = "gemini"
+	// ProviderKimi renders Kimi Code hooks in an isolated KIMI_CODE_HOME overlay.
+	ProviderKimi Provider = "kimi"
 	// ProviderGeneric identifies portable agent surfaces with no native hooks.
 	ProviderGeneric Provider = "generic"
 )

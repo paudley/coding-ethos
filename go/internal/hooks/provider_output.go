@@ -17,6 +17,7 @@ import (
 type providerHookOutput struct {
 	HookSpecificOutput *HookSpecificOutput    `json:"hookSpecificOutput,omitempty"`
 	Decision           string                 `json:"decision,omitempty"`
+	Message            string                 `json:"message,omitempty"`
 	Reason             string                 `json:"reason,omitempty"`
 	SystemMessage      string                 `json:"systemMessage,omitempty"`
 	TraceID            string                 `json:"traceId,omitempty"`
@@ -58,6 +59,7 @@ func neutralCodexPreToolOutput(result Result) bool {
 func (output providerHookOutput) empty() bool {
 	return output.HookSpecificOutput == nil &&
 		output.Decision == "" &&
+		output.Message == "" &&
 		output.Reason == "" &&
 		output.SystemMessage == "" &&
 		output.TraceID == "" &&
@@ -79,9 +81,31 @@ func providerOutput(result Result) providerHookOutput {
 		return codexAllowedOutput(result)
 	case "gemini":
 		return geminiAllowedOutput(result)
+	case providerKimi:
+		return kimiAllowedOutput(result)
 	default:
 		return claudeAllowedOutput(result)
 	}
+}
+
+func kimiAllowedOutput(result Result) providerHookOutput {
+	output := result.HookSpecificOutput
+	if output.AdditionalContext == "" {
+		return providerHookOutput{}
+	}
+
+	if output.HookEventName == eventStop {
+		return providerHookOutput{
+			Message: output.AdditionalContext,
+			HookSpecificOutput: &HookSpecificOutput{
+				HookEventName:            output.HookEventName,
+				PermissionDecision:       "deny",
+				PermissionDecisionReason: output.AdditionalContext,
+			},
+		}
+	}
+
+	return providerHookOutput{Message: output.AdditionalContext}
 }
 
 func claudeAllowedOutput(result Result) providerHookOutput {
@@ -186,6 +210,20 @@ func providerBlockedOutput(result Result) providerHookOutput {
 		}
 
 		return output
+	case providerKimi:
+		return providerHookOutput{
+			Decision:         "deny",
+			Message:          message,
+			Reason:           message,
+			TraceID:          result.TrackingID,
+			TrackingID:       result.TrackingID,
+			AgentRemediation: remediation,
+			HookSpecificOutput: &HookSpecificOutput{
+				HookEventName:            result.Event,
+				PermissionDecision:       "deny",
+				PermissionDecisionReason: message,
+			},
+		}
 	default:
 		return providerHookOutput{
 			Decision:         "block",

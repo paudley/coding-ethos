@@ -10,12 +10,22 @@ import (
 )
 
 func StateArtifacts(root, hookCommand string) ([]syncstate.Artifact, error) {
+	return StateArtifactsWithMCPCommand(root, hookCommand, "")
+}
+
+// StateArtifactsWithMCPCommand renders hook settings while keeping Coding
+// Ethos MCP ownership independent from an external supervisor hook command.
+func StateArtifactsWithMCPCommand(
+	root string,
+	hookCommand string,
+	mcpCommand string,
+) ([]syncstate.Artifact, error) {
 	settings, err := buildAllSettings(hookCommand)
 	if err != nil {
 		return nil, err
 	}
 
-	serverConfig, err := mcpServerConfig(hookCommand)
+	serverConfig, err := mcpServerConfig(hookCommand, mcpCommand)
 	if err != nil {
 		return nil, err
 	}
@@ -58,9 +68,22 @@ func StateArtifacts(root, hookCommand string) ([]syncstate.Artifact, error) {
 		return nil, err
 	}
 
+	kimiConfig, kimiMCP, err := renderKimiStateArtifacts(paths, settings, serverConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	artifacts, err := syncstate.Artifacts(
 		root,
-		agentHookStateArtifactInputs(paths, claude, claudeMCP, codex, gemini),
+		agentHookStateArtifactInputs(
+			paths,
+			claude,
+			claudeMCP,
+			codex,
+			gemini,
+			kimiConfig,
+			kimiMCP,
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build agent hook state artifacts: %w", err)
@@ -69,12 +92,39 @@ func StateArtifacts(root, hookCommand string) ([]syncstate.Artifact, error) {
 	return artifacts, nil
 }
 
+func renderKimiStateArtifacts(
+	paths SettingsPaths,
+	settings allSettings,
+	serverConfig mcpServer,
+) (string, string, error) {
+	config, err := renderTextSettingsFileContent(
+		paths.KimiConfig,
+		func(content string) string {
+			return ensureKimiConfig(content, settings.Kimi)
+		},
+	)
+	if err != nil {
+		return "", "", err
+	}
+
+	mcp, err := renderSettingsFileContent(paths.KimiMCP, func(payload map[string]any) {
+		syncMCPServers(payload, serverConfig.geminiJSON())
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	return config, mcp, nil
+}
+
 func agentHookStateArtifactInputs(
 	paths SettingsPaths,
 	claude,
 	claudeMCP,
 	codex,
-	gemini string,
+	gemini,
+	kimiConfig,
+	kimiMCP string,
 ) []syncstate.ArtifactInput {
 	const verifyCommand = "bin/coding-ethos-run agent-hooks doctor"
 
@@ -105,6 +155,20 @@ func agentHookStateArtifactInputs(
 			Content:             gemini,
 			Provider:            "agent-hooks",
 			Surface:             "gemini-settings",
+			VerificationCommand: verifyCommand,
+		},
+		{
+			RelativePath:        paths.KimiConfig,
+			Content:             kimiConfig,
+			Provider:            "agent-hooks",
+			Surface:             "kimi-config",
+			VerificationCommand: verifyCommand,
+		},
+		{
+			RelativePath:        paths.KimiMCP,
+			Content:             kimiMCP,
+			Provider:            "agent-hooks",
+			Surface:             "kimi-mcp",
 			VerificationCommand: verifyCommand,
 		},
 	}

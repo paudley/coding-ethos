@@ -14,6 +14,7 @@ const (
 	providerCodex       = "codex"
 	providerCodingEthos = "coding-ethos"
 	providerGemini      = "gemini"
+	providerKimi        = "kimi"
 )
 
 const (
@@ -28,6 +29,8 @@ const (
 type Event struct {
 	ToolInput           map[string]any `json:"tool_input,omitempty"`
 	ToolResponse        map[string]any `json:"tool_response,omitempty"`
+	ContractVersion     string         `json:"contract_version,omitempty"`
+	CorrelationID       string         `json:"correlation_id,omitempty"`
 	ProviderHint        string         `json:"provider,omitempty"`
 	Cwd                 string         `json:"cwd,omitempty"`
 	HookEventName       string         `json:"hook_event_name"`
@@ -45,6 +48,8 @@ func (event Event) Provider() string {
 	switch {
 	case strings.Contains(providerHint, providerCodingEthos):
 		return providerCodingEthos
+	case strings.Contains(providerHint, providerKimi):
+		return providerKimi
 	case strings.Contains(providerHint, providerGemini):
 		return providerGemini
 	case strings.Contains(providerHint, providerCodex):
@@ -57,6 +62,8 @@ func (event Event) Provider() string {
 	switch {
 	case strings.Contains(source, providerCodingEthos):
 		return providerCodingEthos
+	case strings.Contains(source, providerKimi):
+		return providerKimi
 	case strings.Contains(source, providerGemini):
 		return providerGemini
 	case strings.Contains(source, providerCodex):
@@ -76,6 +83,8 @@ func providerFromEnvironment() string {
 		return providerCodex
 	case strings.TrimSpace(os.Getenv("GEMINI_CLI")) != "":
 		return providerGemini
+	case strings.TrimSpace(os.Getenv("KIMI_CODE_HOME")) != "":
+		return providerKimi
 	case strings.TrimSpace(os.Getenv("CLAUDECODE")) != "" ||
 		strings.TrimSpace(os.Getenv("CLAUDE_CODE_ENTRYPOINT")) != "":
 		return providerClaude

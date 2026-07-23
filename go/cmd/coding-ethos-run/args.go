@@ -137,6 +137,19 @@ func withDefaultHookCommand(paths runtimePaths, args []string) []string {
 	return next
 }
 
+func agentHooksArgs(paths runtimePaths, args []string) []string {
+	if len(args) == 0 || args[0] != "capabilities" {
+		return withDefaultHookCommand(paths, args)
+	}
+
+	next := append([]string(nil), args...)
+	if !hasFlag(args, "--ethos-root") {
+		next = append(next, "--ethos-root", paths.EthosRoot)
+	}
+
+	return next
+}
+
 func hasFlag(args []string, name string) bool {
 	for _, arg := range args {
 		if arg == name || strings.HasPrefix(arg, name+"=") {
@@ -148,12 +161,16 @@ func hasFlag(args []string, name string) bool {
 }
 
 func rootFlagValue(args []string, fallback string) string {
+	return flagValue(args, "--root", fallback)
+}
+
+func flagValue(args []string, name, fallback string) string {
 	for index, arg := range args {
-		if arg == "--root" && index+1 < len(args) {
+		if arg == name && index+1 < len(args) {
 			return args[index+1]
 		}
 
-		if value, ok := strings.CutPrefix(arg, "--root="); ok {
+		if value, ok := strings.CutPrefix(arg, name+"="); ok {
 			return value
 		}
 	}
