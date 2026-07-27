@@ -26,6 +26,11 @@ func runWithIO(args []string, stdin io.Reader, stdout io.Writer) error {
 	cerunPath := flags.String("cerun", "", "Path to repo-local cerun wrapper")
 	ethosRoot := flags.String("ethos-root", "", "coding-ethos checkout root")
 	consumerRoot := flags.String("consumer-root", "", "consumer repository root")
+	stateRoot := flags.String(
+		"state-root",
+		"",
+		"private Coding Ethos state root; defaults to consumer root",
+	)
 	invocationCwd := flags.String(
 		"invocation-cwd",
 		"",
@@ -60,6 +65,7 @@ func runWithIO(args []string, stdin io.Reader, stdout io.Writer) error {
 		CerunPath:     *cerunPath,
 		EthosRoot:     *ethosRoot,
 		ConsumerRoot:  *consumerRoot,
+		StateRoot:     *stateRoot,
 		InvocationCwd: *invocationCwd,
 	}).Serve(stdin, stdout)
 	if err != nil {

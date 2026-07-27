@@ -20,17 +20,63 @@ func StateArtifactsWithMCPCommand(
 	hookCommand string,
 	mcpCommand string,
 ) ([]syncstate.Artifact, error) {
+	return StateArtifactsForRootsWithMCPCommand(
+		root,
+		root,
+		root,
+		hookCommand,
+		mcpCommand,
+	)
+}
+
+// StateArtifactsForRootsWithMCPCommand renders settings that keep generated
+// provider configuration, repository inspection, and durable state separate.
+func StateArtifactsForRootsWithMCPCommand(
+	settingsRoot string,
+	repoRoot string,
+	stateRoot string,
+	hookCommand string,
+	mcpCommand string,
+) ([]syncstate.Artifact, error) {
 	settings, err := buildAllSettings(hookCommand)
 	if err != nil {
 		return nil, err
 	}
 
-	serverConfig, err := mcpServerConfig(hookCommand, mcpCommand)
+	serverConfig, err := mcpServerConfigForRoots(
+		hookCommand,
+		mcpCommand,
+		settingsRoot,
+		repoRoot,
+		stateRoot,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	paths := DefaultSettingsPaths(root)
+	inputs, err := renderProviderStateArtifactInputs(
+		settingsRoot,
+		settings,
+		serverConfig,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	artifacts, err := syncstate.Artifacts(settingsRoot, inputs)
+	if err != nil {
+		return nil, fmt.Errorf("build agent hook state artifacts: %w", err)
+	}
+
+	return artifacts, nil
+}
+
+func renderProviderStateArtifactInputs(
+	settingsRoot string,
+	settings allSettings,
+	serverConfig mcpServer,
+) ([]syncstate.ArtifactInput, error) {
+	paths := DefaultSettingsPaths(settingsRoot)
 
 	claude, err := renderSettingsFileContent(paths.Claude, func(payload map[string]any) {
 		payload["hooks"] = settings.Claude.Hooks
@@ -73,23 +119,15 @@ func StateArtifactsWithMCPCommand(
 		return nil, err
 	}
 
-	artifacts, err := syncstate.Artifacts(
-		root,
-		agentHookStateArtifactInputs(
-			paths,
-			claude,
-			claudeMCP,
-			codex,
-			gemini,
-			kimiConfig,
-			kimiMCP,
-		),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("build agent hook state artifacts: %w", err)
-	}
-
-	return artifacts, nil
+	return agentHookStateArtifactInputs(
+		paths,
+		claude,
+		claudeMCP,
+		codex,
+		gemini,
+		kimiConfig,
+		kimiMCP,
+	), nil
 }
 
 func renderKimiStateArtifacts(

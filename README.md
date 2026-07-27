@@ -491,6 +491,18 @@ session events, remediation records, hook review labels, LCOV coverage, health
 snapshots, architectural decisions, and vector metadata.
 They are not replacements for hooks or CEL policy evaluation.
 
+The top-level runner can keep that analytical state outside the indexed
+checkout while still reading source and repo configuration from it:
+
+```bash
+bin/coding-ethos-run code-intel repo-map \
+  --root /path/to/repo \
+  --state-root /private/coding-ethos-state
+```
+
+When `--state-root` is present and `--db` is omitted, the runner uses
+`/private/coding-ethos-state/.coding-ethos/code-intel.duckdb`.
+
 ## Modern Web Guidance
 
 Modern Web Guidance is exposed as an advisory, latest-on-demand external
@@ -1575,9 +1587,10 @@ MCP setup, generated targets, memory behavior, response shapes, and unsupported
 surfaces are generated from the registry into
 [Provider Capability Matrix](docs/PROVIDER_CAPABILITY_MATRIX.md).
 
-Supervisors can keep provider settings outside the target checkout. In overlay
-mode, `--root` is the private settings/state root and `--repo-root` is the
-actual repository used as the hook probe working directory:
+Supervisors can keep provider settings and durable runtime state outside the
+target checkout. In overlay mode, `--root` is the private provider-settings
+root, `--repo-root` is the actual source repository, and `--state-root` is the
+private Coding Ethos state root:
 
 ```bash
 bin/coding-ethos-run agent-hooks sync \
@@ -1588,8 +1601,14 @@ bin/coding-ethos-run agent-hooks verify \
   --repo-root /path/to/repo
 ```
 
-Omitting `--repo-root` preserves the repo-local behavior. Capability discovery
-reports both flags and `supports_private_overlay: true`.
+Generated provider settings and install metadata live under `--root`. Hook
+probes and code indexing read `--repo-root`. Centralized memories,
+code-intelligence databases, runtime-policy artifacts, and hook traces live
+under `--state-root`. Add `--state-root /private/coding-ethos-state` to both
+commands to split that durable state from the settings overlay. The state root
+defaults to the settings root; omitting all three flags preserves repo-local
+behavior. Capability discovery reports all three flags and
+`supports_private_overlay: true`.
 
 An external supervisor can own provider hook execution while Coding Ethos keeps
 ownership of MCP and code intelligence. Pass the same split commands to
@@ -1599,11 +1618,13 @@ ownership of MCP and code intelligence. Pass the same split commands to
 bin/coding-ethos-run agent-hooks sync \
   --root /private/settings-overlay \
   --repo-root /path/to/repo \
+  --state-root /private/coding-ethos-state \
   --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
   --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
 bin/coding-ethos-run agent-hooks verify \
   --root /private/settings-overlay \
   --repo-root /path/to/repo \
+  --state-root /private/coding-ethos-state \
   --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
   --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
 ```
@@ -1616,6 +1637,19 @@ external executables are rejected. An explicit `--mcp-command` must be exactly
 an absolute `coding-ethos-run mcp` command. When `--mcp-command` is omitted,
 the current MCP command is still derived from `--hook-command`; this preserves
 existing repo-local behavior.
+
+For split roots, the generated MCP configuration keeps that statically
+validated base command and appends `--repo-root` plus `--state-root`. Prepare
+and verify its compiled consumer policy in the same private state root:
+
+```bash
+bin/coding-ethos-run runtime-policy sync \
+  --repo /path/to/repo \
+  --state-root /private/coding-ethos-state
+bin/coding-ethos-run runtime-policy check \
+  --repo /path/to/repo \
+  --state-root /private/coding-ethos-state
+```
 
 Codex runs one native command hook per supported event so current Codex
 sessions enter the same policy runtime without depending on unstable tool
@@ -1643,11 +1677,13 @@ settings without rewriting parent root agent docs.
 
 Agent memory uses the same centralization model. `agent-hooks sync` creates and
 verifies `.coding-ethos/memories/MEMORY.md` plus
-`.coding-ethos/memories/index.yaml`, imports existing Claude/Codex/Gemini
-memory files idempotently, and keeps provider memory paths routed to the central
-repo-local surface. Providers that cannot rewrite a memory file tool request get
-a `memory.centralized` denial that points at the allowed memory path instead of
-silently writing durable notes into provider-private state.
+`.coding-ethos/memories/index.yaml` under the selected state root, imports
+existing Claude, Codex, and Gemini memory files from the source repository
+idempotently, and keeps provider memory paths routed to the central surface.
+Without a split state root this remains repo-local. Providers that cannot
+rewrite a memory file tool request get a `memory.centralized` denial that points
+at the allowed memory path instead of silently writing durable notes into
+provider-private state.
 
 `agent-hooks verify` runs doctor first, then safely invokes the configured hook
 command—including an external supervisor wrapper—with provider-native Claude,
@@ -1726,7 +1762,11 @@ once.
 Supervisors select the stable provider-neutral contract explicitly:
 
 ```bash
-bin/coding-ethos-run agent-hook --json --contract neutral-v1 < event.json
+bin/coding-ethos-run agent-hook \
+  --json \
+  --contract neutral-v1 \
+  --repo-root /path/to/repo \
+  --state-root /private/coding-ethos-state < event.json
 ```
 
 The v1 response includes `contract_version`, `correlation_id`, a normalized

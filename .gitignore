@@ -99,6 +99,7 @@ sandbox-tmp/
 .gemini/extensions/*
 !.gemini/extensions/coding-ethos/
 !.gemini/extensions/coding-ethos/**
+.kimi-code/
 logs/
 *.log
 *.tmp

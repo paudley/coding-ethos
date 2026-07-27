@@ -183,7 +183,11 @@ func TestPolicyToolLintArgsDoNotExposeSandboxMode(t *testing.T) {
 func TestCodeIntelArgsInsertRootAfterSubcommand(t *testing.T) {
 	t.Parallel()
 
-	args := codeIntelArgs("/repo", []string{"stats", "--db", "/tmp/code-intel.duckdb"})
+	args := codeIntelArgs(
+		"/repo",
+		"/repo",
+		[]string{"stats", "--db", "/tmp/code-intel.duckdb"},
+	)
 
 	want := []string{"stats", "--root", "/repo", "--db", "/tmp/code-intel.duckdb"}
 	if !slices.Equal(args, want) {
@@ -194,9 +198,31 @@ func TestCodeIntelArgsInsertRootAfterSubcommand(t *testing.T) {
 func TestCodeIntelArgsKeepExplicitRoot(t *testing.T) {
 	t.Parallel()
 
-	args := codeIntelArgs("/repo", []string{"stats", "--root", "/other"})
+	args := codeIntelArgs("/repo", "/repo", []string{"stats", "--root", "/other"})
 
 	want := []string{"stats", "--root", "/other"}
+	if !slices.Equal(args, want) {
+		t.Fatalf("codeIntelArgs() = %#v, want %#v", args, want)
+	}
+}
+
+func TestCodeIntelArgsBindPrivateStateDatabase(t *testing.T) {
+	t.Parallel()
+
+	args := codeIntelArgs(
+		"/repo",
+		"/private/state",
+		[]string{"index-code", "--state-root", "/private/state", "."},
+	)
+
+	want := []string{
+		"index-code",
+		"--root",
+		"/repo",
+		"--db",
+		"/private/state/.coding-ethos/code-intel.duckdb",
+		".",
+	}
 	if !slices.Equal(args, want) {
 		t.Fatalf("codeIntelArgs() = %#v, want %#v", args, want)
 	}
@@ -236,6 +262,103 @@ func TestFlagValueReadsPrivateOverlayRepoRoot(t *testing.T) {
 	}
 	if got := flagValue(args, "--repo-root", "/fallback"); got != "/repo" {
 		t.Fatalf("repo-root flagValue() = %q", got)
+	}
+}
+
+func TestWithCommandRootsSeparatesRepositoryAndState(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimePaths{Root: "/original", StateRoot: "/original"}
+	got := paths.withCommandRoots([]string{
+		"mcp",
+		"--repo-root",
+		"/repo",
+		"--state-root=/private/state",
+	})
+
+	if got.Root != "/repo" || got.StateRoot != "/private/state" {
+		t.Fatalf("withCommandRoots() = %#v", got)
+	}
+}
+
+func TestWithCommandRootsUsesCommandSpecificRepositoryFlags(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "agent hooks",
+			args: []string{
+				"agent-hooks",
+				"sync",
+				"--repo-root",
+				"/repo",
+				"--state-root",
+				"/private/state",
+			},
+		},
+		{
+			name: "code intel",
+			args: []string{
+				"code-intel",
+				"index",
+				"--root",
+				"/repo",
+				"--state-root",
+				"/private/state",
+			},
+		},
+		{
+			name: "runtime policy",
+			args: []string{
+				"runtime-policy",
+				"sync",
+				"--repo",
+				"/repo",
+				"--state-root",
+				"/private/state",
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			paths := runtimePaths{Root: "/original", StateRoot: "/original"}
+			got := paths.withCommandRoots(testCase.args)
+			if got.Root != "/repo" || got.StateRoot != "/private/state" {
+				t.Fatalf("withCommandRoots() = %#v", got)
+			}
+		})
+	}
+}
+
+func TestCapabilitiesDiscoveryDoesNotWriteRuntimeLog(t *testing.T) {
+	t.Parallel()
+
+	if shouldLogRuntimeCommand([]string{"agent-hooks", "capabilities", "--json"}) {
+		t.Fatal("capabilities discovery should be read-only")
+	}
+	if !shouldLogRuntimeCommand([]string{"agent-hooks", "doctor"}) {
+		t.Fatal("doctor should retain runtime logging")
+	}
+}
+
+func TestAgentHooksStateDefaultsToPrivateSettingsRoot(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimePaths{Root: "/original", StateRoot: "/original"}
+	got := paths.withCommandRoots([]string{
+		"agent-hooks",
+		"sync",
+		"--root",
+		"/private/settings",
+		"--repo-root",
+		"/repo",
+	})
+	if got.Root != "/repo" || got.StateRoot != "/private/settings" {
+		t.Fatalf("withCommandRoots() = %#v", got)
 	}
 }
 
@@ -414,6 +537,22 @@ func TestParentLintArgsUseParentRepoAndTOONScope(t *testing.T) {
 		if !slices.Contains(args, want) {
 			t.Fatalf("parentLintArgs() missing %q: %#v", want, args)
 		}
+	}
+}
+
+func TestRuntimePolicyBundleUsesPrivateStateRoot(t *testing.T) {
+	t.Parallel()
+
+	got := parentPolicyBundleDir(
+		runtimePaths{},
+		parentWorkflowOptions{
+			Repo:      "/repo",
+			StateRoot: "/private/state",
+		},
+	)
+	want := "/private/state/.coding-ethos/policy"
+	if got != want {
+		t.Fatalf("parentPolicyBundleDir() = %q, want %q", got, want)
 	}
 }
 

@@ -4,6 +4,7 @@
 package memories_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,6 +141,54 @@ func TestImportExistingIsIdempotent(t *testing.T) {
 	}
 	if strings.Contains(string(indexData), root) || strings.Contains(string(data), root) {
 		t.Fatalf("memory import leaked absolute root:\nindex=%s\nmemory=%s", indexData, data)
+	}
+}
+
+func TestImportExistingForRootsKeepsDurableStateOutOfSourceRoot(t *testing.T) {
+	t.Parallel()
+
+	sourceRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	source := filepath.Join(
+		sourceRoot,
+		".claude",
+		"projects",
+		"repo",
+		"memory",
+		"project.md",
+	)
+	if err := os.MkdirAll(filepath.Dir(source), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(source, []byte("private state memory\n"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	report, err := memories.ImportExistingForRoots(sourceRoot, stateRoot)
+	if err != nil {
+		t.Fatalf("ImportExistingForRoots: %v", err)
+	}
+	if report.Root != stateRoot || len(report.Records) != 1 {
+		t.Fatalf("report = %#v", report)
+	}
+	if err := memories.VerifyForRoots(sourceRoot, stateRoot); err != nil {
+		t.Fatalf("VerifyForRoots: %v", err)
+	}
+
+	data, err := os.ReadFile(
+		filepath.Join(stateRoot, ".coding-ethos", "memories", "MEMORY.md"),
+	)
+	if err != nil {
+		t.Fatalf("read private central memory: %v", err)
+	}
+	if !strings.Contains(string(data), "private state memory") {
+		t.Fatalf("private central memory lost imported content:\n%s", data)
+	}
+	if _, err := os.Stat(filepath.Join(sourceRoot, ".coding-ethos")); !errors.Is(
+		err,
+		os.ErrNotExist,
+	) {
+		t.Fatalf("source root gained durable state: %v", err)
 	}
 }
 

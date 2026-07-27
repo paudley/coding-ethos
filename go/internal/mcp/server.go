@@ -58,6 +58,7 @@ type Runtime struct {
 	CerunPath     string
 	EthosRoot     string
 	ConsumerRoot  string
+	StateRoot     string
 	InvocationCwd string
 }
 

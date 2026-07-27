@@ -32,13 +32,24 @@ func runnerArgs(argv []string) []string {
 	}
 }
 
-func codeIntelArgs(root string, args []string) []string {
-	if len(args) == 0 || hasFlag(args, "--root") {
+func codeIntelArgs(root, stateRoot string, args []string) []string {
+	args = withoutFlags(args, "--state-root")
+	if len(args) == 0 {
 		return args
 	}
 
-	next := make([]string, 0, injectedRootArgCount+len(args))
-	next = append(next, args[0], "--root", root)
+	next := []string{args[0]}
+	if !hasFlag(args, "--root") {
+		next = append(next, "--root", root)
+	}
+
+	if !hasFlag(args, "--db") && !sameCleanPath(root, stateRoot) {
+		next = append(
+			next,
+			"--db",
+			filepath.Join(stateRoot, ".coding-ethos", "code-intel.duckdb"),
+		)
+	}
 	next = append(next, args[1:]...)
 
 	return next
@@ -176,4 +187,87 @@ func flagValue(args []string, name, fallback string) string {
 	}
 
 	return fallback
+}
+
+func withoutFlags(args []string, names ...string) []string {
+	filtered := make([]string, 0, len(args))
+
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		removed := false
+
+		for _, name := range names {
+			if arg == name {
+				index++
+				removed = true
+
+				break
+			}
+
+			if strings.HasPrefix(arg, name+"=") {
+				removed = true
+
+				break
+			}
+		}
+
+		if !removed {
+			filtered = append(filtered, arg)
+		}
+	}
+
+	return filtered
+}
+
+func (paths runtimePaths) withCommandRoots(args []string) runtimePaths {
+	if len(args) == 0 {
+		return paths
+	}
+
+	var (
+		defaultStateRoot = paths.StateRoot
+		repoRoot         string
+	)
+
+	switch args[0] {
+	case "agent-hook", "mcp":
+		repoRoot = flagValue(args[1:], "--repo-root", paths.Root)
+	case "agent-hooks":
+		repoRoot = flagValue(args[1:], "--repo-root", paths.Root)
+		defaultStateRoot = flagValue(args[1:], "--root", paths.StateRoot)
+	case "code-intel":
+		repoRoot = flagValue(args[1:], "--root", paths.Root)
+	case "runtime-policy":
+		repoRoot = flagValue(args[1:], "--repo", paths.Root)
+	default:
+		return paths
+	}
+
+	rest := args[1:]
+
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot != "" {
+		paths.Root = filepath.Clean(repoRoot)
+	}
+
+	stateRoot := strings.TrimSpace(flagValue(rest, "--state-root", defaultStateRoot))
+	if stateRoot != "" {
+		paths.StateRoot = filepath.Clean(stateRoot)
+	}
+
+	return paths
+}
+
+func shouldLogRuntimeCommand(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+
+	if args[0] == "cutover" || args[0] == "lfs-hook" {
+		return false
+	}
+
+	return len(args) < 2 ||
+		args[0] != "agent-hooks" ||
+		args[1] != "capabilities"
 }

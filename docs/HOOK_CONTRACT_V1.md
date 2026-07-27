@@ -17,6 +17,17 @@ The equivalent validated environment setting is
 `CODE_ETHOS_HOOK_CONTRACT=neutral-v1`. An unknown selector fails before policy
 evaluation.
 
+Supervisors with external state pass the consumer and state roots through the
+same process boundary:
+
+```bash
+bin/coding-ethos-run agent-hook \
+  --json \
+  --contract neutral-v1 \
+  --repo-root /path/to/repo \
+  --state-root /private/coding-ethos-state < event.json
+```
+
 ## Request
 
 The request is the existing normalized hook event object. These two fields are
@@ -105,8 +116,9 @@ bin/coding-ethos-run agent-hooks capabilities --json
 The response schema is `coding-ethos.agent-hooks/v1`. `runtime_version` comes
 from the checkout's `pyproject.toml`. The command is read-only and does not
 require a policy bundle or code-intelligence store. The report advertises
-`mcp_command_flag: "--mcp-command"` alongside the settings and repository root
-flags.
+`mcp_command_flag: "--mcp-command"` and
+`runtime_policy_command: "runtime-policy"` alongside the settings, repository,
+and state root flags.
 
 ## Kimi Native Semantics
 
@@ -124,31 +136,43 @@ For a settings overlay separate from the repository:
 ```bash
 bin/coding-ethos-run agent-hooks sync \
   --root /private/settings-overlay \
-  --repo-root /path/to/repo
+  --repo-root /path/to/repo \
+  --state-root /private/coding-ethos-state
 bin/coding-ethos-run agent-hooks verify \
   --root /private/settings-overlay \
-  --repo-root /path/to/repo
+  --repo-root /path/to/repo \
+  --state-root /private/coding-ethos-state
 ```
 
-Provider settings and install state are written under the first path. Skill
-checks and runnable hook probes use the second path.
+`--root` owns generated provider settings and install metadata.
+`--repo-root` is the source checkout used for skill checks, hook probes, and
+code-intelligence indexing. `--state-root` owns centralized memories,
+code-intelligence databases, runtime-policy artifacts, and hook traces.
+`--state-root` defaults to `--root`; omitting all three flags preserves the
+existing repository-local behavior.
 
 When a provider-neutral supervisor owns hook execution, keep Coding Ethos as
 the MCP and code-intelligence owner with separate commands:
 
 ```bash
-bin/coding-ethos-run runtime-policy sync --repo /path/to/repo
+bin/coding-ethos-run runtime-policy sync \
+  --repo /path/to/repo \
+  --state-root /private/coding-ethos-state
 bin/coding-ethos-run agent-hooks sync \
   --root /private/settings-overlay \
   --repo-root /path/to/repo \
+  --state-root /private/coding-ethos-state \
   --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
   --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
 bin/coding-ethos-run agent-hooks verify \
   --root /private/settings-overlay \
   --repo-root /path/to/repo \
+  --state-root /private/coding-ethos-state \
   --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
   --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
-bin/coding-ethos-run runtime-policy check --repo /path/to/repo
+bin/coding-ethos-run runtime-policy check \
+  --repo /path/to/repo \
+  --state-root /private/coding-ethos-state
 ```
 
 Pass both flags unchanged to `doctor` as well. The external hook form is one
@@ -160,6 +184,8 @@ absolute `coding-ethos-run mcp`; omitting it preserves the existing derivation
 from `coding-ethos-run agent-hook`. Verification sends all provider-native
 smoke payloads through the external supervisor command, while generated
 Claude, Codex, Gemini, and Kimi MCP entries continue to invoke Coding Ethos
-directly. `runtime-policy sync/check` owns only the consumer-scoped compiled
-bundle below Git metadata; it does not generate or rewrite tracked repository
-configuration.
+directly. For split roots, generated MCP entries append the validated
+`--repo-root` and `--state-root` arguments to that exact base command.
+`runtime-policy sync/check` owns only the consumer-scoped compiled bundle under
+the state root (or below Git metadata when no state root is supplied); it does
+not generate or rewrite tracked repository configuration.

@@ -41,6 +41,7 @@ type CapabilityReport struct {
 	RuntimeVersion       string `json:"runtime_version"`
 	SettingsRootFlag     string `json:"settings_root_flag"`
 	RepositoryRootFlag   string `json:"repository_root_flag"`
+	StateRootFlag        string `json:"state_root_flag"`
 	MCPCommandFlag       string `json:"mcp_command_flag"`
 	RuntimePolicyCommand string `json:"runtime_policy_command"`
 
@@ -61,6 +62,7 @@ func Capabilities(runtimeVersion string) CapabilityReport {
 		Providers:              ProviderCapabilities(),
 		SettingsRootFlag:       "--root",
 		RepositoryRootFlag:     "--repo-root",
+		StateRootFlag:          "--state-root",
 		MCPCommandFlag:         "--mcp-command",
 		RuntimePolicyCommand:   "runtime-policy",
 		SupportsPrivateOverlay: true,

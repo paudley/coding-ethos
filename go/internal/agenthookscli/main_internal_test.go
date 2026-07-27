@@ -94,6 +94,7 @@ func TestCapabilitiesReportsRuntimeContractAndKimi(t *testing.T) {
 		`"runtime_version": "7.8.9"`,
 		`"contract_version": "coding-ethos.hook/v1"`,
 		`"selector": "neutral-v1"`,
+		`"state_root_flag": "--state-root"`,
 		`"mcp_command_flag": "--mcp-command"`,
 		`"runtime_policy_command": "runtime-policy"`,
 		`"provider": "kimi"`,
@@ -257,6 +258,7 @@ func TestSyncAndDoctorSettingsAcceptPrivateOverlayRepoRoot(t *testing.T) {
 func TestSyncAndDoctorSettingsAcceptExternalHookAndMCPCommands(t *testing.T) {
 	settingsRoot := t.TempDir()
 	repoRoot := t.TempDir()
+	stateRoot := t.TempDir()
 	t.Setenv("CODEX_HOME", filepath.Join(t.TempDir(), "must-remain-absent"))
 
 	hookCommand := "env NYAR_HOME=/private/nyar " +
@@ -266,6 +268,7 @@ func TestSyncAndDoctorSettingsAcceptExternalHookAndMCPCommands(t *testing.T) {
 	err := syncSettings([]string{
 		"--root", settingsRoot,
 		"--repo-root", repoRoot,
+		"--state-root", stateRoot,
 		"--hook-command", hookCommand,
 		"--mcp-command", mcpCommand,
 	})
@@ -276,6 +279,7 @@ func TestSyncAndDoctorSettingsAcceptExternalHookAndMCPCommands(t *testing.T) {
 	err = doctorSettings([]string{
 		"--root", settingsRoot,
 		"--repo-root", repoRoot,
+		"--state-root", stateRoot,
 		"--hook-command", hookCommand,
 		"--mcp-command", mcpCommand,
 	})
@@ -294,6 +298,12 @@ func TestSyncAndDoctorSettingsAcceptExternalHookAndMCPCommands(t *testing.T) {
 		{path: paths.ClaudeMCP, text: "/opt/coding-ethos/bin/coding-ethos-run"},
 		{path: paths.CodexConfig, text: "/opt/coding-ethos/bin/coding-ethos-run"},
 		{path: paths.KimiMCP, text: "/opt/coding-ethos/bin/coding-ethos-run"},
+		{path: paths.ClaudeMCP, text: repoRoot},
+		{path: paths.ClaudeMCP, text: stateRoot},
+		{path: paths.CodexConfig, text: repoRoot},
+		{path: paths.CodexConfig, text: stateRoot},
+		{path: paths.KimiMCP, text: repoRoot},
+		{path: paths.KimiMCP, text: stateRoot},
 	} {
 		payload, readErr := os.ReadFile(expectation.path)
 		if readErr != nil {
@@ -302,6 +312,17 @@ func TestSyncAndDoctorSettingsAcceptExternalHookAndMCPCommands(t *testing.T) {
 		if !strings.Contains(string(payload), expectation.text) {
 			t.Fatalf("%s missing %q:\n%s", expectation.path, expectation.text, payload)
 		}
+	}
+
+	if _, statErr := os.Stat(
+		filepath.Join(stateRoot, ".coding-ethos", "memories", "MEMORY.md"),
+	); statErr != nil {
+		t.Fatalf("private state root lacks centralized memory: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(repoRoot, ".coding-ethos")); !os.IsNotExist(
+		statErr,
+	) {
+		t.Fatalf("repository root gained durable supervisor state: %v", statErr)
 	}
 }
 

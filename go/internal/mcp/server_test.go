@@ -2550,6 +2550,52 @@ func TestServerIndexesAndReturnsCodeChunks(t *testing.T) {
 	}
 }
 
+func TestServerIndexesRepositoryIntoPrivateStateRoot(t *testing.T) {
+	t.Parallel()
+	acquireCodeIntelMCPTestSlot(t)
+
+	repoRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	sourcePath := filepath.Join(repoRoot, "pkg", "app.py")
+
+	err := os.MkdirAll(filepath.Dir(sourcePath), 0o700)
+	if err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+
+	err = os.WriteFile(
+		sourcePath,
+		[]byte("def private_index():\n    return True\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	output := runServerWithRuntime(t, compactJSON(t, `{
+		"jsonrpc":"2.0",
+		"id":47,
+		"method":"tools/call",
+		"params":{
+			"name":"code_intel_index_code",
+			"arguments":{"paths":["pkg/app.py"]}
+		}
+	}`), mcp.Runtime{
+		ConsumerRoot: repoRoot,
+		StateRoot:    stateRoot,
+	})
+	if !strings.Contains(output, `"files_indexed":1`) {
+		t.Fatalf("private-state index output missing summary:\n%s", output)
+	}
+
+	if _, statErr := os.Stat(codeintel.DefaultDBPath(stateRoot)); statErr != nil {
+		t.Fatalf("private state database missing: %v", statErr)
+	}
+	if _, statErr := os.Stat(codeintel.DefaultDBPath(repoRoot)); !os.IsNotExist(statErr) {
+		t.Fatalf("repository-local state database exists: %v", statErr)
+	}
+}
+
 func TestServerChecksCodeSimilarity(t *testing.T) {
 	t.Parallel()
 	acquireCodeIntelMCPTestSlot(t)

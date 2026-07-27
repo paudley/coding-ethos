@@ -137,6 +137,11 @@ func syncSettings(args []string) error {
 		"",
 		"Actual repository root when --root is a private settings overlay",
 	)
+	stateRoot := flags.String(
+		"state-root",
+		"",
+		"Private Coding Ethos state root; defaults to --root",
+	)
 	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
 	mcpCommand := flags.String(
@@ -158,9 +163,12 @@ func syncSettings(args []string) error {
 
 	resolvedHookCommand := defaultHookCommand(*hookCommand)
 	resolvedRepoRoot := defaultRepoRoot(*root, *repoRoot)
+	resolvedStateRoot := defaultStateRoot(*root, *stateRoot)
 
-	artifacts, err := agenthooks.StateArtifactsWithMCPCommand(
+	artifacts, err := agenthooks.StateArtifactsForRootsWithMCPCommand(
 		*root,
+		resolvedRepoRoot,
+		resolvedStateRoot,
 		resolvedHookCommand,
 		*mcpCommand,
 	)
@@ -175,9 +183,10 @@ func syncSettings(args []string) error {
 		)
 	}
 
-	err = agenthooks.SyncSettingsForRepositoryWithMCPCommand(
+	err = agenthooks.SyncSettingsForRootsWithMCPCommand(
 		*root,
 		resolvedRepoRoot,
+		resolvedStateRoot,
 		resolvedHookCommand,
 		*mcpCommand,
 	)
@@ -195,8 +204,10 @@ func syncSettings(args []string) error {
 	}
 
 	if privateSettingsOverlay(*root, resolvedRepoRoot) {
-		artifacts, err = agenthooks.StateArtifactsWithMCPCommand(
+		artifacts, err = agenthooks.StateArtifactsForRootsWithMCPCommand(
 			*root,
+			resolvedRepoRoot,
+			resolvedStateRoot,
 			resolvedHookCommand,
 			*mcpCommand,
 		)
@@ -246,6 +257,11 @@ func doctorSettings(args []string) error {
 		"",
 		"Actual repository root when --root is a private settings overlay",
 	)
+	stateRoot := flags.String(
+		"state-root",
+		"",
+		"Private Coding Ethos state root; defaults to --root",
+	)
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
 	mcpCommand := flags.String(
 		"mcp-command",
@@ -258,9 +274,10 @@ func doctorSettings(args []string) error {
 		return fmt.Errorf("parse doctor flags: %w", err)
 	}
 
-	err = agenthooks.DoctorSettingsForRepositoryWithMCPCommand(
+	err = agenthooks.DoctorSettingsForRootsWithMCPCommand(
 		*root,
 		defaultRepoRoot(*root, *repoRoot),
+		defaultStateRoot(*root, *stateRoot),
 		defaultHookCommand(*hookCommand),
 		*mcpCommand,
 	)
@@ -295,6 +312,11 @@ func verifySettings(args []string) error {
 		"",
 		"Actual repository root when --root is a private settings overlay",
 	)
+	stateRoot := flags.String(
+		"state-root",
+		"",
+		"Private Coding Ethos state root; defaults to --root",
+	)
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
 	mcpCommand := flags.String(
 		"mcp-command",
@@ -307,9 +329,10 @@ func verifySettings(args []string) error {
 		return fmt.Errorf("parse verify flags: %w", err)
 	}
 
-	report, err := agenthooks.VerifySettingsForRepositoryWithMCPCommand(
+	report, err := agenthooks.VerifySettingsForRootsWithMCPCommand(
 		*root,
 		defaultRepoRoot(*root, *repoRoot),
+		defaultStateRoot(*root, *stateRoot),
 		defaultHookCommand(*hookCommand),
 		*mcpCommand,
 	)
@@ -425,6 +448,14 @@ func defaultRepoRoot(settingsRoot, repoRoot string) string {
 	return settingsRoot
 }
 
+func defaultStateRoot(settingsRoot, stateRoot string) string {
+	if strings.TrimSpace(stateRoot) != "" {
+		return stateRoot
+	}
+
+	return settingsRoot
+}
+
 func privateSettingsOverlay(settingsRoot, repoRoot string) bool {
 	var (
 		settingsPath, settingsErr = filepath.Abs(settingsRoot)
@@ -472,7 +503,8 @@ func usageTo(writer io.Writer) {
 	const text = "Usage: coding-ethos-agent-hooks " +
 		"<print|sync|doctor|verify|capabilities|" +
 		"sync-provider-matrix|check-provider-matrix> " +
-		"[flags]; sync supports --dry-run --format json|toon"
+		"[flags]; sync supports --repo-root, --state-root, --dry-run, " +
+		"and --format json|toon"
 
 	feedback.Emit(
 		writer,

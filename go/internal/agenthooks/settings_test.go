@@ -896,12 +896,14 @@ func TestSyncAndVerifySettingsUsesExternalSupervisorHookAndCodingEthosMCP(
 
 	settingsRoot := t.TempDir()
 	repoRoot := t.TempDir()
+	stateRoot := t.TempDir()
 	hookCommand, mcpCommand, mcpRunner := fakeExternalSupervisorCommands(t)
 	writeGeneratedSkillSurfaces(t, repoRoot, "conditional-imports")
 
-	err := agenthooks.SyncSettingsForRepositoryWithMCPCommand(
+	err := agenthooks.SyncSettingsForRootsWithMCPCommand(
 		settingsRoot,
 		repoRoot,
+		stateRoot,
 		hookCommand,
 		mcpCommand,
 	)
@@ -909,9 +911,10 @@ func TestSyncAndVerifySettingsUsesExternalSupervisorHookAndCodingEthosMCP(
 		t.Fatalf("sync external supervisor overlay: %v", err)
 	}
 
-	report, err := agenthooks.VerifySettingsForRepositoryWithMCPCommand(
+	report, err := agenthooks.VerifySettingsForRootsWithMCPCommand(
 		settingsRoot,
 		repoRoot,
+		stateRoot,
 		hookCommand,
 		mcpCommand,
 	)
@@ -943,6 +946,12 @@ func TestSyncAndVerifySettingsUsesExternalSupervisorHookAndCodingEthosMCP(
 		{path: paths.ClaudeMCP, text: mcpRunner},
 		{path: paths.CodexConfig, text: mcpRunner},
 		{path: paths.KimiMCP, text: mcpRunner},
+		{path: paths.ClaudeMCP, text: repoRoot},
+		{path: paths.ClaudeMCP, text: stateRoot},
+		{path: paths.CodexConfig, text: repoRoot},
+		{path: paths.CodexConfig, text: stateRoot},
+		{path: paths.KimiMCP, text: repoRoot},
+		{path: paths.KimiMCP, text: stateRoot},
 	} {
 		payload, readErr := os.ReadFile(expectation.path)
 		if readErr != nil {
@@ -956,6 +965,18 @@ func TestSyncAndVerifySettingsUsesExternalSupervisorHookAndCodingEthosMCP(
 				payload,
 			)
 		}
+	}
+
+	if _, statErr := os.Stat(
+		filepath.Join(stateRoot, ".coding-ethos", "memories", "MEMORY.md"),
+	); statErr != nil {
+		t.Fatalf("private state root lacks centralized memory: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(repoRoot, ".coding-ethos")); !errors.Is(
+		statErr,
+		os.ErrNotExist,
+	) {
+		t.Fatalf("repository root gained durable supervisor state: %v", statErr)
 	}
 }
 
@@ -1001,6 +1022,43 @@ func TestSyncSettingsRejectsUnsafeOrNonCodingEthosMCPCommands(t *testing.T) {
 			!strings.Contains(err.Error(), "unsupported Coding Ethos MCP command") {
 			t.Fatalf("unsafe MCP command %q error = %v", mcpCommand, err)
 		}
+	}
+}
+
+func TestSyncSettingsRejectsRelativePrivateRoots(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name      string
+		repoRoot  string
+		stateRoot string
+	}{
+		{
+			name:      "repository",
+			repoRoot:  "relative-repo",
+			stateRoot: t.TempDir(),
+		},
+		{
+			name:      "state",
+			repoRoot:  t.TempDir(),
+			stateRoot: "relative-state",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := agenthooks.SyncSettingsForRootsWithMCPCommand(
+				t.TempDir(),
+				testCase.repoRoot,
+				testCase.stateRoot,
+				testHookCommand,
+				"/opt/coding-ethos/bin/coding-ethos-run mcp",
+			)
+			if err == nil ||
+				!strings.Contains(err.Error(), "private repository and state roots") {
+				t.Fatalf("relative private root error = %v", err)
+			}
+		})
 	}
 }
 

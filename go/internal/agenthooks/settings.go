@@ -67,6 +67,9 @@ var (
 	errUnsupportedMCPCommand = apperror.StaticError(
 		"unsupported Coding Ethos MCP command",
 	)
+	errPrivateRootAbsolute = apperror.StaticError(
+		"private repository and state roots must be absolute",
+	)
 	errCodexTrustMismatch = apperror.StaticError(
 		"Codex user config does not trust generated project hooks",
 	)
@@ -192,6 +195,61 @@ func mcpServerConfig(hookCommand, mcpCommand string) (mcpServer, error) {
 	}, nil
 }
 
+func mcpServerConfigForRoots(
+	hookCommand string,
+	mcpCommand string,
+	settingsRoot string,
+	repoRoot string,
+	stateRoot string,
+) (mcpServer, error) {
+	server, err := mcpServerConfig(hookCommand, mcpCommand)
+	if err != nil {
+		return mcpServer{}, err
+	}
+
+	if sameRoot(settingsRoot, repoRoot) && sameRoot(settingsRoot, stateRoot) {
+		return server, nil
+	}
+
+	repoRoot, err = absolutePrivateRoot("repository", repoRoot)
+	if err != nil {
+		return mcpServer{}, err
+	}
+
+	stateRoot, err = absolutePrivateRoot("state", stateRoot)
+	if err != nil {
+		return mcpServer{}, err
+	}
+
+	server.Args = append(
+		server.Args,
+		"--repo-root",
+		repoRoot,
+		"--state-root",
+		stateRoot,
+	)
+
+	return server, nil
+}
+
+func sameRoot(left, right string) bool {
+	leftPath, leftErr := filepath.Abs(left)
+	rightPath, rightErr := filepath.Abs(right)
+
+	return leftErr == nil &&
+		rightErr == nil &&
+		filepath.Clean(leftPath) == filepath.Clean(rightPath)
+}
+
+func absolutePrivateRoot(kind, root string) (string, error) {
+	cleaned := filepath.Clean(strings.TrimSpace(root))
+	if cleaned == "." || !filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf("%w: %s root %q", errPrivateRootAbsolute, kind, root)
+	}
+
+	return cleaned, nil
+}
+
 type SettingsPaths struct {
 	Claude      string
 	ClaudeMCP   string
@@ -304,12 +362,37 @@ func SyncSettingsForRepositoryWithMCPCommand(
 	hookCommand string,
 	mcpCommand string,
 ) error {
+	return SyncSettingsForRootsWithMCPCommand(
+		settingsRoot,
+		repoRoot,
+		settingsRoot,
+		hookCommand,
+		mcpCommand,
+	)
+}
+
+// SyncSettingsForRootsWithMCPCommand writes provider settings under
+// settingsRoot and binds generated Coding Ethos MCP entries to repoRoot source
+// inspection and stateRoot durable state.
+func SyncSettingsForRootsWithMCPCommand(
+	settingsRoot string,
+	repoRoot string,
+	stateRoot string,
+	hookCommand string,
+	mcpCommand string,
+) error {
 	settings, err := buildAllSettings(hookCommand)
 	if err != nil {
 		return err
 	}
 
-	serverConfig, err := mcpServerConfig(hookCommand, mcpCommand)
+	serverConfig, err := mcpServerConfigForRoots(
+		hookCommand,
+		mcpCommand,
+		settingsRoot,
+		repoRoot,
+		stateRoot,
+	)
 	if err != nil {
 		return err
 	}
@@ -338,7 +421,7 @@ func SyncSettingsForRepositoryWithMCPCommand(
 		return err
 	}
 
-	_, err = memories.ImportExisting(repoRoot)
+	_, err = memories.ImportExistingForRoots(repoRoot, stateRoot)
 	if err != nil {
 		return fmt.Errorf("import existing memories: %w", err)
 	}
@@ -813,12 +896,36 @@ func DoctorSettingsForRepositoryWithMCPCommand(
 	hookCommand string,
 	mcpCommand string,
 ) error {
+	return DoctorSettingsForRootsWithMCPCommand(
+		settingsRoot,
+		repoRoot,
+		settingsRoot,
+		hookCommand,
+		mcpCommand,
+	)
+}
+
+// DoctorSettingsForRootsWithMCPCommand validates separate provider settings,
+// repository inspection, and durable-state roots.
+func DoctorSettingsForRootsWithMCPCommand(
+	settingsRoot string,
+	repoRoot string,
+	stateRoot string,
+	hookCommand string,
+	mcpCommand string,
+) error {
 	expected, err := buildAllSettings(hookCommand)
 	if err != nil {
 		return err
 	}
 
-	expectedMCP, err := mcpServerConfig(hookCommand, mcpCommand)
+	expectedMCP, err := mcpServerConfigForRoots(
+		hookCommand,
+		mcpCommand,
+		settingsRoot,
+		repoRoot,
+		stateRoot,
+	)
 	if err != nil {
 		return err
 	}
@@ -835,7 +942,7 @@ func DoctorSettingsForRepositoryWithMCPCommand(
 		return err
 	}
 
-	err = memories.Verify(repoRoot)
+	err = memories.VerifyForRoots(repoRoot, stateRoot)
 	if err != nil {
 		return fmt.Errorf("verify memory surfaces: %w", err)
 	}
@@ -995,7 +1102,16 @@ func codexConfigContainsExpectedHooks(
 func codexConfigContainsExpectedMCPServer(content string, expected mcpServer) bool {
 	return strings.Contains(content, "[mcp_servers."+mcpServerName+"]") &&
 		strings.Contains(content, "command = "+tomlString(expected.Command)) &&
-		strings.Contains(content, "args = ["+tomlString(expected.Args[0])+"]")
+		strings.Contains(content, "args = "+tomlStringArray(expected.Args))
+}
+
+func tomlStringArray(values []string) string {
+	encoded := make([]string, 0, len(values))
+	for _, value := range values {
+		encoded = append(encoded, tomlString(value))
+	}
+
+	return "[" + strings.Join(encoded, ", ") + "]"
 }
 
 func VerifySettings(root, hookCommand string) (VerifyReport, error) {
@@ -1025,9 +1141,28 @@ func VerifySettingsForRepositoryWithMCPCommand(
 	hookCommand string,
 	mcpCommand string,
 ) (VerifyReport, error) {
-	err := DoctorSettingsForRepositoryWithMCPCommand(
+	return VerifySettingsForRootsWithMCPCommand(
 		settingsRoot,
 		repoRoot,
+		settingsRoot,
+		hookCommand,
+		mcpCommand,
+	)
+}
+
+// VerifySettingsForRootsWithMCPCommand validates separate private roots and
+// runs provider probes against repoRoot.
+func VerifySettingsForRootsWithMCPCommand(
+	settingsRoot string,
+	repoRoot string,
+	stateRoot string,
+	hookCommand string,
+	mcpCommand string,
+) (VerifyReport, error) {
+	err := DoctorSettingsForRootsWithMCPCommand(
+		settingsRoot,
+		repoRoot,
+		stateRoot,
 		hookCommand,
 		mcpCommand,
 	)

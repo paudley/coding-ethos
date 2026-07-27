@@ -813,10 +813,11 @@ func runPolicyHandler(paths runtimePaths, rest []string) error {
 }
 
 func runCodeIntelHandler(paths runtimePaths, rest []string) error {
+	stateRoot := firstNonEmptyString(paths.StateRoot, paths.Root)
 	runtimeExecTool(
 		paths,
 		"coding-ethos-code-intel",
-		codeIntelArgs(paths.Root, rest)...)
+		codeIntelArgs(paths.Root, stateRoot, rest)...)
 
 	return nil
 }
@@ -973,7 +974,10 @@ func runAgentHook(paths runtimePaths, rest []string) {
 	persistAgentEnvironment(paths)
 	_ = os.Setenv("CODING_ETHOS_GIT_SHIM_DIR", paths.BinDir)
 	paths.executor().execAgentHook(
-		append([]string{"--bundle", bundlePath, "--json"}, rest...)...)
+		append(
+			[]string{"--bundle", bundlePath, "--json"},
+			withoutFlags(rest, "--repo-root", "--state-root")...,
+		)...)
 }
 
 func runAgentHooksCommand(paths runtimePaths, rest []string) {
@@ -986,6 +990,10 @@ func runAgentHooksCommand(paths runtimePaths, rest []string) {
 	_ = os.Setenv(
 		"CODE_ETHOS_CONSUMER_ROOT",
 		flagValue(rest, "--repo-root", settingsRoot),
+	)
+	_ = os.Setenv(
+		envStateRoot,
+		flagValue(rest, "--state-root", settingsRoot),
 	)
 	runtimeExecTool(
 		paths,
@@ -1007,11 +1015,16 @@ func runPolicyTool(paths runtimePaths, rest []string) error {
 func runMCP(paths runtimePaths, rest []string) {
 	bundlePath := hookPolicyBundlePath(paths)
 	requireRuntimeFile(bundlePath, "compiled policy bundle")
+
+	rest = withoutFlags(rest, "--repo-root", "--state-root")
+
+	stateRoot := firstNonEmptyString(paths.StateRoot, paths.Root)
 	runtimeExecTool(paths, "coding-ethos-mcp", append([]string{
 		"--bundle", bundlePath,
 		"--cerun", filepath.Join(paths.BinDir, "cerun"),
 		"--ethos-root", paths.EthosRoot,
 		"--consumer-root", paths.Root,
+		"--state-root", stateRoot,
 		"--invocation-cwd", paths.InvocationCWD,
 	}, rest...)...)
 }

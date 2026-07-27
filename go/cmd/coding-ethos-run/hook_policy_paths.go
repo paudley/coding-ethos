@@ -14,6 +14,16 @@ func hookPolicyMetadataPath(paths runtimePaths) string {
 }
 
 func hookPolicyArtifactPath(paths runtimePaths, name, checkoutPath string) string {
+	stateRoot := firstNonEmptyString(paths.StateRoot, paths.Root)
+	if !sameCleanPath(stateRoot, paths.Root) {
+		return filepath.Join(
+			stateRoot,
+			".coding-ethos",
+			"policy",
+			name,
+		)
+	}
+
 	if sameCleanPath(paths.Root, paths.EthosRoot) {
 		return checkoutPath
 	}
