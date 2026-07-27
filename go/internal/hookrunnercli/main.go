@@ -442,6 +442,13 @@ func localRepoRoot() string {
 }
 
 func consumerRoot(ethosRoot string) string {
+	if root := strings.TrimSpace(os.Getenv(consumerRootEnv)); root != "" {
+		cwd, err := os.Getwd()
+		if err == nil && explicitConsumerRootApplies(root, cwd) {
+			return root
+		}
+	}
+
 	return resolveConsumerRoot(
 		ethosRoot,
 		os.Getenv(consumerRootEnv),

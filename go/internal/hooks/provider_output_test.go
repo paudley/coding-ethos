@@ -140,6 +140,46 @@ func TestProviderDenialIncludesTrackingID(t *testing.T) {
 	}
 }
 
+func TestEncodeProviderResultUsesKimiStopContinuationShape(t *testing.T) {
+	t.Parallel()
+
+	output := encodedProviderOutput(t, `{
+		"provider": "kimi",
+		"hook_event_name": "Stop"
+	}`)
+
+	for _, expected := range []string{
+		`"message": "Before ending:`,
+		`"permissionDecision": "deny"`,
+		`"permissionDecisionReason": "Before ending:`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %q in Kimi Stop output: %s", expected, output)
+		}
+	}
+}
+
+func TestEncodeProviderResultUsesKimiStructuredDeny(t *testing.T) {
+	t.Parallel()
+
+	output := encodedProviderOutput(t, `{
+		"provider": "kimi",
+		"hook_event_name": "PreToolUse",
+		"tool_name": "Bash",
+		"tool_input": {"command": "git commit --no-verify -m test"}
+	}`)
+
+	for _, expected := range []string{
+		`"decision": "deny"`,
+		`"permissionDecision": "deny"`,
+		`"trackingID": "hook-`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("missing %q in Kimi deny output: %s", expected, output)
+		}
+	}
+}
+
 func TestBlockedAdviceTOONIncludesAgentRemediation(t *testing.T) {
 	t.Setenv("CODE_ETHOS_HOOK_OUTPUT_FORMAT", "toon")
 

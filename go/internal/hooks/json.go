@@ -4,25 +4,69 @@
 package hooks
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 
+	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/toolaliases"
 )
 
+var (
+	errHookEventMultipleJSON = apperror.StaticError(
+		"hook event contains multiple JSON values",
+	)
+	errHookEventPayloadTooLarge = apperror.StaticError(
+		"hook event payload exceeds its byte limit",
+	)
+)
+
 func DecodeEvent(reader io.Reader) (Event, error) {
+	payloadBytes, err := io.ReadAll(io.LimitReader(reader, HookContractV1MaxInputBytes+1))
+	if err != nil {
+		return Event{}, fmt.Errorf("read hook event: %w", err)
+	}
+
+	if len(payloadBytes) > HookContractV1MaxInputBytes {
+		return Event{}, fmt.Errorf(
+			"%w: payload exceeds %d bytes",
+			errHookEventPayloadTooLarge,
+			HookContractV1MaxInputBytes,
+		)
+	}
+
 	payload := map[string]json.RawMessage{}
 
-	decoder := json.NewDecoder(reader)
+	decoder := json.NewDecoder(bytes.NewReader(payloadBytes))
 
-	err := decoder.Decode(&payload)
+	err = decoder.Decode(&payload)
 	if err != nil {
 		return Event{}, fmt.Errorf("decode hook event: %w", err)
 	}
 
-	return normalizeEvent(payload), nil
+	var trailing json.RawMessage
+
+	err = decoder.Decode(&trailing)
+	if !errors.Is(err, io.EOF) {
+		if err == nil {
+			return Event{}, errHookEventMultipleJSON
+		}
+
+		return Event{}, fmt.Errorf("decode hook event trailing data: %w", err)
+	}
+
+	event := normalizeEvent(payload)
+	if event.ContractVersion != "" {
+		err = ValidateHookContractV1(payload, event)
+		if err != nil {
+			return Event{}, err
+		}
+	}
+
+	return event, nil
 }
 
 func EncodeResult(writer io.Writer, result Result) error {
@@ -44,6 +88,8 @@ func EncodeResult(writer io.Writer, result Result) error {
 
 func normalizeEvent(payload map[string]json.RawMessage) Event {
 	event := Event{
+		ContractVersion: firstString(payload, "contract_version"),
+		CorrelationID:   firstString(payload, "correlation_id"),
 		ContextWindowTokens: firstPositiveInt(
 			payload,
 			"context_window_tokens",

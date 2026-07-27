@@ -27,8 +27,11 @@ import (
 const blockedExitCode = hooks.AgentHookBlockedExitCode
 
 var (
-	errBundleRequired = apperror.StaticError("--bundle is required")
-	errInvalidBundle  = apperror.StaticError("invalid policy bundle")
+	errBundleRequired  = apperror.StaticError("--bundle is required")
+	errInvalidBundle   = apperror.StaticError("invalid policy bundle")
+	errInvalidContract = apperror.StaticError(
+		"--contract must be neutral-v1",
+	)
 )
 
 type codeIntelStoreOpener func(
@@ -40,6 +43,16 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("coding-ethos-hook", flag.ExitOnError)
 	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
 	jsonOutput := flags.Bool("json", false, "Emit JSON result to stdout")
+	contract := flags.String(
+		"contract",
+		"",
+		"Provider-neutral hook contract (neutral-v1)",
+	)
+	provider := flags.String(
+		"provider",
+		"",
+		"Provider override for native hook adapters",
+	)
 
 	err := flags.Parse(args)
 	if err != nil {
@@ -54,19 +67,16 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	bundle, err := readBundle(*bundlePath)
+	selectedContract, err := resolveHookContract(*contract)
 	if err != nil {
 		printErr(stderr, err)
 
 		return 1
 	}
 
-	err = bundle.Validate()
+	bundle, err := loadValidatedBundle(*bundlePath)
 	if err != nil {
-		printErr(
-			stderr,
-			fmt.Errorf("%w:\n%s", errInvalidBundle, policy.FormatValidationError(err)),
-		)
+		printErr(stderr, err)
 
 		return 1
 	}
@@ -76,6 +86,10 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		printErr(stderr, err)
 
 		return 1
+	}
+
+	if *provider != "" {
+		event.ProviderHint = *provider
 	}
 
 	startedAt := time.Now()
@@ -96,8 +110,37 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	if *jsonOutput {
-		err = hooks.EncodeResult(stdout, result)
+	return emitHookResult(
+		stdout,
+		stderr,
+		result,
+		*jsonOutput,
+		selectedContract,
+	)
+}
+
+func resolveHookContract(contract string) (string, error) {
+	selected := contract
+	if selected == "" {
+		selected = os.Getenv("CODE_ETHOS_HOOK_CONTRACT")
+	}
+
+	if selected != "" && selected != hooks.HookContractV1Selector {
+		return "", errInvalidContract
+	}
+
+	return selected, nil
+}
+
+func emitHookResult(
+	stdout io.Writer,
+	stderr io.Writer,
+	result hooks.Result,
+	jsonOutput bool,
+	selectedContract string,
+) int {
+	if jsonOutput || selectedContract != "" {
+		err := encodeHookResult(stdout, result, selectedContract)
 		if err != nil {
 			printErr(stderr, err)
 
@@ -105,15 +148,59 @@ func runWithIO(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
-	if result.Blocked() {
-		if !*jsonOutput {
-			printBlocked(stderr, result)
-		}
-
-		return blockedExitCode
+	if !result.Blocked() {
+		return 0
 	}
 
-	return 0
+	if selectedContract == hooks.HookContractV1Selector {
+		return hooks.AgentHookBlockedExitCode
+	}
+
+	if !jsonOutput || result.Provider == "kimi" {
+		printBlocked(stderr, result)
+	}
+
+	return hooks.AgentHookBlockedExitCodeForProvider(result.Provider)
+}
+
+func encodeHookResult(
+	writer io.Writer,
+	result hooks.Result,
+	selectedContract string,
+) error {
+	if selectedContract == hooks.HookContractV1Selector {
+		err := hooks.EncodeNeutralHookResultV1(writer, result)
+		if err != nil {
+			return fmt.Errorf("encode neutral hook result: %w", err)
+		}
+
+		return nil
+	}
+
+	err := hooks.EncodeResult(writer, result)
+	if err != nil {
+		return fmt.Errorf("encode provider hook result: %w", err)
+	}
+
+	return nil
+}
+
+func loadValidatedBundle(path string) (policy.Bundle, error) {
+	bundle, err := readBundle(path)
+	if err != nil {
+		return policy.Bundle{}, err
+	}
+
+	err = bundle.Validate()
+	if err != nil {
+		return policy.Bundle{}, fmt.Errorf(
+			"%w:\n%s",
+			errInvalidBundle,
+			policy.FormatValidationError(err),
+		)
+	}
+
+	return bundle, nil
 }
 
 func persistHookResult(event hooks.Event, result hooks.Result) error {

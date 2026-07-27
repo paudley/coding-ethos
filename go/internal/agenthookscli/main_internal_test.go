@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"blackcat.ca/coding-ethos/go/internal/agenthooks"
 	"blackcat.ca/coding-ethos/go/internal/syncstate"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
@@ -72,6 +73,39 @@ func TestWriteJSONReportFormatsPayload(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesReportsRuntimeContractAndKimi(t *testing.T) {
+	ethosRoot := t.TempDir()
+	writeAgentHooksCLITestFile(
+		t,
+		filepath.Join(ethosRoot, "pyproject.toml"),
+		"[project]\nversion = \"7.8.9\"\n",
+	)
+
+	var err error
+	output := captureStdout(t, func() {
+		err = capabilities([]string{"--ethos-root", ethosRoot})
+	})
+	if err != nil {
+		t.Fatalf("capabilities returned error: %v", err)
+	}
+
+	for _, expected := range []string{
+		`"api_version": "coding-ethos.agent-hooks/v1"`,
+		`"runtime_version": "7.8.9"`,
+		`"contract_version": "coding-ethos.hook/v1"`,
+		`"selector": "neutral-v1"`,
+		`"state_root_flag": "--state-root"`,
+		`"mcp_command_flag": "--mcp-command"`,
+		`"hook_timeout_flag": "--hook-timeout-seconds"`,
+		`"runtime_policy_command": "runtime-policy"`,
+		`"provider": "kimi"`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("capability output missing %q:\n%s", expected, output)
+		}
+	}
+}
+
 func TestPrintSyncDoctorVerifySettingsCommands(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CODEX_HOME", filepath.Join(root, "codex-home"))
@@ -124,6 +158,8 @@ func TestSyncSettingsDryRunDoesNotWriteSettingsOrState(t *testing.T) {
 		filepath.Join(root, ".mcp.json"),
 		filepath.Join(root, ".codex", "config.toml"),
 		filepath.Join(root, ".gemini", "settings.json"),
+		filepath.Join(root, ".kimi-code", "config.toml"),
+		filepath.Join(root, ".kimi-code", "mcp.json"),
 		syncstate.FilePath(root),
 	} {
 		if _, statErr := os.Stat(path); statErr == nil {
@@ -160,6 +196,134 @@ func TestSyncSettingsUsesEthosRootForInstallState(t *testing.T) {
 	}
 	if state.RuntimeVersion != "7.8.9" {
 		t.Fatalf("runtime version = %q", state.RuntimeVersion)
+	}
+}
+
+func TestSyncAndDoctorSettingsAcceptPrivateOverlayRepoRoot(t *testing.T) {
+	settingsRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	globalCodexHome := filepath.Join(t.TempDir(), "must-remain-absent")
+	t.Setenv("CODEX_HOME", globalCodexHome)
+
+	hookCommand := filepath.Join(settingsRoot, "bin", "coding-ethos-run") +
+		" agent-hook"
+
+	err := syncSettings([]string{
+		"--root", settingsRoot,
+		"--repo-root", repoRoot,
+		"--hook-command", hookCommand,
+	})
+	if err != nil {
+		t.Fatalf("syncSettings overlay returned error: %v", err)
+	}
+
+	err = doctorSettings([]string{
+		"--root", settingsRoot,
+		"--repo-root", repoRoot,
+		"--hook-command", hookCommand,
+	})
+	if err != nil {
+		t.Fatalf("doctorSettings overlay returned error: %v", err)
+	}
+
+	codexConfig := filepath.Join(settingsRoot, ".codex", "config.toml")
+	configPayload, err := os.ReadFile(codexConfig)
+	if err != nil {
+		t.Fatalf("read private Codex overlay config: %v", err)
+	}
+	if !strings.Contains(string(configPayload), "[hooks.state.") {
+		t.Fatalf("private Codex overlay lacks hook trust state:\n%s", configPayload)
+	}
+	if _, statErr := os.Stat(
+		filepath.Join(globalCodexHome, "config.toml"),
+	); !os.IsNotExist(
+		statErr,
+	) {
+		t.Fatalf("private overlay mutated global Codex config: %v", statErr)
+	}
+
+	for _, path := range []string{
+		filepath.Join(repoRoot, ".claude", "settings.local.json"),
+		filepath.Join(repoRoot, ".mcp.json"),
+		filepath.Join(repoRoot, ".codex", "config.toml"),
+		filepath.Join(repoRoot, ".gemini", "settings.json"),
+		filepath.Join(repoRoot, ".kimi-code", "config.toml"),
+		filepath.Join(repoRoot, ".kimi-code", "mcp.json"),
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("overlay CLI wrote target-repo setting %s", path)
+		}
+	}
+}
+
+func TestSyncAndDoctorSettingsAcceptExternalHookAndMCPCommands(t *testing.T) {
+	settingsRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	t.Setenv("CODEX_HOME", filepath.Join(t.TempDir(), "must-remain-absent"))
+
+	hookCommand := "env NYAR_HOME=/private/nyar " +
+		"NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /opt/nyar hook"
+	mcpCommand := "/opt/coding-ethos/bin/coding-ethos-run mcp"
+
+	err := syncSettings([]string{
+		"--root", settingsRoot,
+		"--repo-root", repoRoot,
+		"--state-root", stateRoot,
+		"--hook-command", hookCommand,
+		"--mcp-command", mcpCommand,
+	})
+	if err != nil {
+		t.Fatalf("syncSettings external wrapper returned error: %v", err)
+	}
+
+	err = doctorSettings([]string{
+		"--root", settingsRoot,
+		"--repo-root", repoRoot,
+		"--state-root", stateRoot,
+		"--hook-command", hookCommand,
+		"--mcp-command", mcpCommand,
+	})
+	if err != nil {
+		t.Fatalf("doctorSettings external wrapper returned error: %v", err)
+	}
+
+	paths := agenthooks.DefaultSettingsPaths(settingsRoot)
+	for _, expectation := range []struct {
+		path string
+		text string
+	}{
+		{path: paths.Claude, text: hookCommand},
+		{path: paths.CodexConfig, text: hookCommand},
+		{path: paths.KimiConfig, text: hookCommand + " --provider kimi"},
+		{path: paths.ClaudeMCP, text: "/opt/coding-ethos/bin/coding-ethos-run"},
+		{path: paths.CodexConfig, text: "/opt/coding-ethos/bin/coding-ethos-run"},
+		{path: paths.KimiMCP, text: "/opt/coding-ethos/bin/coding-ethos-run"},
+		{path: paths.ClaudeMCP, text: repoRoot},
+		{path: paths.ClaudeMCP, text: stateRoot},
+		{path: paths.CodexConfig, text: repoRoot},
+		{path: paths.CodexConfig, text: stateRoot},
+		{path: paths.KimiMCP, text: repoRoot},
+		{path: paths.KimiMCP, text: stateRoot},
+	} {
+		payload, readErr := os.ReadFile(expectation.path)
+		if readErr != nil {
+			t.Fatalf("read %s: %v", expectation.path, readErr)
+		}
+		if !strings.Contains(string(payload), expectation.text) {
+			t.Fatalf("%s missing %q:\n%s", expectation.path, expectation.text, payload)
+		}
+	}
+
+	if _, statErr := os.Stat(
+		filepath.Join(stateRoot, ".coding-ethos", "memories", "MEMORY.md"),
+	); statErr != nil {
+		t.Fatalf("private state root lacks centralized memory: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(repoRoot, ".coding-ethos")); !os.IsNotExist(
+		statErr,
+	) {
+		t.Fatalf("repository root gained durable supervisor state: %v", statErr)
 	}
 }
 

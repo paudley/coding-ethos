@@ -1,0 +1,25 @@
+{
+  "contract_version": "coding-ethos.hook/v1",
+  "correlation_id": "request-blocked-001",
+  "event": {
+    "name": "PreToolUse",
+    "provider": "codex",
+    "tool": "Bash"
+  },
+  "decision": "deny",
+  "effect": {
+    "action": "block"
+  },
+  "status": "blocked",
+  "decisions": [
+    {
+      "policy_id": "git.hook_bypass",
+      "decision": "block"
+    }
+  ],
+  "advice": {
+    "reminders": {
+      "ambient_frequency_percent": 25
+    }
+  }
+}

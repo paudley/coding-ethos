@@ -39,6 +39,7 @@ func StartMCPClient(t *testing.T, ethosRoot, repoRoot string) *MCPClient {
 	ctx, cancel := context.WithTimeout(context.Background(), mcpClientTimeout)
 	cmd := exec.CommandContext(ctx, bin, "mcp")
 	cmd.Dir = repoRoot
+	cmd.Env = e2e.CommandEnvironment(t, nil)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

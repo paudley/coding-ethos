@@ -106,6 +106,7 @@ func runCommandEntries() []runCommandEntry {
 		{Command: "parent-install", Handler: runParentInstall},
 		{Command: "parent-check", Handler: runParentCheck},
 		{Command: "parent-lint", Handler: runParentLint},
+		{Command: "runtime-policy", Handler: runRuntimePolicy},
 		{Command: "mcp", Handler: runMCPHandler},
 	}
 }
@@ -157,6 +158,10 @@ func runHelpMessage() feedback.Message {
 					{"policy-lint", "Internal compiled policy lint entrypoint."},
 					{"policy-tool <tool>", "Run one managed captured tool."},
 					{"policy-tool-group <group>", "Run a managed tool group."},
+					{
+						"runtime-policy sync|check --repo <path>",
+						"Manage only the consumer-scoped hook policy bundle.",
+					},
 					{"git-hook", "Git hook entrypoint; not for manual lint."},
 				},
 			),
@@ -808,10 +813,11 @@ func runPolicyHandler(paths runtimePaths, rest []string) error {
 }
 
 func runCodeIntelHandler(paths runtimePaths, rest []string) error {
+	stateRoot := firstNonEmptyString(paths.StateRoot, paths.Root)
 	runtimeExecTool(
 		paths,
 		"coding-ethos-code-intel",
-		codeIntelArgs(paths.Root, rest)...)
+		codeIntelArgs(paths.Root, stateRoot, rest)...)
 
 	return nil
 }
@@ -968,17 +974,32 @@ func runAgentHook(paths runtimePaths, rest []string) {
 	persistAgentEnvironment(paths)
 	_ = os.Setenv("CODING_ETHOS_GIT_SHIM_DIR", paths.BinDir)
 	paths.executor().execAgentHook(
-		append([]string{"--bundle", bundlePath, "--json"}, rest...)...)
+		append(
+			[]string{"--bundle", bundlePath, "--json"},
+			withoutFlags(rest, "--repo-root", "--state-root")...,
+		)...)
 }
 
 func runAgentHooksCommand(paths runtimePaths, rest []string) {
-	installGitWrapperShim(paths)
-	installLintToolShims(paths)
-	_ = os.Setenv("CODE_ETHOS_CONSUMER_ROOT", rootFlagValue(rest, paths.Root))
+	if len(rest) == 0 || rest[0] != agentHookCapabilitiesCommand {
+		installGitWrapperShim(paths)
+		installLintToolShims(paths)
+	}
+
+	settingsRoot := rootFlagValue(rest, paths.Root)
+	repoRoot := flagValue(rest, "--repo-root", paths.Root)
+	_ = os.Setenv(
+		"CODE_ETHOS_CONSUMER_ROOT",
+		repoRoot,
+	)
+	_ = os.Setenv(
+		envStateRoot,
+		flagValue(rest, "--state-root", settingsRoot),
+	)
 	runtimeExecTool(
 		paths,
 		"coding-ethos-agent-hooks",
-		withDefaultHookCommand(paths, rest)...)
+		agentHooksArgs(paths, rest)...)
 }
 
 func runPolicyTool(paths runtimePaths, rest []string) error {
@@ -995,11 +1016,16 @@ func runPolicyTool(paths runtimePaths, rest []string) error {
 func runMCP(paths runtimePaths, rest []string) {
 	bundlePath := hookPolicyBundlePath(paths)
 	requireRuntimeFile(bundlePath, "compiled policy bundle")
+
+	rest = withoutFlags(rest, "--repo-root", "--state-root")
+
+	stateRoot := firstNonEmptyString(paths.StateRoot, paths.Root)
 	runtimeExecTool(paths, "coding-ethos-mcp", append([]string{
 		"--bundle", bundlePath,
 		"--cerun", filepath.Join(paths.BinDir, "cerun"),
 		"--ethos-root", paths.EthosRoot,
 		"--consumer-root", paths.Root,
+		"--state-root", stateRoot,
 		"--invocation-cwd", paths.InvocationCWD,
 	}, rest...)...)
 }

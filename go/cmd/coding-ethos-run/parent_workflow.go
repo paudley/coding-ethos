@@ -45,10 +45,12 @@ var (
 	errParentGoToolsStale       = errors.New("parent Go tools are stale")
 	errParentPathIsDirectory    = errors.New("path is a directory, want file")
 	errParentPathIsNotDirectory = errors.New("path is not a directory, want directory")
+	errParentRootNotAbsolute    = errors.New("parent workflow root must be absolute")
 )
 
 type parentWorkflowOptions struct {
 	Repo       string
+	StateRoot  string
 	RepoEthos  string
 	RepoConfig string
 	Scope      string
@@ -114,6 +116,43 @@ func runParentLint(paths runtimePaths, rest []string) error {
 	return nil
 }
 
+func runRuntimePolicy(paths runtimePaths, rest []string) error {
+	if len(rest) == 0 || (rest[0] != "sync" && rest[0] != "check") {
+		return apperror.StaticError(
+			"runtime-policy requires sync or check followed by --repo <path>",
+		)
+	}
+
+	action := rest[0]
+
+	options, err := parseParentWorkflowFlags(
+		paths,
+		"runtime-policy "+action,
+		rest[1:],
+	)
+	if err != nil {
+		return err
+	}
+
+	step := runParentStep("policy_bundle", func() error {
+		if action == "sync" {
+			return syncParentPolicyBundle(paths, options)
+		}
+
+		return checkParentPolicyBundle(paths, options)
+	})
+	steps := []parentWorkflowStep{step}
+	printParentWorkflowReport(
+		"runtime-policy "+action,
+		parentStepStatus(steps),
+		options.Repo,
+		steps,
+	)
+	exitForFailedParentSteps(steps)
+
+	return nil
+}
+
 func parseParentWorkflowFlags(
 	paths runtimePaths,
 	command string,
@@ -123,6 +162,11 @@ func parseParentWorkflowFlags(
 	flags.SetOutput(io.Discard)
 
 	repo := flags.String("repo", paths.Root, "Parent repository root")
+	stateRoot := flags.String(
+		"state-root",
+		"",
+		"Private Coding Ethos state root for runtime policy artifacts",
+	)
 	repoEthos := flags.String("repo-ethos", "", "Optional parent repo ethos overlay")
 	repoConfig := flags.String("repo-config", "", "Optional parent repo config")
 	scope := flags.String("scope", parentDefaultLintScope, "Parent lint scope")
@@ -133,6 +177,11 @@ func parseParentWorkflowFlags(
 	}
 
 	repoRoot, err := cleanParentRepoFlag(*repo)
+	if err != nil {
+		return parentWorkflowOptions{}, err
+	}
+
+	resolvedStateRoot, err := cleanOptionalRoot("state-root", *stateRoot)
 	if err != nil {
 		return parentWorkflowOptions{}, err
 	}
@@ -155,10 +204,24 @@ func parseParentWorkflowFlags(
 
 	return parentWorkflowOptions{
 		Repo:       repoRoot,
+		StateRoot:  resolvedStateRoot,
 		RepoEthos:  resolvedRepoEthos,
 		RepoConfig: resolvedRepoConfig,
 		Scope:      strings.TrimSpace(*scope),
 	}, nil
+}
+
+func cleanOptionalRoot(label, root string) (string, error) {
+	if strings.TrimSpace(root) == "" {
+		return "", nil
+	}
+
+	cleaned := filepath.Clean(root)
+	if !filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf("%w: %s=%s", errParentRootNotAbsolute, label, root)
+	}
+
+	return cleaned, nil
 }
 
 func cleanParentRepoFlag(repo string) (string, error) {
@@ -318,7 +381,7 @@ func checkParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) 
 			"%w: policy_bundle out of sync in %s checkout; run: %s",
 			errParentArtifactDrift,
 			parentCheckoutLocation(paths, options),
-			parentInstallCommand(options),
+			parentPolicySyncCommand(options),
 		)
 	}
 
@@ -337,6 +400,10 @@ func parentPolicyMetadataPath(
 }
 
 func parentPolicyBundleDir(paths runtimePaths, options parentWorkflowOptions) string {
+	if options.StateRoot != "" {
+		return filepath.Join(options.StateRoot, ".coding-ethos", "policy")
+	}
+
 	return filepath.Join(
 		parentGitCommonDir(paths, options.Repo),
 		"coding-ethos-hooks",
@@ -882,6 +949,17 @@ func parentLintArgs(paths runtimePaths, options parentWorkflowOptions) []string 
 func parentInstallCommand(options parentWorkflowOptions) string {
 	return "coding-ethos/bin/coding-ethos-run parent-install --repo " +
 		shellquote.Arg(options.Repo)
+}
+
+func parentPolicySyncCommand(options parentWorkflowOptions) string {
+	if options.StateRoot == "" {
+		return parentInstallCommand(options)
+	}
+
+	return "coding-ethos/bin/coding-ethos-run runtime-policy sync --repo " +
+		shellquote.Arg(options.Repo) +
+		" --state-root " +
+		shellquote.Arg(options.StateRoot)
 }
 
 func parentCheckoutLocation(paths runtimePaths, options parentWorkflowOptions) string {

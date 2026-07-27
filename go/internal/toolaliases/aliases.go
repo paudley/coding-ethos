@@ -16,6 +16,7 @@ const (
 	ProviderClaude = "claude"
 	ProviderCodex  = "codex"
 	ProviderGemini = "gemini"
+	ProviderKimi   = "kimi"
 )
 
 func IsWriteLike(canonical string) bool {
@@ -38,11 +39,24 @@ func KnownAliases() []Alias {
 	aliases = append(aliases, claudeAliases()...)
 	aliases = append(aliases, codexAliases()...)
 	aliases = append(aliases, geminiAliases()...)
+	aliases = append(aliases, kimiAliases()...)
 
 	return aliases
 }
 
-const knownAliasCapacity = 64
+const knownAliasCapacity = 80
+
+func kimiAliases() []Alias {
+	claude := claudeAliases()
+
+	aliases := make([]Alias, 0, len(claude))
+	for _, alias := range claude {
+		alias.Provider = ProviderKimi
+		aliases = append(aliases, alias)
+	}
+
+	return aliases
+}
 
 func claudeAliases() []Alias {
 	aliases := make([]Alias, 0, claudeAliasCapacity)

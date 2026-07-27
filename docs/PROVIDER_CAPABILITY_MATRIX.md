@@ -16,6 +16,7 @@ It lists supported, partially supported, and unsupported adapter surfaces.
 | `claude` | Claude Code | full |
 | `codex` | Codex | partial |
 | `gemini` | Gemini CLI | partial |
+| `kimi` | Kimi Code CLI | partial |
 | `generic` | Generic fallback | unsupported |
 
 ## Provider Details
@@ -204,6 +205,82 @@ Unsupported surfaces:
 Safety caveats:
 
 - none
+
+### Kimi Code CLI
+
+- Provider id: `kimi`
+- Coverage: partial
+- Settings target: .kimi-code/config.toml
+- MCP setup: .kimi-code/mcp.json stdio server in the generated KIMI_CODE_HOME overlay
+- Block response shape: exit 2 with stderr reason or hookSpecificOutput.permissionDecision = deny
+- Context/advice shape: message for context; Stop deny continues the turn once
+- Memory interception: central memory guidance through portable AGENTS.md
+- Memory fallback: read and write .coding-ethos/memories/MEMORY.md
+- Verification: `TestSyncAndVerifySettingsRunsProviderSmokePayloads`
+
+Native settings:
+
+- .kimi-code/config.toml
+- .kimi-code/mcp.json
+
+Hook events:
+
+- PreToolUse
+- PostToolUse
+- PostToolUseFailure
+- PermissionRequest
+- PermissionResult
+- UserPromptSubmit
+- Stop
+- StopFailure
+- Interrupt
+- SessionStart
+- SessionEnd
+- SubagentStart
+- SubagentStop
+- PreCompact
+- PostCompact
+- Notification
+
+Generated targets:
+
+- AGENTS.md
+- .agents/skills/*/SKILL.md
+- .kimi-code/config.toml
+- .kimi-code/mcp.json
+
+Supported surfaces:
+
+- PreToolUse block
+- PostToolUse context
+- PostToolUseFailure observation
+- PermissionRequest observation
+- PermissionResult observation
+- UserPromptSubmit block and context
+- Stop continuation through deny
+- SessionStart context
+- SessionEnd observation
+- SubagentStart observation
+- SubagentStop observation
+- PreCompact observation
+- PostCompact observation
+- Notification observation
+- MCP stdio server
+
+Partially supported surfaces:
+
+- hook command failures other than exit 2 are fail-open in Kimi
+- only PreToolUse, UserPromptSubmit, and Stop are blockable by Kimi
+
+Unsupported surfaces:
+
+- PreToolUse updatedInput rewrite
+- provider-native skill generation
+
+Safety caveats:
+
+- launch Kimi with KIMI_CODE_HOME set to the generated .kimi-code overlay
+- Kimi hooks are not a substitute for provider permission approval
 
 ### Generic fallback
 

@@ -106,6 +106,7 @@ func managedWritableDir(path string) bool {
 		".pytest_cache",
 		".mypy_cache",
 		".ruff_cache",
+		"__pycache__",
 		".uv-cache":
 		return true
 	default:

@@ -204,12 +204,17 @@ func copyMutableRuntimeBin(t *testing.T, sourceRoot, runtimeRoot string) {
 			continue
 		}
 
+		target := filepath.Join(binRoot, filepath.Base(source))
+		if filepath.Base(source) == "coding-ethos-sandbox" {
+			linkManagedSandboxHelper(t, source, target)
+
+			continue
+		}
+
 		payload, readErr := os.ReadFile(source)
 		if readErr != nil {
 			t.Fatalf("read mutable runtime binary %s: %v", source, readErr)
 		}
-
-		target := filepath.Join(binRoot, filepath.Base(source))
 
 		writeErr := writeInstrumentedRuntimeFile(target, payload, info.Mode().Perm())
 		if writeErr != nil {
@@ -283,7 +288,6 @@ func buildInstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 	for _, command := range []string{
 		"coding-ethos-run",
 		"coding-ethos-lint",
-		"coding-ethos-sandbox",
 		"coding-ethos-policy",
 		"coding-ethos-hook-log",
 		"coding-ethos-hook-runner",
@@ -292,7 +296,31 @@ func buildInstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 		buildInstrumentedCommand(t, ethosRoot, runtimeRoot, command)
 	}
 
+	linkManagedSandboxHelper(
+		t,
+		filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"),
+		filepath.Join(runtimeRoot, "bin", "coding-ethos-sandbox"),
+	)
+
 	return runtimeRoot
+}
+
+// linkManagedSandboxHelper preserves the exact repository-managed executable
+// path that host AppArmor policy authorizes for Linux namespace creation.
+// Instrumenting or copying the helper changes that path and makes an otherwise
+// valid nested sandbox fail closed before it can apply its policy.
+func linkManagedSandboxHelper(t *testing.T, source, destination string) {
+	t.Helper()
+
+	resolved, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		t.Fatalf("resolve managed sandbox helper %s: %v", source, err)
+	}
+
+	err = os.Symlink(resolved, destination)
+	if err != nil {
+		t.Fatalf("link managed sandbox helper %s: %v", destination, err)
+	}
 }
 
 func copyOrSymlinkInstrumentedRuntimeEntry(source, destination string) error {
@@ -367,7 +395,7 @@ func absoluteCoverageDir(t *testing.T, coverDir string) string {
 func commandEnvironmentWith(t *testing.T, overrides map[string]string) []string {
 	t.Helper()
 
-	env := os.Environ()
+	env := withoutInheritedRuntimeContext(os.Environ())
 	for index, entry := range env {
 		value, ok := strings.CutPrefix(entry, "GOCOVERDIR=")
 		if ok && strings.TrimSpace(value) != "" {
@@ -378,6 +406,39 @@ func commandEnvironmentWith(t *testing.T, overrides map[string]string) []string 
 	for key, value := range overrides {
 		env = appendWithoutEnvName(env, key)
 		env = append(env, key+"="+value)
+	}
+
+	return env
+}
+
+// CommandEnvironment returns a fixture-safe subprocess environment with
+// inherited Coding Ethos runtime ownership removed before applying overrides.
+func CommandEnvironment(t *testing.T, overrides map[string]string) []string {
+	t.Helper()
+
+	return commandEnvironmentWith(t, overrides)
+}
+
+func withoutInheritedRuntimeContext(env []string) []string {
+	for _, name := range []string{
+		"CODE_ETHOS_CONSUMER_ROOT",
+		"CODE_ETHOS_GIT_WRAPPER_AUTHORIZED",
+		"CODE_ETHOS_GIT_WRAPPER_PID",
+		"CODE_ETHOS_HOOK_LOGGING_ACTIVE",
+		"CODE_ETHOS_HOOK_RUN_DIR",
+		"CODE_ETHOS_LOCAL_ROOT",
+		"CODE_ETHOS_PRECOMMIT_CONFIG",
+		"CODE_ETHOS_PRECOMMIT_ROOT",
+		"CODE_ETHOS_STATE_ROOT",
+		"CODING_ETHOS_EXEC_STACK",
+		"CODING_ETHOS_GIT_SHIM_DIR",
+		"CODING_ETHOS_RUN_GO_HOOK",
+		"INVOCATION_CWD",
+		"MANAGED_TOOLCHAIN_MANIFEST",
+		"POLICY_METADATA",
+		"TOOLS_SRC_DIR",
+	} {
+		env = appendWithoutEnvName(env, name)
 	}
 
 	return env

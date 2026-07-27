@@ -589,13 +589,15 @@ func (server Server) codeIntelIndexCode(args json.RawMessage) (any, error) {
 		return nil, errCodeIntelRootUnavailable
 	}
 
+	stateRoot := server.codeIntelStateRoot()
+
 	ctx := argsContext()
 
-	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(stateRoot))
 	if err != nil {
 		return nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
-	defer autoPruneCodeIntelDB(root)
+	defer autoPruneCodeIntelDB(stateRoot)
 	defer store.Close()
 
 	summary, err := codeintel.NewASTIndexer(store).IndexPaths(ctx, root, input.Paths)
@@ -1032,6 +1034,7 @@ func (server Server) loadFreshRepoMap(
 	input codeIntelRepoMapInput,
 ) (codeintel.RepoMap, string, error) {
 	root := server.codeIntelRoot()
+	stateRoot := server.codeIntelStateRoot()
 
 	store, closeStore, err := server.openCodeIntelStore()
 	if err != nil {
@@ -1041,7 +1044,7 @@ func (server Server) loadFreshRepoMap(
 		)
 	}
 
-	defer autoPruneCodeIntelDB(root)
+	defer autoPruneCodeIntelDB(stateRoot)
 	defer closeStore()
 
 	ctx := argsContext()
@@ -1900,6 +1903,31 @@ func (server Server) openCodeIntelStore() (*codeintel.Store, func(), error) {
 
 func (server Server) codeIntelRoot() string {
 	return firstNonEmpty(server.runtime.ConsumerRoot, server.runtime.InvocationCwd)
+}
+
+func (server Server) codeIntelStateRoot() string {
+	return firstNonEmpty(
+		server.runtime.StateRoot,
+		server.runtime.ConsumerRoot,
+		server.runtime.InvocationCwd,
+	)
+}
+
+func (server Server) codeIntelStoreRoot(repoRoot string) string {
+	if sameFilesystemPath(repoRoot, server.codeIntelRoot()) {
+		return server.codeIntelStateRoot()
+	}
+
+	return repoRoot
+}
+
+func sameFilesystemPath(left, right string) bool {
+	leftAbsolute, leftErr := filepath.Abs(left)
+	rightAbsolute, rightErr := filepath.Abs(right)
+
+	return leftErr == nil &&
+		rightErr == nil &&
+		filepath.Clean(leftAbsolute) == filepath.Clean(rightAbsolute)
 }
 
 func autoPruneCodeIntelDB(root string) {

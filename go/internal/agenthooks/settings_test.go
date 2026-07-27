@@ -37,6 +37,7 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 		`"claude": {`,
 		`"codex": {`,
 		`"gemini": {`,
+		`"kimi": {`,
 		`"capabilities": [`,
 		`"display_name": "Claude Code"`,
 		`"provider": "generic"`,
@@ -73,11 +74,88 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 	}
 }
 
+func TestConfiguredHookTimeoutReachesProviderSettings(t *testing.T) {
+	t.Parallel()
+
+	const timeoutSeconds = 45
+
+	var buffer bytes.Buffer
+
+	err := agenthooks.WriteSettingsWithOptions(
+		&buffer,
+		testHookCommand,
+		agenthooks.SettingsOptions{HookTimeoutSeconds: timeoutSeconds},
+	)
+	if err != nil {
+		t.Fatalf("write settings with timeout: %v", err)
+	}
+
+	output := buffer.String()
+	for _, provider := range []string{"claude", "codex", "gemini", "kimi"} {
+		settings := providerSettingsSection(
+			t,
+			output,
+			provider,
+			map[string]string{
+				"claude": "codex",
+				"codex":  "gemini",
+				"gemini": "kimi",
+				"kimi":   "capabilities",
+			}[provider],
+		)
+		if !strings.Contains(settings, `"timeout": 45`) {
+			t.Fatalf("%s settings omit configured timeout:\n%s", provider, settings)
+		}
+	}
+
+	root := t.TempDir()
+	err = agenthooks.SyncSettingsForRootsWithMCPCommandAndOptions(
+		root,
+		root,
+		root,
+		testHookCommand,
+		"",
+		agenthooks.SettingsOptions{HookTimeoutSeconds: timeoutSeconds},
+	)
+	if err != nil {
+		t.Fatalf("sync settings with timeout: %v", err)
+	}
+	codex, err := os.ReadFile(agenthooks.DefaultSettingsPaths(root).CodexConfig)
+	if err != nil {
+		t.Fatalf("read Codex settings: %v", err)
+	}
+	if !bytes.Contains(codex, []byte("timeout = 45")) {
+		t.Fatalf("Codex TOML omits configured timeout:\n%s", codex)
+	}
+	kimi, err := os.ReadFile(agenthooks.DefaultSettingsPaths(root).KimiConfig)
+	if err != nil {
+		t.Fatalf("read Kimi settings: %v", err)
+	}
+	if !bytes.Contains(kimi, []byte("timeout = 45")) {
+		t.Fatalf("Kimi TOML omits configured timeout:\n%s", kimi)
+	}
+}
+
+func TestConfiguredHookTimeoutRejectsUnboundedValues(t *testing.T) {
+	t.Parallel()
+
+	for _, timeoutSeconds := range []int{0, 3601} {
+		err := agenthooks.WriteSettingsWithOptions(
+			&bytes.Buffer{},
+			testHookCommand,
+			agenthooks.SettingsOptions{HookTimeoutSeconds: timeoutSeconds},
+		)
+		if err == nil {
+			t.Fatalf("timeout %d unexpectedly accepted", timeoutSeconds)
+		}
+	}
+}
+
 func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 	t.Parallel()
 
 	capabilities := agenthooks.ProviderCapabilities()
-	if len(capabilities) != 4 {
+	if len(capabilities) != 5 {
 		t.Fatalf("capability count mismatch: %#v", capabilities)
 	}
 
@@ -108,6 +186,12 @@ func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 		capabilities,
 		string(agenthooks.ProviderGeneric),
 		"native hook settings generation",
+	)
+	assertUnsupported(
+		t,
+		capabilities,
+		string(agenthooks.ProviderKimi),
+		"PreToolUse updatedInput rewrite",
 	)
 }
 
@@ -144,6 +228,9 @@ func providerCapabilityExpectations() []providerCapabilityExpectation {
 		{string(agenthooks.ProviderGemini), "partial", "BeforeAgent additionalContext"},
 		{string(agenthooks.ProviderGemini), "partial", "SessionEnd additionalContext"},
 		{string(agenthooks.ProviderGemini), "partial", "MCP stdio server"},
+		{string(agenthooks.ProviderKimi), "partial", "PreToolUse block"},
+		{string(agenthooks.ProviderKimi), "partial", "Stop continuation through deny"},
+		{string(agenthooks.ProviderKimi), "partial", "MCP stdio server"},
 		{string(agenthooks.ProviderGeneric), "unsupported", "portable skill surfaces"},
 	}
 }
@@ -267,6 +354,8 @@ func TestStateArtifactsDescribeManagedHookSurfaces(t *testing.T) {
 		filepath.ToSlash(".mcp.json"):                                     "claude-mcp",
 		filepath.ToSlash(filepath.Join(".codex", "config.toml")):          "codex-config",
 		filepath.ToSlash(filepath.Join(".gemini", "settings.json")):       "gemini-settings",
+		filepath.ToSlash(filepath.Join(".kimi-code", "config.toml")):      "kimi-config",
+		filepath.ToSlash(filepath.Join(".kimi-code", "mcp.json")):         "kimi-mcp",
 	}
 	if len(artifacts) != len(expected) {
 		t.Fatalf(
@@ -352,9 +441,68 @@ func TestGeminiSettingsDoNotClaimUnsupportedPostToolUse(t *testing.T) {
 
 	output := buffer.String()
 
-	geminiSettings := providerSettingsSection(t, output, "gemini", "capabilities")
+	geminiSettings := providerSettingsSection(t, output, "gemini", "kimi")
 	if strings.Contains(geminiSettings, `"PostToolUse"`) {
 		t.Fatalf("Gemini must not claim unsupported PostToolUse:\n%s", output)
+	}
+}
+
+func TestKimiSettingsUseNativeHooksAndPreserveExistingConfig(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	paths := agenthooks.DefaultSettingsPaths(root)
+	if err := os.MkdirAll(filepath.Dir(paths.KimiConfig), 0o700); err != nil {
+		t.Fatalf("create Kimi config dir: %v", err)
+	}
+
+	existing := `default_model = "local"
+
+[[hooks]]
+event = "Notification"
+matcher = "custom"
+command = "notify-custom"
+`
+	if err := os.WriteFile(paths.KimiConfig, []byte(existing), 0o600); err != nil {
+		t.Fatalf("write existing Kimi config: %v", err)
+	}
+
+	for range 2 {
+		if err := agenthooks.SyncSettings(root, testHookCommand); err != nil {
+			t.Fatalf("sync Kimi settings: %v", err)
+		}
+	}
+
+	payload, err := os.ReadFile(paths.KimiConfig)
+	if err != nil {
+		t.Fatalf("read Kimi config: %v", err)
+	}
+
+	output := string(payload)
+	for _, expected := range []string{
+		`default_model = "local"`,
+		`matcher = "custom"`,
+		`command = "notify-custom"`,
+		`event = "PreToolUse"`,
+		`event = "PostToolUseFailure"`,
+		`event = "PermissionRequest"`,
+		`event = "Stop"`,
+		`event = "PostCompact"`,
+		`command = "/repo/bin/coding-ethos-run agent-hook --provider kimi"`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("Kimi config missing %q:\n%s", expected, output)
+		}
+	}
+	if count := strings.Count(
+		output,
+		"# BEGIN coding-ethos managed Kimi hooks",
+	); count != 1 {
+		t.Fatalf("managed Kimi hook block count = %d:\n%s", count, output)
+	}
+
+	if err := agenthooks.DoctorSettings(root, testHookCommand); err != nil {
+		t.Fatalf("doctor Kimi settings: %v", err)
 	}
 }
 
@@ -488,6 +636,9 @@ func TestSyncSettingsWritesMCPServersForAllProviders(t *testing.T) {
 
 	geminiSettings := readJSONSettings(t, paths.Gemini)
 	assertMCPServer(t, geminiSettings, "/repo/bin/coding-ethos-run", false)
+
+	kimiMCP := readJSONSettings(t, paths.KimiMCP)
+	assertMCPServer(t, kimiMCP, "/repo/bin/coding-ethos-run", false)
 
 	codexConfig, err := os.ReadFile(paths.CodexConfig)
 	if err != nil {
@@ -700,6 +851,8 @@ func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 		paths.ClaudeMCP,
 		paths.CodexConfig,
 		paths.Gemini,
+		paths.KimiConfig,
+		paths.KimiMCP,
 	} {
 		_, statErr := os.Stat(path)
 		if statErr != nil {
@@ -717,6 +870,8 @@ func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 		t.Fatalf("doctor settings: %v", err)
 	}
 }
+
+const expectedProviderVerifyChecks = 17
 
 func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 	t.Parallel()
@@ -739,8 +894,13 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
 	}
 
-	if len(report.Checks) != 15 {
-		t.Fatalf("check count = %d, want 15: %#v", len(report.Checks), report.Checks)
+	if len(report.Checks) != expectedProviderVerifyChecks {
+		t.Fatalf(
+			"check count = %d, want %d: %#v",
+			len(report.Checks),
+			expectedProviderVerifyChecks,
+			report.Checks,
+		)
 	}
 
 	knownProviders := providerIDsByRegistry()
@@ -752,6 +912,237 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		if check.Status != "pass" {
 			t.Fatalf("failed check: %#v", check)
 		}
+	}
+}
+
+func TestSyncAndVerifySettingsUsesPrivateOverlayAndRepositoryCWD(t *testing.T) {
+	t.Parallel()
+
+	settingsRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	hookCommand := fakeAgentHookCommand(t)
+	writeGeneratedSkillSurfaces(t, repoRoot, "conditional-imports")
+
+	err := agenthooks.SyncSettingsForRepository(
+		settingsRoot,
+		repoRoot,
+		hookCommand,
+	)
+	if err != nil {
+		t.Fatalf("sync overlay settings: %v", err)
+	}
+
+	report, err := agenthooks.VerifySettingsForRepository(
+		settingsRoot,
+		repoRoot,
+		hookCommand,
+	)
+	if err != nil {
+		t.Fatalf("verify overlay settings: %v", err)
+	}
+	if report.Status != "valid" || len(report.Checks) != expectedProviderVerifyChecks {
+		t.Fatalf("overlay report = %#v", report)
+	}
+
+	overlayPaths := agenthooks.DefaultSettingsPaths(settingsRoot)
+	for _, path := range []string{
+		overlayPaths.Claude,
+		overlayPaths.ClaudeMCP,
+		overlayPaths.CodexConfig,
+		overlayPaths.Gemini,
+		overlayPaths.KimiConfig,
+		overlayPaths.KimiMCP,
+	} {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("overlay setting missing %s: %v", path, statErr)
+		}
+	}
+
+	repoPaths := agenthooks.DefaultSettingsPaths(repoRoot)
+	for _, path := range []string{
+		repoPaths.Claude,
+		repoPaths.ClaudeMCP,
+		repoPaths.CodexConfig,
+		repoPaths.Gemini,
+		repoPaths.KimiConfig,
+		repoPaths.KimiMCP,
+	} {
+		if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("private overlay sync wrote target-repo setting %s", path)
+		}
+	}
+}
+
+func TestSyncAndVerifySettingsUsesExternalSupervisorHookAndCodingEthosMCP(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	settingsRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	hookCommand, mcpCommand, mcpRunner := fakeExternalSupervisorCommands(t)
+	writeGeneratedSkillSurfaces(t, repoRoot, "conditional-imports")
+
+	err := agenthooks.SyncSettingsForRootsWithMCPCommand(
+		settingsRoot,
+		repoRoot,
+		stateRoot,
+		hookCommand,
+		mcpCommand,
+	)
+	if err != nil {
+		t.Fatalf("sync external supervisor overlay: %v", err)
+	}
+
+	report, err := agenthooks.VerifySettingsForRootsWithMCPCommand(
+		settingsRoot,
+		repoRoot,
+		stateRoot,
+		hookCommand,
+		mcpCommand,
+	)
+	if err != nil {
+		t.Fatalf("verify external supervisor overlay: %v", err)
+	}
+	if report.Status != "valid" || len(report.Checks) != expectedProviderVerifyChecks {
+		t.Fatalf("external supervisor report = %#v", report)
+	}
+
+	seenProviders := map[string]bool{}
+	for _, check := range report.Checks {
+		seenProviders[check.Provider] = true
+	}
+	for _, provider := range []string{"claude", "codex", "kimi"} {
+		if !seenProviders[provider] {
+			t.Fatalf("external supervisor probes omitted %s: %#v", provider, report.Checks)
+		}
+	}
+
+	paths := agenthooks.DefaultSettingsPaths(settingsRoot)
+	for _, expectation := range []struct {
+		path string
+		text string
+	}{
+		{path: paths.Claude, text: hookCommand},
+		{path: paths.CodexConfig, text: hookCommand},
+		{path: paths.KimiConfig, text: hookCommand + " --provider kimi"},
+		{path: paths.ClaudeMCP, text: mcpRunner},
+		{path: paths.CodexConfig, text: mcpRunner},
+		{path: paths.KimiMCP, text: mcpRunner},
+		{path: paths.ClaudeMCP, text: repoRoot},
+		{path: paths.ClaudeMCP, text: stateRoot},
+		{path: paths.CodexConfig, text: repoRoot},
+		{path: paths.CodexConfig, text: stateRoot},
+		{path: paths.KimiMCP, text: repoRoot},
+		{path: paths.KimiMCP, text: stateRoot},
+	} {
+		payload, readErr := os.ReadFile(expectation.path)
+		if readErr != nil {
+			t.Fatalf("read generated overlay %s: %v", expectation.path, readErr)
+		}
+		if !strings.Contains(string(payload), expectation.text) {
+			t.Fatalf(
+				"generated overlay %s missing %q:\n%s",
+				expectation.path,
+				expectation.text,
+				payload,
+			)
+		}
+	}
+
+	if _, statErr := os.Stat(
+		filepath.Join(stateRoot, ".coding-ethos", "memories", "MEMORY.md"),
+	); statErr != nil {
+		t.Fatalf("private state root lacks centralized memory: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(repoRoot, ".coding-ethos")); !errors.Is(
+		statErr,
+		os.ErrNotExist,
+	) {
+		t.Fatalf("repository root gained durable supervisor state: %v", statErr)
+	}
+}
+
+func TestSyncSettingsRejectsUnsafeExternalSupervisorHookCommands(t *testing.T) {
+	t.Parallel()
+
+	mcpCommand := "/opt/coding-ethos/bin/coding-ethos-run mcp"
+	for _, hookCommand := range []string{
+		"env NYAR_HOME=/tmp /opt/nyar hook; /bin/true",
+		"env NYAR_HOME=$(pwd) /opt/nyar hook",
+		"env NYAR_HOME=/tmp relative/nyar hook",
+		"NYAR_HOME=/tmp /opt/nyar hook",
+		"env /opt/nyar hook",
+	} {
+		err := agenthooks.SyncSettingsForRepositoryWithMCPCommand(
+			t.TempDir(),
+			t.TempDir(),
+			hookCommand,
+			mcpCommand,
+		)
+		if err == nil || !strings.Contains(err.Error(), "unsupported hook command") {
+			t.Fatalf("unsafe hook command %q error = %v", hookCommand, err)
+		}
+	}
+}
+
+func TestSyncSettingsRejectsUnsafeOrNonCodingEthosMCPCommands(t *testing.T) {
+	t.Parallel()
+
+	for _, mcpCommand := range []string{
+		"/opt/coding-ethos/bin/coding-ethos-run mcp; /bin/true",
+		"/opt/nyar mcp",
+		"bin/coding-ethos-run mcp",
+		"/opt/coding-ethos/bin/coding-ethos-run agent-hook",
+	} {
+		err := agenthooks.SyncSettingsForRepositoryWithMCPCommand(
+			t.TempDir(),
+			t.TempDir(),
+			testHookCommand,
+			mcpCommand,
+		)
+		if err == nil ||
+			!strings.Contains(err.Error(), "unsupported Coding Ethos MCP command") {
+			t.Fatalf("unsafe MCP command %q error = %v", mcpCommand, err)
+		}
+	}
+}
+
+func TestSyncSettingsRejectsRelativePrivateRoots(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name      string
+		repoRoot  string
+		stateRoot string
+	}{
+		{
+			name:      "repository",
+			repoRoot:  "relative-repo",
+			stateRoot: t.TempDir(),
+		},
+		{
+			name:      "state",
+			repoRoot:  t.TempDir(),
+			stateRoot: "relative-state",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := agenthooks.SyncSettingsForRootsWithMCPCommand(
+				t.TempDir(),
+				testCase.repoRoot,
+				testCase.stateRoot,
+				testHookCommand,
+				"/opt/coding-ethos/bin/coding-ethos-run mcp",
+			)
+			if err == nil ||
+				!strings.Contains(err.Error(), "private repository and state roots") {
+				t.Fatalf("relative private root error = %v", err)
+			}
+		})
 	}
 }
 
@@ -1228,6 +1619,12 @@ func containsString(values []string, expected string) bool {
 func fakeAgentHookCommand(t *testing.T) string {
 	t.Helper()
 
+	return shellSingleQuote(fakeAgentHookRunner(t)) + " agent-hook"
+}
+
+func fakeAgentHookRunner(t *testing.T) string {
+	t.Helper()
+
 	ethosRoot := t.TempDir()
 	binDir := filepath.Join(ethosRoot, "bin")
 	bundleDir := filepath.Join(ethosRoot, "build", "policy")
@@ -1262,6 +1659,21 @@ func fakeAgentHookCommand(t *testing.T) string {
 	runner := filepath.Join(binDir, "coding-ethos-run")
 	script := `#!/bin/sh
 payload=$(cat)
+case "$*" in
+*'--provider kimi'*)
+case "$payload" in
+*'"hook_event_name": "Stop"'*)
+printf '%s\n' '{"message":"Before ending: planned work remains","hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"Before ending: planned work remains"}}'
+exit 0
+;;
+*)
+printf '%s\n' '{"decision":"deny","message":"blocked","hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"blocked"}}'
+printf '%s\n' 'blocked by coding-ethos' >&2
+exit 2
+;;
+esac
+;;
+esac
 case "$payload" in
   *'"provider": "claude"'*'git status --short'*)
     printf '%s\n' '{"hookSpecificOutput":{"updatedInput":{"command":"coding-ethos-run agent-shell -- '\''pwd && git status --short 2>&1'\''"}}}'
@@ -1290,5 +1702,44 @@ esac
 		t.Fatalf("write fake runner: %v", err)
 	}
 
-	return "'" + strings.ReplaceAll(runner, "'", "'\\''") + "' agent-hook"
+	return runner
+}
+
+func fakeExternalSupervisorCommands(t *testing.T) (string, string, string) {
+	t.Helper()
+
+	mcpRunner := fakeAgentHookRunner(t)
+	ethosRoot := filepath.Dir(filepath.Dir(mcpRunner))
+	nyarHome := t.TempDir()
+	wrapper := filepath.Join(t.TempDir(), "nyar")
+	script := fmt.Sprintf(`#!/bin/sh
+if [ "$NYAR_HOME" != %s ] || [ "$NYAR_CODING_ETHOS_ROOT" != %s ]; then
+  printf 'missing supervisor environment\n' >&2
+  exit 70
+fi
+if [ "$1" != "hook" ]; then
+  printf 'expected hook subcommand\n' >&2
+  exit 71
+fi
+shift
+exec %s agent-hook "$@"
+`,
+		shellSingleQuote(nyarHome),
+		shellSingleQuote(ethosRoot),
+		shellSingleQuote(mcpRunner),
+	)
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fake supervisor wrapper: %v", err)
+	}
+
+	hookCommand := "env NYAR_HOME=" + shellSingleQuote(nyarHome) +
+		" NYAR_CODING_ETHOS_ROOT=" + shellSingleQuote(ethosRoot) +
+		" " + shellSingleQuote(wrapper) + " hook"
+	mcpCommand := shellSingleQuote(mcpRunner) + " mcp"
+
+	return hookCommand, mcpCommand, mcpRunner
+}
+
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

@@ -4,12 +4,14 @@
 package sandbox
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -18,6 +20,8 @@ const (
 	cgroupCPUPeriodMicros = 100_000
 	cgroupCPUQuotaFactor  = 1_000
 	cgroupFileMode        = 0o600
+	cgroupStartProbe      = "/bin/true"
+	cgroupStartProbeDelay = 5 * time.Second
 	bytesPerMegabyte      = 1024 * 1024
 )
 
@@ -27,11 +31,25 @@ type Cgroup struct {
 }
 
 func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
+	return prepareCgroupLimits(evidence, cgroupRootPath, runCgroupStartCheck)
+}
+
+func prepareCgroupLimits(
+	evidence Evidence,
+	rootPath func() string,
+	startCheck func(context.Context, *Cgroup) error,
+) (*Cgroup, Evidence, error) {
 	if !evidence.CgroupRequested {
 		return nil, evidence, nil
 	}
 
-	root := cgroupRootPath()
+	if !cgroupStartAttachmentAllowed(evidence) {
+		evidence.Reason = "cgroup limits skipped for namespace-isolated tool"
+
+		return nil, evidence, nil
+	}
+
+	root := rootPath()
 	if root == "" {
 		evidence.Reason = "delegated cgroup v2 filesystem is unavailable"
 
@@ -64,10 +82,43 @@ func PrepareCgroupLimits(evidence Evidence) (*Cgroup, Evidence, error) {
 	}
 
 	cgroup.fd = descriptor
+
+	ctx, cancel := context.WithTimeout(context.Background(), cgroupStartProbeDelay)
+	defer cancel()
+
+	err = startCheck(ctx, cgroup)
+	if err != nil {
+		_ = cgroup.Close()
+		evidence.CgroupEnabled = false
+		evidence.CgroupPath = ""
+		evidence.Reason = fmt.Sprintf(
+			"cgroup limits skipped because delegated start attachment is unavailable: %v",
+			err,
+		)
+
+		return nil, evidence, nil
+	}
+
 	evidence.CgroupEnabled = true
 	evidence.CgroupPath = path
 
 	return cgroup, evidence, nil
+}
+
+func cgroupStartAttachmentAllowed(evidence Evidence) bool {
+	return !evidence.Enabled || evidence.RequiresProcesses || !evidence.NamespaceEnforced
+}
+
+func runCgroupStartCheck(ctx context.Context, cgroup *Cgroup) error {
+	command := exec.CommandContext(ctx, cgroupStartProbe)
+	command.SysProcAttr = cgroup.SysProcAttr()
+
+	err := command.Run()
+	if err != nil {
+		return fmt.Errorf("run cgroup start probe: %w", err)
+	}
+
+	return nil
 }
 
 func (cgroup *Cgroup) ConfigureCommand(command *exec.Cmd) {

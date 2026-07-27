@@ -10,13 +10,37 @@ import os
 import time
 from pathlib import Path
 
+import pytest
+
 from tests.lint_capture_support import (
     REPO_ROOT,
     RUNNER,
+    _clean_subprocess_env,
     _prepare_consumer_repo,
     _run,
     _sync_consumer_tool_configs,
 )
+
+
+def test_subprocess_environment_drops_inherited_runtime_roots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify inherited managed-runtime roots do not reach subprocesses."""
+    monkeypatch.setenv("CODE_ETHOS_CONSUMER_ROOT", "/outer/repo")
+    monkeypatch.setenv("CODE_ETHOS_STATE_ROOT", "/outer/state")
+
+    clean = _clean_subprocess_env(None)
+
+    assert "CODE_ETHOS_CONSUMER_ROOT" not in clean
+    assert "CODE_ETHOS_STATE_ROOT" not in clean
+
+    explicit = os.environ.copy()
+    explicit["CODE_ETHOS_CONSUMER_ROOT"] = "/explicit/consumer"
+
+    assert (
+        _clean_subprocess_env(explicit)["CODE_ETHOS_CONSUMER_ROOT"]
+        == "/explicit/consumer"
+    )
 
 
 def test_policy_tool_blocks_configured_lint_roots_that_escape_repo(

@@ -24,6 +24,7 @@ const (
 	envAgentAPIProxyEnabled   = "CODE_ETHOS_AGENT_API_PROXY"
 	envAgentAPIProxyURL       = "CODE_ETHOS_AGENT_API_PROXY_URL"
 	envAgentAPIProxyIntercept = "CODE_ETHOS_AGENT_PROXY_INTERCEPT"
+	envStateRoot              = "CODE_ETHOS_STATE_ROOT"
 	exitMissing               = 127
 )
 
@@ -35,6 +36,7 @@ type runtimePaths struct {
 	GitDir           string
 	GitCommonDir     string
 	Root             string
+	StateRoot        string
 	HooksDir         string
 	BinDir           string
 	RunBinary        string
@@ -71,19 +73,18 @@ func mainExitCode() int {
 			exitErr(err)
 		}
 
+		args, debug := debugRunnerArgs(runnerArgs(os.Args))
+		paths = paths.withCommandRoots(args)
 		paths.export()
 
-		args, debug := debugRunnerArgs(runnerArgs(os.Args))
-		if len(args) > 0 &&
-			args[0] != "cutover" &&
-			args[0] != "lfs-hook" &&
+		if shouldLogRuntimeCommand(args) &&
 			os.Getenv("CODE_ETHOS_HOOK_LOGGING_ACTIVE") == "" {
 			loggedCode, logErr := hooklog.RunInProcess(hooklog.Options{
 				Stdin:      os.Stdin,
 				Stdout:     os.Stdout,
 				Stderr:     os.Stderr,
 				GitPath:    paths.RealGit,
-				Root:       paths.Root,
+				Root:       paths.StateRoot,
 				BundleRoot: paths.BundleRoot,
 				Command:    append([]string{paths.RunBinary}, args...),
 				Debug:      debug || debuglog.EnabledFromEnv(),
@@ -153,6 +154,7 @@ func resolveRuntimePaths() (runtimePaths, error) {
 	}
 
 	root, localRoot := resolveRuntimeRoot(realGit, invocationCWD)
+	stateRoot := resolveRuntimeStateRoot(root)
 	hooksDir := resolveRuntimeHooksDir(realGit, root)
 	gitDir := resolveRuntimeGitDir(realGit, root, hooksDir)
 	gitCommonDir := resolveRuntimeGitCommonDir(realGit, root, hooksDir)
@@ -180,6 +182,7 @@ func resolveRuntimePaths() (runtimePaths, error) {
 			GitDir:        gitDir,
 			GitCommonDir:  gitCommonDir,
 			Root:          root,
+			StateRoot:     stateRoot,
 			HooksDir:      hooksDir,
 			BinDir:        binDir,
 			RunBinary:     runBinary,
@@ -197,6 +200,7 @@ type runtimePathInputs struct {
 	GitDir        string
 	GitCommonDir  string
 	Root          string
+	StateRoot     string
 	HooksDir      string
 	BinDir        string
 	RunBinary     string
@@ -219,6 +223,15 @@ func resolveRuntimeRoot(realGit, invocationCWD string) (string, string) {
 	}
 
 	return localRoot, localRoot
+}
+
+func resolveRuntimeStateRoot(root string) string {
+	stateRoot := strings.TrimSpace(os.Getenv(envStateRoot))
+	if stateRoot == "" {
+		return root
+	}
+
+	return filepath.Clean(stateRoot)
 }
 
 func resolveRuntimeHooksDir(realGit, root string) string {
@@ -380,6 +393,7 @@ func runtimePathSet(inputs runtimePathInputs) runtimePaths {
 		GitDir:        gitDir,
 		GitCommonDir:  gitCommonDir,
 		Root:          inputs.Root,
+		StateRoot:     firstNonEmptyString(inputs.StateRoot, inputs.Root),
 		HooksDir:      inputs.HooksDir,
 		BinDir:        inputs.BinDir,
 		RunBinary:     inputs.RunBinary,
@@ -472,6 +486,7 @@ func (paths runtimePaths) export() {
 		"INVOCATION_CWD":            paths.InvocationCWD,
 		"CODE_ETHOS_PRECOMMIT_ROOT": paths.BundleRoot,
 		"CODE_ETHOS_CONSUMER_ROOT":  paths.Root,
+		envStateRoot:                paths.StateRoot,
 		"CODE_ETHOS_LOCAL_ROOT":     paths.LocalRoot,
 		"CODING_ETHOS_RUN_GO_HOOK":  paths.RunBinary,
 		"GIT_HOOK_SRC_DIR": filepath.Join(

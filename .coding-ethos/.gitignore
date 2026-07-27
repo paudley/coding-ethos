@@ -1,0 +1,12 @@
+# coding-ethos generated runtime output
+.claude/settings.local.json
+/cache/
+/code-intel.duckdb
+/code-intel.duckdb.wal
+/events/
+/hook-runs/
+/lint-runs/
+/prune-runs/
+/state/
+.gemini/settings.json
+.mcp.json

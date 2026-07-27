@@ -99,6 +99,7 @@ func RunWithRegistry(
 		)
 
 		result := ctx.allowedResult()
+		ensureResultCorrelationID(options.Event, &result)
 		result.RuntimeMS = time.Since(startedAt).Milliseconds()
 		logHookRuntime(result.RuntimeMS)
 
@@ -115,6 +116,7 @@ func RunWithRegistry(
 	}
 
 	result := buildResult(bundle, ctx.Event, decision)
+	ensureResultCorrelationID(options.Event, &result)
 	result.RuntimeMS = time.Since(startedAt).Milliseconds()
 	logHookRuntime(result.RuntimeMS)
 
@@ -245,6 +247,7 @@ func buildResult(
 	hookOutput, proxyEvents := hookSpecificOutput(bundle, event, decision.Route)
 
 	result := Result{
+		CorrelationID:      event.CorrelationID,
 		Event:              event.HookEventName,
 		Advice:             bundle.Advice,
 		Provider:           event.Provider(),
@@ -263,6 +266,14 @@ func buildResult(
 	}
 
 	return result
+}
+
+func ensureResultCorrelationID(event Event, result *Result) {
+	if result.CorrelationID != "" {
+		return
+	}
+
+	result.CorrelationID = hookTraceID(event, *result)
 }
 
 func blockedHookSpecificOutput(result Result) *HookSpecificOutput {
@@ -1018,7 +1029,7 @@ func pathMatches(pattern, name string) (bool, error) {
 
 func resultStatus(decisions []policy.Decision) string {
 	for _, decision := range decisions {
-		if decision.Decision == "block" || decision.Severity == "block" {
+		if decision.Decision == modeBlock || decision.Severity == modeBlock {
 			return statusBlocked
 		}
 	}

@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	// CentralDir is the repo-local provider-agnostic memory directory.
+	// CentralDir is the provider-agnostic memory directory under the selected
+	// state root.
 	CentralDir = ".coding-ethos/memories"
 	// PrimaryFile is the Markdown memory surface providers should read and write.
 	PrimaryFile = CentralDir + "/MEMORY.md"
@@ -56,7 +57,7 @@ func DeniedReason() string {
 		" and " + CentralDir + "/*.yaml"
 }
 
-// Settings controls the repo-local memory system.
+// Settings controls the root-scoped memory system.
 type Settings struct {
 	CentralDir     string `json:"central_dir"`
 	PrimaryFile    string `json:"primary_file"`
@@ -187,13 +188,17 @@ func Ensure(root string) error {
 		return err
 	}
 
+	return ensureWithSettings(root, settings)
+}
+
+func ensureWithSettings(root string, settings Settings) error {
 	if !settings.Enabled {
 		return nil
 	}
 
 	primary := filepath.Join(rootOrDot(root), filepath.FromSlash(settings.PrimaryFile))
 
-	err = os.MkdirAll(filepath.Dir(primary), dirMode)
+	err := os.MkdirAll(filepath.Dir(primary), dirMode)
 	if err != nil {
 		return fmt.Errorf("create memory directory: %w", err)
 	}
@@ -224,6 +229,22 @@ func Verify(root string) error {
 		return err
 	}
 
+	return verifyWithSettings(root, settings)
+}
+
+// VerifyForRoots checks stateRoot using memory settings loaded from
+// settingsRoot. Keeping policy input separate from durable state lets callers
+// use private state without copying repository configuration into it.
+func VerifyForRoots(settingsRoot, stateRoot string) error {
+	settings, err := LoadSettings(settingsRoot)
+	if err != nil {
+		return err
+	}
+
+	return verifyWithSettings(stateRoot, settings)
+}
+
+func verifyWithSettings(root string, settings Settings) error {
 	if !settings.Enabled {
 		return nil
 	}
@@ -301,19 +322,26 @@ func ClassifyWithSettings(root, rawPath, _ string, settings Settings) Classifica
 
 // ImportExisting imports known provider memory files without deleting sources.
 func ImportExisting(root string) (ImportReport, error) {
-	settings, err := LoadSettings(root)
+	return ImportExistingForRoots(root, root)
+}
+
+// ImportExistingForRoots imports provider memory discovered under sourceRoot
+// into the central memory store under stateRoot. Memory settings remain
+// repository-owned and are therefore loaded from sourceRoot.
+func ImportExistingForRoots(sourceRoot, stateRoot string) (ImportReport, error) {
+	settings, err := LoadSettings(sourceRoot)
 	if err != nil {
 		return ImportReport{}, err
 	}
 
 	if !settings.Enabled || !settings.ImportExisting {
-		return ImportReport{Root: rootOrDot(root)}, nil
+		return ImportReport{Root: rootOrDot(stateRoot)}, nil
 	}
 
-	report := ImportReport{Root: rootOrDot(root)}
+	report := ImportReport{Root: rootOrDot(stateRoot)}
 
-	err = withMemoryLock(root, settings, func() error {
-		return importExistingLocked(root, settings, &report)
+	err = withMemoryLock(stateRoot, settings, func() error {
+		return importExistingLocked(sourceRoot, stateRoot, settings, &report)
 	})
 	if err != nil {
 		return ImportReport{}, err
@@ -322,18 +350,26 @@ func ImportExisting(root string) (ImportReport, error) {
 	return report, nil
 }
 
-func importExistingLocked(root string, settings Settings, report *ImportReport) error {
-	err := Ensure(root)
+func importExistingLocked(
+	sourceRoot string,
+	stateRoot string,
+	settings Settings,
+	report *ImportReport,
+) error {
+	err := ensureWithSettings(stateRoot, settings)
 	if err != nil {
 		return err
 	}
 
-	sources, err := importSourcePaths(root)
+	sources, err := importSourcePaths(sourceRoot)
 	if err != nil {
 		return err
 	}
 
-	primary := filepath.Join(rootOrDot(root), filepath.FromSlash(settings.PrimaryFile))
+	primary := filepath.Join(
+		rootOrDot(stateRoot),
+		filepath.FromSlash(settings.PrimaryFile),
+	)
 
 	existing, err := os.ReadFile(filepath.Clean(primary))
 	if err != nil {
@@ -345,7 +381,7 @@ func importExistingLocked(root string, settings Settings, report *ImportReport) 
 	blocks := strings.Builder{}
 
 	for _, source := range sources {
-		record, block, importErr := importOne(root, source, existingText)
+		record, block, importErr := importOne(sourceRoot, source, existingText)
 		if importErr != nil {
 			return importErr
 		}
@@ -364,13 +400,13 @@ func importExistingLocked(root string, settings Settings, report *ImportReport) 
 		}
 	}
 
-	err = ensureIndex(root, settings, records)
+	err = ensureIndex(stateRoot, settings, records)
 	if err != nil {
 		return err
 	}
 
 	*report = ImportReport{
-		Root:    rootOrDot(root),
+		Root:    rootOrDot(stateRoot),
 		Records: records,
 		Changed: len(records) > 0,
 	}

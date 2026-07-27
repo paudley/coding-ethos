@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	golangciLintAutofixTool = "golangci-lint-autofix"
-	golangciLintFormatTool  = "golangci-lint-format"
-	golangciLintTool        = "golangci-lint"
-	injectedRootArgCount    = 2
+	agentHookCapabilitiesCommand = "capabilities"
+	golangciLintAutofixTool      = "golangci-lint-autofix"
+	golangciLintFormatTool       = "golangci-lint-format"
+	golangciLintTool             = "golangci-lint"
+	injectedRootArgCount         = 2
 )
 
 func runnerArgs(argv []string) []string {
@@ -32,13 +33,25 @@ func runnerArgs(argv []string) []string {
 	}
 }
 
-func codeIntelArgs(root string, args []string) []string {
-	if len(args) == 0 || hasFlag(args, "--root") {
+func codeIntelArgs(root, stateRoot string, args []string) []string {
+	args = withoutFlags(args, "--state-root")
+	if len(args) == 0 {
 		return args
 	}
 
-	next := make([]string, 0, injectedRootArgCount+len(args))
-	next = append(next, args[0], "--root", root)
+	next := []string{args[0]}
+	if !hasFlag(args, "--root") {
+		next = append(next, "--root", root)
+	}
+
+	if !hasFlag(args, "--db") && !sameCleanPath(root, stateRoot) {
+		next = append(
+			next,
+			"--db",
+			filepath.Join(stateRoot, ".coding-ethos", "code-intel.duckdb"),
+		)
+	}
+
 	next = append(next, args[1:]...)
 
 	return next
@@ -137,6 +150,19 @@ func withDefaultHookCommand(paths runtimePaths, args []string) []string {
 	return next
 }
 
+func agentHooksArgs(paths runtimePaths, args []string) []string {
+	if len(args) == 0 || args[0] != agentHookCapabilitiesCommand {
+		return withDefaultHookCommand(paths, args)
+	}
+
+	next := append([]string(nil), args...)
+	if !hasFlag(args, "--ethos-root") {
+		next = append(next, "--ethos-root", paths.EthosRoot)
+	}
+
+	return next
+}
+
 func hasFlag(args []string, name string) bool {
 	for _, arg := range args {
 		if arg == name || strings.HasPrefix(arg, name+"=") {
@@ -148,15 +174,102 @@ func hasFlag(args []string, name string) bool {
 }
 
 func rootFlagValue(args []string, fallback string) string {
+	return flagValue(args, "--root", fallback)
+}
+
+func flagValue(args []string, name, fallback string) string {
 	for index, arg := range args {
-		if arg == "--root" && index+1 < len(args) {
+		if arg == name && index+1 < len(args) {
 			return args[index+1]
 		}
 
-		if value, ok := strings.CutPrefix(arg, "--root="); ok {
+		if value, ok := strings.CutPrefix(arg, name+"="); ok {
 			return value
 		}
 	}
 
 	return fallback
+}
+
+func withoutFlags(args []string, names ...string) []string {
+	filtered := make([]string, 0, len(args))
+
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		removed := false
+
+		for _, name := range names {
+			if arg == name {
+				index++
+				removed = true
+
+				break
+			}
+
+			if strings.HasPrefix(arg, name+"=") {
+				removed = true
+
+				break
+			}
+		}
+
+		if !removed {
+			filtered = append(filtered, arg)
+		}
+	}
+
+	return filtered
+}
+
+func (paths runtimePaths) withCommandRoots(args []string) runtimePaths {
+	if len(args) == 0 {
+		return paths
+	}
+
+	var (
+		defaultStateRoot = paths.StateRoot
+		repoRoot         string
+	)
+
+	switch args[0] {
+	case "agent-hook", "mcp":
+		repoRoot = flagValue(args[1:], "--repo-root", paths.Root)
+	case "agent-hooks":
+		repoRoot = flagValue(args[1:], "--repo-root", paths.Root)
+		defaultStateRoot = flagValue(args[1:], "--root", paths.StateRoot)
+	case "code-intel":
+		repoRoot = flagValue(args[1:], "--root", paths.Root)
+	case "runtime-policy":
+		repoRoot = flagValue(args[1:], "--repo", paths.Root)
+	default:
+		return paths
+	}
+
+	rest := args[1:]
+
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot != "" {
+		paths.Root = filepath.Clean(repoRoot)
+	}
+
+	stateRoot := strings.TrimSpace(flagValue(rest, "--state-root", defaultStateRoot))
+	if stateRoot != "" {
+		paths.StateRoot = filepath.Clean(stateRoot)
+	}
+
+	return paths
+}
+
+func shouldLogRuntimeCommand(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+
+	if args[0] == "cutover" || args[0] == "lfs-hook" {
+		return false
+	}
+
+	return len(args) < 2 ||
+		args[0] != "agent-hooks" ||
+		args[1] != agentHookCapabilitiesCommand
 }

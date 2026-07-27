@@ -896,6 +896,10 @@ func vultureWhitelistArgs() []string {
 
 func vultureExcludePatterns() []string {
 	return []string{
+		".coding-ethos",
+		".coding-ethos/*",
+		"*/.coding-ethos",
+		"*/.coding-ethos/*",
 		".venv",
 		"*/.venv",
 		"*/.venv/*",

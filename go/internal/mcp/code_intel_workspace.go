@@ -300,7 +300,7 @@ func (server Server) codeIntelWorkspaceStatus(args json.RawMessage) (any, error)
 func (server Server) loadCodeIntelWorkspaceStatus(
 	refresh bool,
 ) (codeintel.WorkspaceStatus, error) {
-	root := server.codeIntelRoot()
+	root := server.codeIntelStateRoot()
 	if refresh {
 		status, err := codeintel.RefreshWorkspaceStatus(argsContext(), root)
 		if err != nil {
@@ -337,10 +337,11 @@ func (server Server) openCodeIntelForRoot(
 	}
 
 	ctx := argsContext()
+	storeRoot := server.codeIntelStoreRoot(root)
 
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
 		Backend: codeintel.VectorBackendDuckDBVSS,
-		URI:     codeintel.DefaultVectorPath(root),
+		URI:     codeintel.DefaultVectorPath(storeRoot),
 	})
 	if err != nil {
 		closeStore()
@@ -366,7 +367,9 @@ func (server Server) openCodeIntelStoreForRoot(
 		return nil, nil, errCodeIntelRootUnavailable
 	}
 
-	store, err := codeintel.Open(argsContext(), codeintel.DefaultDBPath(root))
+	storeRoot := server.codeIntelStoreRoot(root)
+
+	store, err := codeintel.Open(argsContext(), codeintel.DefaultDBPath(storeRoot))
 	if err != nil {
 		return nil, nil, fmt.Errorf("open code intelligence store: %w", err)
 	}
@@ -386,7 +389,7 @@ func (server Server) workspaceReposForScope(
 		return nil, apperror.StaticError("workspace repo scope is required")
 	}
 
-	registry, err := codeintel.LoadWorkspaceRegistry(server.codeIntelRoot())
+	registry, err := codeintel.LoadWorkspaceRegistry(server.codeIntelStateRoot())
 	if err != nil {
 		return nil, fmt.Errorf("load workspace registry: %w", err)
 	}

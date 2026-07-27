@@ -491,6 +491,18 @@ session events, remediation records, hook review labels, LCOV coverage, health
 snapshots, architectural decisions, and vector metadata.
 They are not replacements for hooks or CEL policy evaluation.
 
+The top-level runner can keep that analytical state outside the indexed
+checkout while still reading source and repo configuration from it:
+
+```bash
+bin/coding-ethos-run code-intel repo-map \
+  --root /path/to/repo \
+  --state-root /private/coding-ethos-state
+```
+
+When `--state-root` is present and `--db` is omitted, the runner uses
+`/private/coding-ethos-state/.coding-ethos/code-intel.duckdb`.
+
 ## Modern Web Guidance
 
 Modern Web Guidance is exposed as an advisory, latest-on-demand external
@@ -1566,6 +1578,7 @@ bin/coding-ethos-run agent-hooks sync
 bin/coding-ethos-run agent-hooks sync --root /path/to/repo --ethos-root . --dry-run --format toon
 bin/coding-ethos-run agent-hooks doctor
 bin/coding-ethos-run agent-hooks verify
+bin/coding-ethos-run agent-hooks capabilities
 ```
 
 Agent hook generation is all-or-nothing. `sync` writes every supported
@@ -1573,6 +1586,78 @@ repo-local surface. Provider support levels, native settings files, hook events,
 MCP setup, generated targets, memory behavior, response shapes, and unsupported
 surfaces are generated from the registry into
 [Provider Capability Matrix](docs/PROVIDER_CAPABILITY_MATRIX.md).
+
+Supervisors can keep provider settings and durable runtime state outside the
+target checkout. In overlay mode, `--root` is the private provider-settings
+root, `--repo-root` is the actual source repository, and `--state-root` is the
+private Coding Ethos state root:
+
+```bash
+bin/coding-ethos-run agent-hooks sync \
+  --root /private/settings-overlay \
+  --repo-root /path/to/repo
+bin/coding-ethos-run agent-hooks verify \
+  --root /private/settings-overlay \
+  --repo-root /path/to/repo
+```
+
+Generated provider settings and install metadata live under `--root`. Hook
+probes and code indexing read `--repo-root`. Centralized memories,
+code-intelligence databases, runtime-policy artifacts, and hook traces live
+under `--state-root`. Add `--state-root /private/coding-ethos-state` to both
+commands to split that durable state from the settings overlay. The state root
+defaults to the settings root; omitting all three flags preserves repo-local
+behavior. Capability discovery reports all three flags and
+`supports_private_overlay: true`.
+
+An external supervisor can own provider hook execution while Coding Ethos keeps
+ownership of MCP and code intelligence. Pass the same split commands to
+`sync`, `doctor`, and `verify`:
+
+```bash
+bin/coding-ethos-run agent-hooks sync \
+  --root /private/settings-overlay \
+  --repo-root /path/to/repo \
+  --state-root /private/coding-ethos-state \
+  --hook-timeout-seconds 45 \
+  --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
+  --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
+bin/coding-ethos-run agent-hooks verify \
+  --root /private/settings-overlay \
+  --repo-root /path/to/repo \
+  --state-root /private/coding-ethos-state \
+  --hook-timeout-seconds 45 \
+  --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
+  --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
+```
+
+`--hook-command` accepts one static command: the existing
+`coding-ethos-run agent-hook`, or an absolute external `... hook` executable
+optionally prefixed by `env KEY=value ...`. Shell operators, substitutions,
+redirects, background execution, raw leading assignments, and relative
+external executables are rejected. An explicit `--mcp-command` must be exactly
+an absolute `coding-ethos-run mcp` command. When `--mcp-command` is omitted,
+the current MCP command is still derived from `--hook-command`; this preserves
+existing repo-local behavior.
+
+`--hook-timeout-seconds` accepts 1–3600 seconds and defaults to 30. Pass the
+same value to `sync`, `doctor`, and `verify`. Claude, Codex, and Gemini receive
+that native hook deadline, and Codex trust hashes bind it. Generated Kimi TOML
+also includes a per-hook timeout; Kimi enforces a 1–600 second native timeout
+limit after Coding Ethos validates the global 1–3600 second rendering range.
+
+For split roots, the generated MCP configuration keeps that statically
+validated base command and appends `--repo-root` plus `--state-root`. Prepare
+and verify its compiled consumer policy in the same private state root:
+
+```bash
+bin/coding-ethos-run runtime-policy sync \
+  --repo /path/to/repo \
+  --state-root /private/coding-ethos-state
+bin/coding-ethos-run runtime-policy check \
+  --repo /path/to/repo \
+  --state-root /private/coding-ethos-state
+```
 
 Codex runs one native command hook per supported event so current Codex
 sessions enter the same policy runtime without depending on unstable tool
@@ -1585,9 +1670,11 @@ reports.
 The same sync path also installs the local `coding-ethos` MCP server for all
 supported agents. Claude receives a project `.mcp.json` entry, Codex receives a
 managed `[mcp_servers.coding-ethos]` block in `.codex/config.toml`, and Gemini
-receives a `mcpServers.coding-ethos` entry in `.gemini/settings.json`. `doctor`
-checks those entries along with hooks so MCP drift is not a separate hidden
-setup step.
+receives a `mcpServers.coding-ethos` entry in `.gemini/settings.json`. Kimi
+receives managed hooks in `.kimi-code/config.toml` and the MCP server in
+`.kimi-code/mcp.json`; launch it with `KIMI_CODE_HOME` set to that generated
+overlay. `doctor` checks those entries along with hooks so MCP drift is not a
+separate hidden setup step.
 
 Generated ETHOS skills and native agent settings use the same managed-output
 model. `make build` refreshes the checkout-local skill surfaces, hook settings,
@@ -1598,19 +1685,24 @@ settings without rewriting parent root agent docs.
 
 Agent memory uses the same centralization model. `agent-hooks sync` creates and
 verifies `.coding-ethos/memories/MEMORY.md` plus
-`.coding-ethos/memories/index.yaml`, imports existing Claude/Codex/Gemini
-memory files idempotently, and keeps provider memory paths routed to the central
-repo-local surface. Providers that cannot rewrite a memory file tool request get
-a `memory.centralized` denial that points at the allowed memory path instead of
-silently writing durable notes into provider-private state.
+`.coding-ethos/memories/index.yaml` under the selected state root, imports
+existing Claude, Codex, and Gemini memory files from the source repository
+idempotently, and keeps provider memory paths routed to the central surface.
+Without a split state root this remains repo-local. Providers that cannot
+rewrite a memory file tool request get a `memory.centralized` denial that points
+at the allowed memory path instead of silently writing durable notes into
+provider-private state.
 
-`agent-hooks verify` runs doctor first, then invokes the configured hook command
-with provider-native Claude, Codex, and Gemini payloads. The probes cover:
+`agent-hooks verify` runs doctor first, then safely invokes the configured hook
+command—including an external supervisor wrapper—with provider-native Claude,
+Codex, Gemini, and Kimi payloads. The probes cover:
 
 - Claude transparent Git wrapper rewrite
 - Codex blocks for raw Git, absolute Git paths, nested shell Git, and Python
   subprocess Git when rewrite is unavailable
 - Gemini deny responses for raw shell Git and write-tool policy denial
+- Kimi policy denial with exit code 2 and a stderr reason
+- Kimi structured-deny Stop continuation with exit code 0
 - managed hook-binary tampering:
   `rm ...coding-ethos-git-hook && go build -o ...coding-ethos-git-hook`
 
@@ -1669,10 +1761,29 @@ policy failures, not ordinary lint failures. Blocked tamper and Git-bypass
 responses use the normal structured provider output with a policy-specific
 finding and remediation that points back to the approved git workflow.
 
-Agent hook JSON mode writes the hook result to stdout and keeps stderr reserved
-for runner/configuration errors. A blocked provider decision exits with code 1
-and carries the denial details in the JSON result instead of duplicating a
-second compact denial line on stderr.
+Agent hook JSON mode keeps the existing provider-native response as its default.
+Existing blocked decisions exit with code 1 and carry denial details in JSON.
+Kimi policy denials use its native exit code 2 plus a stderr reason; Kimi Stop
+guidance uses a successful structured deny so the agent can continue the turn
+once.
+
+Supervisors select the stable provider-neutral contract explicitly:
+
+```bash
+bin/coding-ethos-run agent-hook \
+  --json \
+  --contract neutral-v1 \
+  --repo-root /path/to/repo \
+  --state-root /private/coding-ethos-state < event.json
+```
+
+The v1 response includes `contract_version`, `correlation_id`, a normalized
+event identity, `decision`, `effect`, policy decisions/advice, optional
+`updated_input`, and the denial tracking ID. The request accepts the normal
+hook event shape plus optional `contract_version` and `correlation_id`.
+Provider-native output remains unchanged unless the selector (or
+`CODE_ETHOS_HOOK_CONTRACT=neutral-v1`) is present. See
+[Provider-Neutral Hook Contract v1](docs/HOOK_CONTRACT_V1.md).
 
 Provider output uses the strongest native shape each agent supports:
 the generated [Provider Capability Matrix](docs/PROVIDER_CAPABILITY_MATRIX.md)
