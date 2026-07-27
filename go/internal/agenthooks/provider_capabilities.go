@@ -43,6 +43,7 @@ type CapabilityReport struct {
 	RepositoryRootFlag   string `json:"repository_root_flag"`
 	StateRootFlag        string `json:"state_root_flag"`
 	MCPCommandFlag       string `json:"mcp_command_flag"`
+	HookTimeoutFlag      string `json:"hook_timeout_flag"`
 	RuntimePolicyCommand string `json:"runtime_policy_command"`
 
 	HookContracts []hooks.HookContractCapability `json:"hook_contracts"`
@@ -64,6 +65,7 @@ func Capabilities(runtimeVersion string) CapabilityReport {
 		RepositoryRootFlag:     "--repo-root",
 		StateRootFlag:          "--state-root",
 		MCPCommandFlag:         "--mcp-command",
+		HookTimeoutFlag:        "--hook-timeout-seconds",
 		RuntimePolicyCommand:   "runtime-policy",
 		SupportsPrivateOverlay: true,
 	}

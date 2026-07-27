@@ -116,7 +116,8 @@ bin/coding-ethos-run agent-hooks capabilities --json
 The response schema is `coding-ethos.agent-hooks/v1`. `runtime_version` comes
 from the checkout's `pyproject.toml`. The command is read-only and does not
 require a policy bundle or code-intelligence store. The report advertises
-`mcp_command_flag: "--mcp-command"` and
+`mcp_command_flag: "--mcp-command"`,
+`hook_timeout_flag: "--hook-timeout-seconds"`, and
 `runtime_policy_command: "runtime-policy"` alongside the settings, repository,
 and state root flags.
 
@@ -162,12 +163,14 @@ bin/coding-ethos-run agent-hooks sync \
   --root /private/settings-overlay \
   --repo-root /path/to/repo \
   --state-root /private/coding-ethos-state \
+  --hook-timeout-seconds 45 \
   --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
   --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
 bin/coding-ethos-run agent-hooks verify \
   --root /private/settings-overlay \
   --repo-root /path/to/repo \
   --state-root /private/coding-ethos-state \
+  --hook-timeout-seconds 45 \
   --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
   --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
 bin/coding-ethos-run runtime-policy check \
@@ -186,6 +189,11 @@ smoke payloads through the external supervisor command, while generated
 Claude, Codex, Gemini, and Kimi MCP entries continue to invoke Coding Ethos
 directly. For split roots, generated MCP entries append the validated
 `--repo-root` and `--state-root` arguments to that exact base command.
+`--hook-timeout-seconds` is bounded to 1–3600 seconds and defaults to 30. The
+same value must be supplied to `sync`, `doctor`, and `verify`; it is rendered
+into Claude, Codex, and Gemini native hook settings and included in Codex
+trust hashes. Kimi's native hook schema does not expose a per-hook timeout, so
+the supervisor command remains responsible for its own bounded deadline.
 `runtime-policy sync/check` owns only the consumer-scoped compiled bundle under
 the state root (or below Git metadata when no state root is supplied); it does
 not generate or rewrite tracked repository configuration.

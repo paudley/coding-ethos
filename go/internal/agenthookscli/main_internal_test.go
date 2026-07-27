@@ -96,6 +96,7 @@ func TestCapabilitiesReportsRuntimeContractAndKimi(t *testing.T) {
 		`"selector": "neutral-v1"`,
 		`"state_root_flag": "--state-root"`,
 		`"mcp_command_flag": "--mcp-command"`,
+		`"hook_timeout_flag": "--hook-timeout-seconds"`,
 		`"runtime_policy_command": "runtime-policy"`,
 		`"provider": "kimi"`,
 	} {

@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/execguard"
@@ -240,6 +241,7 @@ func runHookProbe(
 	root string,
 	hookCommand string,
 	probe hookProbe,
+	probeTimeout time.Duration,
 ) (hookProbeResult, error) {
 	var (
 		stdout bytes.Buffer

@@ -1619,12 +1619,14 @@ bin/coding-ethos-run agent-hooks sync \
   --root /private/settings-overlay \
   --repo-root /path/to/repo \
   --state-root /private/coding-ethos-state \
+  --hook-timeout-seconds 45 \
   --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
   --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
 bin/coding-ethos-run agent-hooks verify \
   --root /private/settings-overlay \
   --repo-root /path/to/repo \
   --state-root /private/coding-ethos-state \
+  --hook-timeout-seconds 45 \
   --hook-command 'env NYAR_HOME=/private/nyar NYAR_CODING_ETHOS_ROOT=/opt/coding-ethos /absolute/path/nyar hook' \
   --mcp-command '/opt/coding-ethos/bin/coding-ethos-run mcp'
 ```
@@ -1637,6 +1639,12 @@ external executables are rejected. An explicit `--mcp-command` must be exactly
 an absolute `coding-ethos-run mcp` command. When `--mcp-command` is omitted,
 the current MCP command is still derived from `--hook-command`; this preserves
 existing repo-local behavior.
+
+`--hook-timeout-seconds` accepts 1–3600 seconds and defaults to 30. Pass the
+same value to `sync`, `doctor`, and `verify`. Claude, Codex, and Gemini receive
+that native hook deadline, and Codex trust hashes bind it. Kimi does not expose
+a native per-hook timeout, so an external supervisor must retain its own
+bounded command deadline.
 
 For split roots, the generated MCP configuration keeps that statically
 validated base command and appends `--repo-root` plus `--state-root`. Prepare

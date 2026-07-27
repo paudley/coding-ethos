@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,13 +28,17 @@ import (
 )
 
 const (
-	codexConfigGrowth = 2
-	kimiBlockExitCode = 2
-	mcpServerName     = "coding-ethos"
-	minimumHookArgs   = 2
-	probeTimeout      = 30 * time.Second
-	settingsDirMode   = 0o755
-	settingsFileMode  = 0o600
+	// DefaultHookTimeoutSeconds is the provider-native hook deadline used when
+	// a caller does not select a stricter integration budget.
+	DefaultHookTimeoutSeconds = 30
+	hookProbeDeadlineMargin   = 2 * time.Second
+	maximumHookTimeoutSeconds = 3600
+	codexConfigGrowth         = 2
+	kimiBlockExitCode         = 2
+	mcpServerName             = "coding-ethos"
+	minimumHookArgs           = 2
+	settingsDirMode           = 0o755
+	settingsFileMode          = 0o600
 
 	eventPreToolUse        = "PreToolUse"
 	eventPostToolUse       = "PostToolUse"
@@ -73,8 +78,30 @@ var (
 	errCodexTrustMismatch = apperror.StaticError(
 		"Codex user config does not trust generated project hooks",
 	)
+	errHookTimeoutInvalid = apperror.StaticError(
+		"hook timeout must be between 1 and 3600 seconds",
+	)
 	externalEnvironmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
+
+// SettingsOptions controls provider-native hook settings.
+type SettingsOptions struct {
+	HookTimeoutSeconds int
+}
+
+// DefaultSettingsOptions returns the bounded provider defaults.
+func DefaultSettingsOptions() SettingsOptions {
+	return SettingsOptions{HookTimeoutSeconds: DefaultHookTimeoutSeconds}
+}
+
+func (options SettingsOptions) validate() error {
+	if options.HookTimeoutSeconds < 1 ||
+		options.HookTimeoutSeconds > maximumHookTimeoutSeconds {
+		return errHookTimeoutInvalid
+	}
+
+	return nil
+}
 
 type commandHook struct {
 	Name          string `json:"name,omitempty"`
@@ -315,7 +342,21 @@ func DefaultSettingsPaths(root string) SettingsPaths {
 }
 
 func WriteSettings(writer io.Writer, hookCommand string) error {
-	settings, err := buildAllSettings(hookCommand)
+	return WriteSettingsWithOptions(
+		writer,
+		hookCommand,
+		DefaultSettingsOptions(),
+	)
+}
+
+// WriteSettingsWithOptions renders all provider settings with one validated
+// hook deadline.
+func WriteSettingsWithOptions(
+	writer io.Writer,
+	hookCommand string,
+	options SettingsOptions,
+) error {
+	settings, err := buildAllSettings(hookCommand, options)
 	if err != nil {
 		return err
 	}
@@ -381,7 +422,27 @@ func SyncSettingsForRootsWithMCPCommand(
 	hookCommand string,
 	mcpCommand string,
 ) error {
-	settings, err := buildAllSettings(hookCommand)
+	return SyncSettingsForRootsWithMCPCommandAndOptions(
+		settingsRoot,
+		repoRoot,
+		stateRoot,
+		hookCommand,
+		mcpCommand,
+		DefaultSettingsOptions(),
+	)
+}
+
+// SyncSettingsForRootsWithMCPCommandAndOptions writes provider settings with
+// separate settings, source, and state roots plus a validated hook deadline.
+func SyncSettingsForRootsWithMCPCommandAndOptions(
+	settingsRoot string,
+	repoRoot string,
+	stateRoot string,
+	hookCommand string,
+	mcpCommand string,
+	options SettingsOptions,
+) error {
+	settings, err := buildAllSettings(hookCommand, options)
 	if err != nil {
 		return err
 	}
@@ -717,7 +778,9 @@ func renderManagedCodexHooksBlock(settings claudeSettings) string {
 				builder.WriteString(tomlString(matcher.Hooks[0].StatusMessage))
 			}
 
-			builder.WriteString(", timeout = 30 }]")
+			builder.WriteString(", timeout = ")
+			builder.WriteString(strconv.Itoa(matcher.Hooks[0].Timeout))
+			builder.WriteString(" }]")
 			builder.WriteString(" },\n")
 		}
 
@@ -914,7 +977,27 @@ func DoctorSettingsForRootsWithMCPCommand(
 	hookCommand string,
 	mcpCommand string,
 ) error {
-	expected, err := buildAllSettings(hookCommand)
+	return DoctorSettingsForRootsWithMCPCommandAndOptions(
+		settingsRoot,
+		repoRoot,
+		stateRoot,
+		hookCommand,
+		mcpCommand,
+		DefaultSettingsOptions(),
+	)
+}
+
+// DoctorSettingsForRootsWithMCPCommandAndOptions validates provider settings
+// against the selected hook deadline.
+func DoctorSettingsForRootsWithMCPCommandAndOptions(
+	settingsRoot string,
+	repoRoot string,
+	stateRoot string,
+	hookCommand string,
+	mcpCommand string,
+	options SettingsOptions,
+) error {
+	expected, err := buildAllSettings(hookCommand, options)
 	if err != nil {
 		return err
 	}
@@ -1159,12 +1242,33 @@ func VerifySettingsForRootsWithMCPCommand(
 	hookCommand string,
 	mcpCommand string,
 ) (VerifyReport, error) {
-	err := DoctorSettingsForRootsWithMCPCommand(
+	return VerifySettingsForRootsWithMCPCommandAndOptions(
 		settingsRoot,
 		repoRoot,
 		stateRoot,
 		hookCommand,
 		mcpCommand,
+		DefaultSettingsOptions(),
+	)
+}
+
+// VerifySettingsForRootsWithMCPCommandAndOptions validates and probes provider
+// settings using the selected hook deadline.
+func VerifySettingsForRootsWithMCPCommandAndOptions(
+	settingsRoot string,
+	repoRoot string,
+	stateRoot string,
+	hookCommand string,
+	mcpCommand string,
+	options SettingsOptions,
+) (VerifyReport, error) {
+	err := DoctorSettingsForRootsWithMCPCommandAndOptions(
+		settingsRoot,
+		repoRoot,
+		stateRoot,
+		hookCommand,
+		mcpCommand,
+		options,
 	)
 	if err != nil {
 		return VerifyReport{
@@ -1190,7 +1294,9 @@ func VerifySettingsForRootsWithMCPCommand(
 	}
 
 	for _, probe := range hookProbes() {
-		result, err := runHookProbe(repoRoot, hookCommand, probe)
+		probeTimeout := time.Duration(options.HookTimeoutSeconds)*time.Second +
+			hookProbeDeadlineMargin
+		result, err := runHookProbe(repoRoot, hookCommand, probe, probeTimeout)
 
 		check := VerifyCheck{
 			Provider: probe.provider,
@@ -1395,20 +1501,40 @@ func parseSkillFrontmatter(content string) (skillFrontmatter, error) {
 	return frontmatter, nil
 }
 
-func buildAllSettings(hookCommand string) (allSettings, error) {
+func buildAllSettings(
+	hookCommand string,
+	options SettingsOptions,
+) (allSettings, error) {
 	if strings.TrimSpace(hookCommand) == "" {
 		return allSettings{}, errHookCommandRequired
 	}
 
-	_, err := hookProbeArgs("", hookCommand)
+	err := options.validate()
+	if err != nil {
+		return allSettings{}, err
+	}
+
+	_, err = hookProbeArgs("", hookCommand)
 	if err != nil {
 		return allSettings{}, err
 	}
 
 	return allSettings{
-		Claude:       buildClaudeSettings(RuntimeHookSpecs(), hookCommand),
-		Codex:        buildCodexSettings(RuntimeHookSpecs(), hookCommand),
-		Gemini:       buildGeminiSettings(RuntimeHookSpecs(), hookCommand),
+		Claude: buildClaudeSettings(
+			RuntimeHookSpecs(),
+			hookCommand,
+			options.HookTimeoutSeconds,
+		),
+		Codex: buildCodexSettings(
+			RuntimeHookSpecs(),
+			hookCommand,
+			options.HookTimeoutSeconds,
+		),
+		Gemini: buildGeminiSettings(
+			RuntimeHookSpecs(),
+			hookCommand,
+			options.HookTimeoutSeconds,
+		),
 		Kimi:         buildKimiSettings(RuntimeHookSpecs(), hookCommand),
 		Capabilities: ProviderCapabilities(),
 	}, nil
@@ -1552,12 +1678,16 @@ func kimiConfigContainsExpectedHooks(
 	return true
 }
 
-func buildClaudeSettings(specs []HookSpec, hookCommand string) claudeSettings {
+func buildClaudeSettings(
+	specs []HookSpec,
+	hookCommand string,
+	timeoutSeconds int,
+) claudeSettings {
 	hooks := make(map[string][]matcherHook)
 	for _, spec := range specs {
 		hooks[spec.Event] = append(
 			hooks[spec.Event],
-			commandMatcher(spec.Tool, hookCommand),
+			commandMatcher(spec.Tool, hookCommand, timeoutSeconds),
 		)
 	}
 
@@ -1565,25 +1695,36 @@ func buildClaudeSettings(specs []HookSpec, hookCommand string) claudeSettings {
 		hooks,
 		toolaliases.ProviderClaude,
 		hookCommand,
+		timeoutSeconds,
 		commandMatcher,
 	)
 
 	return claudeSettings{Hooks: hooks}
 }
 
-func buildCodexSettings(specs []HookSpec, hookCommand string) claudeSettings {
+func buildCodexSettings(
+	specs []HookSpec,
+	hookCommand string,
+	timeoutSeconds int,
+) claudeSettings {
 	hooks := make(map[string][]matcherHook)
 
 	for _, spec := range specs {
 		for _, matcher := range codexHookMatchers(spec) {
 			hooks[spec.Event] = append(
 				hooks[spec.Event],
-				codexMatcher(matcher, hookCommand),
+				codexMatcher(matcher, hookCommand, timeoutSeconds),
 			)
 		}
 	}
 
-	addNoopProviderMatchers(hooks, toolaliases.ProviderCodex, hookCommand, codexMatcher)
+	addNoopProviderMatchers(
+		hooks,
+		toolaliases.ProviderCodex,
+		hookCommand,
+		timeoutSeconds,
+		codexMatcher,
+	)
 
 	return claudeSettings{Hooks: hooks}
 }
@@ -1612,7 +1753,11 @@ func codexSupportsTool(tool string) bool {
 	return tool == toolaliases.CanonicalShell || toolaliases.IsWriteLike(tool)
 }
 
-func buildGeminiSettings(specs []HookSpec, hookCommand string) claudeSettings {
+func buildGeminiSettings(
+	specs []HookSpec,
+	hookCommand string,
+	timeoutSeconds int,
+) claudeSettings {
 	hooks := make(map[string][]matcherHook)
 
 	for _, spec := range specs {
@@ -1623,7 +1768,7 @@ func buildGeminiSettings(specs []HookSpec, hookCommand string) claudeSettings {
 
 		hooks[event] = append(
 			hooks[event],
-			geminiMatcher(matcher, hookCommand),
+			geminiMatcher(matcher, hookCommand, timeoutSeconds),
 		)
 	}
 
@@ -1631,6 +1776,7 @@ func buildGeminiSettings(specs []HookSpec, hookCommand string) claudeSettings {
 		hooks,
 		toolaliases.ProviderGemini,
 		hookCommand,
+		timeoutSeconds,
 		geminiMatcher,
 	)
 
@@ -1644,18 +1790,19 @@ func addNoopProviderMatchers(
 	hooks map[string][]matcherHook,
 	provider string,
 	hookCommand string,
-	build func(string, string) matcherHook,
+	timeoutSeconds int,
+	build func(string, string, int) matcherHook,
 ) {
 	aliases := toolaliases.ProviderAliases(provider, toolaliases.CanonicalNoop)
 	for _, alias := range aliases {
 		preEvent, postEvent := providerToolEvents(provider)
 		hooks[preEvent] = append(
 			hooks[preEvent],
-			build(providerMatcher(alias), hookCommand),
+			build(providerMatcher(alias), hookCommand, timeoutSeconds),
 		)
 		hooks[postEvent] = append(
 			hooks[postEvent],
-			build(providerMatcher(alias), hookCommand),
+			build(providerMatcher(alias), hookCommand, timeoutSeconds),
 		)
 	}
 }
@@ -1713,34 +1860,37 @@ func nativePayloadContainsExpectedHooks(
 	return claudePayloadContainsExpectedHooks(payload, expected)
 }
 
-func commandMatcher(matcher, hookCommand string) matcherHook {
+func commandMatcher(matcher, hookCommand string, timeoutSeconds int) matcherHook {
 	return matcherHook{
 		Matcher: matcher,
 		Hooks: []commandHook{{
 			Type:    "command",
 			Command: hookCommand,
+			Timeout: timeoutSeconds,
 		}},
 	}
 }
 
-func codexMatcher(matcher, hookCommand string) matcherHook {
+func codexMatcher(matcher, hookCommand string, timeoutSeconds int) matcherHook {
 	return matcherHook{
 		Matcher: matcher,
 		Hooks: []commandHook{{
 			Type:          "command",
 			Command:       hookCommand,
 			StatusMessage: "coding-ethos policy",
+			Timeout:       timeoutSeconds,
 		}},
 	}
 }
 
-func geminiMatcher(matcher, hookCommand string) matcherHook {
+func geminiMatcher(matcher, hookCommand string, timeoutSeconds int) matcherHook {
 	return matcherHook{
 		Matcher: matcher,
 		Hooks: []commandHook{{
 			Name:    "coding-ethos",
 			Type:    "command",
 			Command: hookCommand,
+			Timeout: timeoutSeconds,
 		}},
 	}
 }

@@ -74,6 +74,75 @@ func TestWriteSettingsIncludesAllProviders(t *testing.T) {
 	}
 }
 
+func TestConfiguredHookTimeoutReachesProviderSettings(t *testing.T) {
+	t.Parallel()
+
+	const timeoutSeconds = 45
+
+	var buffer bytes.Buffer
+
+	err := agenthooks.WriteSettingsWithOptions(
+		&buffer,
+		testHookCommand,
+		agenthooks.SettingsOptions{HookTimeoutSeconds: timeoutSeconds},
+	)
+	if err != nil {
+		t.Fatalf("write settings with timeout: %v", err)
+	}
+
+	output := buffer.String()
+	for _, provider := range []string{"claude", "codex", "gemini"} {
+		settings := providerSettingsSection(
+			t,
+			output,
+			provider,
+			map[string]string{
+				"claude": "codex",
+				"codex":  "gemini",
+				"gemini": "kimi",
+			}[provider],
+		)
+		if !strings.Contains(settings, `"timeout": 45`) {
+			t.Fatalf("%s settings omit configured timeout:\n%s", provider, settings)
+		}
+	}
+
+	root := t.TempDir()
+	err = agenthooks.SyncSettingsForRootsWithMCPCommandAndOptions(
+		root,
+		root,
+		root,
+		testHookCommand,
+		"",
+		agenthooks.SettingsOptions{HookTimeoutSeconds: timeoutSeconds},
+	)
+	if err != nil {
+		t.Fatalf("sync settings with timeout: %v", err)
+	}
+	codex, err := os.ReadFile(agenthooks.DefaultSettingsPaths(root).CodexConfig)
+	if err != nil {
+		t.Fatalf("read Codex settings: %v", err)
+	}
+	if !bytes.Contains(codex, []byte("timeout = 45")) {
+		t.Fatalf("Codex TOML omits configured timeout:\n%s", codex)
+	}
+}
+
+func TestConfiguredHookTimeoutRejectsUnboundedValues(t *testing.T) {
+	t.Parallel()
+
+	for _, timeoutSeconds := range []int{0, 3601} {
+		err := agenthooks.WriteSettingsWithOptions(
+			&bytes.Buffer{},
+			testHookCommand,
+			agenthooks.SettingsOptions{HookTimeoutSeconds: timeoutSeconds},
+		)
+		if err == nil {
+			t.Fatalf("timeout %d unexpectedly accepted", timeoutSeconds)
+		}
+	}
+}
+
 func TestProviderCapabilitiesDocumentProviderLimits(t *testing.T) {
 	t.Parallel()
 

@@ -37,7 +37,23 @@ func DefaultCodexUserConfigPath() (string, error) {
 
 // SyncCodexTrustState records trust hashes for generated project Codex hooks.
 func SyncCodexTrustState(root, hookCommand, userConfigPath string) error {
-	entries, err := expectedCodexTrustEntries(root, hookCommand)
+	return SyncCodexTrustStateWithOptions(
+		root,
+		hookCommand,
+		userConfigPath,
+		DefaultSettingsOptions(),
+	)
+}
+
+// SyncCodexTrustStateWithOptions records hashes including the selected hook
+// deadline.
+func SyncCodexTrustStateWithOptions(
+	root string,
+	hookCommand string,
+	userConfigPath string,
+	options SettingsOptions,
+) error {
+	entries, err := expectedCodexTrustEntries(root, hookCommand, options)
 	if err != nil {
 		return err
 	}
@@ -57,7 +73,23 @@ func SyncCodexTrustState(root, hookCommand, userConfigPath string) error {
 // VerifyCodexTrustState fails when Codex would treat generated project hooks as
 // untrusted or modified.
 func VerifyCodexTrustState(root, hookCommand, userConfigPath string) error {
-	entries, err := expectedCodexTrustEntries(root, hookCommand)
+	return VerifyCodexTrustStateWithOptions(
+		root,
+		hookCommand,
+		userConfigPath,
+		DefaultSettingsOptions(),
+	)
+}
+
+// VerifyCodexTrustStateWithOptions verifies hashes including the selected
+// provider hook deadline.
+func VerifyCodexTrustStateWithOptions(
+	root string,
+	hookCommand string,
+	userConfigPath string,
+	options SettingsOptions,
+) error {
+	entries, err := expectedCodexTrustEntries(root, hookCommand, options)
 	if err != nil {
 		return err
 	}
@@ -152,8 +184,9 @@ func removeCodexTrustEntriesForConfig(content, configPath string) string {
 
 func expectedCodexTrustEntries(
 	root, hookCommand string,
+	options SettingsOptions,
 ) ([]codexHookTrustEntry, error) {
-	settings, err := buildAllSettings(hookCommand)
+	settings, err := buildAllSettings(hookCommand, options)
 	if err != nil {
 		return nil, err
 	}

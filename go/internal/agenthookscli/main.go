@@ -32,6 +32,42 @@ var (
 	errUnknownCommand = apperror.StaticError("unknown agent-hooks command")
 )
 
+type settingsCommandFlags struct {
+	root               *string
+	repoRoot           *string
+	stateRoot          *string
+	hookCommand        *string
+	hookTimeoutSeconds *int
+	mcpCommand         *string
+}
+
+func bindSettingsCommandFlags(flags *flag.FlagSet) settingsCommandFlags {
+	return settingsCommandFlags{
+		root: flags.String("root", ".", "Repository root for agent settings"),
+		repoRoot: flags.String(
+			"repo-root",
+			"",
+			"Actual repository root when --root is a private settings overlay",
+		),
+		stateRoot: flags.String(
+			"state-root",
+			"",
+			"Private Coding Ethos state root; defaults to --root",
+		),
+		hookCommand: flags.String("hook-command", "", "Agent hook command"),
+		hookTimeoutSeconds: flags.Int(
+			"hook-timeout-seconds",
+			agenthooks.DefaultHookTimeoutSeconds,
+			"Provider hook timeout in seconds",
+		),
+		mcpCommand: flags.String(
+			"mcp-command",
+			"",
+			"Coding Ethos MCP command; derived from --hook-command when omitted",
+		),
+	}
+}
+
 func runCLI(args []string) int {
 	if len(args) == 0 {
 		usage()
@@ -104,6 +140,11 @@ func capabilities(args []string) error {
 func printSettings(args []string) error {
 	flags := flag.NewFlagSet("print", flag.ContinueOnError)
 	hookCommand := flags.String("hook-command", "", "Agent hook command")
+	hookTimeoutSeconds := flags.Int(
+		"hook-timeout-seconds",
+		agenthooks.DefaultHookTimeoutSeconds,
+		"Provider hook timeout in seconds",
+	)
 
 	err := flags.Parse(args)
 	if err != nil {
@@ -112,7 +153,11 @@ func printSettings(args []string) error {
 
 	var buffer bytes.Buffer
 
-	err = agenthooks.WriteSettings(&buffer, defaultHookCommand(*hookCommand))
+	err = agenthooks.WriteSettingsWithOptions(
+		&buffer,
+		defaultHookCommand(*hookCommand),
+		settingsOptions(*hookTimeoutSeconds),
+	)
 	if err != nil {
 		return fmt.Errorf("write agent hook settings: %w", err)
 	}
@@ -131,24 +176,8 @@ func printSettings(args []string) error {
 
 func syncSettings(args []string) error {
 	flags := flag.NewFlagSet("sync", flag.ContinueOnError)
-	root := flags.String("root", ".", "Repository root for agent settings")
-	repoRoot := flags.String(
-		"repo-root",
-		"",
-		"Actual repository root when --root is a private settings overlay",
-	)
-	stateRoot := flags.String(
-		"state-root",
-		"",
-		"Private Coding Ethos state root; defaults to --root",
-	)
+	settings := bindSettingsCommandFlags(flags)
 	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
-	hookCommand := flags.String("hook-command", "", "Agent hook command")
-	mcpCommand := flags.String(
-		"mcp-command",
-		"",
-		"Coding Ethos MCP command; derived from --hook-command when omitted",
-	)
 	dryRun := flags.Bool("dry-run", false, "Report planned writes without mutating files")
 	format := flags.String(
 		"format",
@@ -161,16 +190,18 @@ func syncSettings(args []string) error {
 		return fmt.Errorf("parse sync flags: %w", err)
 	}
 
-	resolvedHookCommand := defaultHookCommand(*hookCommand)
-	resolvedRepoRoot := defaultRepoRoot(*root, *repoRoot)
-	resolvedStateRoot := defaultStateRoot(*root, *stateRoot)
+	resolvedHookCommand := defaultHookCommand(*settings.hookCommand)
+	resolvedRepoRoot := defaultRepoRoot(*settings.root, *settings.repoRoot)
+	resolvedStateRoot := defaultStateRoot(*settings.root, *settings.stateRoot)
+	options := settingsOptions(*settings.hookTimeoutSeconds)
 
-	artifacts, err := agenthooks.StateArtifactsForRootsWithMCPCommand(
-		*root,
+	artifacts, err := agenthooks.StateArtifactsForRootsWithMCPCommandAndOptions(
+		*settings.root,
 		resolvedRepoRoot,
 		resolvedStateRoot,
 		resolvedHookCommand,
-		*mcpCommand,
+		*settings.mcpCommand,
+		options,
 	)
 	if err != nil {
 		return fmt.Errorf("plan agent hook settings: %w", err)
@@ -178,36 +209,38 @@ func syncSettings(args []string) error {
 
 	if *dryRun {
 		return writeSyncStateReport(
-			syncstate.Plan(*root, "agent-hooks sync", artifacts),
+			syncstate.Plan(*settings.root, "agent-hooks sync", artifacts),
 			*format,
 		)
 	}
 
 	err = applyAgentHookSettings(
-		*root,
+		*settings.root,
 		resolvedRepoRoot,
 		resolvedStateRoot,
 		resolvedHookCommand,
-		*mcpCommand,
+		*settings.mcpCommand,
+		options,
 	)
 	if err != nil {
 		return err
 	}
 
-	if privateSettingsOverlay(*root, resolvedRepoRoot) {
-		artifacts, err = agenthooks.StateArtifactsForRootsWithMCPCommand(
-			*root,
+	if privateSettingsOverlay(*settings.root, resolvedRepoRoot) {
+		artifacts, err = agenthooks.StateArtifactsForRootsWithMCPCommandAndOptions(
+			*settings.root,
 			resolvedRepoRoot,
 			resolvedStateRoot,
 			resolvedHookCommand,
-			*mcpCommand,
+			*settings.mcpCommand,
+			options,
 		)
 		if err != nil {
 			return fmt.Errorf("refresh private overlay state artifacts: %w", err)
 		}
 	}
 
-	return upsertAgentHookSyncState(*root, *ethosRoot, artifacts)
+	return upsertAgentHookSyncState(*settings.root, *ethosRoot, artifacts)
 }
 
 func applyAgentHookSettings(
@@ -216,22 +249,25 @@ func applyAgentHookSettings(
 	stateRoot string,
 	hookCommand string,
 	mcpCommand string,
+	options agenthooks.SettingsOptions,
 ) error {
-	err := agenthooks.SyncSettingsForRootsWithMCPCommand(
+	err := agenthooks.SyncSettingsForRootsWithMCPCommandAndOptions(
 		root,
 		repoRoot,
 		stateRoot,
 		hookCommand,
 		mcpCommand,
+		options,
 	)
 	if err != nil {
 		return fmt.Errorf("sync agent hook settings: %w", err)
 	}
 
-	err = agenthooks.SyncCodexTrustState(
+	err = agenthooks.SyncCodexTrustStateWithOptions(
 		root,
 		hookCommand,
 		codexTrustConfigForRoots(root, repoRoot),
+		options,
 	)
 	if err != nil {
 		return fmt.Errorf("sync Codex hook trust: %w", err)
@@ -272,46 +308,34 @@ func writeSyncStateReport(report syncstate.Report, format string) error {
 
 func doctorSettings(args []string) error {
 	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
-	root := flags.String("root", ".", "Repository root for agent settings")
-	repoRoot := flags.String(
-		"repo-root",
-		"",
-		"Actual repository root when --root is a private settings overlay",
-	)
-	stateRoot := flags.String(
-		"state-root",
-		"",
-		"Private Coding Ethos state root; defaults to --root",
-	)
-	hookCommand := flags.String("hook-command", "", "Agent hook command")
-	mcpCommand := flags.String(
-		"mcp-command",
-		"",
-		"Coding Ethos MCP command; derived from --hook-command when omitted",
-	)
+	settings := bindSettingsCommandFlags(flags)
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse doctor flags: %w", err)
 	}
 
-	err = agenthooks.DoctorSettingsForRootsWithMCPCommand(
-		*root,
-		defaultRepoRoot(*root, *repoRoot),
-		defaultStateRoot(*root, *stateRoot),
-		defaultHookCommand(*hookCommand),
-		*mcpCommand,
+	options := settingsOptions(*settings.hookTimeoutSeconds)
+
+	err = agenthooks.DoctorSettingsForRootsWithMCPCommandAndOptions(
+		*settings.root,
+		defaultRepoRoot(*settings.root, *settings.repoRoot),
+		defaultStateRoot(*settings.root, *settings.stateRoot),
+		defaultHookCommand(*settings.hookCommand),
+		*settings.mcpCommand,
+		options,
 	)
 	if err != nil {
 		return fmt.Errorf("doctor agent hook settings: %w", err)
 	}
 
-	resolvedRepoRoot := defaultRepoRoot(*root, *repoRoot)
+	resolvedRepoRoot := defaultRepoRoot(*settings.root, *settings.repoRoot)
 
-	err = agenthooks.VerifyCodexTrustState(
-		*root,
-		defaultHookCommand(*hookCommand),
-		codexTrustConfigForRoots(*root, resolvedRepoRoot),
+	err = agenthooks.VerifyCodexTrustStateWithOptions(
+		*settings.root,
+		defaultHookCommand(*settings.hookCommand),
+		codexTrustConfigForRoots(*settings.root, resolvedRepoRoot),
+		options,
 	)
 	if err != nil {
 		return fmt.Errorf("doctor Codex hook trust: %w", err)
@@ -327,35 +351,22 @@ func doctorSettings(args []string) error {
 
 func verifySettings(args []string) error {
 	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
-	root := flags.String("root", ".", "Repository root for agent settings")
-	repoRoot := flags.String(
-		"repo-root",
-		"",
-		"Actual repository root when --root is a private settings overlay",
-	)
-	stateRoot := flags.String(
-		"state-root",
-		"",
-		"Private Coding Ethos state root; defaults to --root",
-	)
-	hookCommand := flags.String("hook-command", "", "Agent hook command")
-	mcpCommand := flags.String(
-		"mcp-command",
-		"",
-		"Coding Ethos MCP command; derived from --hook-command when omitted",
-	)
+	settings := bindSettingsCommandFlags(flags)
 
 	err := flags.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parse verify flags: %w", err)
 	}
 
-	report, err := agenthooks.VerifySettingsForRootsWithMCPCommand(
-		*root,
-		defaultRepoRoot(*root, *repoRoot),
-		defaultStateRoot(*root, *stateRoot),
-		defaultHookCommand(*hookCommand),
-		*mcpCommand,
+	options := settingsOptions(*settings.hookTimeoutSeconds)
+
+	report, err := agenthooks.VerifySettingsForRootsWithMCPCommandAndOptions(
+		*settings.root,
+		defaultRepoRoot(*settings.root, *settings.repoRoot),
+		defaultStateRoot(*settings.root, *settings.stateRoot),
+		defaultHookCommand(*settings.hookCommand),
+		*settings.mcpCommand,
+		options,
 	)
 	if err != nil {
 		encodeErr := writeJSONReport(os.Stdout, report)
@@ -366,12 +377,13 @@ func verifySettings(args []string) error {
 		return fmt.Errorf("verify agent hook settings: %w", err)
 	}
 
-	resolvedRepoRoot := defaultRepoRoot(*root, *repoRoot)
+	resolvedRepoRoot := defaultRepoRoot(*settings.root, *settings.repoRoot)
 
-	err = agenthooks.VerifyCodexTrustState(
-		*root,
-		defaultHookCommand(*hookCommand),
-		codexTrustConfigForRoots(*root, resolvedRepoRoot),
+	err = agenthooks.VerifyCodexTrustStateWithOptions(
+		*settings.root,
+		defaultHookCommand(*settings.hookCommand),
+		codexTrustConfigForRoots(*settings.root, resolvedRepoRoot),
+		options,
 	)
 	if err != nil {
 		report.Status = "invalid"
@@ -459,6 +471,10 @@ func defaultHookCommand(hookCommand string) string {
 	}
 
 	return runner + " agent-hook"
+}
+
+func settingsOptions(hookTimeoutSeconds int) agenthooks.SettingsOptions {
+	return agenthooks.SettingsOptions{HookTimeoutSeconds: hookTimeoutSeconds}
 }
 
 func defaultRepoRoot(settingsRoot, repoRoot string) string {

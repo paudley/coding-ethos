@@ -38,7 +38,27 @@ func StateArtifactsForRootsWithMCPCommand(
 	hookCommand string,
 	mcpCommand string,
 ) ([]syncstate.Artifact, error) {
-	settings, err := buildAllSettings(hookCommand)
+	return StateArtifactsForRootsWithMCPCommandAndOptions(
+		settingsRoot,
+		repoRoot,
+		stateRoot,
+		hookCommand,
+		mcpCommand,
+		DefaultSettingsOptions(),
+	)
+}
+
+// StateArtifactsForRootsWithMCPCommandAndOptions renders the exact provider
+// settings selected by the hook deadline.
+func StateArtifactsForRootsWithMCPCommandAndOptions(
+	settingsRoot string,
+	repoRoot string,
+	stateRoot string,
+	hookCommand string,
+	mcpCommand string,
+	options SettingsOptions,
+) ([]syncstate.Artifact, error) {
+	settings, err := buildAllSettings(hookCommand, options)
 	if err != nil {
 		return nil, err
 	}
