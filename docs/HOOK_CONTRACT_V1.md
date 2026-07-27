@@ -192,8 +192,9 @@ directly. For split roots, generated MCP entries append the validated
 `--hook-timeout-seconds` is bounded to 1–3600 seconds and defaults to 30. The
 same value must be supplied to `sync`, `doctor`, and `verify`; it is rendered
 into Claude, Codex, and Gemini native hook settings and included in Codex
-trust hashes. Kimi's native hook schema does not expose a per-hook timeout, so
-the supervisor command remains responsible for its own bounded deadline.
+trust hashes. Generated Kimi TOML also includes the per-hook `timeout` field;
+Kimi enforces a 1–600 second native timeout limit after Coding Ethos validates
+`--hook-timeout-seconds` within its 1–3600 second rendering range.
 `runtime-policy sync/check` owns only the consumer-scoped compiled bundle under
 the state root (or below Git metadata when no state root is supplied); it does
 not generate or rewrite tracked repository configuration.

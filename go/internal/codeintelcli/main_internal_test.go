@@ -636,6 +636,16 @@ func captureStdout(t *testing.T, runCommand func()) string {
 		}
 	}()
 
+	var (
+		output  []byte
+		readErr error
+	)
+	readDone := make(chan struct{})
+	go func() {
+		output, readErr = io.ReadAll(reader)
+		close(readDone)
+	}()
+
 	runCommand()
 
 	os.Stdout = original
@@ -644,9 +654,9 @@ func captureStdout(t *testing.T, runCommand func()) string {
 	}
 	writerClosed = true
 
-	output, err := io.ReadAll(reader)
-	if err != nil {
-		t.Fatalf("read stdout pipe: %v", err)
+	<-readDone
+	if readErr != nil {
+		t.Fatalf("read stdout pipe: %v", readErr)
 	}
 	if err := reader.Close(); err != nil {
 		t.Fatalf("close stdout reader: %v", err)

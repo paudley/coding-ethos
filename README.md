@@ -1701,8 +1701,8 @@ Codex, Gemini, and Kimi payloads. The probes cover:
 - Codex blocks for raw Git, absolute Git paths, nested shell Git, and Python
   subprocess Git when rewrite is unavailable
 - Gemini deny responses for raw shell Git and write-tool policy denial
-- Kimi exit-2 policy denial with a stderr reason and structured-deny Stop
-  continuation
+- Kimi policy denial with exit code 2 and a stderr reason
+- Kimi structured-deny Stop continuation with exit code 0
 - managed hook-binary tampering:
   `rm ...coding-ethos-git-hook && go build -o ...coding-ethos-git-hook`
 
