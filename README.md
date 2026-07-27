@@ -1642,9 +1642,9 @@ existing repo-local behavior.
 
 `--hook-timeout-seconds` accepts 1–3600 seconds and defaults to 30. Pass the
 same value to `sync`, `doctor`, and `verify`. Claude, Codex, and Gemini receive
-that native hook deadline, and Codex trust hashes bind it. Kimi does not expose
-a native per-hook timeout, so an external supervisor must retain its own
-bounded command deadline.
+that native hook deadline, and Codex trust hashes bind it. Generated Kimi TOML
+also includes a per-hook timeout; Kimi enforces a 1–600 second native timeout
+limit after Coding Ethos validates the global 1–3600 second rendering range.
 
 For split roots, the generated MCP configuration keeps that statically
 validated base command and appends `--repo-root` plus `--state-root`. Prepare
