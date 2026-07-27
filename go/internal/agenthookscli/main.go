@@ -114,7 +114,6 @@ func runCLI(args []string) int {
 func capabilities(args []string) error {
 	flags := flag.NewFlagSet("capabilities", flag.ContinueOnError)
 	ethosRoot := flags.String("ethos-root", ".", "Path to coding-ethos checkout")
-	_ = flags.Bool("json", false, "Emit JSON capability report")
 
 	err := flags.Parse(args)
 	if err != nil {

@@ -115,6 +115,16 @@ func TestDeclaredNeutralHookContractV1RejectsInvalidShape(t *testing.T) {
 			want: "provider is required",
 		},
 		{
+			name: "unknown provider",
+			payload: `{
+				"contract_version": "coding-ethos.hook/v1",
+				"provider": "unknown-supervisor",
+				"source": "codex",
+				"hook_event_name": "Stop"
+			}`,
+			want: "unsupported provider",
+		},
+		{
 			name: "unknown field",
 			payload: `{
 				"contract_version": "coding-ethos.hook/v1",

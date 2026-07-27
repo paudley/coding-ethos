@@ -194,7 +194,9 @@ func validateHookContractProvider(event Event) error {
 		return err
 	}
 
-	if !slices.Contains(hookContractV1Providers(), event.Provider()) {
+	resolvedProvider := hookContractV1ProviderFromHint(event.ProviderHint)
+	if resolvedProvider == "" ||
+		!slices.Contains(hookContractV1Providers(), resolvedProvider) {
 		return fmt.Errorf(
 			"%w: %s %q",
 			errHookContractProvider,
@@ -204,6 +206,26 @@ func validateHookContractProvider(event Event) error {
 	}
 
 	return nil
+}
+
+func hookContractV1ProviderFromHint(providerHint string) string {
+	provider := strings.ToLower(strings.TrimSpace(providerHint))
+	switch {
+	case strings.Contains(provider, providerCodingEthos):
+		return providerCodingEthos
+	case strings.Contains(provider, providerKimi):
+		return providerKimi
+	case strings.Contains(provider, providerGemini):
+		return providerGemini
+	case strings.Contains(provider, providerCodex):
+		return providerCodex
+	case strings.Contains(provider, providerClaude):
+		return providerClaude
+	case provider == "generic":
+		return provider
+	default:
+		return ""
+	}
 }
 
 func validateHookContractOptionalFields(event Event) error {

@@ -83,7 +83,7 @@ func TestCapabilitiesReportsRuntimeContractAndKimi(t *testing.T) {
 
 	var err error
 	output := captureStdout(t, func() {
-		err = capabilities([]string{"--json", "--ethos-root", ethosRoot})
+		err = capabilities([]string{"--ethos-root", ethosRoot})
 	})
 	if err != nil {
 		t.Fatalf("capabilities returned error: %v", err)

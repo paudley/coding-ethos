@@ -25,6 +25,7 @@ from tests.lint_capture_support import (
 def test_subprocess_environment_drops_inherited_runtime_roots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify inherited managed-runtime roots do not reach subprocesses."""
     monkeypatch.setenv("CODE_ETHOS_CONSUMER_ROOT", "/outer/repo")
     monkeypatch.setenv("CODE_ETHOS_STATE_ROOT", "/outer/state")
 

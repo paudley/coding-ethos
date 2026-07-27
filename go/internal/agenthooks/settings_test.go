@@ -91,7 +91,7 @@ func TestConfiguredHookTimeoutReachesProviderSettings(t *testing.T) {
 	}
 
 	output := buffer.String()
-	for _, provider := range []string{"claude", "codex", "gemini"} {
+	for _, provider := range []string{"claude", "codex", "gemini", "kimi"} {
 		settings := providerSettingsSection(
 			t,
 			output,
@@ -100,6 +100,7 @@ func TestConfiguredHookTimeoutReachesProviderSettings(t *testing.T) {
 				"claude": "codex",
 				"codex":  "gemini",
 				"gemini": "kimi",
+				"kimi":   "capabilities",
 			}[provider],
 		)
 		if !strings.Contains(settings, `"timeout": 45`) {
@@ -125,6 +126,13 @@ func TestConfiguredHookTimeoutReachesProviderSettings(t *testing.T) {
 	}
 	if !bytes.Contains(codex, []byte("timeout = 45")) {
 		t.Fatalf("Codex TOML omits configured timeout:\n%s", codex)
+	}
+	kimi, err := os.ReadFile(agenthooks.DefaultSettingsPaths(root).KimiConfig)
+	if err != nil {
+		t.Fatalf("read Kimi settings: %v", err)
+	}
+	if !bytes.Contains(kimi, []byte("timeout = 45")) {
+		t.Fatalf("Kimi TOML omits configured timeout:\n%s", kimi)
 	}
 }
 
@@ -863,6 +871,8 @@ func TestSyncAndDoctorSettingsWritesAllProviderFiles(t *testing.T) {
 	}
 }
 
+const expectedProviderVerifyChecks = 17
+
 func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 	t.Parallel()
 
@@ -884,8 +894,13 @@ func TestSyncAndVerifySettingsRunsProviderSmokePayloads(t *testing.T) {
 		t.Fatalf("status = %q, want valid: %#v", report.Status, report)
 	}
 
-	if len(report.Checks) != 17 {
-		t.Fatalf("check count = %d, want 17: %#v", len(report.Checks), report.Checks)
+	if len(report.Checks) != expectedProviderVerifyChecks {
+		t.Fatalf(
+			"check count = %d, want %d: %#v",
+			len(report.Checks),
+			expectedProviderVerifyChecks,
+			report.Checks,
+		)
 	}
 
 	knownProviders := providerIDsByRegistry()
@@ -925,7 +940,7 @@ func TestSyncAndVerifySettingsUsesPrivateOverlayAndRepositoryCWD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify overlay settings: %v", err)
 	}
-	if report.Status != "valid" || len(report.Checks) != 17 {
+	if report.Status != "valid" || len(report.Checks) != expectedProviderVerifyChecks {
 		t.Fatalf("overlay report = %#v", report)
 	}
 
@@ -990,7 +1005,7 @@ func TestSyncAndVerifySettingsUsesExternalSupervisorHookAndCodingEthosMCP(
 	if err != nil {
 		t.Fatalf("verify external supervisor overlay: %v", err)
 	}
-	if report.Status != "valid" || len(report.Checks) != 17 {
+	if report.Status != "valid" || len(report.Checks) != expectedProviderVerifyChecks {
 		t.Fatalf("external supervisor report = %#v", report)
 	}
 

@@ -1578,7 +1578,7 @@ bin/coding-ethos-run agent-hooks sync
 bin/coding-ethos-run agent-hooks sync --root /path/to/repo --ethos-root . --dry-run --format toon
 bin/coding-ethos-run agent-hooks doctor
 bin/coding-ethos-run agent-hooks verify
-bin/coding-ethos-run agent-hooks capabilities --json
+bin/coding-ethos-run agent-hooks capabilities
 ```
 
 Agent hook generation is all-or-nothing. `sync` writes every supported

@@ -110,7 +110,7 @@ Discover the runtime version, contract selector, input limit, supported events,
 effects, provider adapters, and private-overlay flags without loading DuckDB:
 
 ```bash
-bin/coding-ethos-run agent-hooks capabilities --json
+bin/coding-ethos-run agent-hooks capabilities
 ```
 
 The response schema is `coding-ethos.agent-hooks/v1`. `runtime_version` comes

@@ -141,12 +141,14 @@ func renderProviderStateArtifactInputs(
 
 	return agentHookStateArtifactInputs(
 		paths,
-		claude,
-		claudeMCP,
-		codex,
-		gemini,
-		kimiConfig,
-		kimiMCP,
+		providerStateContent{
+			claude:     claude,
+			claudeMCP:  claudeMCP,
+			codex:      codex,
+			gemini:     gemini,
+			kimiConfig: kimiConfig,
+			kimiMCP:    kimiMCP,
+		},
 	), nil
 }
 
@@ -175,56 +177,60 @@ func renderKimiStateArtifacts(
 	return config, mcp, nil
 }
 
+type providerStateContent struct {
+	claude     string
+	claudeMCP  string
+	codex      string
+	gemini     string
+	kimiConfig string
+	kimiMCP    string
+}
+
 func agentHookStateArtifactInputs(
 	paths SettingsPaths,
-	claude,
-	claudeMCP,
-	codex,
-	gemini,
-	kimiConfig,
-	kimiMCP string,
+	content providerStateContent,
 ) []syncstate.ArtifactInput {
 	const verifyCommand = "bin/coding-ethos-run agent-hooks doctor"
 
 	return []syncstate.ArtifactInput{
 		{
 			RelativePath:        paths.Claude,
-			Content:             claude,
+			Content:             content.claude,
 			Provider:            "agent-hooks",
 			Surface:             "claude-settings",
 			VerificationCommand: verifyCommand,
 		},
 		{
 			RelativePath:        paths.ClaudeMCP,
-			Content:             claudeMCP,
+			Content:             content.claudeMCP,
 			Provider:            "agent-hooks",
 			Surface:             "claude-mcp",
 			VerificationCommand: verifyCommand,
 		},
 		{
 			RelativePath:        paths.CodexConfig,
-			Content:             codex,
+			Content:             content.codex,
 			Provider:            "agent-hooks",
 			Surface:             "codex-config",
 			VerificationCommand: verifyCommand,
 		},
 		{
 			RelativePath:        paths.Gemini,
-			Content:             gemini,
+			Content:             content.gemini,
 			Provider:            "agent-hooks",
 			Surface:             "gemini-settings",
 			VerificationCommand: verifyCommand,
 		},
 		{
 			RelativePath:        paths.KimiConfig,
-			Content:             kimiConfig,
+			Content:             content.kimiConfig,
 			Provider:            "agent-hooks",
 			Surface:             "kimi-config",
 			VerificationCommand: verifyCommand,
 		},
 		{
 			RelativePath:        paths.KimiMCP,
-			Content:             kimiMCP,
+			Content:             content.kimiMCP,
 			Provider:            "agent-hooks",
 			Surface:             "kimi-mcp",
 			VerificationCommand: verifyCommand,

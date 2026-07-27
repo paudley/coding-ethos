@@ -236,10 +236,9 @@ func TestAgentHooksArgsInjectCapabilityEthosRootWithoutHookCommand(t *testing.T)
 		RunBinary: "/opt/coding-ethos/bin/coding-ethos-run",
 	}
 
-	got := agentHooksArgs(paths, []string{"capabilities", "--json"})
+	got := agentHooksArgs(paths, []string{"capabilities"})
 	want := []string{
 		"capabilities",
-		"--json",
 		"--ethos-root",
 		"/opt/coding-ethos",
 	}
@@ -337,7 +336,7 @@ func TestWithCommandRootsUsesCommandSpecificRepositoryFlags(t *testing.T) {
 func TestCapabilitiesDiscoveryDoesNotWriteRuntimeLog(t *testing.T) {
 	t.Parallel()
 
-	if shouldLogRuntimeCommand([]string{"agent-hooks", "capabilities", "--json"}) {
+	if shouldLogRuntimeCommand([]string{"agent-hooks", "capabilities"}) {
 		t.Fatal("capabilities discovery should be read-only")
 	}
 	if !shouldLogRuntimeCommand([]string{"agent-hooks", "doctor"}) {
@@ -359,6 +358,40 @@ func TestAgentHooksStateDefaultsToPrivateSettingsRoot(t *testing.T) {
 	})
 	if got.Root != "/repo" || got.StateRoot != "/private/settings" {
 		t.Fatalf("withCommandRoots() = %#v", got)
+	}
+}
+
+func TestRunAgentHooksCommandExportsRepositoryRootBeforeSettingsRoot(t *testing.T) {
+	testlock.ProcessState(t, "coding-ethos-run-env")
+
+	restoreEnv := captureRuntimeEnvForTest(
+		"CODE_ETHOS_CONSUMER_ROOT",
+		envStateRoot,
+		"CODING_ETHOS_GIT_SHIM_DIR",
+	)
+	t.Cleanup(restoreEnv)
+
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+
+	err := run(paths, []string{
+		"agent-hooks",
+		"sync",
+		"--root",
+		"/private/settings",
+		"--repo-root",
+		"/repo",
+	})
+	if err != nil {
+		t.Fatalf("run agent-hooks: %v", err)
+	}
+
+	if got := os.Getenv("CODE_ETHOS_CONSUMER_ROOT"); got != "/repo" {
+		t.Fatalf("consumer root = %q, want /repo", got)
+	}
+	if got := os.Getenv(envStateRoot); got != "/private/settings" {
+		t.Fatalf("%s = %q, want /private/settings", envStateRoot, got)
 	}
 }
 

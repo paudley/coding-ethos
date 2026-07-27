@@ -987,9 +987,10 @@ func runAgentHooksCommand(paths runtimePaths, rest []string) {
 	}
 
 	settingsRoot := rootFlagValue(rest, paths.Root)
+	repoRoot := flagValue(rest, "--repo-root", paths.Root)
 	_ = os.Setenv(
 		"CODE_ETHOS_CONSUMER_ROOT",
-		flagValue(rest, "--repo-root", settingsRoot),
+		repoRoot,
 	)
 	_ = os.Setenv(
 		envStateRoot,

@@ -45,6 +45,7 @@ var (
 	errParentGoToolsStale       = errors.New("parent Go tools are stale")
 	errParentPathIsDirectory    = errors.New("path is a directory, want file")
 	errParentPathIsNotDirectory = errors.New("path is not a directory, want directory")
+	errParentRootNotAbsolute    = errors.New("parent workflow root must be absolute")
 )
 
 type parentWorkflowOptions struct {
@@ -180,7 +181,7 @@ func parseParentWorkflowFlags(
 		return parentWorkflowOptions{}, err
 	}
 
-	resolvedStateRoot, err := cleanOptionalRoot(*stateRoot)
+	resolvedStateRoot, err := cleanOptionalRoot("state-root", *stateRoot)
 	if err != nil {
 		return parentWorkflowOptions{}, err
 	}
@@ -210,14 +211,14 @@ func parseParentWorkflowFlags(
 	}, nil
 }
 
-func cleanOptionalRoot(root string) (string, error) {
+func cleanOptionalRoot(label, root string) (string, error) {
 	if strings.TrimSpace(root) == "" {
 		return "", nil
 	}
 
 	cleaned := filepath.Clean(root)
 	if !filepath.IsAbs(cleaned) {
-		return "", apperror.StaticError("state root must be absolute")
+		return "", fmt.Errorf("%w: %s=%s", errParentRootNotAbsolute, label, root)
 	}
 
 	return cleaned, nil
