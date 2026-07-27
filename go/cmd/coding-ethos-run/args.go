@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	golangciLintAutofixTool = "golangci-lint-autofix"
-	golangciLintFormatTool  = "golangci-lint-format"
-	golangciLintTool        = "golangci-lint"
-	injectedRootArgCount    = 2
+	agentHookCapabilitiesCommand = "capabilities"
+	golangciLintAutofixTool      = "golangci-lint-autofix"
+	golangciLintFormatTool       = "golangci-lint-format"
+	golangciLintTool             = "golangci-lint"
+	injectedRootArgCount         = 2
 )
 
 func runnerArgs(argv []string) []string {
@@ -50,6 +51,7 @@ func codeIntelArgs(root, stateRoot string, args []string) []string {
 			filepath.Join(stateRoot, ".coding-ethos", "code-intel.duckdb"),
 		)
 	}
+
 	next = append(next, args[1:]...)
 
 	return next
@@ -149,7 +151,7 @@ func withDefaultHookCommand(paths runtimePaths, args []string) []string {
 }
 
 func agentHooksArgs(paths runtimePaths, args []string) []string {
-	if len(args) == 0 || args[0] != "capabilities" {
+	if len(args) == 0 || args[0] != agentHookCapabilitiesCommand {
 		return withDefaultHookCommand(paths, args)
 	}
 
@@ -269,5 +271,5 @@ func shouldLogRuntimeCommand(args []string) bool {
 
 	return len(args) < 2 ||
 		args[0] != "agent-hooks" ||
-		args[1] != "capabilities"
+		args[1] != agentHookCapabilitiesCommand
 }

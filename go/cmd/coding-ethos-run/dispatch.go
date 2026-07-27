@@ -981,7 +981,7 @@ func runAgentHook(paths runtimePaths, rest []string) {
 }
 
 func runAgentHooksCommand(paths runtimePaths, rest []string) {
-	if len(rest) == 0 || rest[0] != "capabilities" {
+	if len(rest) == 0 || rest[0] != agentHookCapabilitiesCommand {
 		installGitWrapperShim(paths)
 		installLintToolShims(paths)
 	}

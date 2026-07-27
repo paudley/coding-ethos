@@ -183,7 +183,7 @@ func syncSettings(args []string) error {
 		)
 	}
 
-	err = agenthooks.SyncSettingsForRootsWithMCPCommand(
+	err = applyAgentHookSettings(
 		*root,
 		resolvedRepoRoot,
 		resolvedStateRoot,
@@ -191,16 +191,7 @@ func syncSettings(args []string) error {
 		*mcpCommand,
 	)
 	if err != nil {
-		return fmt.Errorf("sync agent hook settings: %w", err)
-	}
-
-	err = agenthooks.SyncCodexTrustState(
-		*root,
-		resolvedHookCommand,
-		codexTrustConfigForRoots(*root, resolvedRepoRoot),
-	)
-	if err != nil {
-		return fmt.Errorf("sync Codex hook trust: %w", err)
+		return err
 	}
 
 	if privateSettingsOverlay(*root, resolvedRepoRoot) {
@@ -217,6 +208,36 @@ func syncSettings(args []string) error {
 	}
 
 	return upsertAgentHookSyncState(*root, *ethosRoot, artifacts)
+}
+
+func applyAgentHookSettings(
+	root string,
+	repoRoot string,
+	stateRoot string,
+	hookCommand string,
+	mcpCommand string,
+) error {
+	err := agenthooks.SyncSettingsForRootsWithMCPCommand(
+		root,
+		repoRoot,
+		stateRoot,
+		hookCommand,
+		mcpCommand,
+	)
+	if err != nil {
+		return fmt.Errorf("sync agent hook settings: %w", err)
+	}
+
+	err = agenthooks.SyncCodexTrustState(
+		root,
+		hookCommand,
+		codexTrustConfigForRoots(root, repoRoot),
+	)
+	if err != nil {
+		return fmt.Errorf("sync Codex hook trust: %w", err)
+	}
+
+	return nil
 }
 
 func upsertAgentHookSyncState(
