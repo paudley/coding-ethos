@@ -1,0 +1,17 @@
+ghprsq PR head backlink metadata
+
+parent_hashes: 4dc915711aa9e3461a5be45d62e1e0ae22f3ffd0
+
+GhpRsq-Schema: 1
+GhpRsq-Merge-Style: structured-squash-head-backlink
+GhpRsq-GitHub-Repo: paudley/coding-ethos
+GhpRsq-GitHub-Pull-Request: 264
+GhpRsq-GitHub-PR-URL: https://github.com/paudley/coding-ethos/pull/264
+GhpRsq-Base-Ref: main
+GhpRsq-Base-OID: 52594478eb5c69872206bdb85f0f54728d8eaf6a
+GhpRsq-Head-Ref: agent/nyarlathotep-hooks
+GhpRsq-Head-OID: 4dc915711aa9e3461a5be45d62e1e0ae22f3ffd0
+GhpRsq-Result-Tree: cf1fe74dadce93eb46becb6e0a58af7c67ba8156
+GhpRsq-Result-Commit: c6756e92e993badec1b9ee6a804f838dc0f60e32
+GhpRsq-Parent-Hashes: 4dc915711aa9e3461a5be45d62e1e0ae22f3ffd0
+GhpRsq-Squash-Notes-SHA256: ac19bbf2ddbaab9422ce991bf2adf3cbc6525f5bcc523abe827dfe337ce4d998
