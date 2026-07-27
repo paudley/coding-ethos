@@ -134,6 +134,22 @@ func TestParsePythonQualityFindings(t *testing.T) {
 	assertVultureFinding(t)
 }
 
+func TestVultureExcludesManagedRuntimeCache(t *testing.T) {
+	t.Parallel()
+
+	patterns := vultureExcludePatterns()
+	for _, expected := range []string{
+		".coding-ethos",
+		".coding-ethos/*",
+		"*/.coding-ethos",
+		"*/.coding-ethos/*",
+	} {
+		if !slices.Contains(patterns, expected) {
+			t.Fatalf("vultureExcludePatterns() omitted %q", expected)
+		}
+	}
+}
+
 func TestPythonQualityCommandsRunExternalToolsAndReportFindings(t *testing.T) {
 	nativeSandboxAvailable := nativeSandboxRuntimeAvailable()
 
