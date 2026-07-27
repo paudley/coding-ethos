@@ -113,6 +113,17 @@ func TestConsumerRootIgnoresUnrelatedExplicitEnvironment(t *testing.T) {
 	}
 }
 
+func TestConsumerRootHonorsSplitRuntimeWhenCwdBelongsToConsumer(t *testing.T) {
+	root := t.TempDir()
+	runtimeRoot := t.TempDir()
+	t.Setenv(consumerRootEnv, root)
+	t.Chdir(root)
+
+	if got := consumerRoot(runtimeRoot); got != root {
+		t.Fatalf("consumerRoot() = %q, want split consumer root %q", got, root)
+	}
+}
+
 func TestConsumerRootIgnoresExplicitRootForIgnoredWorktreeScratch(t *testing.T) {
 	root := setupGitHookTestRepo(t)
 	mustWriteTestFile(t, filepath.Join(root, ".gitignore"), ".coding-ethos/\n")

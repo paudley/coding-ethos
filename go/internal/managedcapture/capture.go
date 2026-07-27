@@ -701,6 +701,11 @@ func prepareSandboxCgroup(
 	}
 
 	cgroup, appliedEvidence, err := sandbox.PrepareCgroupLimits(evidence)
+	appliedEvidence.Reason = appendEvidenceReason(
+		evidence.Reason,
+		appliedEvidence.Reason,
+	)
+
 	if err != nil {
 		return nil, appliedEvidence, fmt.Errorf(
 			"prepare sandbox cgroup limits: %w",

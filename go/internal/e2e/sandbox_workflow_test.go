@@ -102,10 +102,10 @@ func TestSandboxedManagedRuffCaptureProducesSARIFEvidence(t *testing.T) {
 		`"sandbox": {`,
 		`"backend": "native"`,
 		`"profile": "lint-offline"`,
-		`"network_isolated": true`,
 	} {
 		result.RequireContains(t, want)
 	}
+	assertSandboxIsolationEvidence(t, result.Combined)
 }
 
 func requiredModeSandboxDenied(t *testing.T, result e2e.CommandResult) bool {
@@ -341,8 +341,6 @@ func assertSandboxTraceEvidence(t *testing.T, trace, mode string) {
 		`"enabled": true`,
 		`"git_read_only": true`,
 		`"repo_read_only": true`,
-		`"network_isolated": true`,
-		`"process_isolated": true`,
 		`".coding-ethos/cache/"`,
 		`".ruff_cache/"`,
 		`"no-network"`,
@@ -350,6 +348,43 @@ func assertSandboxTraceEvidence(t *testing.T, trace, mode string) {
 	} {
 		if !strings.Contains(trace, want) {
 			t.Fatalf("sandbox trace missing %q:\n%s", want, trace)
+		}
+	}
+	assertSandboxIsolationEvidence(t, trace)
+}
+
+func assertSandboxIsolationEvidence(t *testing.T, payload string) {
+	t.Helper()
+
+	// A managed check already inside the agent shell cannot create another
+	// AppArmor-mediated user namespace. It still executes the native helper's
+	// Landlock filesystem policy and records the inherited process capability
+	// explicitly, rather than claiming a fresh PID/network boundary.
+	if strings.Contains(payload, `"requires_processes": true`) {
+		for _, unsupported := range []string{
+			`"network_isolated": true`,
+			`"process_isolated": true`,
+			`"namespace_enforced": true`,
+		} {
+			if strings.Contains(payload, unsupported) {
+				t.Fatalf(
+					"outer agent-shell reuse overclaimed %q:\n%s",
+					unsupported,
+					payload,
+				)
+			}
+		}
+
+		return
+	}
+
+	for _, want := range []string{
+		`"network_isolated": true`,
+		`"process_isolated": true`,
+		`"namespace_enforced": true`,
+	} {
+		if !strings.Contains(payload, want) {
+			t.Fatalf("fresh sandbox evidence missing %q:\n%s", want, payload)
 		}
 	}
 }

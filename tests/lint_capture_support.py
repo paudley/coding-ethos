@@ -18,11 +18,33 @@ REAL_GIT = "/usr/bin/git"
 RUNNER = REPO_ROOT / "bin" / "coding-ethos-run"
 POLICY = REPO_ROOT / "bin" / "coding-ethos-policy"
 
+_RUNTIME_CONTEXT_ENV = frozenset(
+    {
+        "CODE_ETHOS_CONSUMER_ROOT",
+        "CODE_ETHOS_LOCAL_ROOT",
+        "CODE_ETHOS_PRECOMMIT_ROOT",
+        "CODE_ETHOS_STATE_ROOT",
+        "CODING_ETHOS_GIT_SHIM_DIR",
+        "CODING_ETHOS_REAL_GIT",
+        "CODING_ETHOS_RUN_GO_HOOK",
+        "INVOCATION_CWD",
+        "MANAGED_TOOLCHAIN_MANIFEST",
+        "POLICY_METADATA",
+        "TOOLS_SRC_DIR",
+    }
+)
+
 
 def _clean_subprocess_env(env: dict[str, str] | None) -> dict[str, str]:
-    clean = dict(os.environ if env is None else env)
+    inherited = os.environ
+    clean = dict(inherited if env is None else env)
     for name in list(clean):
         if name.startswith("GIT_") or name == "TMPDIR":
+            clean.pop(name, None)
+            continue
+        if name in _RUNTIME_CONTEXT_ENV and (
+            env is None or env.get(name) == inherited.get(name)
+        ):
             clean.pop(name, None)
     return clean
 
