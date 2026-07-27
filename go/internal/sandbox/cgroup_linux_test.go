@@ -6,6 +6,11 @@
 package sandbox
 
 import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -32,5 +37,76 @@ func TestCgroupSysProcAttrUsesCgroupFD(t *testing.T) {
 	}
 	if attributes.CgroupFD != descriptor {
 		t.Fatalf("CgroupFD = %d, want %d", attributes.CgroupFD, descriptor)
+	}
+}
+
+func TestCgroupStartAttachmentSkipsNamespaceIsolatedTools(t *testing.T) {
+	t.Parallel()
+
+	if cgroupStartAttachmentAllowed(Evidence{
+		Enabled:           true,
+		NamespaceEnforced: true,
+	}) {
+		t.Fatal("namespace-isolated tool requested start-time cgroup attach")
+	}
+
+	if !cgroupStartAttachmentAllowed(Evidence{
+		Enabled:           true,
+		NamespaceEnforced: true,
+		RequiresProcesses: true,
+	}) {
+		t.Fatal("process-enabled tool should keep start-time cgroup attach")
+	}
+}
+
+func TestPrepareCgroupLimitsSkipsUnavailableStartAttachment(t *testing.T) {
+	root := t.TempDir()
+	err := os.WriteFile(
+		filepath.Join(root, "cgroup.controllers"),
+		[]byte("cpu memory"),
+		cgroupFileMode,
+	)
+	if err != nil {
+		t.Fatalf("write cgroup.controllers fixture: %v", err)
+	}
+
+	rootPath := func() string {
+		return root
+	}
+	startCheck := func(_ context.Context, _ *Cgroup) error {
+		return errors.New("permission denied")
+	}
+
+	cgroup, evidence, err := prepareCgroupLimits(Evidence{
+		Enabled:           true,
+		CgroupRequested:   true,
+		Tool:              "go-test",
+		RequiresProcesses: true,
+	}, rootPath, startCheck)
+	if err != nil {
+		t.Fatalf("PrepareCgroupLimits returned error: %v", err)
+	}
+
+	if cgroup != nil {
+		t.Fatal("PrepareCgroupLimits returned cgroup for unavailable start attachment")
+	}
+	if evidence.CgroupEnabled {
+		t.Fatalf("CgroupEnabled = true: %#v", evidence)
+	}
+	if evidence.CgroupPath != "" {
+		t.Fatalf("CgroupPath = %q, want empty", evidence.CgroupPath)
+	}
+	if !strings.Contains(evidence.Reason, "delegated start attachment is unavailable") {
+		t.Fatalf("Reason = %q", evidence.Reason)
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read cgroup root fixture: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			t.Fatalf("temporary cgroup directory was not removed: %s", entry.Name())
+		}
 	}
 }
