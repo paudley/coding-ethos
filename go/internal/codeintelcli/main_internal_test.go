@@ -24,7 +24,7 @@ var stdoutCaptureMu sync.Mutex
 func TestRunRejectsUnknownCommand(t *testing.T) {
 	t.Parallel()
 
-	err := run(context.Background(), []string{"unknown"})
+	err := runCapturingStdout(t, context.Background(), []string{"unknown"})
 	if err == nil {
 		t.Fatalf("expected unknown command error")
 	}
@@ -36,7 +36,11 @@ func TestStatsCreatesStore(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 
-	err := run(context.Background(), []string{"stats", "--root", root, "--db", dbPath})
+	err := runCapturingStdout(
+		t,
+		context.Background(),
+		[]string{"stats", "--root", root, "--db", dbPath},
+	)
 	if err != nil {
 		t.Fatalf("stats command returned error: %v", err)
 	}
@@ -131,7 +135,7 @@ func TestContextAdviceRejectsUnsupportedFormatWithContextError(t *testing.T) {
 
 	root := t.TempDir()
 
-	err := run(context.Background(), []string{
+	err := runCapturingStdout(t, context.Background(), []string{
 		"context-advice",
 		"--root", root,
 		"--format", "xml",
@@ -458,7 +462,7 @@ func TestDecisionsListRejectsUnsupportedFormatWithDecisionError(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 
-	err := run(context.Background(), []string{
+	err := runCapturingStdout(t, context.Background(), []string{
 		"decisions",
 		"list",
 		"--root", root,
@@ -516,7 +520,11 @@ func TestDownstreamAnalysisDoesNotRequireExistingStore(t *testing.T) {
 
 	root := t.TempDir()
 
-	err := run(context.Background(), []string{"downstream-analysis", "--root", root})
+	err := runCapturingStdout(
+		t,
+		context.Background(),
+		[]string{"downstream-analysis", "--root", root},
+	)
 	if err != nil {
 		t.Fatalf("downstream-analysis command returned error: %v", err)
 	}
@@ -566,7 +574,11 @@ func TestVectorStatsCreatesDuckDBVectorStore(t *testing.T) {
 
 	root := t.TempDir()
 
-	err := run(context.Background(), []string{"vector-stats", "--root", root})
+	err := runCapturingStdout(
+		t,
+		context.Background(),
+		[]string{"vector-stats", "--root", root},
+	)
 	if err != nil {
 		t.Fatalf("vector-stats command returned error: %v", err)
 	}
@@ -612,15 +624,25 @@ func captureStdout(t *testing.T, runCommand func()) string {
 		t.Fatalf("create stdout pipe: %v", err)
 	}
 	os.Stdout = writer
+	writerClosed := false
+	readerClosed := false
 	defer func() {
 		os.Stdout = original
+		if !writerClosed {
+			_ = writer.Close()
+		}
+		if !readerClosed {
+			_ = reader.Close()
+		}
 	}()
 
 	runCommand()
 
+	os.Stdout = original
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close stdout writer: %v", err)
 	}
+	writerClosed = true
 
 	output, err := io.ReadAll(reader)
 	if err != nil {
@@ -629,8 +651,20 @@ func captureStdout(t *testing.T, runCommand func()) string {
 	if err := reader.Close(); err != nil {
 		t.Fatalf("close stdout reader: %v", err)
 	}
+	readerClosed = true
 
 	return string(output)
+}
+
+func runCapturingStdout(t *testing.T, ctx context.Context, args []string) error {
+	t.Helper()
+
+	var runErr error
+	captureStdout(t, func() {
+		runErr = run(ctx, args)
+	})
+
+	return runErr
 }
 
 func TestHealthCommandAcceptsDirectoryPathFilter(t *testing.T) {
@@ -639,7 +673,7 @@ func TestHealthCommandAcceptsDirectoryPathFilter(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 
-	err := run(context.Background(), []string{
+	err := runCapturingStdout(t, context.Background(), []string{
 		"health",
 		"--root", root,
 		"--db", dbPath,
@@ -748,12 +782,16 @@ Use cmd/app.go#runApp as the documented entry point.
 
 	ctx := context.Background()
 
-	err = run(ctx, []string{"index-code", "--root", root, "--db", dbPath, "cmd", "docs"})
+	err = runCapturingStdout(
+		t,
+		ctx,
+		[]string{"index-code", "--root", root, "--db", dbPath, "cmd", "docs"},
+	)
 	if err != nil {
 		t.Fatalf("index-code command returned error: %v", err)
 	}
 
-	err = run(ctx, []string{
+	err = runCapturingStdout(t, ctx, []string{
 		"anatomy-map", "--root", root, "--db", dbPath,
 		"--path", "cmd", "--symbols-per-file", "3", "--format", "toon",
 	})
@@ -767,7 +805,7 @@ Use cmd/app.go#runApp as the documented entry point.
 		t.Fatalf("write listing: %v", err)
 	}
 
-	err = run(ctx, []string{
+	err = runCapturingStdout(t, ctx, []string{
 		"enrich-listing", "--root", root, "--db", dbPath,
 		"--command", "ls -la cmd", "--listing-file", listingPath,
 		"--symbols-per-file", "3",
@@ -776,7 +814,7 @@ Use cmd/app.go#runApp as the documented entry point.
 		t.Fatalf("enrich-listing command returned error: %v", err)
 	}
 
-	err = run(ctx, []string{
+	err = runCapturingStdout(t, ctx, []string{
 		"code-chunks", "--root", root, "--db", dbPath,
 		"--path", "cmd/app.go", "--symbol-name", "runApp",
 	})
@@ -784,7 +822,7 @@ Use cmd/app.go#runApp as the documented entry point.
 		t.Fatalf("code-chunks command returned error: %v", err)
 	}
 
-	err = run(ctx, []string{
+	err = runCapturingStdout(t, ctx, []string{
 		"code-context", "--root", root, "--db", dbPath,
 		"--path", "cmd/app.go", "--symbol-path", "runApp",
 	})
@@ -792,7 +830,7 @@ Use cmd/app.go#runApp as the documented entry point.
 		t.Fatalf("code-context by symbol returned error: %v", err)
 	}
 
-	err = run(ctx, []string{
+	err = runCapturingStdout(t, ctx, []string{
 		"code-context", "--root", root, "--db", dbPath,
 		"--path", "cmd/app.go", "--line", "3",
 	})
@@ -800,7 +838,7 @@ Use cmd/app.go#runApp as the documented entry point.
 		t.Fatalf("code-context by line returned error: %v", err)
 	}
 
-	err = run(ctx, []string{
+	err = runCapturingStdout(t, ctx, []string{
 		"repo-map", "--root", root, "--db", dbPath,
 		"--path", "cmd/app.go",
 	})
@@ -848,7 +886,7 @@ Use cmd/app.go#runApp as the documented entry point.
 		t.Fatalf("graph-report TOON missing expected content:\n%s", graphReportTOON)
 	}
 
-	err = run(ctx, []string{
+	err = runCapturingStdout(t, ctx, []string{
 		"centrality", "--root", root, "--db", dbPath,
 		"--path", "cmd", "--format", "json",
 	})
@@ -856,7 +894,7 @@ Use cmd/app.go#runApp as the documented entry point.
 		t.Fatalf("centrality returned error: %v", err)
 	}
 
-	err = run(ctx, []string{
+	err = runCapturingStdout(t, ctx, []string{
 		"surprises", "--root", root, "--db", dbPath,
 		"--path", "cmd", "--format", "json",
 	})
@@ -864,7 +902,7 @@ Use cmd/app.go#runApp as the documented entry point.
 		t.Fatalf("surprises returned error: %v", err)
 	}
 
-	err = run(ctx, []string{
+	err = runCapturingStdout(t, ctx, []string{
 		"compact-context", "--root", root, "--db", dbPath,
 		"--path", "cmd/app.go",
 	})
@@ -872,7 +910,11 @@ Use cmd/app.go#runApp as the documented entry point.
 		t.Fatalf("compact-context command returned error: %v", err)
 	}
 
-	err = run(ctx, []string{"code-context", "--root", root, "--db", dbPath})
+	err = runCapturingStdout(
+		t,
+		ctx,
+		[]string{"code-context", "--root", root, "--db", dbPath},
+	)
 	if err == nil ||
 		!strings.Contains(err.Error(), "--chunk-id") {
 		t.Fatalf("code-context without identifier error = %v", err)
@@ -1295,12 +1337,17 @@ func TestSARIFCommands(t *testing.T) {
 
 	baseArgs := []string{"--root", root, "--db", dbPath}
 
-	err = run(ctx, append([]string{"ingest-sarif", "--file", sarifPath}, baseArgs...))
+	err = runCapturingStdout(
+		t,
+		ctx,
+		append([]string{"ingest-sarif", "--file", sarifPath}, baseArgs...),
+	)
 	if err != nil {
 		t.Fatalf("ingest-sarif returned error: %v", err)
 	}
 
-	err = run(
+	err = runCapturingStdout(
+		t,
 		ctx,
 		append([]string{"sarif-results", "--policy-id", "policy.one"}, baseArgs...),
 	)
@@ -1308,7 +1355,8 @@ func TestSARIFCommands(t *testing.T) {
 		t.Fatalf("sarif-results returned error: %v", err)
 	}
 
-	err = run(
+	err = runCapturingStdout(
+		t,
 		ctx,
 		append([]string{"repeated-failures", "--policy-id", "policy.one"}, baseArgs...),
 	)
@@ -1362,12 +1410,13 @@ func TestIngestTracesAndHookUsageCommands(t *testing.T) {
 
 	baseArgs := []string{"--root", root, "--db", dbPath}
 
-	err = run(ctx, append([]string{"ingest-traces"}, baseArgs...))
+	err = runCapturingStdout(t, ctx, append([]string{"ingest-traces"}, baseArgs...))
 	if err != nil {
 		t.Fatalf("ingest-traces returned error: %v", err)
 	}
 
-	err = run(
+	err = runCapturingStdout(
+		t,
 		ctx,
 		append(
 			[]string{"hook-usage", "--provider", "codex", "--status", "denied"},
