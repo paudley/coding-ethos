@@ -3300,6 +3300,25 @@ principles:
             (
               git_command.has_hard_reset ||
               git_command.has_clean_force_delete ||
+              git_command.has_theirs_ours_checkout
+            )
+        - id: git.path_scoped_restore
+          scope: command
+          severity: warn
+          mode: warn
+          skill_id: safe-git-workflow
+          tools:
+            - Bash
+          lint_scopes:
+            - staged
+          message: Restoring a named path discards its working-tree changes.
+          advice: >-
+            Name only the paths you mean, and confirm the content you want is
+            the side you are taking. Resolving a conflict this way is ordinary;
+            reaching for it to undo unrelated work is not.
+          when: >-
+            git_command.is_git &&
+            (
               git_command.has_theirs_ours_checkout ||
               git_command.has_restore_pathspec
             )
@@ -3657,7 +3676,9 @@ principles:
             Run ordinary git commands without bypass flags or shell indirection;
             approved git operations are routed by the hook automatically. Do not
             try alternate shells, absolute git paths, Python subprocesses, PATH
-            edits, aliases, or other bypasses.
+            edits, aliases, or other bypasses. Prose is exempt: a document is
+            not executed, so writing about git in one evades nothing, and a
+            summary of git work accumulates the same vocabulary this looks for.
           when: >-
             list_contains(["Write", "Edit", "MultiEdit"], event.tool) &&
             content.has_git_token &&
@@ -3672,7 +3693,12 @@ principles:
                 [
                   "**/.claude/**",
                   "**/.codex/**",
-                  "**/.gemini/**"
+                  "**/.gemini/**",
+                  "**/*.md",
+                  "**/*.markdown",
+                  "**/*.rst",
+                  "**/*.txt",
+                  "**/*.squash_notes"
                 ],
                 path.file
               )
