@@ -1246,7 +1246,8 @@ func TestRepoIgnoreFixItemsRejectsBroadCodingEthosIgnore(t *testing.T) {
 		t.Fatalf("repo ignore fix items: %v", err)
 	}
 
-	if len(items) == 0 || !strings.Contains(items[0], "repo memories remain trackable") {
+	if len(items) == 0 ||
+		!strings.Contains(items[0], "the whole .coding-ethos directory is ignored") {
 		t.Fatalf("items = %#v, want broad ignore finding", items)
 	}
 }

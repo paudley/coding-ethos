@@ -120,14 +120,18 @@ func normalizeGitignoreLine(line string) string {
 	return strings.TrimPrefix(trimmed, "/")
 }
 
+// blockedMemoryIgnore reports whether a .gitignore entry is broad enough to
+// hide tracked coding-ethos configuration, in which case repair drops it.
+//
+// Only whole-directory ignores qualify. An entry naming the memories directory
+// specifically is a deliberate choice and is left alone: memories may be kept
+// as local state shared between checkouts rather than as repository content,
+// and rewriting a tracked .gitignore to overturn that decision is not repair.
 func blockedMemoryIgnore(normalized string) bool {
 	switch normalized {
 	case ".coding-ethos", ".coding-ethos/", "**/.coding-ethos", "**/.coding-ethos/",
 		".coding-ethos/*", ".coding-ethos/**", "**/.coding-ethos/*",
-		"**/.coding-ethos/**",
-		".coding-ethos/memories", ".coding-ethos/memories/",
-		".coding-ethos/memories/*", ".coding-ethos/memories/**",
-		".coding-ethos/memories/MEMORY.md", ".coding-ethos/memories/*.yaml":
+		"**/.coding-ethos/**":
 		return true
 	default:
 		return false

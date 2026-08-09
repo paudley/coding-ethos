@@ -10,7 +10,11 @@ import (
 	"testing"
 )
 
-func TestRepairGitignoreKeepsMemoriesTrackable(t *testing.T) {
+// Repair strips ignores broad enough to hide tracked coding-ethos
+// configuration, and leaves a deliberate memories ignore in place. Memories may
+// be kept as local state shared between checkouts, and silently rewriting a
+// tracked .gitignore to overturn that choice is not repair.
+func TestRepairGitignoreStripsBroadIgnoresAndKeepsNarrowMemoryIgnores(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -42,11 +46,13 @@ func TestRepairGitignoreKeepsMemoriesTrackable(t *testing.T) {
 	for _, forbidden := range []string{
 		".coding-ethos/**",
 		"**/.coding-ethos/*",
-		".coding-ethos/memories/*.yaml",
 	} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("repaired gitignore still blocks memories with %q:\n%s", forbidden, text)
+			t.Fatalf("repaired gitignore still hides config with %q:\n%s", forbidden, text)
 		}
+	}
+	if !strings.Contains(text, ".coding-ethos/memories/*.yaml") {
+		t.Fatalf("repair discarded the deliberate memories ignore:\n%s", text)
 	}
 	for _, required := range RuntimePaths() {
 		if !strings.Contains(text, required) {

@@ -38,12 +38,14 @@ func checkRuntimeIgnoresCommand(_ Config, _ []string) int {
 
 func runtimeIgnoreFindings(paths []string) []string {
 	findings := []string{}
-	if runtimePathIgnored(".coding-ethos/memories/MEMORY.md") ||
-		repoignore.ContainsPath(repoRoot(), ".coding-ethos/") {
+	// A broad .coding-ethos ignore hides tracked policy configuration and is
+	// still a finding. Ignoring the memories directory on its own is not:
+	// memories may deliberately be local state shared between checkouts.
+	if repoignore.ContainsPath(repoRoot(), ".coding-ethos/") {
 		findings = append(
 			findings,
-			".coding-ethos/memories/MEMORY.md is ignored; remove broad "+
-				".coding-ethos ignores so repo memories remain trackable",
+			"the whole .coding-ethos directory is ignored; narrow the ignore so "+
+				"tracked coding-ethos configuration remains visible to git",
 		)
 	}
 

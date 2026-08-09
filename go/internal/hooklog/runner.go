@@ -32,10 +32,7 @@ const (
 	loggedStreamCount = 2
 )
 
-const (
-	hookLogRunDirPath     = ".coding-ethos/hook-runs/"
-	hookLogMemoryTestPath = ".coding-ethos/memories/MEMORY.md"
-)
+const hookLogRunDirPath = ".coding-ethos/hook-runs/"
 
 var (
 	errCommandRequired               = apperror.StaticError("command is required")
@@ -46,10 +43,6 @@ var (
 	errHookLogRuntimeOutputNotIgnored = apperror.StaticError(
 		"hook runtime output ignore required",
 	)
-	errHookLogMemoryIgnored = apperror.StaticError(
-		"repo memory path must remain trackable",
-	)
-
 	// runLoggedAction replaces process-global os.Stdout/os.Stderr while an
 	// in-process command runs, so concurrent captures must serialize.
 	//nolint:gochecknoglobals // process-global streams require one shared lock.
@@ -660,10 +653,16 @@ func requireHookLogIgnores(options Options) error {
 		return fmt.Errorf("repair hook log runtime ignores: %w", err)
 	}
 
-	if gitPathIgnored(options, hookLogMemoryTestPath) {
-		return apperror.Wrapf(errHookLogMemoryIgnored, "%s", hookLogMemoryIgnoredFeedback())
-	}
-
+	// Memories being ignored is a choice, not a fault. An operator may keep
+	// them as local state shared between every lane and the parent checkout
+	// rather than as repository content, and that is a reasonable way to run:
+	// memory accumulates across work that has nothing to do with any one
+	// branch, and committing it puts churn in the history of whichever branch
+	// happened to be checked out.
+	//
+	// Refusing to run made the choice for them, fatally, at the point where
+	// nothing else could proceed. Runtime output below still must be ignored —
+	// that invariant is about not committing generated noise and stands.
 	return requireIgnored(options, hookLogRunDirPath)
 }
 
@@ -742,24 +741,6 @@ func hookLogIgnoreRequiredFeedback(path string) string {
 				"repair",
 				"add generated .coding-ethos runtime subpaths to the repo "+
 					".gitignore before hook logs are written",
-			),
-		},
-	}, feedback.FormatTOON)
-}
-
-func hookLogMemoryIgnoredFeedback() string {
-	return feedback.MustRender(feedback.Message{
-		Scalars: []feedback.Scalar{
-			feedback.S("status", "fatal"),
-			feedback.S("severity", "fatal"),
-			feedback.S("invariant", "repo memories must remain trackable"),
-			feedback.S("path", hookLogMemoryTestPath),
-			feedback.S("observed", "ignored"),
-			feedback.S("expected", "not_ignored"),
-			feedback.S(
-				"repair",
-				"remove broad .coding-ethos memory ignores so repo memories "+
-					"remain trackable",
 			),
 		},
 	}, feedback.FormatTOON)

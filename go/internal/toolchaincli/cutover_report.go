@@ -407,20 +407,14 @@ func repoIgnoreFixItemLines(realGit, repoRoot string) ([]string, error) {
 
 	items := make([]string, 0, len(requiredIgnores))
 
-	memoryIgnored, err := gitCheckIgnore(
-		realGit,
-		repoRoot,
-		".coding-ethos/memories/MEMORY.md",
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	if memoryIgnored {
+	// A whole-directory ignore hides tracked coding-ethos configuration. An
+	// ignore naming the memories directory specifically is not reported:
+	// memories may deliberately be local state shared between checkouts.
+	if repoignore.ContainsPath(repoRoot, ".coding-ethos/") {
 		items = append(
 			items,
-			"  repo-ignores,.coding-ethos/memories/MEMORY.md is ignored,"+
-				"remove broad .coding-ethos ignores so repo memories remain trackable",
+			"  repo-ignores,the whole .coding-ethos directory is ignored,"+
+				"narrow the ignore so tracked coding-ethos configuration stays visible",
 		)
 	}
 

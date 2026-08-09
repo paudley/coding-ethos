@@ -926,7 +926,7 @@ func TestRuntimeIgnoreFindingsRejectBroadCodingEthosIgnore(t *testing.T) {
 
 	findings := runtimeIgnoreFindings(requiredRuntimeIgnorePaths())
 	if len(findings) == 0 ||
-		!strings.Contains(findings[0], ".coding-ethos/memories/MEMORY.md is ignored") {
+		!strings.Contains(findings[0], "the whole .coding-ethos directory is ignored") {
 		t.Fatalf("findings = %#v", findings)
 	}
 }
