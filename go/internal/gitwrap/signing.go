@@ -153,35 +153,30 @@ func forceSignedGitArgs(argv []string) []string {
 	}
 }
 
+// outgoingCommitSignatureStatuses reports the signature status of every commit
+// this push would introduce.
+//
+// Introduce is the operative word: commits already reachable from a remote are
+// not part of what is being added, whoever signed them. Comparing against the
+// upstream branch instead swept in everything a merge brought along, so a
+// branch that merged a mainline carrying any unsigned commit could never be
+// pushed again — not because the author had done anything wrong, but because
+// history they had merged was not theirs to sign. An agent signing every one of
+// its own commits was refused on the strength of commits three weeks older than
+// its branch and already on the remote.
+//
+// Excluding them enforces the rule exactly where it can be met: everything this
+// push adds must be signed. Nothing unsigned slips in, and previously accepted
+// history is not relitigated on every merge.
 func outgoingCommitSignatureStatuses(cwd string) []string {
-	upstreamOutput, upstreamErr := gitOutput(
+	output, err := gitOutput(
 		cwd,
-		"rev-parse",
-		"--abbrev-ref",
-		"--symbolic-full-name",
-		"@{upstream}",
+		"log",
+		"--pretty=%G?",
+		"HEAD",
+		"--not",
+		"--remotes",
 	)
-
-	upstream := strings.TrimSpace(upstreamOutput)
-	if upstream == "" || upstreamErr != nil {
-		output, err := gitOutput(
-			cwd,
-			"log",
-			"--pretty=%G?",
-			"HEAD",
-			"--not",
-			"--remotes",
-		)
-		if err != nil {
-			return []string{gitUnknownSignatureStatus}
-		}
-
-		return nonEmptyLines(
-			output,
-		)
-	}
-
-	output, err := gitOutput(cwd, "log", "--pretty=%G?", upstream+"..HEAD")
 	if err != nil {
 		return []string{gitUnknownSignatureStatus}
 	}
