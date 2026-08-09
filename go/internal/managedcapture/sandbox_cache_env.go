@@ -27,7 +27,58 @@ type sandboxCacheEnvironment struct {
 	Assembler       string
 	RealGit         string
 	PathPrefix      string
-	CleanupTemp     bool
+	// Cargo resolves dependencies from the registry under CARGO_HOME and finds
+	// its toolchain through RUSTUP_HOME. Neither can be rebuilt inside the
+	// sandbox without network access, and an installation away from its
+	// default path is invisible to a command that inherits no environment —
+	// cargo is on PATH, runs, and reports no toolchain.
+	CargoHome  string
+	RustupHome string
+	// Trailing so the single bool pads the struct once rather than splitting
+	// the string fields around it.
+	CleanupTemp bool
+}
+
+// rustHomes reports where Cargo and Rustup live, preferring the environment so
+// an installation moved off its default path is still found.
+func rustHomes() (string, string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+
+	cargoHome := rustHomeDir("CARGO_HOME", home, ".cargo")
+	rustupHome := rustHomeDir("RUSTUP_HOME", home, ".rustup")
+
+	return cargoHome, rustupHome
+}
+
+// rustHomeDir resolves one Rust home, preferring the environment and falling
+// back to a directory under the user's home. The result is cleaned before it is
+// used as a path and is reported empty unless it is a directory that exists, so
+// a stale or hostile setting becomes "not configured" rather than a path the
+// sandbox would go on to mount.
+func rustHomeDir(variable, home, fallback string) string {
+	dir := strings.TrimSpace(os.Getenv(variable))
+	if dir == "" {
+		if home == "" {
+			return ""
+		}
+
+		dir = filepath.Join(home, fallback)
+	}
+
+	dir = filepath.Clean(dir)
+	if !filepath.IsAbs(dir) {
+		return ""
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return ""
+	}
+
+	return dir
 }
 
 func (environment sandboxCacheEnvironment) overrides(name string) bool {
@@ -48,30 +99,20 @@ func (environment sandboxCacheEnvironment) items() []string {
 }
 
 func (environment sandboxCacheEnvironment) value(name string) string {
-	switch name {
-	case "TMPDIR":
-		return environment.TempDir
-	case "XDG_RUNTIME_DIR":
-		return environment.RuntimeDir
-	case "GOCACHE":
-		return environment.GoCache
-	case "GOLANGCI_LINT_CACHE":
-		return environment.GolangCILintDir
-	case "GOROOT":
-		return environment.GoRoot
-	case "CGO_ENABLED":
-		return environment.CGOEnabled
-	case "CC":
-		return environment.CC
-	case "COMPILER_PATH":
-		return environment.CompilerPath
-	case "AS":
-		return environment.Assembler
-	case evaluators.RealGitEnv:
-		return environment.RealGit
-	default:
-		return ""
-	}
+	return map[string]string{
+		"TMPDIR":              environment.TempDir,
+		"XDG_RUNTIME_DIR":     environment.RuntimeDir,
+		"GOCACHE":             environment.GoCache,
+		"GOLANGCI_LINT_CACHE": environment.GolangCILintDir,
+		"GOROOT":              environment.GoRoot,
+		"CGO_ENABLED":         environment.CGOEnabled,
+		"CC":                  environment.CC,
+		"COMPILER_PATH":       environment.CompilerPath,
+		"AS":                  environment.Assembler,
+		"CARGO_HOME":          environment.CargoHome,
+		"RUSTUP_HOME":         environment.RustupHome,
+		evaluators.RealGitEnv: environment.RealGit,
+	}[name]
 }
 
 func (environment sandboxCacheEnvironment) names() []string {
@@ -85,8 +126,19 @@ func (environment sandboxCacheEnvironment) names() []string {
 		"CC",
 		"COMPILER_PATH",
 		"AS",
+		"CARGO_HOME",
+		"RUSTUP_HOME",
 		evaluators.RealGitEnv,
 	}
+}
+
+func makeSandboxDir(dir, what string) error {
+	err := os.MkdirAll(dir, capturedPrivateDirMode)
+	if err != nil {
+		return fmt.Errorf("create sandbox %s dir: %w", what, err)
+	}
+
+	return nil
 }
 
 func sandboxCacheEnv(
@@ -108,21 +160,15 @@ func sandboxCacheEnv(
 		cleanupTemp = true
 	}
 
-	err := os.MkdirAll(tempDir, capturedPrivateDirMode)
+	err := makeSandboxDir(tempDir, "temp")
 	if err != nil {
-		return sandboxCacheEnvironment{}, fmt.Errorf(
-			"create sandbox temp dir: %w",
-			err,
-		)
+		return sandboxCacheEnvironment{}, err
 	}
 
 	if runtimeDir != "" {
-		err = os.MkdirAll(runtimeDir, capturedPrivateDirMode)
+		err = makeSandboxDir(runtimeDir, "runtime")
 		if err != nil {
-			return sandboxCacheEnvironment{}, fmt.Errorf(
-				"create sandbox runtime dir: %w",
-				err,
-			)
+			return sandboxCacheEnvironment{}, err
 		}
 	}
 
@@ -133,26 +179,22 @@ func sandboxCacheEnv(
 
 	goCache := filepath.Join(root, sandbox.SandboxGoCachePath)
 
-	err = os.MkdirAll(goCache, capturedPrivateDirMode)
+	err = makeSandboxDir(goCache, "Go cache")
 	if err != nil {
-		return sandboxCacheEnvironment{}, fmt.Errorf(
-			"create sandbox Go cache dir: %w",
-			err,
-		)
+		return sandboxCacheEnvironment{}, err
 	}
 
 	golangCILintDir := filepath.Join(root, sandbox.SandboxGolangCIPath)
 
-	err = os.MkdirAll(golangCILintDir, capturedPrivateDirMode)
+	err = makeSandboxDir(golangCILintDir, "golangci-lint cache")
 	if err != nil {
-		return sandboxCacheEnvironment{}, fmt.Errorf(
-			"create sandbox golangci-lint cache dir: %w",
-			err,
-		)
+		return sandboxCacheEnvironment{}, err
 	}
 
 	cCompiler := managedCCompiler()
 	assembler := managedAssembler()
+
+	cargoHome, rustupHome := rustHomes()
 
 	return sandboxCacheEnvironment{
 		TempDir:         tempDir,
@@ -167,6 +209,8 @@ func sandboxCacheEnv(
 		Assembler:       assembler,
 		RealGit:         realGit,
 		PathPrefix:      pathPrefix,
+		CargoHome:       cargoHome,
+		RustupHome:      rustupHome,
 	}, nil
 }
 

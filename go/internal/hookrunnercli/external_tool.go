@@ -227,6 +227,59 @@ type externalToolCacheEnvironment struct {
 	GoCache         string
 	GolangCILintDir string
 	UVCache         string
+	// CargoTarget is per-repository build output, like GoCache.
+	CargoTarget string
+	// CargoHome and RustupHome are the operator's, not the repository's. Cargo
+	// resolves dependencies from the registry under CARGO_HOME and finds its
+	// toolchain through RUSTUP_HOME, and neither can be rebuilt inside a
+	// repository cache without network access. An installation that does not
+	// sit at its default path — which is why this was needed at all — is
+	// invisible to a tool that inherits no environment.
+	CargoHome  string
+	RustupHome string
+}
+
+// rustHomes reports where Cargo and Rustup live for the operator running this.
+//
+// Taken from the environment first, because an installation moved off its
+// default path is exactly the case that fails silently otherwise: cargo is on
+// PATH, runs, and cannot find a toolchain.
+func rustHomes() (string, string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
+
+	return rustHomeDir("CARGO_HOME", home, ".cargo"),
+		rustHomeDir("RUSTUP_HOME", home, ".rustup")
+}
+
+// rustHomeDir resolves one Rust home, preferring the environment and falling
+// back to a directory under the user's home. The result is cleaned before it is
+// used as a path and is reported empty unless it is a directory that exists, so
+// a stale or hostile setting becomes "not configured" rather than a path the
+// caller would go on to trust.
+func rustHomeDir(variable, home, fallback string) string {
+	dir := strings.TrimSpace(os.Getenv(variable))
+	if dir == "" {
+		if home == "" {
+			return ""
+		}
+
+		dir = filepath.Join(home, fallback)
+	}
+
+	dir = filepath.Clean(dir)
+	if !filepath.IsAbs(dir) {
+		return ""
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return ""
+	}
+
+	return dir
 }
 
 func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
@@ -238,8 +291,9 @@ func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 	goCache := filepath.Join(root, sandbox.SandboxGoCachePath)
 	golangCILintDir := filepath.Join(root, sandbox.SandboxGolangCIPath)
 	uvCache := filepath.Join(root, ".coding-ethos", "cache", "uv")
+	cargoTarget := filepath.Join(root, ".coding-ethos", "cache", "cargo-target")
 
-	for _, dir := range []string{goTemp, goCache, golangCILintDir, uvCache} {
+	for _, dir := range []string{goTemp, goCache, golangCILintDir, uvCache, cargoTarget} {
 		err := os.MkdirAll(dir, externalToolCacheDirMode)
 		if err != nil {
 			return externalToolCacheEnvironment{}, fmt.Errorf(
@@ -250,11 +304,16 @@ func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 		}
 	}
 
+	cargoHome, rustupHome := rustHomes()
+
 	return externalToolCacheEnvironment{
 		GoTemp:          goTemp,
 		GoCache:         goCache,
 		GolangCILintDir: golangCILintDir,
 		UVCache:         uvCache,
+		CargoTarget:     cargoTarget,
+		CargoHome:       cargoHome,
+		RustupHome:      rustupHome,
 	}, nil
 }
 
@@ -271,6 +330,9 @@ func (environment externalToolCacheEnvironment) items() []string {
 		"GOCACHE",
 		"GOLANGCI_LINT_CACHE",
 		"UV_CACHE_DIR",
+		"CARGO_TARGET_DIR",
+		"CARGO_HOME",
+		"RUSTUP_HOME",
 	} {
 		value := environment.value(name)
 		if value != "" {
@@ -293,6 +355,12 @@ func (environment externalToolCacheEnvironment) value(name string) string {
 		return environment.GolangCILintDir
 	case "UV_CACHE_DIR":
 		return environment.UVCache
+	case "CARGO_TARGET_DIR":
+		return environment.CargoTarget
+	case "CARGO_HOME":
+		return environment.CargoHome
+	case "RUSTUP_HOME":
+		return environment.RustupHome
 	default:
 		return ""
 	}
