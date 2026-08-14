@@ -10,7 +10,10 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
 
-const blockDecision = "block"
+const (
+	blockDecision = "block"
+	warnDecision  = "warn"
+)
 
 func TestEvaluateShellDangerousCommandBlocksUnsafePatterns(t *testing.T) {
 	t.Parallel()
@@ -100,7 +103,15 @@ func TestEvaluateShellGitHubAdminBlocksAdminFlag(t *testing.T) {
 	}
 }
 
-func TestEvaluateShellInlineEnvBlocksCommandAssignments(t *testing.T) {
+// TestEvaluateShellInlineEnvWarnsOnCommandAssignments pins the severity this
+// policy was deliberately reduced to.
+//
+// It used to block. That was wrong often enough to matter: a shell-local
+// alias for a path is ordinary and harmless, and refusing it outright cost
+// more than it protected. The policy now warns, and says which of the two it
+// means. The test kept demanding a block after the change, so the repository
+// gate failed on every commit regardless of what the commit contained.
+func TestEvaluateShellInlineEnvWarnsOnCommandAssignments(t *testing.T) {
 	t.Parallel()
 
 	policyDef := compiledRepoBundle(t).Policies["shell.inline_env"]
@@ -117,8 +128,8 @@ func TestEvaluateShellInlineEnvBlocksCommandAssignments(t *testing.T) {
 		t.Fatalf("evaluate inline env: %v", err)
 	}
 
-	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
-		t.Fatalf("expected block decision, got %#v", decisions)
+	if len(decisions) != 1 || decisions[0].Decision != warnDecision {
+		t.Fatalf("expected warn decision, got %#v", decisions)
 	}
 }
 
