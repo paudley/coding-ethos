@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"regexp"
 	"strings"
@@ -85,6 +86,10 @@ func addGitPolicies(
 	}
 
 	policies["git.wrapper_required"] = gitWrapperRequiredPolicy(principles)
+
+	// Blocks issued directly by the Go hook routes. Registered so a block can
+	// be looked up, attributed and tuned; enforcement stays in the routes.
+	maps.Copy(policies, hookRoutePolicies(principles))
 
 	if enabledAt(config, []string{"go", "commit_attribution"}) {
 		policies["git.commit_attribution"] = gitCommitAttributionPolicy(
