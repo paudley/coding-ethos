@@ -23,11 +23,14 @@ var (
 		"real git bind requires both --real-git-path and --real-git-bind",
 	)
 	errSymlinkWritePath    = errors.New("sandbox write path contains symlink")
-	errWritePathNotAllowed = errors.New("sandbox write path is not a file or directory")
-	errGitTargetAbsolute   = errors.New("git target must be absolute")
-	errGitTargetRequired   = errors.New("at least one git target is required")
-	errExecutableAbsolute  = errors.New("executable path must be absolute")
-	errExecutableInvalid   = errors.New("executable path is not executable")
+	errWritePathNotAllowed = errors.New(
+		"sandbox write path is not a file or directory",
+	)
+	errReadOnlyPathNotAbsolute = errors.New("sandbox read-only path must be absolute")
+	errGitTargetAbsolute       = errors.New("git target must be absolute")
+	errGitTargetRequired       = errors.New("at least one git target is required")
+	errExecutableAbsolute      = errors.New("executable path must be absolute")
+	errExecutableInvalid       = errors.New("executable path is not executable")
 )
 
 const (
@@ -56,6 +59,17 @@ func applyFilesystemPolicy(options options) error {
 		return err
 	}
 
+	// Before anything is made writable, and never after. Landlock grants
+	// access to a whole subtree and has no way to take part of it back, so a
+	// directory that must stay read-only inside a writable parent has to be
+	// held by a mount rather than by a rule. Failing here is fatal on purpose:
+	// the caller only asks for a writable parent because it expects these to
+	// hold, and continuing would hand out the parent without them.
+	err = applyReadOnlyPaths(options.readOnlyPaths)
+	if err != nil {
+		return err
+	}
+
 	writePaths, err := prepareWritablePaths(options)
 	if err != nil {
 		return err
@@ -64,6 +78,57 @@ func applyFilesystemPolicy(options options) error {
 	err = applyLandlockWritePolicy(writePaths)
 	if err != nil {
 		return fmt.Errorf("apply landlock write policy: %w", err)
+	}
+
+	return nil
+}
+
+// applyReadOnlyPaths pins each path read-only with a bind mount over itself.
+//
+// This exists because Landlock is allow-only and hierarchical: a rule can open
+// a subtree but never close part of one. Granting the repository root -- which
+// is what lets git create, delete and rename files at the top level -- would
+// otherwise grant everything beneath it too, including .git, and an agent that
+// can write .git/config or drop in a hook is outside the git wrapper entirely.
+//
+// A mount does what a rule cannot, and it is applied first so no window exists
+// where the parent is writable and these are not.
+func applyReadOnlyPaths(paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	err := isolateMountPropagation()
+	if err != nil {
+		return err
+	}
+
+	for _, path := range paths {
+		cleaned := filepath.Clean(strings.TrimSpace(path))
+		if cleaned == "" || !filepath.IsAbs(cleaned) {
+			return fmt.Errorf("%w: %s", errReadOnlyPathNotAbsolute, path)
+		}
+
+		// A path that is not there cannot be written either, and repositories
+		// legitimately differ: not every one carries a .coding-ethos.
+		_, statErr := os.Lstat(cleaned)
+		if errors.Is(statErr, os.ErrNotExist) {
+			continue
+		}
+
+		if statErr != nil {
+			return fmt.Errorf("stat read-only path %s: %w", cleaned, statErr)
+		}
+
+		err = unix.Mount(cleaned, cleaned, "", unix.MS_BIND|unix.MS_REC, "")
+		if err != nil {
+			return fmt.Errorf("bind read-only path %s: %w", cleaned, err)
+		}
+
+		err = remountReadOnlyBind(cleaned)
+		if err != nil {
+			return fmt.Errorf("remount read-only path %s: %w", cleaned, err)
+		}
 	}
 
 	return nil

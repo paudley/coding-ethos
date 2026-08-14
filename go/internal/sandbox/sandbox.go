@@ -118,15 +118,18 @@ type Capabilities struct {
 	GitTargetPaths     []string `json:"git_target_paths,omitempty"`
 	ReadPaths          []string `json:"read_paths,omitempty"`
 	WritePaths         []string `json:"write_paths,omitempty"`
-	EnvBindings        []string `json:"env_bindings,omitempty"`
-	CPUQuotaPercent    int      `json:"cpu_quota_percent,omitempty"`
-	MemoryMB           int      `json:"memory_mb,omitempty"`
-	TimeoutSeconds     int      `json:"timeout_seconds,omitempty"`
-	AllowGitWrites     bool     `json:"allow_git_writes,omitempty"`
-	RequiresNetwork    bool     `json:"requires_network,omitempty"`
-	RequiresGit        bool     `json:"requires_git,omitempty"`
-	RequiresEnv        bool     `json:"requires_env,omitempty"`
-	RequiresProcesses  bool     `json:"requires_processes,omitempty"`
+	// ReadOnlyPaths must stay read-only even when a parent of theirs is
+	// writable. Landlock cannot express that, so they are held by mounts.
+	ReadOnlyPaths     []string `json:"read_only_paths,omitempty"`
+	EnvBindings       []string `json:"env_bindings,omitempty"`
+	CPUQuotaPercent   int      `json:"cpu_quota_percent,omitempty"`
+	MemoryMB          int      `json:"memory_mb,omitempty"`
+	TimeoutSeconds    int      `json:"timeout_seconds,omitempty"`
+	AllowGitWrites    bool     `json:"allow_git_writes,omitempty"`
+	RequiresNetwork   bool     `json:"requires_network,omitempty"`
+	RequiresGit       bool     `json:"requires_git,omitempty"`
+	RequiresEnv       bool     `json:"requires_env,omitempty"`
+	RequiresProcesses bool     `json:"requires_processes,omitempty"`
 }
 
 type Request struct {
@@ -159,6 +162,7 @@ type Evidence struct {
 	Reason               string   `json:"reason,omitempty"`
 	ReadPaths            []string `json:"read_paths,omitempty"`
 	WritePaths           []string `json:"write_paths,omitempty"`
+	ReadOnlyPaths        []string `json:"read_only_paths,omitempty"`
 	EnvBindings          []string `json:"env_bindings,omitempty"`
 	HiddenCredentialDirs []string `json:"hidden_credential_dirs,omitempty"`
 	Tags                 []string `json:"tags,omitempty"`
@@ -683,6 +687,7 @@ func (request Request) evidence() Evidence {
 		Tags:              append([]string(nil), request.Capabilities.Tags...),
 		ReadPaths:         readPaths,
 		WritePaths:        writePaths,
+		ReadOnlyPaths:     request.Capabilities.ReadOnlyPaths,
 		EnvBindings:       append([]string(nil), request.Capabilities.EnvBindings...),
 		TimeoutSeconds:    request.Capabilities.TimeoutSeconds,
 		MemoryMB:          request.Capabilities.MemoryMB,
@@ -878,6 +883,10 @@ func nativeWrapperArgs(request Request, writePaths []string) []string {
 
 	for _, path := range writePaths {
 		args = append(args, "--write-path", path)
+	}
+
+	for _, path := range request.Capabilities.ReadOnlyPaths {
+		args = append(args, "--read-only-path", path)
 	}
 
 	if request.Capabilities.RequiresGit {

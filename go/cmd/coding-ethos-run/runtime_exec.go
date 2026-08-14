@@ -39,12 +39,13 @@ import (
 )
 
 const (
-	linuxGOOS              = "linux"
-	agentShellCacheDirMode = 0o700
-	agentShellAssetMode    = 0o700
-	agentShellFileMode     = 0o600
-	agentShellInjectedEnv  = 3
-	agentShellGitPathCap   = 2
+	linuxGOOS                   = "linux"
+	agentShellCacheDirMode      = 0o700
+	agentShellAssetMode         = 0o700
+	agentShellFileMode          = 0o600
+	agentShellInjectedEnv       = 3
+	agentShellProtectedEntryCap = 2
+	agentShellGitPathCap        = 2
 )
 
 var (
@@ -210,6 +211,7 @@ func agentShellSandboxPlan(
 			SandboxProfile:    "agent-shell",
 			StrategicIntent:   agentShellStrategicIntent(),
 			WritePaths:        append(agentShellProtectedWritePaths(paths), agentWritePaths...),
+			ReadOnlyPaths:     agentShellReadOnlyPaths(paths.Root),
 			ReadPaths:         agentShellInterceptReadPaths(interceptEvidence),
 			EnvBindings:       envBindings,
 			AllowGitWrites:    true,
@@ -483,13 +485,30 @@ func agentShellTerminalPath(path string) bool {
 	return strings.HasPrefix(path, "/dev/pts/") || path == "/dev/tty"
 }
 
+// agentShellWorktreeWritePaths reports the worktree paths the agent may write.
+//
+// The root itself leads, and it has to. Creating, deleting and renaming a file
+// are rights over the directory holding it, not over the file, so a set built
+// only from the entries beneath the root leaves the root itself ungranted --
+// and then no top-level file can be replaced, only edited in place. That is
+// what git does on every merge, and it failed as "unable to unlink old
+// 'Makefile': Permission denied" on files that were plainly writable, which
+// read as though those particular files were protected. Nothing about them
+// was: they were simply the top-level ones main had touched. Two lanes stopped
+// there and neither could be finished.
+//
+// The entries are still listed, because a rule on the root does not describe
+// what is beneath it once a mount intervenes, and .git and .coding-ethos are
+// held read-only by exactly such a mount -- see agentShellReadOnlyPaths.
 func agentShellWorktreeWritePaths(root string) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, fmt.Errorf("read agent-shell worktree root %s: %w", root, err)
 	}
 
-	paths := make([]string, 0, len(entries))
+	paths := make([]string, 0, len(entries)+1)
+	paths = append(paths, root)
+
 	for _, entry := range entries {
 		name := entry.Name()
 		if protectedAgentShellWorktreeEntry(name) {
@@ -543,6 +562,25 @@ func agentShellWorktreeEntryIsSymlink(entry os.DirEntry) (bool, error) {
 func protectedAgentShellWorktreeEntry(name string) bool {
 	return name == ".git" ||
 		name == ".coding-ethos"
+}
+
+// agentShellReadOnlyPaths reports what must stay read-only inside the writable
+// worktree root.
+//
+// Granting the root is what lets git replace top-level files, and Landlock
+// grants reach everything beneath -- it is allow-only, with no way to exclude
+// a subtree. So the same entries that used to be protected by being left out
+// of the write set are now pinned by a read-only mount, which does hold
+// against a writable parent. An agent that could write .git/config or install
+// a hook would be outside the git wrapper altogether, so this is not optional:
+// the sandbox refuses to start if a pin cannot be established.
+func agentShellReadOnlyPaths(root string) []string {
+	paths := make([]string, 0, agentShellProtectedEntryCap)
+	for _, name := range [...]string{".git", ".coding-ethos"} {
+		paths = append(paths, filepath.Join(root, name))
+	}
+
+	return paths
 }
 
 func agentShellProcessEnv(

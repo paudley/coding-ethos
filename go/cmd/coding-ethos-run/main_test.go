@@ -1912,6 +1912,52 @@ func TestAgentShellWorktreeWritePathsExcludeProtectedRuntimeDirs(t *testing.T) {
 	}
 }
 
+// TestAgentShellWorktreeRootIsWritableAndProtectedEntriesArePinned covers the
+// reason a merge could not replace a top-level file.
+//
+// Creating, deleting and renaming are rights over the directory holding a
+// file, not over the file, so a write set built only from the entries beneath
+// the root left the root ungranted and no top-level file could be replaced --
+// only edited in place. git does exactly that on every merge, and it surfaced
+// as "unable to unlink old 'Makefile': Permission denied" on files that were
+// plainly writable, as though those files were singled out. They were not:
+// they were the top-level ones main had touched.
+//
+// Granting the root reaches everything beneath it, so the entries that were
+// protected by omission must now be pinned by a mount instead. Both halves are
+// required and neither is any use alone.
+func TestAgentShellWorktreeRootIsWritableAndProtectedEntriesArePinned(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	for _, dir := range []string{".git", ".coding-ethos"} {
+		if err := os.Mkdir(filepath.Join(root, dir), 0o700); err != nil {
+			t.Fatalf("create worktree dir %s: %v", dir, err)
+		}
+	}
+
+	got, err := agentShellWorktreeWritePaths(root)
+	if err != nil {
+		t.Fatalf("agentShellWorktreeWritePaths() error = %v", err)
+	}
+
+	if !slices.Contains(got, root) {
+		t.Fatalf("worktree root is not writable, so no top-level file can be "+
+			"created, deleted or renamed: %#v", got)
+	}
+
+	pinned := agentShellReadOnlyPaths(root)
+	for _, want := range []string{
+		filepath.Join(root, ".git"),
+		filepath.Join(root, ".coding-ethos"),
+	} {
+		if !slices.Contains(pinned, want) {
+			t.Fatalf("%s is beneath the now-writable root and is not pinned "+
+				"read-only: %#v", want, pinned)
+		}
+	}
+}
+
 func TestAgentShellSandboxPlanFailsClosedWithoutNativeHelper(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("agent-shell native sandbox is Linux-only")

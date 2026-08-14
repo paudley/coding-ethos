@@ -46,6 +46,7 @@ type options struct {
 	gitWrapper     string
 	gitTargets     []string
 	writePaths     []string
+	readOnlyPaths  []string
 	commandArgv    []string
 	allowGitWrites bool
 }
@@ -97,9 +98,10 @@ func run(args []string) error {
 
 func parseOptions(args []string) (options, error) {
 	var (
-		parsed     = options{paths: &sandboxPaths{}}
-		gitTargets repeatedPaths
-		writePaths repeatedPaths
+		parsed        = options{paths: &sandboxPaths{}}
+		gitTargets    repeatedPaths
+		writePaths    repeatedPaths
+		readOnlyPaths repeatedPaths
 	)
 
 	flags := flag.NewFlagSet(sandboxExecCommandName, flag.ContinueOnError)
@@ -112,6 +114,11 @@ func parseOptions(args []string) (options, error) {
 	flags.StringVar(&parsed.realGitBind, "real-git-bind", "", "Real git bind target")
 	flags.Var(&gitTargets, "git-target", "Git path to bind")
 	flags.Var(&writePaths, "write-path", "Writable repository path")
+	flags.Var(
+		&readOnlyPaths,
+		"read-only-path",
+		"Repository path that must stay read-only even inside a writable parent",
+	)
 	flags.BoolVar(
 		&parsed.allowGitWrites,
 		"allow-git-writes",
@@ -144,6 +151,7 @@ func parseOptions(args []string) (options, error) {
 	parsed.paths.repoRoot = filepath.Clean(repoRoot)
 
 	parsed.writePaths = append([]string(nil), writePaths...)
+	parsed.readOnlyPaths = append([]string(nil), readOnlyPaths...)
 	parsed.gitTargets = append([]string(nil), gitTargets...)
 
 	return parsed, nil
