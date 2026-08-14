@@ -229,6 +229,52 @@ func TestPrepareWritablePathsAllowsExplicitGitWrites(t *testing.T) {
 	}
 }
 
+// TestPrepareWritablePathsRefusesAWritableParentOfGitWithoutAPin makes the
+// protection of .git structural rather than conventional.
+//
+// A Landlock grant reaches everything beneath it, so granting the worktree
+// root -- which is what lets git create, delete and rename top-level files --
+// grants .git too unless a mount says otherwise. The caller that grants the
+// root does pass a pin. Nothing stopped the next caller from forgetting, and
+// forgetting would be silent: the sandbox would come up, everything would
+// work, and an agent could write .git/config or drop in a hook and so step
+// outside the git wrapper entirely.
+func TestPrepareWritablePathsRefusesAWritableParentOfGitWithoutAPin(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gitDir := filepath.Join(root, ".git")
+	if err := os.Mkdir(gitDir, 0o700); err != nil {
+		t.Fatalf("create git dir fixture: %v", err)
+	}
+
+	_, err := prepareWritablePaths(options{
+		paths:          &sandboxPaths{repoRoot: root},
+		writePaths:     []string{root},
+		allowGitWrites: true,
+	})
+	if err == nil {
+		t.Fatal("granting a directory that holds .git without pinning .git " +
+			"read-only was accepted; the grant reaches .git and nothing " +
+			"downstream would notice")
+	}
+
+	// With the pin the same grant is exactly what the merge needs.
+	paths, err := prepareWritablePaths(options{
+		paths:          &sandboxPaths{repoRoot: root},
+		writePaths:     []string{root},
+		readOnlyPaths:  []string{gitDir},
+		allowGitWrites: true,
+	})
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() with a pin error = %v", err)
+	}
+	if !slices.Contains(paths, root) {
+		t.Fatalf("worktree root missing, so no top-level file can be "+
+			"replaced: %#v", paths)
+	}
+}
+
 func TestPrepareWritablePathsAllowsGPGHomeForSignedGit(t *testing.T) {
 	root := t.TempDir()
 	gpgHome := filepath.Join(t.TempDir(), "gnupg")

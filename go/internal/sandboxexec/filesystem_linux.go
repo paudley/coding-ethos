@@ -27,10 +27,13 @@ var (
 		"sandbox write path is not a file or directory",
 	)
 	errReadOnlyPathNotAbsolute = errors.New("sandbox read-only path must be absolute")
-	errGitTargetAbsolute       = errors.New("git target must be absolute")
-	errGitTargetRequired       = errors.New("at least one git target is required")
-	errExecutableAbsolute      = errors.New("executable path must be absolute")
-	errExecutableInvalid       = errors.New("executable path is not executable")
+	errGitDirWouldBeWritable   = errors.New(
+		"sandbox write path would make .git writable without pinning it read-only",
+	)
+	errGitTargetAbsolute  = errors.New("git target must be absolute")
+	errGitTargetRequired  = errors.New("at least one git target is required")
+	errExecutableAbsolute = errors.New("executable path must be absolute")
+	errExecutableInvalid  = errors.New("executable path is not executable")
 )
 
 const (
@@ -378,16 +381,35 @@ func validatedExecutablePath(path, label string) (string, error) {
 }
 
 func prepareWritablePaths(options options) ([]string, error) {
+	gitDir := filepath.Join(options.paths.repoRoot, ".git")
 	paths := make([]string, 0, len(options.writePaths))
+
 	for _, item := range options.writePaths {
 		path, ok := cleanPolicyPath(options.paths.repoRoot, item, options.allowGitWrites)
 		if !ok {
 			continue
 		}
 
-		if !options.allowGitWrites &&
-			pathWithin(filepath.Join(options.paths.repoRoot, ".git"), path) {
+		if !options.allowGitWrites && pathWithin(gitDir, path) {
 			continue
+		}
+
+		// A Landlock grant reaches everything beneath it, so granting a
+		// directory that holds .git grants .git unless a mount says otherwise.
+		// Granting .git itself is a different thing and stays allowed: it is
+		// asked for deliberately and gated by allow-git-writes. What must not
+		// pass unremarked is reaching .git through a parent nobody granted it
+		// for.
+		// Requiring the mount here rather than trusting the caller to pass one
+		// is the difference between an invariant and a convention: the caller
+		// that grants the worktree root does pass it, and nothing stops the
+		// next one from forgetting. Refusing is safe in a way that continuing
+		// is not -- an agent that can write .git/config or drop in a hook is
+		// outside the git wrapper entirely, and nothing downstream would
+		// notice.
+		incidental := path != gitDir && pathWithin(path, gitDir)
+		if incidental && !pinnedReadOnly(options.readOnlyPaths, gitDir) {
+			return nil, fmt.Errorf("%w: %s", errGitDirWouldBeWritable, path)
 		}
 
 		err := prepareWritablePath(
@@ -715,4 +737,23 @@ func landlockParentFD(file *os.File) (int32, error) {
 	}
 
 	return int32(fileDescriptor), nil
+}
+
+// pinnedReadOnly reports whether target is held read-only by one of the pins.
+//
+// A pin on an ancestor covers what is beneath it, because the mount is
+// recursive, so an exact match is not required.
+func pinnedReadOnly(readOnlyPaths []string, target string) bool {
+	for _, path := range readOnlyPaths {
+		cleaned := filepath.Clean(strings.TrimSpace(path))
+		if cleaned == "" {
+			continue
+		}
+
+		if pathWithin(cleaned, target) {
+			return true
+		}
+	}
+
+	return false
 }
