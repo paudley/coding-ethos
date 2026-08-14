@@ -1536,17 +1536,25 @@ principles:
             )
         - id: shell.inline_env
           scope: command
-          severity: block
-          mode: block
+          severity: warn
+          mode: warn
           skill_id: managed-toolchain
           tools:
             - Bash
           lint_scopes:
             - staged
-          message: Inline command environment variables are forbidden.
+          message: Inline command environment variables are discouraged.
+          # Blocking this never changed an outcome. Across two lanes it fired
+          # twenty-six times and was routed around twenty-six times, usually
+          # within ten seconds, because every one was read-only exploration
+          # using a shell variable as a path alias. The advice below did not
+          # fit that and was never followed. A rule that only costs turns
+          # teaches agents to step over rules, which is worse than the habit
+          # it was trying to correct, so it now says so without stopping work.
           advice: >-
             Route configuration through validated repo configuration or
-            bootstrap files.
+            bootstrap files. A shell-local alias for a path is fine; an
+            inline setting that changes how a tool builds or runs is not.
           when: >-
             command_fact.has_inline_env ||
             shell_commands.exists(command, command.has_inline_env)
@@ -3478,7 +3486,15 @@ principles:
                 command.name == "rm" &&
                 (
                   list_contains(command.argv, "-rf") ||
-                  list_contains(command.argv, "-fr")
+                  list_contains(command.argv, "-fr") ||
+                  // A forced delete over many paths is a bulk deletion by
+                  // another name. `git clean -fd -- <paths>` was blocked as
+                  // destructive and the same removal reappeared fifteen
+                  // seconds later as `rm -f` over twenty explicit paths --
+                  // equally destructive, and with none of the tracking that
+                  // makes the git form reviewable. Blocking one route and
+                  // leaving the worse one open does not protect anything.
+                  (list_contains(command.argv, "-f") && command.argv.size() > 4)
                 )
               ) ||
               (
