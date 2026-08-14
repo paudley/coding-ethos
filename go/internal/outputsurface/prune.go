@@ -421,12 +421,21 @@ func runDuckDBMaintenance(
 		return DBMaintenance{}, false, fmt.Errorf("stat DuckDB after maintenance: %w", err)
 	}
 
+	// Report compaction only when the file actually got smaller. DuckDB's
+	// VACUUM updates statistics; it does not return pages to the filesystem,
+	// so the operation ran and reclaimed nothing. Across two lanes 780 prune
+	// runs reported compacted with size_after equal to size_before every
+	// single time, while the store they were pruning reached 235 MB. A
+	// maintenance record that always says it worked is a record nobody can
+	// use to notice that it never does.
+	reclaimed := compacted && after.Size() < info.Size()
+
 	return DBMaintenance{
 		SurfaceID:       codeIntelDBSurfaceID,
 		SizeBeforeBytes: info.Size(),
 		SizeAfterBytes:  after.Size(),
 		Checkpointed:    true,
-		Compacted:       compacted,
+		Compacted:       reclaimed,
 	}, true, nil
 }
 

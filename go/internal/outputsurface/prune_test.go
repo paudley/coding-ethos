@@ -529,11 +529,27 @@ func TestPruneDuckDBMaintenanceCheckpointsAndCompacts(t *testing.T) {
 			maintenance = candidate
 		}
 	}
-	if !maintenance.Checkpointed || !maintenance.Compacted {
-		t.Fatalf("DuckDB maintenance = %#v", report.DBMaintenance)
+	if !maintenance.Checkpointed {
+		t.Fatalf("DuckDB maintenance did not checkpoint: %#v", report.DBMaintenance)
 	}
 	if maintenance.SizeBeforeBytes == 0 || maintenance.SizeAfterBytes == 0 {
 		t.Fatalf("DuckDB maintenance missing sizes: %#v", maintenance)
+	}
+	// Compacted means space came back, and it is reported from the file rather
+	// than from having run the statement. DuckDB's VACUUM updates statistics
+	// and does not return pages to the filesystem -- in this very fixture the
+	// store grows across the call -- so asserting it unconditionally was
+	// asserting that a no-op had worked. In production that reported success
+	// 780 times while the store it was pruning reached 235 MB.
+	shrank := maintenance.SizeAfterBytes < maintenance.SizeBeforeBytes
+	if maintenance.Compacted != shrank {
+		t.Fatalf(
+			"Compacted=%v but the store went from %d to %d bytes: %#v",
+			maintenance.Compacted,
+			maintenance.SizeBeforeBytes,
+			maintenance.SizeAfterBytes,
+			maintenance,
+		)
 	}
 }
 
