@@ -275,6 +275,30 @@ func TestPrepareWritablePathsRefusesAWritableParentOfGitWithoutAPin(t *testing.T
 	}
 }
 
+func TestPrepareWritablePathsAllowsParentWhenGitIsExplicitlyWritable(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gitDir := filepath.Join(root, ".git")
+	if err := os.Mkdir(gitDir, 0o700); err != nil {
+		t.Fatalf("create git dir fixture: %v", err)
+	}
+
+	paths, err := prepareWritablePaths(options{
+		paths:          &sandboxPaths{repoRoot: root},
+		writePaths:     []string{gitDir, root},
+		allowGitWrites: true,
+	})
+	if err != nil {
+		t.Fatalf("prepareWritablePaths() error = %v", err)
+	}
+	for _, want := range []string{gitDir, root} {
+		if !slices.Contains(paths, want) {
+			t.Fatalf("explicit write capability missing %s: %#v", want, paths)
+		}
+	}
+}
+
 func TestPrepareWritablePathsAllowsGPGHomeForSignedGit(t *testing.T) {
 	root := t.TempDir()
 	gpgHome := filepath.Join(t.TempDir(), "gnupg")
@@ -663,6 +687,50 @@ func TestMountInfoHasSharedPropagation(t *testing.T) {
 
 	if mountInfoHasSharedPropagation("malformed\n") {
 		t.Fatal("mountInfoHasSharedPropagation() reported malformed mount info as shared")
+	}
+}
+
+func TestReadOnlyMountInfoForPathRequiresAnExactReadOnlyMount(t *testing.T) {
+	t.Parallel()
+
+	content := "36 25 0:32 / /workspace rw,nosuid - ext4 /dev/root rw\n" +
+		"37 36 0:32 /repo/.git /workspace/repo/.git ro,nosuid - ext4 /dev/root rw\n" +
+		"38 36 0:32 /repo/cache /workspace/repo/cache rw,nosuid - ext4 /dev/root rw\n" +
+		"39 36 0:32 /repo/a\\040b /workspace/repo/a\\040b ro,nosuid - ext4 /dev/root rw\n"
+
+	if !readOnlyMountInfoForPath(content, "/workspace/repo/.git") {
+		t.Fatal("exact read-only .git mount was not recognized")
+	}
+	if !readOnlyMountInfoForPath(content, "/workspace/repo/a b") {
+		t.Fatal("escaped read-only mountpoint was not recognized")
+	}
+	for _, path := range []string{
+		"/workspace/repo",
+		"/workspace/repo/cache",
+		"/workspace/repo/.git/config",
+	} {
+		if readOnlyMountInfoForPath(content, path) {
+			t.Fatalf("%s was accepted without an exact read-only mount", path)
+		}
+	}
+}
+
+func TestWritablePathOverridesSelectOnlyChildrenOfPins(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	pin := filepath.Join(root, ".coding-ethos")
+	cache := filepath.Join(pin, "cache")
+	state := filepath.Join(pin, "state")
+	gitDir := filepath.Join(root, ".git")
+
+	got := writablePathOverrides(
+		[]string{gitDir, pin},
+		[]string{root, cache, state, gitDir, "/dev/null"},
+	)
+	want := []string{cache, state}
+	if !slices.Equal(got, want) {
+		t.Fatalf("writablePathOverrides() = %#v, want %#v", got, want)
 	}
 }
 

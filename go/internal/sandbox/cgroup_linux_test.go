@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -37,6 +38,86 @@ func TestCgroupSysProcAttrUsesCgroupFD(t *testing.T) {
 	}
 	if attributes.CgroupFD != descriptor {
 		t.Fatalf("CgroupFD = %d, want %d", attributes.CgroupFD, descriptor)
+	}
+}
+
+func TestProcessEnabledSandboxWithReadOnlyPinsRetainsFilesystemNamespaces(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	attributes := SysProcAttr(nil, Evidence{
+		Enabled:           true,
+		RequiresProcesses: true,
+		RequiresNetwork:   true,
+		ReadOnlyPaths:     []string{"/workspace/.git"},
+	})
+	if attributes == nil {
+		t.Fatal("SysProcAttr() = nil")
+	}
+
+	for _, namespace := range []uintptr{
+		syscall.CLONE_NEWUSER,
+		syscall.CLONE_NEWNS,
+	} {
+		if attributes.Cloneflags&namespace == 0 {
+			t.Fatalf(
+				"filesystem namespace flag %#x missing from %#x",
+				namespace,
+				attributes.Cloneflags,
+			)
+		}
+	}
+	for _, preserved := range []uintptr{
+		syscall.CLONE_NEWNET,
+		syscall.CLONE_NEWUTS,
+		syscall.CLONE_NEWIPC,
+	} {
+		if attributes.Cloneflags&preserved != 0 {
+			t.Fatalf("process-enabled sandbox unexpectedly isolated namespace %#x", preserved)
+		}
+	}
+	if len(attributes.UidMappings) != 1 || len(attributes.GidMappings) != 1 {
+		t.Fatalf("user namespace mappings missing: %#v", attributes)
+	}
+	if attributes.UidMappings[0].ContainerID != os.Getuid() ||
+		attributes.GidMappings[0].ContainerID != os.Getgid() {
+		t.Fatalf("namespace changed the caller's numeric identity: %#v", attributes)
+	}
+	if len(attributes.AmbientCaps) != 1 ||
+		attributes.AmbientCaps[0] != uintptr(unix.CAP_SYS_ADMIN) {
+		t.Fatalf("mount helper capability missing or overbroad: %#v", attributes.AmbientCaps)
+	}
+}
+
+func TestProcessEnabledSandboxWithoutReadOnlyPinsPreservesHostNamespaces(t *testing.T) {
+	t.Parallel()
+
+	attributes := SysProcAttr(nil, Evidence{
+		Enabled:           true,
+		RequiresProcesses: true,
+		RequiresNetwork:   true,
+	})
+	if attributes == nil {
+		t.Fatal("SysProcAttr() = nil")
+	}
+	if attributes.Cloneflags != 0 {
+		t.Fatalf(
+			"ordinary process-enabled sandbox unexpectedly isolated namespaces: %#x",
+			attributes.Cloneflags,
+		)
+	}
+	if len(attributes.UidMappings) != 0 || len(attributes.GidMappings) != 0 {
+		t.Fatalf(
+			"ordinary process-enabled sandbox unexpectedly changed identity: %#v",
+			attributes,
+		)
+	}
+	if len(attributes.AmbientCaps) != 0 {
+		t.Fatalf(
+			"ordinary process-enabled sandbox unexpectedly gained capabilities: %#v",
+			attributes.AmbientCaps,
+		)
 	}
 }
 

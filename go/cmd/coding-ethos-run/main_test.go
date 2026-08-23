@@ -1930,10 +1930,15 @@ func TestAgentShellWorktreeRootIsWritableAndProtectedEntriesArePinned(t *testing
 	t.Parallel()
 
 	root := t.TempDir()
-	for _, dir := range []string{".git", ".coding-ethos"} {
-		if err := os.Mkdir(filepath.Join(root, dir), 0o700); err != nil {
-			t.Fatalf("create worktree dir %s: %v", dir, err)
-		}
+	if err := os.WriteFile(
+		filepath.Join(root, ".git"),
+		[]byte("gitdir: /tmp/git\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("create linked-worktree git pointer: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".coding-ethos"), 0o700); err != nil {
+		t.Fatalf("create worktree dir .coding-ethos: %v", err)
 	}
 
 	got, err := agentShellWorktreeWritePaths(root)
@@ -1946,7 +1951,10 @@ func TestAgentShellWorktreeRootIsWritableAndProtectedEntriesArePinned(t *testing
 			"created, deleted or renamed: %#v", got)
 	}
 
-	pinned := agentShellReadOnlyPaths(root)
+	pinned, err := agentShellReadOnlyPaths(root)
+	if err != nil {
+		t.Fatalf("agentShellReadOnlyPaths() error = %v", err)
+	}
 	for _, want := range []string{
 		filepath.Join(root, ".git"),
 		filepath.Join(root, ".coding-ethos"),
@@ -1955,6 +1963,30 @@ func TestAgentShellWorktreeRootIsWritableAndProtectedEntriesArePinned(t *testing
 			t.Fatalf("%s is beneath the now-writable root and is not pinned "+
 				"read-only: %#v", want, pinned)
 		}
+	}
+}
+
+func TestAgentShellPrimaryGitDirectoryRemainsAnExplicitWriteCapability(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gitDir := filepath.Join(root, ".git")
+	if err := os.Mkdir(gitDir, 0o700); err != nil {
+		t.Fatalf("create primary git directory: %v", err)
+	}
+
+	pinned, err := agentShellReadOnlyPaths(root)
+	if err != nil {
+		t.Fatalf("agentShellReadOnlyPaths() error = %v", err)
+	}
+	if slices.Contains(pinned, gitDir) {
+		t.Fatalf(
+			"primary git metadata was pinned despite its explicit write capability: %#v",
+			pinned,
+		)
+	}
+	if want := filepath.Join(root, ".coding-ethos"); !slices.Contains(pinned, want) {
+		t.Fatalf("coding-ethos policy directory is not pinned: %#v", pinned)
 	}
 }
 

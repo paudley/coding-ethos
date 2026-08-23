@@ -146,28 +146,34 @@ func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
 
 	attributes.Setpgid = true
 
-	if evidence.Enabled {
-		if evidence.RequiresProcesses || !evidence.NamespaceEnforced {
-			return attributes
-		}
-
-		attributes.Cloneflags |= (syscall.CLONE_NEWUSER |
-			syscall.CLONE_NEWNS |
-			syscall.CLONE_NEWUTS |
-			syscall.CLONE_NEWIPC)
+	needsFilesystemNamespace := !evidence.RequiresProcesses ||
+		len(evidence.ReadOnlyPaths) > 0
+	if evidence.Enabled && needsFilesystemNamespace {
+		// Read-only pins need a user and mount namespace even when a tool must
+		// retain host process visibility. Ordinary process-enabled tools do not:
+		// putting every one in a user namespace changes file-permission and GPG
+		// agent behavior. Map the caller to the same numeric identity and grant
+		// only the ambient mount capability needed by the native helper; the
+		// helper drops it before it execs the requested command.
+		attributes.Cloneflags |= syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS
 		attributes.UidMappings = []syscall.SysProcIDMap{{
-			ContainerID: 0,
+			ContainerID: os.Getuid(),
 			HostID:      os.Getuid(),
 			Size:        1,
 		}}
 		attributes.GidMappings = []syscall.SysProcIDMap{{
-			ContainerID: 0,
+			ContainerID: os.Getgid(),
 			HostID:      os.Getgid(),
 			Size:        1,
 		}}
 		attributes.GidMappingsEnableSetgroups = false
+		attributes.AmbientCaps = []uintptr{uintptr(unix.CAP_SYS_ADMIN)}
 
-		if !evidence.RequiresNetwork {
+		if !evidence.RequiresProcesses && evidence.NamespaceEnforced {
+			attributes.Cloneflags |= syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC
+		}
+
+		if !evidence.RequiresProcesses && !evidence.RequiresNetwork {
 			attributes.Cloneflags |= syscall.CLONE_NEWNET
 		}
 	}

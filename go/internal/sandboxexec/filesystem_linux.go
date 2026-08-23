@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unsafe"
 
@@ -62,6 +63,16 @@ func applyFilesystemPolicy(options options) error {
 		return err
 	}
 
+	// Validate and materialize declared paths while the original filesystem is
+	// still visible. No untrusted command has started yet. Some of these paths
+	// are intentional writable children of a protected parent, so creating
+	// them after that parent is pinned read-only would be both too late and
+	// impossible.
+	writePaths, err := prepareWritablePaths(options)
+	if err != nil {
+		return err
+	}
+
 	// Before anything is made writable, and never after. Landlock grants
 	// access to a whole subtree and has no way to take part of it back, so a
 	// directory that must stay read-only inside a writable parent has to be
@@ -73,7 +84,16 @@ func applyFilesystemPolicy(options options) error {
 		return err
 	}
 
-	writePaths, err := prepareWritablePaths(options)
+	err = applyWritablePathOverrides(options.readOnlyPaths, writePaths)
+	if err != nil {
+		return err
+	}
+
+	// The launcher grants only CAP_SYS_ADMIN so this helper can establish its
+	// private mounts without changing the caller's numeric identity. No
+	// capability belongs in the requested command, including a shell or Git
+	// hook, so discard both ambient and effective sets before Landlock and exec.
+	err = dropSandboxCapabilities()
 	if err != nil {
 		return err
 	}
@@ -84,6 +104,81 @@ func applyFilesystemPolicy(options options) error {
 	}
 
 	return nil
+}
+
+func dropSandboxCapabilities() error {
+	err := unix.Prctl(
+		unix.PR_CAP_AMBIENT,
+		unix.PR_CAP_AMBIENT_CLEAR_ALL,
+		0,
+		0,
+		0,
+	)
+	if err != nil {
+		return fmt.Errorf("clear ambient sandbox capabilities: %w", err)
+	}
+
+	header := unix.CapUserHeader{
+		Version: unix.LINUX_CAPABILITY_VERSION_3,
+		Pid:     0,
+	}
+	data := [2]unix.CapUserData{}
+
+	err = unix.Capset(&header, &data[0])
+	if err != nil {
+		return fmt.Errorf("clear effective sandbox capabilities: %w", err)
+	}
+
+	return nil
+}
+
+// applyWritablePathOverrides restores only validated writable children below
+// a read-only pin. `.coding-ethos` is protected as a parent so the worktree
+// root grant cannot create arbitrary state there, while its cache, state, and
+// lint-run directories remain intentional runtime capabilities. A distinct
+// self-bind is required: Landlock can grant the child, but it cannot make a
+// read-only VFS mount writable.
+func applyWritablePathOverrides(readOnlyPaths, writePaths []string) error {
+	overrides := writablePathOverrides(readOnlyPaths, writePaths)
+	if len(overrides) == 0 {
+		return nil
+	}
+
+	err := isolateMountPropagation()
+	if err != nil {
+		return err
+	}
+
+	for _, path := range overrides {
+		err = unix.Mount(path, path, "", unix.MS_BIND|unix.MS_REC, "")
+		if err != nil {
+			return fmt.Errorf("bind writable override %s: %w", path, err)
+		}
+
+		err = remountWritableBind(path)
+		if err != nil {
+			return fmt.Errorf("remount writable override %s: %w", path, err)
+		}
+	}
+
+	return nil
+}
+
+func writablePathOverrides(readOnlyPaths, writePaths []string) []string {
+	overrides := []string{}
+
+	for _, writePath := range writePaths {
+		for _, readOnlyPath := range readOnlyPaths {
+			pin := filepath.Clean(strings.TrimSpace(readOnlyPath))
+			if pin != "." && writePath != pin && pathWithin(pin, writePath) {
+				overrides = append(overrides, writePath)
+
+				break
+			}
+		}
+	}
+
+	return overrides
 }
 
 // applyReadOnlyPaths pins each path read-only with a bind mount over itself.
@@ -101,40 +196,113 @@ func applyReadOnlyPaths(paths []string) error {
 		return nil
 	}
 
-	err := isolateMountPropagation()
-	if err != nil {
-		return err
-	}
+	mountInfo, mountInfoErr := os.ReadFile("/proc/self/mountinfo")
+	mountPropagationIsolated := false
 
 	for _, path := range paths {
-		cleaned := filepath.Clean(strings.TrimSpace(path))
-		if cleaned == "" || !filepath.IsAbs(cleaned) {
-			return fmt.Errorf("%w: %s", errReadOnlyPathNotAbsolute, path)
+		cleaned, needsMount, err := readOnlyPathNeedsMount(
+			path,
+			string(mountInfo),
+			mountInfoErr == nil,
+		)
+		if err != nil {
+			return err
 		}
 
-		// A path that is not there cannot be written either, and repositories
-		// legitimately differ: not every one carries a .coding-ethos.
-		_, statErr := os.Lstat(cleaned)
-		if errors.Is(statErr, os.ErrNotExist) {
+		if !needsMount {
 			continue
 		}
 
-		if statErr != nil {
-			return fmt.Errorf("stat read-only path %s: %w", cleaned, statErr)
+		if !mountPropagationIsolated {
+			err = isolateMountPropagation()
+			if err != nil {
+				return err
+			}
+
+			mountPropagationIsolated = true
 		}
 
-		err = unix.Mount(cleaned, cleaned, "", unix.MS_BIND|unix.MS_REC, "")
+		err = bindReadOnlyPath(cleaned)
 		if err != nil {
-			return fmt.Errorf("bind read-only path %s: %w", cleaned, err)
-		}
-
-		err = remountReadOnlyBind(cleaned)
-		if err != nil {
-			return fmt.Errorf("remount read-only path %s: %w", cleaned, err)
+			return err
 		}
 	}
 
 	return nil
+}
+
+func readOnlyPathNeedsMount(
+	path, mountInfo string,
+	mountInfoAvailable bool,
+) (string, bool, error) {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	if cleaned == "" || !filepath.IsAbs(cleaned) {
+		return "", false, fmt.Errorf("%w: %s", errReadOnlyPathNotAbsolute, path)
+	}
+
+	// A path that is not there cannot be written either, and repositories
+	// legitimately differ: not every one carries a .coding-ethos.
+	_, err := os.Lstat(cleaned)
+	if errors.Is(err, os.ErrNotExist) {
+		return cleaned, false, nil
+	}
+
+	if err != nil {
+		return "", false, fmt.Errorf("stat read-only path %s: %w", cleaned, err)
+	}
+
+	// A parent supervisor may already have established the exact pin before
+	// dropping mount capabilities. That is the normal shape when this helper
+	// runs inside Nyar's outer Bubblewrap sandbox. Accept only an exact
+	// mountpoint with an explicit `ro` option, never ordinary permissions.
+	if mountInfoAvailable && readOnlyMountInfoForPath(mountInfo, cleaned) {
+		return cleaned, false, nil
+	}
+
+	return cleaned, true, nil
+}
+
+func bindReadOnlyPath(path string) error {
+	err := unix.Mount(path, path, "", unix.MS_BIND|unix.MS_REC, "")
+	if err != nil {
+		return fmt.Errorf("bind read-only path %s: %w", path, err)
+	}
+
+	err = remountReadOnlyBind(path)
+	if err != nil {
+		return fmt.Errorf("remount read-only path %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// readOnlyMountInfoForPath reports whether path is an exact read-only
+// mountpoint in Linux mountinfo. Exactness matters: this is the evidence that
+// a writable parent has a VFS boundary over the protected child, rather than
+// an inference from permissions that the process may be able to change.
+func readOnlyMountInfoForPath(content, path string) bool {
+	cleaned := filepath.Clean(path)
+
+	for line := range strings.Lines(content) {
+		fields := strings.Fields(line)
+		if len(fields) <= mountInfoFieldCount {
+			continue
+		}
+
+		mountPoint := strings.NewReplacer(
+			`\040`, " ",
+			`\011`, "\t",
+			`\012`, "\n",
+			`\134`, `\`,
+		).Replace(fields[4])
+		if filepath.Clean(mountPoint) != cleaned {
+			continue
+		}
+
+		return slices.Contains(strings.Split(fields[5], ","), "ro")
+	}
+
+	return false
 }
 
 func applyGitBindMounts(options options) error {
@@ -314,6 +482,35 @@ func remountReadOnlyBind(target string) error {
 	return nil
 }
 
+func remountWritableBind(target string) error {
+	var stat unix.Statfs_t
+
+	err := unix.Statfs(target, &stat)
+	if err != nil {
+		return fmt.Errorf("stat mount flags: %w", err)
+	}
+
+	flags := uintptr(unix.MS_BIND | unix.MS_REMOUNT)
+	if stat.Flags&unix.ST_NOSUID != 0 {
+		flags |= unix.MS_NOSUID
+	}
+
+	if stat.Flags&unix.ST_NODEV != 0 {
+		flags |= unix.MS_NODEV
+	}
+
+	if stat.Flags&unix.ST_NOEXEC != 0 {
+		flags |= unix.MS_NOEXEC
+	}
+
+	err = unix.Mount(target, target, "", flags, "")
+	if err != nil {
+		return fmt.Errorf("remount writable bind %s: %w", target, err)
+	}
+
+	return nil
+}
+
 func validatedGitWrapper(path string) (string, error) {
 	return validatedExecutablePath(path, "git wrapper")
 }
@@ -383,49 +580,99 @@ func validatedExecutablePath(path, label string) (string, error) {
 func prepareWritablePaths(options options) ([]string, error) {
 	gitDir := filepath.Join(options.paths.repoRoot, ".git")
 	paths := make([]string, 0, len(options.writePaths))
+	gitDirExplicitlyWritable := explicitlyWritablePolicyPath(options, gitDir)
 
 	for _, item := range options.writePaths {
-		path, ok := cleanPolicyPath(options.paths.repoRoot, item, options.allowGitWrites)
-		if !ok {
-			continue
-		}
-
-		if !options.allowGitWrites && pathWithin(gitDir, path) {
-			continue
-		}
-
-		// A Landlock grant reaches everything beneath it, so granting a
-		// directory that holds .git grants .git unless a mount says otherwise.
-		// Granting .git itself is a different thing and stays allowed: it is
-		// asked for deliberately and gated by allow-git-writes. What must not
-		// pass unremarked is reaching .git through a parent nobody granted it
-		// for.
-		// Requiring the mount here rather than trusting the caller to pass one
-		// is the difference between an invariant and a convention: the caller
-		// that grants the worktree root does pass it, and nothing stops the
-		// next one from forgetting. Refusing is safe in a way that continuing
-		// is not -- an agent that can write .git/config or drop in a hook is
-		// outside the git wrapper entirely, and nothing downstream would
-		// notice.
-		incidental := path != gitDir && pathWithin(path, gitDir)
-		if incidental && !pinnedReadOnly(options.readOnlyPaths, gitDir) {
-			return nil, fmt.Errorf("%w: %s", errGitDirWouldBeWritable, path)
-		}
-
-		err := prepareWritablePath(
-			options.paths.repoRoot,
+		path, include, err := preparedPolicyWritePath(
+			options,
 			item,
-			path,
-			!filepath.IsAbs(item),
+			gitDir,
+			gitDirExplicitlyWritable,
 		)
 		if err != nil {
 			return nil, err
+		}
+
+		if !include {
+			continue
 		}
 
 		paths = append(paths, path)
 	}
 
 	return paths, nil
+}
+
+func explicitlyWritablePolicyPath(options options, expected string) bool {
+	if !options.allowGitWrites {
+		return false
+	}
+
+	for _, item := range options.writePaths {
+		path, ok := cleanPolicyPath(
+			options.paths.repoRoot,
+			item,
+			options.allowGitWrites,
+		)
+		if ok && path == expected {
+			return true
+		}
+	}
+
+	return false
+}
+
+func preparedPolicyWritePath(
+	options options,
+	item, gitDir string,
+	gitDirExplicitlyWritable bool,
+) (string, bool, error) {
+	path, ok := cleanPolicyPath(options.paths.repoRoot, item, options.allowGitWrites)
+	if !ok || (!options.allowGitWrites && pathWithin(gitDir, path)) {
+		return "", false, nil
+	}
+
+	err := validateIncidentalGitWrite(
+		options.readOnlyPaths,
+		path,
+		gitDir,
+		gitDirExplicitlyWritable,
+	)
+	if err != nil {
+		return "", false, err
+	}
+
+	err = prepareWritablePath(
+		options.paths.repoRoot,
+		item,
+		path,
+		!filepath.IsAbs(item),
+	)
+	if err != nil {
+		return "", false, err
+	}
+
+	return path, true, nil
+}
+
+// validateIncidentalGitWrite makes the .git exclusion an invariant rather
+// than a caller convention. A Landlock grant reaches everything beneath a
+// directory, so a writable parent must be accompanied either by the exact,
+// wrapper-gated Git capability of a primary checkout or by a read-only mount
+// over a linked worktree's .git pointer.
+func validateIncidentalGitWrite(
+	readOnlyPaths []string,
+	path, gitDir string,
+	gitDirExplicitlyWritable bool,
+) error {
+	incidental := path != gitDir && pathWithin(path, gitDir)
+	if incidental &&
+		!gitDirExplicitlyWritable &&
+		!pinnedReadOnly(readOnlyPaths, gitDir) {
+		return fmt.Errorf("%w: %s", errGitDirWouldBeWritable, path)
+	}
+
+	return nil
 }
 
 func prepareWritablePath(repoRoot, originalPath, path string, create bool) error {

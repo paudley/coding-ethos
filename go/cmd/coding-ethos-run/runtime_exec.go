@@ -49,6 +49,12 @@ const (
 )
 
 var (
+	errAgentShellGitEntrySymlink = apperror.StaticError(
+		"agent-shell git entry must not be a symlink",
+	)
+	errAgentShellGitEntryType = apperror.StaticError(
+		"agent-shell git entry is not a file or directory",
+	)
 	errExecutablePathDirectory = apperror.StaticError("executable path is a directory")
 	errExecutablePathNoExecBit = apperror.StaticError(
 		"executable path has no executable bit",
@@ -196,6 +202,14 @@ func agentShellSandboxPlan(
 	}
 
 	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
+
+	readOnlyPaths, err := agentShellReadOnlyPaths(paths.Root)
+	if err != nil {
+		cleanup()
+
+		return sandbox.Plan{}, nil, func() {}, err
+	}
+
 	interceptEvidence := agentShellInterceptEvidence(paths)
 	interceptCACertPath := agentShellInterceptCACertPath(interceptEvidence)
 	envBindings := agentShellEnvBindings(interceptCACertPath)
@@ -211,7 +225,7 @@ func agentShellSandboxPlan(
 			SandboxProfile:    "agent-shell",
 			StrategicIntent:   agentShellStrategicIntent(),
 			WritePaths:        append(agentShellProtectedWritePaths(paths), agentWritePaths...),
-			ReadOnlyPaths:     agentShellReadOnlyPaths(paths.Root),
+			ReadOnlyPaths:     readOnlyPaths,
 			ReadPaths:         agentShellInterceptReadPaths(interceptEvidence),
 			EnvBindings:       envBindings,
 			AllowGitWrites:    true,
@@ -569,18 +583,43 @@ func protectedAgentShellWorktreeEntry(name string) bool {
 //
 // Granting the root is what lets git replace top-level files, and Landlock
 // grants reach everything beneath -- it is allow-only, with no way to exclude
-// a subtree. So the same entries that used to be protected by being left out
-// of the write set are now pinned by a read-only mount, which does hold
-// against a writable parent. An agent that could write .git/config or install
-// a hook would be outside the git wrapper altogether, so this is not optional:
-// the sandbox refuses to start if a pin cannot be established.
-func agentShellReadOnlyPaths(root string) []string {
-	paths := make([]string, 0, agentShellProtectedEntryCap)
-	for _, name := range [...]string{".git", ".coding-ethos"} {
-		paths = append(paths, filepath.Join(root, name))
+// a subtree. Protected policy state and a linked-worktree .git pointer are
+// therefore pinned by a read-only mount, which does hold against a writable
+// parent. A primary checkout's .git directory is different: it is the exact
+// wrapper-gated Git write capability and cannot be pinned without disabling
+// Git itself. The sandbox refuses ambiguous entry types rather than silently
+// weakening either case.
+func agentShellReadOnlyPaths(root string) ([]string, error) {
+	gitPath := filepath.Join(root, ".git")
+
+	gitInfo, err := os.Lstat(gitPath)
+	if err != nil {
+		return nil, fmt.Errorf("classify agent-shell git entry %s: %w", gitPath, err)
 	}
 
-	return paths
+	if gitInfo.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%w: %s", errAgentShellGitEntrySymlink, gitPath)
+	}
+
+	paths := make([]string, 0, agentShellProtectedEntryCap)
+
+	switch {
+	case gitInfo.Mode().IsRegular():
+		// A linked worktree's .git is a pointer to metadata elsewhere. It is
+		// never a Git write target and must stay immutable beneath the writable
+		// worktree root.
+		paths = append(paths, gitPath)
+	case gitInfo.IsDir():
+		// A primary checkout stores its admitted Git metadata here. The exact
+		// directory is already an explicit, wrapper-gated write capability, so
+		// pinning it would make every real Git operation fail at index.lock.
+	default:
+		return nil, fmt.Errorf("%w: %s", errAgentShellGitEntryType, gitPath)
+	}
+
+	paths = append(paths, filepath.Join(root, ".coding-ethos"))
+
+	return paths, nil
 }
 
 func agentShellProcessEnv(
