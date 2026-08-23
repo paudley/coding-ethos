@@ -51,22 +51,113 @@ func EvaluateGitStagedAdminFiles(
 		return nil, nil
 	}
 
+	mergeParent, inheritedFiles, divergentFiles := mergeParentAdminFiles(
+		context.Cwd,
+		blockedFiles,
+	)
+	if len(inheritedFiles) == len(blockedFiles) {
+		decision := policy.NewDecision(recordDecision, policyDef)
+		decision.Severity = recordDecision
+		decision.Message = "Administrative staged files match the current merge parent."
+		decision.Evidence = stagedAdminEvidence(inheritedFiles, context.Cwd)
+		addMergeParentEvidence(decision.Evidence, mergeParent, inheritedFiles)
+		decision.Diagnostics = inheritedAdminDiagnostics(policyDef, inheritedFiles, decision)
+
+		return []policy.Decision{decision}, nil
+	}
+
 	if context.AdminApproved {
 		decision := policy.NewDecision(recordDecision, policyDef)
 		decision.Severity = recordDecision
 		decision.Message = "Administrative staged files approved by coding-ethos admin gate."
 		decision.Evidence = stagedAdminEvidence(blockedFiles, context.Cwd)
+		addMergeParentEvidence(decision.Evidence, mergeParent, inheritedFiles)
 		decision.Diagnostics = stagedAdminDiagnostics(policyDef, blockedFiles, decision)
 
 		return []policy.Decision{decision}, nil
 	}
 
 	decision := policy.NewDecision(blockDecision, policyDef)
-	decision.Suggestion = stagedAdminHandoff(context.Cwd, context.Argv, blockedFiles)
-	decision.Evidence = stagedAdminEvidence(blockedFiles, context.Cwd)
-	decision.Diagnostics = stagedAdminDiagnostics(policyDef, blockedFiles, decision)
+	decision.Suggestion = stagedAdminHandoff(context.Cwd, context.Argv, divergentFiles)
+	decision.Evidence = stagedAdminEvidence(divergentFiles, context.Cwd)
+	addMergeParentEvidence(decision.Evidence, mergeParent, inheritedFiles)
+	decision.Diagnostics = stagedAdminDiagnostics(policyDef, divergentFiles, decision)
 
 	return []policy.Decision{decision}, nil
+}
+
+func mergeParentAdminFiles(cwd string, files []string) (string, []string, []string) {
+	divergent := append([]string(nil), files...)
+
+	mergeParent, ok := currentMergeParent(cwd)
+	if !ok {
+		return "", nil, divergent
+	}
+
+	baseArgs := []string{"diff", "--cached", "--name-only", mergeParent, "--"}
+	args := make([]string, 0, len(baseArgs)+len(files))
+	args = append(args, baseArgs...)
+	args = append(args, files...)
+	cmd := GitCommand(cwd, args...)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", nil, divergent
+	}
+
+	changed := stringSet(nonEmptyLines(string(output)))
+	inherited := make([]string, 0, len(files))
+	divergent = divergent[:0]
+
+	for _, file := range files {
+		if changed[file] {
+			divergent = append(divergent, file)
+		} else {
+			inherited = append(inherited, file)
+		}
+	}
+
+	return mergeParent, inherited, divergent
+}
+
+func currentMergeParent(cwd string) (string, bool) {
+	cmd := GitCommand(cwd, "rev-parse", "--verify", "MERGE_HEAD^{commit}")
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", false
+	}
+
+	parents := nonEmptyLines(string(output))
+	if len(parents) != 1 {
+		return "", false
+	}
+
+	return parents[0], true
+}
+
+func nonEmptyLines(output string) []string {
+	lines := strings.Split(output, "\n")
+	result := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+
+	return result
+}
+
+func addMergeParentEvidence(evidence map[string]any, parent string, files []string) {
+	if parent == "" || len(files) == 0 {
+		return
+	}
+
+	evidence["merge_parent"] = parent
+
+	evidence["merge_parent_files"] = append([]string(nil), files...)
 }
 
 func stagedAdminHandoff(cwd string, argv, blockedFiles []string) string {
@@ -151,6 +242,27 @@ func stagedAdminDiagnostics(
 			Message:  "Administrative staged file requires explicit handling.",
 			Advice: "Commit this administrative file through the " +
 				"human/admin handoff path.",
+			PrincipleIDs: append([]string(nil), decision.PrincipleIDs...),
+		})
+	}
+
+	return items
+}
+
+func inheritedAdminDiagnostics(
+	policyDef policy.Policy,
+	files []string,
+	decision policy.Decision,
+) []diagnostics.Diagnostic {
+	items := make([]diagnostics.Diagnostic, 0, len(files))
+	for _, file := range files {
+		items = append(items, diagnostics.Diagnostic{
+			Tool:         "git",
+			File:         file,
+			PolicyID:     policyDef.ID,
+			Severity:     decision.Severity,
+			Message:      "Administrative staged file matches the current merge parent.",
+			Advice:       "Preserve the merge-parent entry unchanged.",
 			PrincipleIDs: append([]string(nil), decision.PrincipleIDs...),
 		})
 	}

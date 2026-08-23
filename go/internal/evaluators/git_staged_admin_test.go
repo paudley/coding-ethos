@@ -169,6 +169,82 @@ func TestEvaluateGitStagedAdminFilesRecordsWithAdminApproval(t *testing.T) {
 	}
 }
 
+func TestEvaluateGitStagedAdminFilesRecordsAdminFileInheritedFromMergeParent(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	repo := stagedAdminMergeRepo(t)
+
+	decisions, err := EvaluateGitStagedAdminFiles(
+		stagedAdminPolicy(),
+		Context{
+			Argv: []string{"git", "commit", "-m", "merge main"},
+			Cwd:  repo,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate staged admin: %v", err)
+	}
+
+	if len(decisions) != 1 ||
+		decisions[0].Decision != recordDecision ||
+		decisions[0].Severity != recordDecision {
+		t.Fatalf("decision mismatch: %#v", decisions)
+	}
+	if decisions[0].Message != "Administrative staged files match the current merge parent." {
+		t.Fatalf("message mismatch: %q", decisions[0].Message)
+	}
+	assertStringSliceEvidence(
+		t,
+		decisions[0].Evidence,
+		"merge_parent_files",
+		[]string{".pre-commit-config.yaml"},
+	)
+	if decisions[0].Evidence["merge_parent"] == "" {
+		t.Fatalf("missing merge parent evidence: %#v", decisions[0].Evidence)
+	}
+	if len(decisions[0].Diagnostics) != 1 ||
+		decisions[0].Diagnostics[0].Severity != recordDecision {
+		t.Fatalf("diagnostic mismatch: %#v", decisions[0].Diagnostics)
+	}
+}
+
+func TestEvaluateGitStagedAdminFilesBlocksAdminFileEditedDuringMerge(t *testing.T) {
+	t.Parallel()
+
+	repo := stagedAdminMergeRepo(t)
+	adminPath := filepath.Join(repo, ".pre-commit-config.yaml")
+	if err := os.WriteFile(adminPath, []byte("agent edit\n"), 0o600); err != nil {
+		t.Fatalf("edit admin file: %v", err)
+	}
+	runGit(t, repo, "add", ".pre-commit-config.yaml")
+
+	decisions, err := EvaluateGitStagedAdminFiles(
+		stagedAdminPolicy(),
+		Context{
+			Argv: []string{"git", "commit", "-m", "merge main"},
+			Cwd:  repo,
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate staged admin: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("decision mismatch: %#v", decisions)
+	}
+	assertStringSliceEvidence(
+		t,
+		decisions[0].Evidence,
+		"files",
+		[]string{".pre-commit-config.yaml"},
+	)
+	if _, ok := decisions[0].Evidence["merge_parent_files"]; ok {
+		t.Fatalf("edited file must not be merge-parent evidence: %#v", decisions[0].Evidence)
+	}
+}
+
 func assertStringSliceEvidence(
 	t *testing.T,
 	evidence map[string]any,
@@ -242,6 +318,42 @@ func stagedAdminRepo(t *testing.T) string {
 	runGit(t, repo, "add", "bin/coding-ethos-run")
 
 	return repo
+}
+
+func stagedAdminMergeRepo(t *testing.T) string {
+	t.Helper()
+
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test")
+	runGit(t, repo, "branch", "-M", "main")
+
+	writeTestFile(t, repo, ".pre-commit-config.yaml", "initial\n")
+	writeTestFile(t, repo, "feature.txt", "initial\n")
+	runGit(t, repo, "add", ".pre-commit-config.yaml", "feature.txt")
+	runGit(t, repo, "commit", "-m", "initial")
+	runGit(t, repo, "checkout", "-b", "feature")
+	writeTestFile(t, repo, "feature.txt", "feature\n")
+	runGit(t, repo, "add", "feature.txt")
+	runGit(t, repo, "commit", "-m", "feature")
+	runGit(t, repo, "checkout", "main")
+	writeTestFile(t, repo, ".pre-commit-config.yaml", "main update\n")
+	runGit(t, repo, "add", ".pre-commit-config.yaml")
+	runGit(t, repo, "commit", "-m", "admin update")
+	runGit(t, repo, "checkout", "feature")
+	runGit(t, repo, "merge", "main", "--no-commit", "--no-ff")
+
+	return repo
+}
+
+func writeTestFile(t *testing.T, repo, path, contents string) {
+	t.Helper()
+
+	fullPath := filepath.Join(repo, path)
+	if err := os.WriteFile(fullPath, []byte(contents), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
 }
 
 func stagedAdminPolicy() policy.Policy {
