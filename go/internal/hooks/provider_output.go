@@ -115,7 +115,7 @@ func claudeAllowedOutput(result Result) providerHookOutput {
 	}
 
 	switch output.HookEventName {
-	case eventUserPromptSubmit, eventPostToolUse, "PostToolBatch":
+	case eventUserPromptSubmit, eventPostToolUse, eventPostToolBatch:
 		return providerHookOutput{HookSpecificOutput: output}
 	default:
 		return providerHookOutput{

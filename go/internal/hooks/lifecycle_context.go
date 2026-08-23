@@ -37,17 +37,27 @@ func lifecycleOutput(event Event) *HookSpecificOutput {
 }
 
 func lifecycleContext(event Event) string {
+	state := transitionLifecycleSession(event)
+
 	switch event.HookEventName {
 	case eventSessionStart:
 		return sessionStartContext(event)
 	case eventUserPromptSubmit:
+		if !state.EventRelevant {
+			return ""
+		}
+
 		return buildGuidanceContext(
 			[]string{
 				"Use and maintain a todo list for multi-step work.",
 			},
 			event.Content(),
 		)
-	case "PostToolBatch":
+	case eventPostToolBatch:
+		if !state.BatchReady {
+			return ""
+		}
+
 		return buildGuidanceContext(
 			[]string{
 				"Review tool results before continuing.",
@@ -56,7 +66,21 @@ func lifecycleContext(event Event) string {
 			},
 			"",
 		)
-	case eventStop, "SessionEnd":
+	default:
+		return completionLifecycleContext(event, state)
+	}
+}
+
+func completionLifecycleContext(
+	event Event,
+	state lifecycleSessionTransition,
+) string {
+	switch event.HookEventName {
+	case eventStop, eventSessionEnd:
+		if !state.Relevant {
+			return ""
+		}
+
 		return buildChecklistContext(
 			"Before ending:",
 			[]string{
@@ -65,7 +89,11 @@ func lifecycleContext(event Event) string {
 				"If hooks or lint failed, keep the failure visible and fix it structurally.",
 			},
 		)
-	case "SubagentStart":
+	case eventSubagentStart:
+		if !state.SubagentStarted {
+			return ""
+		}
+
 		return buildGuidanceContext(
 			[]string{
 				"Keep delegated work scoped and concrete.",
@@ -74,7 +102,11 @@ func lifecycleContext(event Event) string {
 			},
 			event.Content(),
 		)
-	case "SubagentStop":
+	case eventSubagentStop:
+		if !state.SubagentStopped {
+			return ""
+		}
+
 		return buildChecklistContext(
 			"Before accepting subagent work:",
 			[]string{
@@ -124,7 +156,10 @@ func startupContextAdvice(cwd string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultStartupRepoMapTimeout)
 	defer cancel()
 
-	store, err := codeintel.OpenReadOnly(ctx, codeintel.DefaultDBPath(root))
+	store, err := codeintel.OpenReadOnly(
+		ctx,
+		codeintel.DefaultDBPath(codeintel.ResolveStateRoot(root)),
+	)
 	if err != nil {
 		return ""
 	}
@@ -230,7 +265,10 @@ func startupRepoMap(cwd string) string {
 	)
 	defer cancel()
 
-	store, err := codeintel.OpenDuckDBReadOnly(ctx, codeintel.DefaultDuckDBPath(root))
+	store, err := codeintel.OpenDuckDBReadOnly(
+		ctx,
+		codeintel.DefaultDuckDBPath(codeintel.ResolveStateRoot(root)),
+	)
 	if err != nil {
 		startupRepoMapWarning("open", err)
 
@@ -253,7 +291,10 @@ func startupRepoMap(cwd string) string {
 }
 
 func startupLegacyRepoMap(ctx context.Context, root string) string {
-	store, err := codeintel.OpenReadOnly(ctx, codeintel.DefaultDBPath(root))
+	store, err := codeintel.OpenReadOnly(
+		ctx,
+		codeintel.DefaultDBPath(codeintel.ResolveStateRoot(root)),
+	)
 	if err != nil {
 		startupRepoMapWarning("legacy-open", err)
 

@@ -57,6 +57,7 @@ type Options struct {
 	Action     func() int
 	GitPath    string
 	Root       string
+	StateRoot  string
 	BundleRoot string
 	Command    []string
 	Debug      bool
@@ -104,7 +105,7 @@ func runWithStatus(options Options) (int, error) {
 	startedAt := options.Now().UTC()
 	runID := hookRunID(startedAt)
 
-	runDir, err := createHookRunDir(options.Root, runID)
+	runDir, err := createHookRunDir(options.StateRoot, runID)
 	if err != nil {
 		return 1, err
 	}
@@ -204,7 +205,7 @@ func finishHookMaintenance(options Options, runDir string) error {
 		return err
 	}
 
-	err = autoPruneHookRuns(options.Root)
+	err = autoPruneHookRuns(options.StateRoot)
 	if err != nil {
 		_, _ = fmt.Fprintf(options.Stderr, "WARN: auto-prune hook runs: %v\n", err)
 		debuglog.Debug("hook.auto_prune.warn", zap.Error(err))
@@ -302,6 +303,7 @@ func runLoggedPayload(
 	cmd.Env = append(os.Environ(),
 		"CODE_ETHOS_HOOK_LOGGING_ACTIVE=1",
 		"CODE_ETHOS_HOOK_RUN_DIR="+runDir,
+		codeintel.StateRootEnvironment+"="+options.StateRoot,
 	)
 	if options.Debug {
 		cmd.Env = append(cmd.Env, debuglog.EnvName+"=1")
@@ -620,6 +622,12 @@ func normalizedOptions(options Options) (Options, error) {
 		return Options{}, apperror.StaticError("root is required")
 	}
 
+	if strings.TrimSpace(options.StateRoot) == "" {
+		options.StateRoot = options.Root
+	}
+
+	options.StateRoot = filepath.Clean(options.StateRoot)
+
 	if strings.TrimSpace(options.BundleRoot) == "" {
 		return Options{}, apperror.StaticError("bundle root is required")
 	}
@@ -648,6 +656,10 @@ func normalizedOptions(options Options) (Options, error) {
 }
 
 func requireHookLogIgnores(options Options) error {
+	if filepath.Clean(options.StateRoot) != filepath.Clean(options.Root) {
+		return nil
+	}
+
 	_, err := repoignore.RepairGitignore(options.Root)
 	if err != nil {
 		return fmt.Errorf("repair hook log runtime ignores: %w", err)

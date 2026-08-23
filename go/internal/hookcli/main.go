@@ -278,8 +278,8 @@ func appendProxyEventLog(root string, events []agentproxy.ProviderEvent) error {
 	}
 
 	err := codeintel.NewEventLog(
-		codeintel.DefaultEventLogDir(root),
-	).Append(proxyEventLogRunID(events), records)
+		codeintel.DefaultEventLogDir(codeintel.ResolveStateRoot(root)),
+	).AppendStream(proxyEventLogStreamID(events), records)
 	if err != nil {
 		return fmt.Errorf("append proxy output event log: %w", err)
 	}
@@ -287,14 +287,14 @@ func appendProxyEventLog(root string, events []agentproxy.ProviderEvent) error {
 	return nil
 }
 
-func proxyEventLogRunID(events []agentproxy.ProviderEvent) string {
+func proxyEventLogStreamID(events []agentproxy.ProviderEvent) string {
 	for _, event := range events {
-		if event.ID != "" {
-			return event.ID
-		}
-
 		if event.SessionID != "" {
 			return event.SessionID
+		}
+
+		if event.ID != "" {
+			return event.ID
 		}
 	}
 
@@ -308,7 +308,7 @@ func tryWriteProxyEventsForRoot(
 ) error {
 	store, err := openStore(
 		context.Background(),
-		codeintel.DefaultDBPath(root),
+		codeintel.DefaultDBPath(codeintel.ResolveStateRoot(root)),
 	)
 	if err != nil {
 		return fmt.Errorf("open proxy output ledger: %w", err)

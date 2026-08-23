@@ -18,7 +18,9 @@ func appendCLIEvent(root, runID string, record codeintel.EventRecord) error {
 
 	runID = fmt.Sprintf("%s-%d", runID, time.Now().UTC().UnixNano())
 
-	err := codeintel.NewEventLog(codeintel.DefaultEventLogDir(root)).
+	err := codeintel.NewEventLog(
+		codeintel.DefaultEventLogDir(codeintel.ResolveStateRoot(root)),
+	).
 		Append(runID, []codeintel.EventRecord{record})
 	if err != nil {
 		return fmt.Errorf("append code-intel CLI event: %w", err)

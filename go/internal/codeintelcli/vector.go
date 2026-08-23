@@ -114,7 +114,7 @@ func openDuckDBVectorIndex(
 	uri string,
 ) (evidence.VectorIndex, error) {
 	if uri == "" {
-		uri = codeintel.DefaultVectorPath(root)
+		uri = codeintel.DefaultVectorPath(codeintel.ResolveStateRoot(root))
 	}
 
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{

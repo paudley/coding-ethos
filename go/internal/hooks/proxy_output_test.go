@@ -357,6 +357,33 @@ func TestResolveHookTokenBudgetUsesExplicitAndTieredSources(t *testing.T) {
 	}
 }
 
+func TestResolveHookTokenBudgetHonorsTrustedContractContextWindow(t *testing.T) {
+	t.Parallel()
+
+	event, err := DecodeEvent(strings.NewReader(`{
+		"contract_version":"coding-ethos.hook/v1",
+		"correlation_id":"trusted-context-window",
+		"provider":"coding-ethos",
+		"hook_event_name":"PostToolUse",
+		"tool_name":"Bash",
+		"tool_input":{"command":"go test ./internal/hooks"},
+		"context_window_tokens":262144
+	}`))
+	if err != nil {
+		t.Fatalf("decode trusted hook event: %v", err)
+	}
+
+	resolution := resolveHookTokenBudget(
+		event,
+		defaultHookOutputCompressionOptions(),
+	)
+	if resolution.Source != tokenBudgetSourceModelContext ||
+		resolution.ContextWindowTokens != 262144 ||
+		resolution.MaxTokens != tokenBudgetExtraLargeContext {
+		t.Fatalf("trusted context resolution = %#v", resolution)
+	}
+}
+
 func TestProxyPostToolOutputBudgetsDenseGenericOutputAndRecordsLedger(t *testing.T) {
 	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_MAX_TOKENS", "80")
 	t.Setenv("CODE_ETHOS_PROXY_OUTPUT_HEAD_TOKENS", "20")
@@ -399,10 +426,48 @@ func TestProxyPostToolOutputBudgetsDenseGenericOutputAndRecordsLedger(t *testing
 	if event.Decision != proxyDecisionTruncate ||
 		event.PolicyID != proxyPolicyTokenBudget ||
 		event.TokenUsage.OutputTokens <= 0 ||
+		event.Payload.Bytes != len([]byte(output)) ||
+		event.OutputHash != agentproxy.HashText(output) ||
+		event.Metadata["coding_ethos.result.return_code"] != "0" ||
+		event.Metadata["coding_ethos.result.return_code_known"] != "true" ||
+		event.Metadata["coding_ethos.result.status"] != "succeeded" ||
+		event.Metadata["coding_ethos.result.bytes"] != fmt.Sprint(len([]byte(output))) ||
+		event.Metadata["coding_ethos.delivered.bytes"] !=
+			fmt.Sprint(len([]byte(proxied.Text))) ||
+		event.Metadata["coding_ethos.session_scope"] != "session-dense-output" ||
 		event.Metadata["coding_ethos.token_budget.source"] != tokenBudgetSourceEnv ||
 		event.Metadata["coding_ethos.token_budget.max_tokens"] != "80" ||
 		event.Model != "test-model" {
 		t.Fatalf("unexpected dense proxy ledger event: %#v", event)
+	}
+}
+
+func TestProxyPostToolOutputRecordsFailedResultStatusAndOriginalBytes(t *testing.T) {
+	repo := initProxyOutputRepo(t)
+	output := "compiler failed\n"
+	proxied := proxyPostToolOutput(
+		Event{
+			ProviderHint: "codex",
+			SessionID:    "session-failed-output",
+			ToolName:     toolBash,
+			Cwd:          repo,
+			ToolInput:    map[string]any{"command": "go test ./..."},
+			ToolResponse: map[string]any{
+				"stderr":      output,
+				"return_code": 17,
+			},
+		},
+		output,
+	)
+
+	if len(proxied.Events) != 1 {
+		t.Fatalf("failed output events = %#v", proxied.Events)
+	}
+	event := proxied.Events[0]
+	if event.Payload.Bytes != len(output) ||
+		event.Metadata["coding_ethos.result.return_code"] != "17" ||
+		event.Metadata["coding_ethos.result.status"] != "failed" {
+		t.Fatalf("failed result evidence = %#v", event)
 	}
 }
 

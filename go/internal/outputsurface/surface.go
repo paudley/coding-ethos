@@ -412,8 +412,8 @@ func tempDefinitions() []Definition {
 	return []Definition{
 		tempGlob(
 			"proxy_temp_evidence",
-			"coding-ethos-tool-output-*.log",
-			"Full proxy tool output evidence files in the OS temp directory.",
+			"coding-ethos-tool-output-*",
+			"Content-addressed compressed proxy tool output evidence in the OS temp directory.",
 			"go/internal/agentproxy",
 			"visible proxy output markers; proxy transform metadata",
 			"high",

@@ -66,6 +66,43 @@ func TestWriteFullOutputEvidencePrunesByConfiguredAge(t *testing.T) {
 	}
 }
 
+func TestWriteFullOutputEvidenceIsContentAddressedCompressedAndReused(t *testing.T) {
+	useIsolatedOutputEvidenceTempDir(t)
+	cleanupOutputEvidenceFixtures(t)
+
+	payload := strings.Repeat("repeated diagnostic output\n", 1_000)
+	first, err := writeFullOutputEvidence(payload, time.Hour, 0)
+	if err != nil {
+		t.Fatalf("write first full output evidence: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(first) })
+	second, err := writeFullOutputEvidence(payload, time.Hour, 0)
+	if err != nil {
+		t.Fatalf("reuse full output evidence: %v", err)
+	}
+
+	if first != second {
+		t.Fatalf("content-addressed path changed: first=%q second=%q", first, second)
+	}
+	if filepath.Base(
+		first,
+	) != toolOutputEvidencePrefix+HashText(
+		payload,
+	)+toolOutputEvidenceSuffix {
+		t.Fatalf("evidence path is not its content address: %q", first)
+	}
+	info, err := os.Stat(first)
+	if err != nil {
+		t.Fatalf("stat compressed evidence: %v", err)
+	}
+	if info.Size() >= int64(len(payload)) {
+		t.Fatalf("evidence was not compressed: size=%d input=%d", info.Size(), len(payload))
+	}
+	if err := validateFullOutputEvidence(first, payload); err != nil {
+		t.Fatalf("validate compressed evidence: %v", err)
+	}
+}
+
 func useIsolatedOutputEvidenceTempDir(t *testing.T) {
 	t.Helper()
 

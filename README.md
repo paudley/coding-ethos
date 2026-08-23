@@ -707,8 +707,11 @@ and test output is summarized with known diagnostic parsers where possible,
 line-compressed, then capped by a hard token budget while preserving command
 identity and the terminal failure tail. The token ledger uses a conservative
 UTF-8 rune estimator, records every Bash `PostToolUse` action that includes a
-session id, and stores the resolved budget source, payload measurements, token
-usage, decision, and ordered transform records in `.coding-ethos/code-intel.duckdb`.
+session id, and stores the resolved budget source, original result bytes and
+return status, delivered payload measurements, token usage, decision, and
+ordered transform records in the `CODE_ETHOS_STATE_ROOT` private code-intel
+store (falling back to `.coding-ethos/code-intel.duckdb` only when no private
+root is configured).
 Post-edit file hooks also run a narrow Python lint shield first: Ruff formatting
 and safe autofixes apply to the edited Python files before remaining diagnostics
 are returned to the agent.
@@ -717,8 +720,10 @@ model context metadata use bounded tiers of 4,000 (<=32k context), 8,000
 (<=128k), 12,000 (<=256k), 24,000 (<=1M), or 32,000 (>1M), and an explicit
 `proxy.output_compression.max_tokens` repo setting wins. Whenever output is
 removed, the runtime prepends a warning, writes the full original payload to a
-`coding-ethos-tool-output-*.log` evidence file in the system temp directory,
-and surfaces that path in the visible marker. Stale matching temp evidence
+content-addressed `coding-ethos-tool-output-<sha256>.log.gz` evidence file in
+the system temp directory, and surfaces that path in the visible marker.
+Repeated identical payloads reuse the same evidence object, while durable
+fallback telemetry appends to one locked JSONL stream per session. Stale temp evidence
 files are pruned before new evidence is written. Repositories can tune
 compression with `proxy.output_compression` in `repo_config.yaml` and tune temp
 evidence retention with `outputs.prune.surfaces.proxy_temp_evidence` in

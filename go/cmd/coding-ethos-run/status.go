@@ -110,8 +110,9 @@ func buildOperatorStatus(
 		return operatorStatusReport{}, fmt.Errorf("build output surface report: %w", err)
 	}
 
-	hookRuns, hookFailures := recentHookRunCounts(paths.Root, operatorStatusRecentRunSize)
-	hookReviews, falsePositives := hookReviewCounts(ctx, paths.Root)
+	stateRoot := paths.effectiveStateRoot()
+	hookRuns, hookFailures := recentHookRunCounts(stateRoot, operatorStatusRecentRunSize)
+	hookReviews, falsePositives := hookReviewCounts(ctx, stateRoot)
 	report := operatorStatusReport{
 		GeneratedAtUTC:     now.Format(time.RFC3339),
 		Kind:               operatorStatusKind,
@@ -168,7 +169,10 @@ func buildContextAdvisorStatus(
 	surfaceReport outputsurface.Report,
 	now time.Time,
 ) (contextadvisor.Report, error) {
-	store, err := codeintel.OpenReadOnly(ctx, codeintel.DefaultDBPath(paths.Root))
+	store, err := codeintel.OpenReadOnly(
+		ctx,
+		codeintel.DefaultDBPath(paths.effectiveStateRoot()),
+	)
 	if err != nil {
 		return contextadvisor.Report{}, fmt.Errorf("open code-intel store: %w", err)
 	}

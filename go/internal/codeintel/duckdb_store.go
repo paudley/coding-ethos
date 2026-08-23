@@ -162,11 +162,12 @@ func RebuildDuckDBIndex(
 	duckDBPath string,
 	_ string,
 ) (RebuildIndexSummary, error) {
+	stateRoot := ResolveStateRoot(root)
 	if strings.TrimSpace(duckDBPath) == "" {
-		duckDBPath = DefaultDuckDBPath(root)
+		duckDBPath = DefaultDuckDBPath(stateRoot)
 	}
 
-	release, err := acquireDuckDBRebuildLock(root)
+	release, err := acquireDuckDBRebuildLock(stateRoot)
 	if err != nil {
 		return RebuildIndexSummary{}, err
 	}
@@ -185,13 +186,13 @@ func RebuildDuckDBIndex(
 
 	importedEventCount, err := store.ImportEventLog(
 		ctx,
-		NewEventLog(DefaultEventLogDir(root)),
+		NewEventLog(DefaultEventLogDir(ResolveStateRoot(root))),
 	)
 	if err != nil {
 		return RebuildIndexSummary{}, err
 	}
 
-	removedObsolete, err := RemoveObsoleteCodeIntelArtifacts(root)
+	removedObsolete, err := RemoveObsoleteCodeIntelArtifacts(stateRoot)
 	if err != nil {
 		return RebuildIndexSummary{}, err
 	}
@@ -436,8 +437,9 @@ func UpgradeStorageIfNeeded(
 	ctx context.Context,
 	root string,
 ) (StorageUpgradeSummary, error) {
-	duckDBPath := DefaultDuckDBPath(root)
-	obsoletePaths := ObsoleteCodeIntelArtifactPaths(root)
+	stateRoot := ResolveStateRoot(root)
+	duckDBPath := DefaultDuckDBPath(stateRoot)
+	obsoletePaths := ObsoleteCodeIntelArtifactPaths(stateRoot)
 	needed := false
 
 	for _, path := range obsoletePaths {

@@ -20,7 +20,11 @@ const (
 const (
 	eventPreToolUse       = "PreToolUse"
 	eventPostToolUse      = "PostToolUse"
+	eventPostToolBatch    = "PostToolBatch"
 	eventSessionStart     = "SessionStart"
+	eventSessionEnd       = "SessionEnd"
+	eventSubagentStart    = "SubagentStart"
+	eventSubagentStop     = "SubagentStop"
 	eventUserPromptSubmit = "UserPromptSubmit"
 	eventStop             = "Stop"
 	toolBash              = "Bash"

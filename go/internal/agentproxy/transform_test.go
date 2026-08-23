@@ -4,8 +4,10 @@
 package agentproxy_test
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -780,9 +782,19 @@ func assertEvidenceFileContains(t *testing.T, path, expected string) {
 		t.Fatalf("evidence path = %q", path)
 	}
 
-	content, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("read evidence path %s: %v", path, err)
+	}
+	defer file.Close()
+	reader, err := gzip.NewReader(file)
+	if err != nil {
+		t.Fatalf("decompress evidence path %s: %v", path, err)
+	}
+	defer reader.Close()
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read compressed evidence path %s: %v", path, err)
 	}
 	t.Cleanup(func() {
 		_ = os.Remove(path)

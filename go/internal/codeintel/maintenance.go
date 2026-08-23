@@ -25,13 +25,15 @@ func RefreshRepository(
 	root string,
 	paths []string,
 ) (MaintenanceSummary, error) {
-	store, err := Open(ctx, DefaultDBPath(root))
+	stateRoot := ResolveStateRoot(root)
+
+	store, err := Open(ctx, DefaultDBPath(stateRoot))
 	if err != nil {
 		return MaintenanceSummary{}, err
 	}
 	defer store.Close()
 
-	traceSummary, err := NewTraceIngester(store).IngestTraceDirs(ctx, root)
+	traceSummary, err := NewTraceIngester(store).IngestTraceDirs(ctx, stateRoot)
 	if err != nil {
 		return MaintenanceSummary{}, fmt.Errorf("ingest code-intel traces: %w", err)
 	}
@@ -67,7 +69,7 @@ func RefreshLintFiles(
 		return CodeIndexSummary{}, nil
 	}
 
-	store, err := Open(ctx, DefaultDBPath(root))
+	store, err := Open(ctx, DefaultDBPath(ResolveStateRoot(root)))
 	if err != nil {
 		return CodeIndexSummary{}, err
 	}
@@ -176,8 +178,9 @@ func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 	}
 
 	runID := hookTraceEventRunID(resolvedTracePath)
+	eventLog := NewEventLog(DefaultEventLogDir(ResolveStateRoot(root)))
 
-	err = NewEventLog(DefaultEventLogDir(root)).Append(runID, []EventRecord{
+	err = eventLog.Append(runID, []EventRecord{
 		{
 			Kind:        "hook_trace",
 			SourceRunID: runID,
@@ -188,7 +191,7 @@ func IngestHookTraceFile(ctx context.Context, root, tracePath string) error {
 		return fmt.Errorf("append hook trace event: %w", err)
 	}
 
-	store, err := Open(ctx, DefaultDBPath(root))
+	store, err := Open(ctx, DefaultDBPath(ResolveStateRoot(root)))
 	if err != nil {
 		if IsStoreLockError(err) {
 			return nil
@@ -236,7 +239,9 @@ func IngestLintTraceFile(ctx context.Context, root, tracePath string) error {
 		filepath.Ext(resolvedTracePath),
 	)
 
-	err = NewEventLog(DefaultEventLogDir(root)).Append(runID, []EventRecord{
+	err = NewEventLog(
+		DefaultEventLogDir(ResolveStateRoot(root)),
+	).Append(runID, []EventRecord{
 		{
 			Kind:        "lint_trace",
 			SourceRunID: runID,
@@ -247,7 +252,7 @@ func IngestLintTraceFile(ctx context.Context, root, tracePath string) error {
 		return fmt.Errorf("append lint trace event: %w", err)
 	}
 
-	store, err := Open(ctx, DefaultDBPath(root))
+	store, err := Open(ctx, DefaultDBPath(ResolveStateRoot(root)))
 	if err != nil {
 		if IsStoreLockError(err) {
 			return nil

@@ -137,15 +137,19 @@ func TestRecordProxyEventAggregatesSessionCounters(t *testing.T) {
 		}
 	}
 
-	err = store.RecordProxyEvent(ctx, agentproxy.ProviderEvent{
+	denied := agentproxy.ProviderEvent{
 		ID:        "counter-event-denied",
 		SessionID: "session-counters",
 		Kind:      agentproxy.EventProviderResponse,
 		Provider:  "codex",
 		Decision:  "deny",
-	})
+	}
+	err = store.RecordProxyEvent(ctx, denied)
 	if err != nil {
 		t.Fatalf("record denied event: %v", err)
+	}
+	if err = store.RecordProxyEvent(ctx, denied); err != nil {
+		t.Fatalf("replay denied event: %v", err)
 	}
 
 	sessions, err := store.ProxySessions(

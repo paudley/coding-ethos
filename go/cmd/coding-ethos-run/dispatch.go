@@ -621,7 +621,7 @@ func recordAgentShellExecution(
 ) {
 	event := agentShellAuditEvent(paths, request, status, exitCode, result)
 
-	err := appendAgentShellAuditEvent(paths.Root, event)
+	err := appendAgentShellAuditEvent(paths.effectiveStateRoot(), event)
 	if err != nil {
 		debuglog.Debug(
 			"agent-shell.audit.failed",

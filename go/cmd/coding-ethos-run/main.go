@@ -60,6 +60,14 @@ func (paths runtimePaths) executor() runtimeExecutor {
 	return paths.Executor
 }
 
+func (paths runtimePaths) effectiveStateRoot() string {
+	if strings.TrimSpace(paths.StateRoot) == "" {
+		return paths.Root
+	}
+
+	return paths.StateRoot
+}
+
 func main() {
 	execguard.Enter("coding-ethos-run")
 
@@ -84,7 +92,8 @@ func mainExitCode() int {
 				Stdout:     os.Stdout,
 				Stderr:     os.Stderr,
 				GitPath:    paths.RealGit,
-				Root:       paths.StateRoot,
+				Root:       paths.Root,
+				StateRoot:  paths.effectiveStateRoot(),
 				BundleRoot: paths.BundleRoot,
 				Command:    append([]string{paths.RunBinary}, args...),
 				Debug:      debug || debuglog.EnabledFromEnv(),

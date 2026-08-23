@@ -272,11 +272,9 @@ func TestRunWithIOSelectsNeutralV1ContractFromEnvironment(t *testing.T) {
 }
 
 func TestRunWithIOUsesKimiNativeBlockAndStopSemantics(t *testing.T) {
-	t.Parallel()
+	t.Setenv("CODE_ETHOS_STATE_ROOT", t.TempDir())
 
 	t.Run("policy block exits two with reason", func(t *testing.T) {
-		t.Parallel()
-
 		var (
 			stdout bytes.Buffer
 			stderr bytes.Buffer
@@ -309,12 +307,27 @@ func TestRunWithIOUsesKimiNativeBlockAndStopSemantics(t *testing.T) {
 	})
 
 	t.Run("Stop guidance continues through structured deny", func(t *testing.T) {
-		t.Parallel()
-
 		var (
 			stdout bytes.Buffer
 			stderr bytes.Buffer
 		)
+		primeStatus := runWithIO(
+			[]string{
+				"--bundle", writeCLITestBundle(t),
+				"--json",
+				"--provider", "kimi",
+			},
+			strings.NewReader(`{
+				"hook_event_name":"UserPromptSubmit",
+				"session_id":"kimi-stop-session",
+				"input":{"prompt":"Implement and test the code change"}
+			}`),
+			&bytes.Buffer{},
+			&bytes.Buffer{},
+		)
+		if primeStatus != 0 {
+			t.Fatalf("prime status=%d", primeStatus)
+		}
 
 		status := runWithIO(
 			[]string{
@@ -322,7 +335,10 @@ func TestRunWithIOUsesKimiNativeBlockAndStopSemantics(t *testing.T) {
 				"--json",
 				"--provider", "kimi",
 			},
-			strings.NewReader(`{"hook_event_name":"Stop"}`),
+			strings.NewReader(`{
+				"hook_event_name":"Stop",
+				"session_id":"kimi-stop-session"
+			}`),
 			&stdout,
 			&stderr,
 		)

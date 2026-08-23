@@ -4250,7 +4250,8 @@ func TestEncodeProviderResultUsesClaudeSystemMessageForUnsupportedContextEvent(
 
 	event, err := DecodeEvent(strings.NewReader(`{
 		"provider": "claude",
-		"hook_event_name": "SessionEnd"
+		"hook_event_name": "SessionEnd",
+		"tool_input": {"prompt": "finish the hook implementation"}
 	}`))
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
@@ -4728,7 +4729,8 @@ func TestRunAddsStopCheckpointGuidance(t *testing.T) {
 
 	event, err := DecodeEvent(strings.NewReader(`{
 		"provider": "codex",
-		"event": "Stop"
+		"event": "Stop",
+		"input": {"prompt": "finish the hook implementation"}
 	}`))
 	if err != nil {
 		t.Fatalf("decode event: %v", err)
@@ -5229,6 +5231,59 @@ func TestRunInjectsRepoMapOnSessionStart(t *testing.T) {
 		!strings.Contains(codexOutput, `guidance[2]{message}:`) ||
 		!strings.Contains(codexOutput, `coding_ethos_repo_map:`) {
 		t.Fatalf("Codex session context missing TOON guidance:\n%s", codexOutput)
+	}
+}
+
+func TestSessionStartReadsCodeIntelOnlyFromConfiguredStateRoot(t *testing.T) {
+	acquireCodeIntelHookTestSlot(t)
+	repo := initHookRepo(t)
+	stateRoot := t.TempDir()
+	t.Setenv(codeintel.StateRootEnvironment, stateRoot)
+	sourcePath := filepath.Join(repo, "pkg", "private_state.go")
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	if err := os.WriteFile(
+		sourcePath,
+		[]byte("package pkg\n\nfunc PrivateState() string { return \"ok\" }\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	store, err := codeintel.Open(
+		context.Background(),
+		codeintel.DefaultDBPath(stateRoot),
+	)
+	if err != nil {
+		t.Fatalf("open private code-intel store: %v", err)
+	}
+	if _, err := codeintel.NewASTIndexer(store).IndexPaths(
+		context.Background(),
+		repo,
+		[]string{"pkg/private_state.go"},
+	); err != nil {
+		_ = store.Close()
+		t.Fatalf("index private code-intel store: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close private code-intel store: %v", err)
+	}
+
+	result, err := Run(policy.ExampleBundle(), Options{Event: Event{
+		HookEventName: eventSessionStart,
+		Cwd:           repo,
+		SessionID:     "session-private-state",
+	}})
+	if err != nil {
+		t.Fatalf("run private-state session start: %v", err)
+	}
+	if result.HookSpecificOutput == nil ||
+		!strings.Contains(result.HookSpecificOutput.AdditionalContext, "PrivateState") {
+		t.Fatalf("private code-intel repo map missing: %#v", result.HookSpecificOutput)
+	}
+	if _, err := os.Stat(codeintel.DefaultDBPath(repo)); !os.IsNotExist(err) {
+		t.Fatalf("repository-local code-intel store was created: %v", err)
 	}
 }
 
@@ -5885,7 +5940,8 @@ func TestEncodeProviderResultCompactsCodexRoutineLifecycleContext(t *testing.T) 
 			expected: "event: UserPromptSubmit",
 		},
 		{
-			payload:  `{"provider":"codex","event":"Stop"}`,
+			payload: `{"provider":"codex","event":"Stop",` +
+				`"input":{"prompt":"finish the hook implementation"}}`,
 			expected: "event: Stop",
 		},
 	}

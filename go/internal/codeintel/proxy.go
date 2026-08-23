@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,13 +16,9 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
-func (store *Store) RecordProxyEvent(
-	ctx context.Context,
-	event agentproxy.ProviderEvent,
-) error {
-	store.writeMu.Lock()
-	defer store.writeMu.Unlock()
+var errProxyEventChangedSession = errors.New("proxy event changed sessions")
 
+func validateProxyEvent(event agentproxy.ProviderEvent) error {
 	if strings.TrimSpace(event.ID) == "" {
 		return apperror.StaticError("proxy event id is required")
 	}
@@ -34,13 +31,61 @@ func (store *Store) RecordProxyEvent(
 		return apperror.StaticError("proxy event kind is required")
 	}
 
+	return nil
+}
+
+func ensureProxySession(
+	ctx context.Context,
+	transaction *sql.Tx,
+	event agentproxy.ProviderEvent,
+) error {
+	existingSession := ""
+
+	err := transaction.QueryRowContext(
+		ctx,
+		"SELECT session_id FROM proxy_events WHERE event_id = ?",
+		event.ID,
+	).Scan(&existingSession)
+	if err == nil {
+		if existingSession != event.SessionID {
+			return fmt.Errorf(
+				"%w: event %q moved from %q to %q",
+				errProxyEventChangedSession,
+				event.ID,
+				existingSession,
+				event.SessionID,
+			)
+		}
+
+		return nil
+	}
+
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("query existing proxy event %q: %w", event.ID, err)
+	}
+
+	return upsertProxySession(ctx, transaction, event)
+}
+
+func (store *Store) RecordProxyEvent(
+	ctx context.Context,
+	event agentproxy.ProviderEvent,
+) error {
+	store.writeMu.Lock()
+	defer store.writeMu.Unlock()
+
+	err := validateProxyEvent(event)
+	if err != nil {
+		return err
+	}
+
 	transaction, err := store.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin proxy event ingest: %w", err)
 	}
 	defer rollbackUnlessCommitted(transaction)
 
-	err = upsertProxySession(ctx, transaction, event)
+	err = ensureProxySession(ctx, transaction, event)
 	if err != nil {
 		return err
 	}

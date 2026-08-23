@@ -99,6 +99,16 @@ func WriteAgentHookTrace(runDir string, event Event, result Result) (err error) 
 	findings := evidence.FromDecisions(result.Decisions)
 	traceID := hookTraceID(event, result)
 	analytics := traceAnalytics(event, result)
+	remediationEvents := evidence.RemediationEvents(
+		remediation,
+		findings,
+		traceID,
+		"suggested",
+	)
+	remediationEvents = append(
+		remediationEvents,
+		correlateRemediationEvents(event, result, traceID, remediation, findings)...,
+	)
 	trace := HookTrace{
 		SchemaVersion:      evidence.SchemaVersion,
 		TraceID:            traceID,
@@ -123,13 +133,8 @@ func WriteAgentHookTrace(runDir string, event Event, result Result) (err error) 
 		Findings:           findings,
 		AgentRemediation:   remediation,
 		RemediationSummary: agentmsg.Summarize(remediation),
-		RemediationEvents: evidence.RemediationEvents(
-			remediation,
-			findings,
-			traceID,
-			"suggested",
-		),
-		OutputShape: traceOutputShape(result),
+		RemediationEvents:  remediationEvents,
+		OutputShape:        traceOutputShape(result),
 	}
 
 	if command := event.Command(); command != "" {

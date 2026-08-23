@@ -132,7 +132,7 @@ func runAgentProxyPassthrough(paths runtimePaths, args []string) error {
 
 	store, err := codeintel.Open(
 		context.Background(),
-		codeintel.DefaultDBPath(paths.Root),
+		codeintel.DefaultDBPath(paths.effectiveStateRoot()),
 	)
 	if err != nil {
 		return fmt.Errorf("open code-intel store for agent proxy evidence: %w", err)
@@ -354,7 +354,7 @@ type serveInterceptRequest struct {
 func serveInterceptProxy(paths runtimePaths, request serveInterceptRequest) error {
 	store, err := codeintel.Open(
 		context.Background(),
-		codeintel.DefaultDBPath(paths.Root),
+		codeintel.DefaultDBPath(paths.effectiveStateRoot()),
 	)
 	if err != nil {
 		return fmt.Errorf("open code-intel store for agent proxy evidence: %w", err)

@@ -145,7 +145,8 @@ func TestEncodeProviderResultUsesKimiStopContinuationShape(t *testing.T) {
 
 	output := encodedProviderOutput(t, `{
 		"provider": "kimi",
-		"hook_event_name": "Stop"
+		"hook_event_name": "Stop",
+		"tool_input": {"prompt": "finish the hook implementation"}
 	}`)
 
 	for _, expected := range []string{

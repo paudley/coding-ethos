@@ -267,6 +267,65 @@ func TestWriteAgentHookTraceUsesUniqueTraceIDForRepeatedViolations(t *testing.T)
 	}
 }
 
+func TestWriteAgentHookTraceCorrelatesAllowedRetryWithPriorRemediation(
+	t *testing.T,
+) {
+	t.Setenv("CODE_ETHOS_STATE_ROOT", t.TempDir())
+
+	event := Event{
+		HookEventName: eventPreToolUse,
+		SessionID:     "session-remediation-retry",
+		Source:        providerCodex,
+		ToolName:      toolBash,
+		Cwd:           "/repo",
+		ToolInput: map[string]any{
+			"command": "git commit --no-verify -m test",
+		},
+	}
+	blocked := Result{
+		Event:    eventPreToolUse,
+		Provider: providerCodex,
+		Status:   "blocked",
+		Tool:     toolBash,
+		Decisions: []policy.Decision{{
+			PolicyID:   "git.hook_bypass",
+			Decision:   "block",
+			Severity:   "block",
+			Message:    "Hook bypass is forbidden.",
+			Suggestion: "Run the configured gate.",
+		}},
+	}
+
+	err := WriteAgentHookTrace(t.TempDir(), event, blocked)
+	if err != nil {
+		t.Fatalf("write blocked hook trace: %v", err)
+	}
+
+	event.ToolInput = map[string]any{
+		"command": "cerun -- git commit -m test",
+	}
+	followupRunDir := t.TempDir()
+
+	err = WriteAgentHookTrace(followupRunDir, event, Result{
+		Event:    eventPreToolUse,
+		Provider: providerCodex,
+		Status:   "allowed",
+		Tool:     toolBash,
+	})
+	if err != nil {
+		t.Fatalf("write allowed retry hook trace: %v", err)
+	}
+
+	trace, _ := readTracePayload(t, followupRunDir)
+	outcome := traceMapAt(t, trace, "remediation_events")
+	if outcome["event"] != "attempted" ||
+		outcome["remediation_id"] == "" ||
+		outcome["finding_id"] == "" ||
+		outcome["trace_id"] != trace["trace_id"] {
+		t.Fatalf("allowed retry lacks correlated remediation outcome: %#v", outcome)
+	}
+}
+
 func traceMapAt(
 	t *testing.T,
 	payload map[string]any,

@@ -86,6 +86,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"index-status":              printIndexStatus,
 		"ingest-sarif":              ingestSARIF,
 		"ingest-traces":             ingestTraces,
+		"migrate-store":             migrateStore,
 		"record-embedding":          recordEmbedding,
 		"record-hook-review":        recordHookReview,
 		"record-proxy-event":        recordProxyEvent,
@@ -938,7 +939,7 @@ func printVectorStats(ctx context.Context, args []string) error {
 	}
 
 	if *uri == "" {
-		*uri = codeintel.DefaultVectorPath(*root)
+		*uri = codeintel.DefaultVectorPath(codeintel.ResolveStateRoot(*root))
 	}
 
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
@@ -1051,7 +1052,7 @@ func hybridSearch(ctx context.Context, args []string) error {
 	defer store.Close()
 
 	if *uri == "" {
-		*uri = codeintel.DefaultVectorPath(*root)
+		*uri = codeintel.DefaultVectorPath(codeintel.ResolveStateRoot(*root))
 	}
 
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
@@ -1104,7 +1105,7 @@ func printIndexStatus(ctx context.Context, args []string) error {
 	defer store.Close()
 
 	if *uri == "" {
-		*uri = codeintel.DefaultVectorPath(*root)
+		*uri = codeintel.DefaultVectorPath(codeintel.ResolveStateRoot(*root))
 	}
 
 	index, err := codeintel.NewVectorIndex(ctx, codeintel.VectorBackendConfig{
@@ -1211,7 +1212,7 @@ func resolvedDBPath(root, dbPath string) string {
 		return dbPath
 	}
 
-	return codeintel.DefaultDBPath(root)
+	return codeintel.DefaultDBPath(codeintel.ResolveStateRoot(root))
 }
 
 func resolvedDuckDBPath(root, dbPath string) string {
@@ -1219,7 +1220,7 @@ func resolvedDuckDBPath(root, dbPath string) string {
 		return dbPath
 	}
 
-	return codeintel.DefaultDuckDBPath(root)
+	return codeintel.DefaultDuckDBPath(codeintel.ResolveStateRoot(root))
 }
 
 func encodeJSON(output *os.File, value any) error {

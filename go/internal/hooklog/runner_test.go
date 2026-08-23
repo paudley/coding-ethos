@@ -73,6 +73,43 @@ func TestRunWritesHookLogsAndMetadata(t *testing.T) {
 	}
 }
 
+func TestRunKeepsRepositoryIdentityWhileWritingToPrivateStateRoot(t *testing.T) {
+	t.Parallel()
+
+	repositoryRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	err := Run(Options{
+		Stdin:      strings.NewReader(""),
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+		GitPath:    fakeGit(t),
+		Root:       repositoryRoot,
+		StateRoot:  stateRoot,
+		BundleRoot: filepath.Join(repositoryRoot, "pre-commit"),
+		Command:    commandThatPrints(t),
+		Now: func() time.Time {
+			return time.Date(2026, 5, 1, 12, 34, 56, 0, time.UTC)
+		},
+	})
+	if err != nil {
+		t.Fatalf("run hook log with private state: %v", err)
+	}
+
+	runDir := onlyHookRunDir(t, stateRoot)
+	assertFileContains(
+		t,
+		filepath.Join(runDir, "metadata.env"),
+		"repo_root='"+repositoryRoot+"'",
+	)
+	if _, err := os.Stat(
+		filepath.Join(repositoryRoot, ".coding-ethos", "hook-runs"),
+	); !os.IsNotExist(
+		err,
+	) {
+		t.Fatalf("repository-local hook state was created: %v", err)
+	}
+}
+
 func TestRunSuppressesDebugLogByDefault(t *testing.T) {
 	root := t.TempDir()
 	writeHookLogIgnore(t, root)

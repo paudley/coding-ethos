@@ -28,6 +28,11 @@ func runWithIO(
 ) error {
 	flags := flag.NewFlagSet("coding-ethos-hook-log", flag.ExitOnError)
 	root := flags.String("root", "", "Repository root for hook logs")
+	stateRoot := flags.String(
+		"state-root",
+		"",
+		"Private hook state root (defaults to repository root)",
+	)
 	bundleRoot := flags.String("bundle-root", "", "coding-ethos pre-commit bundle root")
 	gitPath := flags.String(
 		"git",
@@ -46,6 +51,7 @@ func runWithIO(
 		Stderr:     stderr,
 		GitPath:    *gitPath,
 		Root:       *root,
+		StateRoot:  *stateRoot,
 		BundleRoot: *bundleRoot,
 		Command:    flags.Args(),
 	})

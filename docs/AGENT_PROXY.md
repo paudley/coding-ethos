@@ -302,8 +302,8 @@ exclusion paths.
 Proxy-side tool output compression lives in `go/internal/agentproxy`. The
 default transform preserves the beginning and ending of long tool output,
 inserts an explicit omission marker, writes the full original output to a
-session-local `coding-ethos-tool-output-*.log` evidence file in the system temp
-directory, and records
+content-addressed `coding-ethos-tool-output-<sha256>.log.gz` evidence file in
+the system temp directory, and records
 token/hash/path evidence through the normal transform record path. This keeps
 command identity, early setup failures, and terminal stack-trace exceptions
 visible while removing repetitive progress output and dependency-frame noise.
@@ -316,8 +316,10 @@ Agent hooks now route Bash `PostToolUse` output through this transform path
 before any output is returned to the provider. The live path first parses known
 compiler, linter, and test output into a compact diagnostic table, then applies
 line compression and a hard token-budget transform. It stores the proxy
-`tool_output` event and transform ledger in the repo-local code-intel database
-when the provider payload includes a session id. Repositories can tune
+`tool_output` event and transform ledger in the private code-intel database
+selected by `CODE_ETHOS_STATE_ROOT` when the provider payload includes a
+session id. Durable proxy fallback records append to one locked JSONL stream
+per session instead of creating one file per tool result. Repositories can tune
 `proxy.output_compression.max_lines`, `head_lines`, `tail_lines`, `max_tokens`,
 `head_tokens`, `tail_tokens`, and `max_diagnostics` in `repo_config.yaml`. The
 temp-evidence lifecycle is configured under `outputs.prune` in TOML. The
@@ -327,8 +329,9 @@ temp-evidence lifecycle is configured under `outputs.prune` in TOML. The
 for local runtime token tuning.
 
 Compression must remain traceable. A compressed payload should carry metadata
-that records the omitted line count and temporary full-output path, and the
-corresponding proxy event should store the transform record in code-intel.
+that records the omitted line count and temporary compressed full-output path,
+and the corresponding proxy event stores the original result byte count,
+return code/status, delivered byte count, and transform record in code-intel.
 Silent truncation is not allowed. The temp evidence file is debug evidence,
 not durable archival storage.
 

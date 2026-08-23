@@ -5,9 +5,11 @@ package codeintel
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -100,5 +102,48 @@ func TestEventLogRejectsMissingKind(t *testing.T) {
 	err := log.Append("run-1", []EventRecord{{TraceID: "trace-1"}})
 	if err == nil {
 		t.Fatal("expected missing kind error")
+	}
+}
+
+func TestEventLogAppendStreamAggregatesOneSessionAcrossConcurrentHooks(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join(t.TempDir(), "events")
+	log := NewEventLog(dir)
+	const count = 24
+	var wait sync.WaitGroup
+	errors := make(chan error, count)
+	for index := range count {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			errors <- log.AppendStream("session-shared", []EventRecord{{
+				ID:      fmt.Sprintf("event-%02d", index),
+				Kind:    "proxy_event",
+				Payload: json.RawMessage(fmt.Sprintf(`{"ordinal":%d}`, index)),
+			}})
+		}()
+	}
+	wait.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("append session stream: %v", err)
+		}
+	}
+
+	paths, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	if err != nil {
+		t.Fatalf("glob session stream: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("one session created %d event files: %v", len(paths), paths)
+	}
+	records, err := log.ReadAll()
+	if err != nil {
+		t.Fatalf("read session stream: %v", err)
+	}
+	if len(records) != count {
+		t.Fatalf("session stream records = %d, want %d", len(records), count)
 	}
 }

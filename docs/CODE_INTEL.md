@@ -213,6 +213,21 @@ documented in [AGENT_PROXY.md](AGENT_PROXY.md).
 
 ## Canonical DuckDB Store
 
+Code-intel commands use `CODE_ETHOS_STATE_ROOT` for their default DuckDB and
+vector paths while continuing to inspect source from `--root`. Explicit `--db`,
+`--duckdb`, and `--uri` paths take precedence. This lets an orchestrator keep
+mutable intelligence state outside a consumer worktree without changing the
+repository identity recorded in facts.
+
+Use `code-intel migrate-store --root REPOSITORY --source LEGACY
+--destination PRIVATE` to merge a repository-local legacy store into private
+state. `migrate-store` opens the source read-only, validates schema and
+repository identity, rejects unequal rows with the same primary key, and writes
+a JSON audit manifest plus a detached SHA-256 digest. The source is retained and
+its before/after file hashes must match. When `--destination` is omitted, the
+command resolves it through `CODE_ETHOS_STATE_ROOT`; when `--source` is omitted,
+the repository-local store is used.
+
 The first implementation should create `.coding-ethos/code-intel.duckdb` with
 tables for:
 

@@ -5,8 +5,13 @@ package agentproxy
 
 import (
 	"cmp"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,27 +24,28 @@ import (
 )
 
 const (
-	defaultToolOutputMaxLines    = 80
-	defaultToolOutputHead        = 32
-	defaultToolOutputTail        = 32
-	defaultToolOutputMaxTokens   = 2000
-	defaultToolOutputHeadTokens  = 900
-	defaultToolOutputTailTokens  = 900
-	minPreservedLineBudget       = 2
-	minToolOutputMaxLines        = 3
-	minToolOutputMaxTokens       = 32
-	metadataFullOutputPath       = "coding_ethos.full_output_path"
-	toolOutputEvidenceMaxAge     = 24 * time.Hour
-	toolOutputEvidencePattern    = "coding-ethos-tool-output-*.log"
-	toolOutputEvidencePrefix     = "coding-ethos-tool-output-"
-	toolOutputEvidenceSuffix     = ".log"
-	tokenBudgetMarkerTokens      = 8
-	tokenBudgetSplitParts        = 2
-	defaultDiagnosticMaxFindings = 12
-	diagnosticSummaryLineSlack   = 3
-	metadataValueTrue            = "true"
-	minTokenBudgetLineFragment   = 80
-	regexpMatchWithOneSubmatch   = 2
+	defaultToolOutputMaxLines      = 80
+	defaultToolOutputHead          = 32
+	defaultToolOutputTail          = 32
+	defaultToolOutputMaxTokens     = 2000
+	defaultToolOutputHeadTokens    = 900
+	defaultToolOutputTailTokens    = 900
+	minPreservedLineBudget         = 2
+	minToolOutputMaxLines          = 3
+	minToolOutputMaxTokens         = 32
+	metadataFullOutputPath         = "coding_ethos.full_output_path"
+	toolOutputEvidenceMaxAge       = 24 * time.Hour
+	toolOutputEvidencePattern      = "coding-ethos-tool-output-*"
+	toolOutputEvidencePrefix       = "coding-ethos-tool-output-"
+	toolOutputEvidenceSuffix       = ".log.gz"
+	legacyToolOutputEvidenceSuffix = ".log"
+	tokenBudgetMarkerTokens        = 8
+	tokenBudgetSplitParts          = 2
+	defaultDiagnosticMaxFindings   = 12
+	diagnosticSummaryLineSlack     = 3
+	metadataValueTrue              = "true"
+	minTokenBudgetLineFragment     = 80
+	regexpMatchWithOneSubmatch     = 2
 )
 
 var (
@@ -48,6 +54,10 @@ var (
 	)
 	savedOutputCountsPattern = regexp.MustCompile(
 		`(?s)result \(([^)]+)\) exceeds maximum allowed tokens`,
+	)
+	errEvidenceNotRegular = errors.New("tool output evidence is not a regular file")
+	errEvidenceMismatch   = errors.New(
+		"tool output evidence does not match its content address",
 	)
 )
 
@@ -651,28 +661,152 @@ func writeFullOutputEvidence(
 
 	pruneFullOutputEvidenceFiles(time.Now(), maxAge, maxBytes)
 
-	file, err := os.CreateTemp("", toolOutputEvidencePattern)
+	digest := HashText(text)
+	path := filepath.Join(
+		os.TempDir(),
+		toolOutputEvidencePrefix+digest+toolOutputEvidenceSuffix,
+	)
+
+	reused, err := reuseFullOutputEvidence(path, text)
 	if err != nil {
-		return "", fmt.Errorf("create tool output evidence file: %w", err)
+		return "", err
 	}
 
-	path := file.Name()
-	_, writeErr := file.WriteString(text)
-	closeErr := file.Close()
-
-	if writeErr != nil {
-		_ = os.Remove(path)
-
-		return "", fmt.Errorf("write tool output evidence file %s: %w", path, writeErr)
+	if reused {
+		return path, nil
 	}
 
-	if closeErr != nil {
-		_ = os.Remove(path)
-
-		return "", fmt.Errorf("close tool output evidence file %s: %w", path, closeErr)
+	err = publishFullOutputEvidence(path, text)
+	if err != nil {
+		return "", err
 	}
 
 	return path, nil
+}
+
+func reuseFullOutputEvidence(path, expected string) (bool, error) {
+	_, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("stat tool output evidence %s: %w", path, err)
+	}
+
+	err = validateFullOutputEvidence(path, expected)
+	if err != nil {
+		return false, err
+	}
+
+	err = os.Chtimes(path, time.Now(), time.Now())
+	if err != nil {
+		return false, fmt.Errorf("refresh tool output evidence %s: %w", path, err)
+	}
+
+	return true, nil
+}
+
+func publishFullOutputEvidence(path, text string) error {
+	file, err := os.CreateTemp(os.TempDir(), ".coding-ethos-evidence-write-*")
+	if err != nil {
+		return fmt.Errorf("create tool output evidence file: %w", err)
+	}
+
+	defer func() { _ = file.Close() }()
+
+	temporaryPath := file.Name()
+
+	defer func() { _ = os.Remove(temporaryPath) }()
+
+	writer := gzip.NewWriter(file)
+	writer.ModTime = time.Unix(0, 0).UTC()
+
+	_, err = io.Copy(writer, strings.NewReader(text))
+	if err != nil {
+		_ = writer.Close()
+
+		return fmt.Errorf("write compressed tool output evidence %s: %w", temporaryPath, err)
+	}
+
+	err = writer.Close()
+	if err != nil {
+		return fmt.Errorf("close compressed tool output evidence %s: %w", temporaryPath, err)
+	}
+
+	err = file.Sync()
+	if err != nil {
+		return fmt.Errorf("sync compressed tool output evidence %s: %w", temporaryPath, err)
+	}
+
+	err = file.Close()
+	if err != nil {
+		return fmt.Errorf("close tool output evidence %s: %w", temporaryPath, err)
+	}
+
+	err = os.Link(temporaryPath, path)
+	if err != nil && !errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("publish tool output evidence %s: %w", path, err)
+	}
+
+	err = validateFullOutputEvidence(path, text)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateFullOutputEvidence(path, expected string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("stat tool output evidence %s: %w", path, err)
+	}
+
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%w: %s", errEvidenceNotRegular, path)
+	}
+
+	file, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("open tool output evidence %s: %w", path, err)
+	}
+	defer file.Close()
+
+	reader, err := gzip.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("open compressed tool output evidence %s: %w", path, err)
+	}
+	defer reader.Close()
+
+	hasher := sha256.New()
+	written, err := io.Copy(hasher, io.LimitReader(reader, int64(len(expected))+1))
+
+	return validateFullOutputEvidenceCopy(
+		path,
+		expected,
+		written,
+		hex.EncodeToString(hasher.Sum(nil)),
+		err,
+	)
+}
+
+func validateFullOutputEvidenceCopy(
+	path string,
+	expected string,
+	written int64,
+	digest string,
+	copyErr error,
+) error {
+	if copyErr != nil {
+		return fmt.Errorf("verify compressed tool output evidence %s: %w", path, copyErr)
+	}
+
+	if written != int64(len(expected)) || digest != HashText(expected) {
+		return fmt.Errorf("%w: %s", errEvidenceMismatch, path)
+	}
+
+	return nil
 }
 
 type outputEvidenceFile struct {
@@ -741,7 +875,8 @@ func isFullOutputEvidencePath(path string) bool {
 	name := filepath.Base(path)
 
 	return strings.HasPrefix(name, toolOutputEvidencePrefix) &&
-		strings.HasSuffix(name, toolOutputEvidenceSuffix)
+		(strings.HasSuffix(name, toolOutputEvidenceSuffix) ||
+			strings.HasSuffix(name, legacyToolOutputEvidenceSuffix))
 }
 
 func takeHeadTokenBudget(

@@ -106,7 +106,8 @@ func Prune(ctx context.Context, options PruneOptions) (PruneReport, error) {
 		Apply:          options.Apply,
 	}
 	scopes := scopeSet(options.Scopes)
-	codeIntelDB := codeIntelPruneStore{path: codeintel.DefaultDBPath(report.Root)}
+	stateRoot := codeintel.ResolveStateRoot(report.Root)
+	codeIntelDB := codeIntelPruneStore{path: codeintel.DefaultDBPath(stateRoot)}
 
 	err = validateScopes(scopes)
 	if err != nil {
@@ -383,7 +384,7 @@ func runDuckDBMaintenance(
 	settings Settings,
 	options PruneOptions,
 ) (DBMaintenance, bool, error) {
-	duckDBPath := codeintel.DefaultDuckDBPath(root)
+	duckDBPath := codeintel.DefaultDuckDBPath(codeintel.ResolveStateRoot(root))
 
 	info, err := os.Stat(duckDBPath)
 	if err != nil {

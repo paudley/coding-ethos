@@ -5,6 +5,7 @@ package codeintel
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 )
 
@@ -28,8 +31,16 @@ const (
 	eventLogMaxCreateTries   = 10_000
 )
 
-var errEventLogCreateAttemptsExhausted = errors.New(
-	"create unique code-intel event log attempts exhausted",
+var (
+	errEventLogCreateAttemptsExhausted = errors.New(
+		"create unique code-intel event log attempts exhausted",
+	)
+	errEventLogNotPrivate = errors.New(
+		"code-intel event stream is not a private regular file",
+	)
+	errEventLogShortWrite = errors.New(
+		"code-intel event stream append was incomplete",
+	)
 )
 
 // EventRecord is the durable append-only code-intel telemetry unit.
@@ -116,6 +127,123 @@ func (log EventLog) Append(runID string, records []EventRecord) error {
 	return nil
 }
 
+// AppendStream appends records to one private, session-addressed JSONL stream.
+// It is used for high-frequency proxy evidence so one hook event does not
+// create one filesystem object. The content remains append-only and each
+// record keeps its own deterministic identity.
+func (log EventLog) AppendStream(streamID string, records []EventRecord) error {
+	streamID = strings.TrimSpace(streamID)
+	if streamID == "" {
+		return apperror.StaticError("event log stream ID is required")
+	}
+
+	if len(records) == 0 {
+		return nil
+	}
+
+	err := os.MkdirAll(log.dir, eventLogDirMode)
+	if err != nil {
+		return fmt.Errorf("create code-intel event log dir: %w", err)
+	}
+
+	payload, err := encodeEventStream(streamID, records)
+	if err != nil {
+		return err
+	}
+
+	digest := sha256.Sum256([]byte(streamID))
+	fileName := "session-" + hex.EncodeToString(digest[:])[:32] + ".jsonl"
+	path := filepath.Join(log.dir, fileName)
+
+	return appendEventStream(path, payload)
+}
+
+func encodeEventStream(streamID string, records []EventRecord) ([]byte, error) {
+	var payload bytes.Buffer
+
+	encoder := json.NewEncoder(&payload)
+
+	for index, record := range records {
+		record = normalizeEventRecord(record, streamID, index)
+
+		err := validateEventRecord(record)
+		if err != nil {
+			return nil, err
+		}
+
+		err = encoder.Encode(record)
+		if err != nil {
+			return nil, fmt.Errorf("encode code-intel stream event %q: %w", record.ID, err)
+		}
+	}
+
+	return payload.Bytes(), nil
+}
+
+func openPrivateEventStream(path string) (int, error) {
+	descriptor, err := unix.Open(
+		filepath.Clean(path),
+		unix.O_WRONLY|unix.O_APPEND|unix.O_CREAT|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+		eventLogFileMode,
+	)
+	if err != nil {
+		return -1, fmt.Errorf("open code-intel event stream %q: %w", path, err)
+	}
+
+	var info unix.Stat_t
+
+	err = unix.Fstat(descriptor, &info)
+	if err != nil {
+		_ = unix.Close(descriptor)
+
+		return -1, fmt.Errorf("stat code-intel event stream %q: %w", path, err)
+	}
+
+	if info.Mode&unix.S_IFMT != unix.S_IFREG || info.Mode&0o077 != 0 {
+		_ = unix.Close(descriptor)
+
+		return -1, fmt.Errorf("%w: %q", errEventLogNotPrivate, path)
+	}
+
+	return descriptor, nil
+}
+
+func appendEventStream(path string, payload []byte) error {
+	descriptor, err := openPrivateEventStream(path)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = unix.Close(descriptor) }()
+
+	err = unix.Flock(descriptor, unix.LOCK_EX)
+	if err != nil {
+		return fmt.Errorf("lock code-intel event stream %q: %w", path, err)
+	}
+
+	written, err := unix.Write(descriptor, payload)
+	if err != nil {
+		return fmt.Errorf("append code-intel event stream %q: %w", path, err)
+	}
+
+	if written != len(payload) {
+		return fmt.Errorf(
+			"%w %q: wrote %d of %d bytes",
+			errEventLogShortWrite,
+			path,
+			written,
+			len(payload),
+		)
+	}
+
+	err = unix.Fsync(descriptor)
+	if err != nil {
+		return fmt.Errorf("sync code-intel event stream %q: %w", path, err)
+	}
+
+	return nil
+}
+
 func (log EventLog) Records() iter.Seq2[EventRecord, error] {
 	return func(yield func(EventRecord, error) bool) {
 		err := filepath.WalkDir(
@@ -157,7 +285,7 @@ func (log EventLog) ReadAll() ([]EventRecord, error) {
 func EventLogStats(root string) (int, error) {
 	count := 0
 
-	for _, err := range NewEventLog(DefaultEventLogDir(root)).Records() {
+	for _, err := range NewEventLog(DefaultEventLogDir(ResolveStateRoot(root))).Records() {
 		if err != nil {
 			return 0, err
 		}

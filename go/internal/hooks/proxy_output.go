@@ -182,7 +182,10 @@ func semanticFileReadPageEnd(root, targetPath, output string) int {
 	)
 	defer cancel()
 
-	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	store, err := codeintel.Open(
+		ctx,
+		codeintel.DefaultDBPath(codeintel.ResolveStateRoot(root)),
+	)
 	if err != nil {
 		return pageEnd
 	}
@@ -413,7 +416,10 @@ func enrichDirectoryListingToolOutput(
 		return proxied
 	}
 
-	store, err := codeintel.Open(ctx, codeintel.DefaultDBPath(root))
+	store, err := codeintel.Open(
+		ctx,
+		codeintel.DefaultDBPath(codeintel.ResolveStateRoot(root)),
+	)
 	if err != nil {
 		return proxied
 	}
@@ -921,12 +927,27 @@ func proxyToolOutputEvents(
 	}
 
 	recordedAt := time.Now().UTC()
-	outputHash := agentproxy.HashText(proxied.Text)
+	rawOutput := event.ToolOutput()
+	outputHash := agentproxy.HashText(rawOutput)
+	deliveredHash := agentproxy.HashText(proxied.Text)
 	inputHash := agentproxy.HashText(input)
 	eventID := proxyToolOutputEventID(event, inputHash, recordedAt)
 	tokenizer := agentproxy.ApproximateTokenizer{}
 	inputTokens := tokenizer.Count(input)
 	outputTokens := tokenizer.Count(proxied.Text)
+	returnCode := event.ReturnCode()
+	resultStatus := proxyToolResultStatus(event)
+
+	metadata := mergeStringMetadata(proxied.Metadata, map[string]string{
+		"coding_ethos.result.return_code":       strconv.Itoa(returnCode),
+		"coding_ethos.result.return_code_known": strconv.FormatBool(event.HasReturnCode()),
+		"coding_ethos.result.status":            resultStatus,
+		"coding_ethos.result.bytes":             strconv.Itoa(len([]byte(rawOutput))),
+		"coding_ethos.result.lines":             strconv.Itoa(lineCount(rawOutput)),
+		"coding_ethos.delivered.bytes":          strconv.Itoa(len([]byte(proxied.Text))),
+		"coding_ethos.delivered.sha256":         deliveredHash,
+		"coding_ethos.session_scope":            sessionID,
+	})
 
 	return []agentproxy.ProviderEvent{{
 		ID:            eventID,
@@ -951,17 +972,29 @@ func proxyToolOutputEvents(
 			Reason:   "live Bash tool output proxy transform",
 		},
 		Payload: agentproxy.PayloadMeasurement{
-			Bytes: len([]byte(proxied.Text)),
-			Lines: lineCount(proxied.Text),
+			Bytes: len([]byte(rawOutput)),
+			Lines: lineCount(rawOutput),
 		},
 		TokenUsage: agentproxy.TokenUsage{
 			InputTokens:  inputTokens,
 			OutputTokens: outputTokens,
 			TotalTokens:  inputTokens + outputTokens,
 		},
-		Metadata:   cloneStringMetadata(proxied.Metadata),
+		Metadata:   metadata,
 		Transforms: proxied.Records,
 	}}
+}
+
+func proxyToolResultStatus(event Event) string {
+	if !event.HasReturnCode() {
+		return unknownValue
+	}
+
+	if event.ReturnCode() != 0 {
+		return "failed"
+	}
+
+	return "succeeded"
 }
 
 func proxyToolOutputDecision(records []agentproxy.TransformRecord) string {

@@ -29,7 +29,7 @@ const (
 	defaultCodeIntelEnrichmentMaxOutputPaths = 12
 	codeIntelEnrichmentRefreshCommand        = "coding-ethos-code-intel rebuild-index"
 	codeIntelTimestampSQLLayout              = "2006-01-02 15:04:05"
-	codeIntelFreshnessUnknownHead            = "unknown"
+	unknownValue                             = "unknown"
 	codeIntelFreshnessStateDirMode           = 0o700
 	codeIntelFreshnessStateFileMode          = 0o600
 	codeIntelLargeFileLineThreshold          = 1000
@@ -224,7 +224,10 @@ func buildCodeIntelEnrichment(
 	)
 	defer cancel()
 
-	store, err := codeintel.OpenReadOnly(ctx, codeintel.DefaultDBPath(root))
+	store, err := codeintel.OpenReadOnly(
+		ctx,
+		codeintel.DefaultDBPath(codeintel.ResolveStateRoot(root)),
+	)
 	if err != nil {
 		return codeIntelEnrichment{
 			Status:  codeIntelStatusMissingIndex,
@@ -796,7 +799,10 @@ func codeIntelFreshnessNotice(event Event, root string) string {
 	)
 	defer cancel()
 
-	store, err := codeintel.OpenReadOnly(ctx, codeintel.DefaultDBPath(root))
+	store, err := codeintel.OpenReadOnly(
+		ctx,
+		codeintel.DefaultDBPath(codeintel.ResolveStateRoot(root)),
+	)
 	if err != nil {
 		if !markCodeIntelFreshnessNoticeEmitted(ctx, root) {
 			return ""
@@ -828,7 +834,7 @@ func codeIntelFreshnessCommand(command string) bool {
 func markCodeIntelFreshnessNoticeEmitted(ctx context.Context, root string) bool {
 	head := currentHookGitCommit(ctx, root)
 	if head == "" {
-		head = codeIntelFreshnessUnknownHead
+		head = unknownValue
 	}
 
 	stateDir := filepath.Join(root, ".coding-ethos", "state", "freshness-notices")

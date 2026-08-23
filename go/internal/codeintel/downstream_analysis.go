@@ -297,7 +297,7 @@ func AnalyzeDownstreamDuckDB(
 
 func downstreamDuckDBStorePath(root string, store *DuckDBStore) string {
 	if store == nil || strings.TrimSpace(store.path) == "" {
-		return DefaultDuckDBPath(root)
+		return DefaultDuckDBPath(ResolveStateRoot(root))
 	}
 
 	return store.path
