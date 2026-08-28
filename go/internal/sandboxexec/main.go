@@ -40,15 +40,16 @@ func (paths *repeatedPaths) Set(value string) error {
 }
 
 type options struct {
-	paths          *sandboxPaths
-	realGitPath    string
-	realGitBind    string
-	gitWrapper     string
-	gitTargets     []string
-	writePaths     []string
-	readOnlyPaths  []string
-	commandArgv    []string
-	allowGitWrites bool
+	paths           *sandboxPaths
+	realGitPath     string
+	realGitBind     string
+	gitWrapper      string
+	gitTargets      []string
+	writePaths      []string
+	readOnlyPaths   []string
+	commandArgv     []string
+	allowGitWrites  bool
+	requiresNetwork bool
 }
 
 type sandboxPaths struct {
@@ -124,6 +125,12 @@ func parseOptions(args []string) (options, error) {
 		"allow-git-writes",
 		false,
 		"Allow declared Git metadata write paths",
+	)
+	flags.BoolVar(
+		&parsed.requiresNetwork,
+		"requires-network",
+		false,
+		"Tool keeps network access inside the sandbox",
 	)
 
 	err := flags.Parse(args)

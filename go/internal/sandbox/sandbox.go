@@ -889,6 +889,12 @@ func nativeWrapperArgs(request Request, writePaths []string) []string {
 		args = append(args, "--read-only-path", path)
 	}
 
+	// Network stays reachable unless both process and network isolation apply;
+	// only then must the helper re-present /etc/ssh for the mapped identity.
+	if request.Capabilities.RequiresNetwork || request.Capabilities.RequiresProcesses {
+		args = append(args, "--requires-network")
+	}
+
 	if request.Capabilities.RequiresGit {
 		if gitBindingRequested(request.Capabilities, gitTargets) {
 			args = append(args, "--git-wrapper", request.Capabilities.GitWrapperPath)

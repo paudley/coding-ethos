@@ -89,6 +89,12 @@ func applyFilesystemPolicy(options options) error {
 		return err
 	}
 
+	// Must run while CAP_SYS_ADMIN is still held: the rebuild is a mount.
+	err = applySystemSSHConfig(options)
+	if err != nil {
+		return err
+	}
+
 	// The launcher grants only CAP_SYS_ADMIN so this helper can establish its
 	// private mounts without changing the caller's numeric identity. No
 	// capability belongs in the requested command, including a shell or Git
