@@ -5,6 +5,7 @@ package codeintel
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -118,6 +119,131 @@ func TestMigrateStoreRejectsUnequalDuplicateRows(t *testing.T) {
 	}
 }
 
+func TestMigrateStorePreservesEqualLogicalKeyDuplicates(t *testing.T) {
+	tests := []struct {
+		name                string
+		sourceCopies        int
+		destinationCopies   int
+		wantImported        int64
+		wantMatched         int64
+		wantDestinationRows int64
+	}{
+		{
+			name:                "source duplicates are imported",
+			sourceCopies:        3,
+			destinationCopies:   0,
+			wantImported:        3,
+			wantMatched:         0,
+			wantDestinationRows: 3,
+		},
+		{
+			name:                "destination duplicates match once per source row",
+			sourceCopies:        2,
+			destinationCopies:   3,
+			wantImported:        0,
+			wantMatched:         2,
+			wantDestinationRows: 3,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			repositoryRoot := t.TempDir()
+			sourcePath := DefaultDBPath(repositoryRoot)
+			destinationPath := filepath.Join(
+				t.TempDir(),
+				".coding-ethos",
+				"code-intel.duckdb",
+			)
+
+			insertMigrationLogicalKeyRows(t, ctx, sourcePath, test.sourceCopies)
+			insertMigrationLogicalKeyRows(t, ctx, destinationPath, test.destinationCopies)
+			recordTestMigrationIdentity(t, ctx, destinationPath, repositoryRoot)
+
+			result, err := MigrateStore(ctx, StoreMigrationOptions{
+				RepositoryRoot:  repositoryRoot,
+				SourcePath:      sourcePath,
+				DestinationPath: destinationPath,
+			})
+			if err != nil {
+				t.Fatalf("migrate equal logical-key duplicates: %v", err)
+			}
+
+			for _, tableName := range []string{
+				"lsh_bands",
+				"code_intel_fts",
+				"code_intel_search_terms",
+			} {
+				evidence := migrationTableEvidence(t, result.Manifest.Tables, tableName)
+				if evidence.SourceRows != int64(test.sourceCopies) ||
+					evidence.ImportedRows != test.wantImported ||
+					evidence.MatchedRows != test.wantMatched ||
+					evidence.DestinationRows != test.wantDestinationRows {
+					t.Fatalf("unexpected %s evidence: %#v", tableName, evidence)
+				}
+
+				assertMigrationTableRowCount(
+					t,
+					ctx,
+					destinationPath,
+					tableName,
+					test.wantDestinationRows,
+				)
+			}
+		})
+	}
+}
+
+func TestMigrateStoreRejectsConflictingLogicalKeyVariants(t *testing.T) {
+	for _, tableName := range []string{"lsh_bands", "code_intel_fts"} {
+		for _, conflictLocation := range []string{"source", "destination"} {
+			t.Run(tableName+"/"+conflictLocation, func(t *testing.T) {
+				ctx := context.Background()
+				repositoryRoot := t.TempDir()
+				sourcePath := DefaultDBPath(repositoryRoot)
+				destinationPath := filepath.Join(
+					t.TempDir(),
+					".coding-ethos",
+					"code-intel.duckdb",
+				)
+
+				initializeMigrationStore(t, ctx, sourcePath)
+				initializeMigrationStore(t, ctx, destinationPath)
+				if conflictLocation == "source" {
+					insertMigrationLogicalKeyConflict(t, ctx, sourcePath, tableName)
+				} else {
+					insertMigrationLogicalKeyConflict(t, ctx, destinationPath, tableName)
+				}
+				recordTestMigrationIdentity(t, ctx, destinationPath, repositoryRoot)
+
+				_, err := MigrateStore(ctx, StoreMigrationOptions{
+					RepositoryRoot:  repositoryRoot,
+					SourcePath:      sourcePath,
+					DestinationPath: destinationPath,
+				})
+				if err == nil ||
+					!strings.Contains(err.Error(), "conflicting row variants") ||
+					!strings.Contains(err.Error(), tableName) {
+					t.Fatalf("expected %s conflict rejection, got %v", tableName, err)
+				}
+
+				assertMigrationTableRowCount(
+					t,
+					ctx,
+					map[string]string{
+						"source":      sourcePath,
+						"destination": destinationPath,
+					}[conflictLocation],
+					tableName,
+					2,
+				)
+				assertNoMigrationManifest(t, destinationPath)
+			})
+		}
+	}
+}
+
 func TestMigrateStoreRejectsRepositoryIdentityMismatch(t *testing.T) {
 	ctx := context.Background()
 	repositoryRoot := t.TempDir()
@@ -224,6 +350,170 @@ func insertMigrationCodeFile(
 	}
 
 	closeMigrationTestStore(t, store)
+}
+
+func initializeMigrationStore(t *testing.T, ctx context.Context, databasePath string) {
+	t.Helper()
+	closeMigrationTestStore(t, openMigrationTestStore(t, ctx, databasePath))
+}
+
+func insertMigrationLogicalKeyRows(
+	t *testing.T,
+	ctx context.Context,
+	databasePath string,
+	copies int,
+) {
+	t.Helper()
+	store := openMigrationTestStore(t, ctx, databasePath)
+
+	insertMigrationLogicalKeySupport(t, ctx, store.Database())
+	for range copies {
+		_, err := store.Database().ExecContext(
+			ctx,
+			`INSERT INTO lsh_bands(
+				band_hash, band_index, chunk_id, path, symbol_name
+			) VALUES ('band-shared', 1, 'chunk-shared', 'pkg/shared.go', 'Shared')`,
+		)
+		if err != nil {
+			t.Fatalf("insert equal LSH migration row: %v", err)
+		}
+
+		_, err = store.Database().ExecContext(
+			ctx,
+			`INSERT INTO code_intel_fts(
+				fts_id, kind, record_id, trace_id, policy_id, skill_id,
+				path, message, search_text
+			) VALUES (
+				'fts-shared', 'finding', 'record-shared', 'trace-shared',
+				'policy-shared', 'skill-shared', 'pkg/shared.go',
+				'shared message', 'shared search text'
+			)`,
+		)
+		if err != nil {
+			t.Fatalf("insert equal FTS migration row: %v", err)
+		}
+
+		_, err = store.Database().ExecContext(
+			ctx,
+			`INSERT INTO code_intel_search_terms(term, fts_id)
+			VALUES ('shared', 'fts-shared')`,
+		)
+		if err != nil {
+			t.Fatalf("insert equal search-term migration row: %v", err)
+		}
+	}
+
+	closeMigrationTestStore(t, store)
+}
+
+func insertMigrationLogicalKeyConflict(
+	t *testing.T,
+	ctx context.Context,
+	databasePath string,
+	tableName string,
+) {
+	t.Helper()
+	store := openMigrationTestStore(t, ctx, databasePath)
+	insertMigrationLogicalKeySupport(t, ctx, store.Database())
+
+	var err error
+	switch tableName {
+	case "lsh_bands":
+		_, err = store.Database().ExecContext(
+			ctx,
+			`INSERT INTO lsh_bands(
+				band_hash, band_index, chunk_id, path, symbol_name
+			) VALUES
+				('band-a', 1, 'chunk-shared', 'pkg/shared.go', 'Shared'),
+				('band-b', 1, 'chunk-shared', 'pkg/shared.go', 'Shared')`,
+		)
+	case "code_intel_fts":
+		_, err = store.Database().ExecContext(
+			ctx,
+			`INSERT INTO code_intel_fts(
+				fts_id, kind, record_id, trace_id, path, message, search_text
+			) VALUES
+				('fts-shared', 'finding', 'record-shared', 'trace-shared',
+				 'pkg/shared.go', NULL, 'shared search text'),
+				('fts-shared', 'finding', 'record-shared', 'trace-shared',
+				 'pkg/shared.go', 'different message', 'shared search text')`,
+		)
+	default:
+		t.Fatalf("unsupported conflicting logical-key table %s", tableName)
+	}
+	if err != nil {
+		t.Fatalf("insert %s conflict fixture: %v", tableName, err)
+	}
+
+	closeMigrationTestStore(t, store)
+}
+
+func insertMigrationLogicalKeySupport(
+	t *testing.T,
+	ctx context.Context,
+	database *sql.DB,
+) {
+	t.Helper()
+
+	_, err := database.ExecContext(
+		ctx,
+		`INSERT OR IGNORE INTO code_files(
+			path, language, content_hash, size_bytes, line_count, indexed_at_utc
+		) VALUES ('pkg/shared.go', 'go', 'shared-hash', 10, 1, '2026-08-23T00:00:00Z')`,
+	)
+	if err != nil {
+		t.Fatalf("insert logical-key code file fixture: %v", err)
+	}
+
+	_, err = database.ExecContext(
+		ctx,
+		`INSERT OR IGNORE INTO code_chunks(
+			chunk_id, path, language, node_kind, symbol_name,
+			start_byte, end_byte, start_line, end_line,
+			content_hash, search_text, raw_text
+		) VALUES (
+			'chunk-shared', 'pkg/shared.go', 'go', 'function', 'Shared',
+			0, 10, 1, 1, 'chunk-hash', 'shared search text', 'func Shared() {}'
+		)`,
+	)
+	if err != nil {
+		t.Fatalf("insert logical-key code chunk fixture: %v", err)
+	}
+}
+
+func assertMigrationTableRowCount(
+	t *testing.T,
+	ctx context.Context,
+	databasePath string,
+	tableName string,
+	want int64,
+) {
+	t.Helper()
+	store, err := OpenReadOnly(ctx, databasePath)
+	if err != nil {
+		t.Fatalf("open migration store for row count: %v", err)
+	}
+	defer store.Close()
+
+	query := "SELECT COUNT(*) FROM " + quoteMigrationIdentifier(tableName)
+	var got int64
+	if err = store.Database().QueryRowContext(ctx, query).Scan(&got); err != nil {
+		t.Fatalf("count migration rows in %s: %v", tableName, err)
+	}
+	if got != want {
+		t.Fatalf("row count in %s = %d, want %d", tableName, got, want)
+	}
+}
+
+func assertNoMigrationManifest(t *testing.T, destinationPath string) {
+	t.Helper()
+	manifests, err := filepath.Glob(destinationPath + ".migration-*.json")
+	if err != nil {
+		t.Fatalf("glob migration manifests: %v", err)
+	}
+	if len(manifests) != 0 {
+		t.Fatalf("failed migration wrote manifests: %#v", manifests)
+	}
 }
 
 func recordTestMigrationIdentity(
