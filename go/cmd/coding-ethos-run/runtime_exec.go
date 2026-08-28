@@ -188,29 +188,12 @@ func agentShellSandboxPlan(
 		return sandbox.Plan{}, nil, cleanup, err
 	}
 
-	agentWritePaths, err := agentShellWorktreeWritePaths(paths.Root)
+	agentWritePaths, err := agentShellWritePaths(paths.Root)
 	if err != nil {
 		cleanup()
 
 		return sandbox.Plan{}, nil, func() {}, err
 	}
-
-	agentWriteDirs, err := agentShellEnsureWriteDirs(paths.Root)
-	if err != nil {
-		cleanup()
-
-		return sandbox.Plan{}, nil, func() {}, err
-	}
-
-	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
-
-	// The tool-config drift manifest lives directly under the read-only
-	// .coding-ethos pin and is rewritten by config generation; without this
-	// override, sync-tool-configs fails with EROFS inside the agent shell.
-	agentWritePaths = append(
-		agentWritePaths,
-		filepath.Join(paths.Root, toolconfigs.HashManifestPath),
-	)
 
 	readOnlyPaths, err := agentShellReadOnlyPaths(paths.Root)
 	if err != nil {
@@ -261,6 +244,30 @@ func agentShellSandboxPlan(
 	)
 
 	return plan, processEnv, cleanup, nil
+}
+
+// agentShellWritePaths assembles the full agent-shell writable set: the
+// worktree paths, the managed write directories, and the tool-config drift
+// manifest. The manifest lives directly under the read-only .coding-ethos pin
+// and is rewritten by config generation; without its override,
+// sync-tool-configs fails with EROFS inside the agent shell.
+func agentShellWritePaths(root string) ([]string, error) {
+	agentWritePaths, err := agentShellWorktreeWritePaths(root)
+	if err != nil {
+		return nil, err
+	}
+
+	agentWriteDirs, err := agentShellEnsureWriteDirs(root)
+	if err != nil {
+		return nil, err
+	}
+
+	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
+
+	return append(
+		agentWritePaths,
+		filepath.Join(root, toolconfigs.HashManifestPath),
+	), nil
 }
 
 // agentShellEnsureWriteDirs creates the agent-shell managed write directories
