@@ -264,10 +264,10 @@ func agentShellWritePaths(root string) ([]string, error) {
 
 	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
 
-	return append(
-		agentWritePaths,
-		filepath.Join(root, toolconfigs.HashManifestPath),
-	), nil
+	// Repo-relative on purpose: the sandbox helper only creates missing
+	// write-path files for relative declarations, and repos that have never
+	// generated configs do not have the manifest yet.
+	return append(agentWritePaths, toolconfigs.HashManifestPath), nil
 }
 
 // agentShellEnsureWriteDirs creates the agent-shell managed write directories
