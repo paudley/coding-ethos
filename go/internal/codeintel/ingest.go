@@ -14,6 +14,12 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/evidence"
 )
 
+const (
+	automaticRemediationOutcomeIDPrefix  = "automatic-remediation-outcome"
+	automaticRemediationOutcomeFixed     = "fixed"
+	automaticRemediationOutcomeAbandoned = "abandoned"
+)
+
 type IngestSummary struct {
 	FilesScanned  int `json:"files_scanned"`
 	FilesIngested int `json:"files_ingested"`
@@ -86,12 +92,66 @@ func insertTraceRows(
 		insertFindings,
 		insertRemediations,
 		insertRemediationEvents,
+		insertAutomaticRemediationOutcomes,
 		insertHookAnalytics,
 		insertTraceDeleteIntents,
 	} {
 		err := insert(ctx, transaction, trace)
 		if err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+func insertAutomaticRemediationOutcomes(
+	ctx context.Context,
+	transaction *sql.Tx,
+	trace Trace,
+) error {
+	for _, event := range trace.RemediationEvents {
+		outcome := strings.ToLower(strings.TrimSpace(event.Event))
+		if outcome != automaticRemediationOutcomeFixed &&
+			outcome != automaticRemediationOutcomeAbandoned {
+			continue
+		}
+
+		if strings.TrimSpace(event.SourceTraceID) == "" {
+			continue
+		}
+
+		remediationOutcome := normalizeRemediationOutcome(RemediationOutcome{
+			ID: stableID(
+				automaticRemediationOutcomeIDPrefix,
+				event.ID,
+				event.RemediationID,
+				event.FindingID,
+				event.SourceTraceID,
+				trace.ID,
+				outcome,
+			),
+			RemediationID:   event.RemediationID,
+			FindingID:       event.FindingID,
+			SourceTraceID:   event.SourceTraceID,
+			FollowupTraceID: trace.ID,
+			PolicyID:        event.PolicyID,
+			SkillID:         event.SkillID,
+			File:            event.File,
+			Path:            event.Path,
+			Provider:        firstNonEmpty(event.Provider, trace.Provider),
+			Tool:            firstNonEmpty(event.Tool, trace.Tool),
+			Outcome:         outcome,
+			RecordedAtUTC:   trace.RecordedAtUTC,
+		})
+
+		err := insertRemediationOutcome(ctx, transaction, remediationOutcome)
+		if err != nil {
+			return fmt.Errorf(
+				"insert automatic remediation outcome %q: %w",
+				remediationOutcome.ID,
+				err,
+			)
 		}
 	}
 
