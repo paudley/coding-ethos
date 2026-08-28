@@ -54,6 +54,11 @@ func isCodingEthosRepo(cwd string) bool {
 }
 
 // IsCodingEthosRepo reports whether cwd is inside this repository.
+//
+// Detection trusts the repository's marker files, not the checkout's
+// directory name: clones are routinely named coding_ethos or similar, and
+// the markers are the actual evidence either way — a fabricated directory
+// could carry a canonical name just as easily as a full marker set.
 func IsCodingEthosRepo(cwd string) bool {
 	if cwd == "" {
 		return false
@@ -69,8 +74,8 @@ func IsCodingEthosRepo(cwd string) bool {
 			return false
 		}
 
-		if filepath.Base(current) == "coding-ethos" {
-			return codingEthosRepoMarker(current)
+		if codingEthosRepoMarker(current) {
+			return true
 		}
 
 		parent := filepath.Dir(current)
@@ -83,10 +88,6 @@ func IsCodingEthosRepo(cwd string) bool {
 }
 
 func codingEthosRepoMarker(path string) bool {
-	if filepath.Base(path) != "coding-ethos" {
-		return false
-	}
-
 	for _, marker := range []string{
 		"coding_ethos.yml",
 		"config.yaml",

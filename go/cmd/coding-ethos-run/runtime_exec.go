@@ -35,6 +35,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
 	"blackcat.ca/coding-ethos/go/internal/toolchaincli"
+	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 	"blackcat.ca/coding-ethos/go/internal/webguidancecli"
 )
 
@@ -202,6 +203,14 @@ func agentShellSandboxPlan(
 	}
 
 	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
+
+	// The tool-config drift manifest lives directly under the read-only
+	// .coding-ethos pin and is rewritten by config generation; without this
+	// override, sync-tool-configs fails with EROFS inside the agent shell.
+	agentWritePaths = append(
+		agentWritePaths,
+		filepath.Join(paths.Root, toolconfigs.HashManifestPath),
+	)
 
 	readOnlyPaths, err := agentShellReadOnlyPaths(paths.Root)
 	if err != nil {

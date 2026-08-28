@@ -91,6 +91,16 @@ jobs:
             mount,
             remount,
           }
+
+          # Parent-runtime e2e tests copy these binaries into temp repos and
+          # execute them from .git/coding-ethos-hooks/bin; without a matching
+          # attachment the copies run confined and sandbox mounts get EPERM.
+          "/tmp/**/coding-ethos-hooks/bin/*" flags=(unconfined) {
+            userns,
+            capability sys_admin,
+            mount,
+            remount,
+          }
           EOF
           sudo apparmor_parser -r "$profile"
 

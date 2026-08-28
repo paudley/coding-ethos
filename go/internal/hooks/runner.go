@@ -506,7 +506,7 @@ func hasHookOutputKeywords(output string) bool {
 	lower := strings.ToLower(output)
 	for _, keyword := range []string{
 		"passed",
-		"failed",
+		statusFailedValue,
 		"skipped",
 		"pre-commit",
 		"pre-push",

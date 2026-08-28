@@ -67,6 +67,50 @@ func TestIsCodingEthosRepoRequiresCompleteMarkerSet(t *testing.T) {
 	}
 }
 
+func TestIsCodingEthosRepoAcceptsAnyCheckoutNameWithMarkers(t *testing.T) {
+	t.Parallel()
+
+	// Clones are routinely named coding_ethos rather than coding-ethos;
+	// detection must rest on the marker set, not the directory name.
+	root := filepath.Join(t.TempDir(), "coding_ethos")
+
+	err := os.MkdirAll(filepath.Join(root, "go"), 0o700)
+	if err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+
+	for _, marker := range []string{
+		"coding_ethos.yml",
+		"config.yaml",
+		"go/go.mod",
+	} {
+		writeErr := os.WriteFile(filepath.Join(root, marker), []byte("x\n"), 0o600)
+		if writeErr != nil {
+			t.Fatalf("write marker %s: %v", marker, writeErr)
+		}
+	}
+
+	bin := filepath.Join(root, "bin")
+
+	err = os.MkdirAll(bin, 0o700)
+	if err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(bin, "coding-ethos-run"),
+		[]byte("#!/bin/sh\n"),
+		0o700,
+	)
+	if err != nil {
+		t.Fatalf("write runner marker: %v", err)
+	}
+
+	if !IsCodingEthosRepo(filepath.Join(root, "go", "internal")) {
+		t.Fatal("marker-complete checkout should be detected regardless of name")
+	}
+}
+
 func TestReadApprovedPIDsParsesBlankLinesAndRejectsBadRecords(t *testing.T) {
 	t.Parallel()
 

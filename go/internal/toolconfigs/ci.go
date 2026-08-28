@@ -47,6 +47,16 @@ const githubSandboxAppArmorStep = "" +
 	"            mount,\n" +
 	"            remount,\n" +
 	"          }\n" +
+	"\n" +
+	"          # Parent-runtime e2e tests copy these binaries into temp repos and\n" +
+	"          # execute them from .git/coding-ethos-hooks/bin; without a matching\n" +
+	"          # attachment the copies run confined and sandbox mounts get EPERM.\n" +
+	"          \"/tmp/**/coding-ethos-hooks/bin/*\" flags=(unconfined) {\n" +
+	"            userns,\n" +
+	"            capability sys_admin,\n" +
+	"            mount,\n" +
+	"            remount,\n" +
+	"          }\n" +
 	"          EOF\n" +
 	"          sudo apparmor_parser -r \"$profile\"\n" +
 	"\n"
