@@ -92,6 +92,9 @@ func TestBuildPlanRequiredUsesNativeWrapper(t *testing.T) {
 	if slices.Contains(plan.Args, ".git/config") {
 		t.Fatalf(".git write path must not be passed to sandbox helper: %#v", plan.Args)
 	}
+	if slices.Contains(plan.Args, "--requires-network") {
+		t.Fatalf("network-isolated tool must not request ssh rebuild: %#v", plan.Args)
+	}
 	assertNativeEvidence(t, plan.Evidence)
 }
 
@@ -508,6 +511,9 @@ func TestBuildPlanPreservesNetworkWhenDeclared(t *testing.T) {
 	}
 	if slices.Contains(plan.Args, "--network") {
 		t.Fatalf("network capability is enforced by outer namespace attrs: %#v", plan.Args)
+	}
+	if !slices.Contains(plan.Args, "--requires-network") {
+		t.Fatalf("helper not told network stays reachable: %#v", plan.Args)
 	}
 	if !plan.Evidence.RequiresNetwork || plan.Evidence.NetworkIsolated {
 		t.Fatalf("network capability not recorded: %#v", plan.Evidence)

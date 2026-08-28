@@ -28,6 +28,7 @@ func TestParseOptionsNormalizesPathsAndPreservesCommand(t *testing.T) {
 		"--real-git-bind", "/tmp/real-git",
 		"--git-target", "/usr/bin/git",
 		"--write-path", ".coding-ethos/cache",
+		"--requires-network",
 		"--",
 		"/bin/true",
 		"--flag",
@@ -50,6 +51,9 @@ func TestParseOptionsNormalizesPathsAndPreservesCommand(t *testing.T) {
 	}
 	if !slices.Equal(parsed.commandArgv, []string{"/bin/true", "--flag"}) {
 		t.Fatalf("command argv = %#v", parsed.commandArgv)
+	}
+	if !parsed.requiresNetwork {
+		t.Fatalf("requires-network flag not parsed: %#v", parsed)
 	}
 }
 
