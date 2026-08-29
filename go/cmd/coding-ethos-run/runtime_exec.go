@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/githookcli"
+	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookcli"
 	"blackcat.ca/coding-ethos/go/internal/hooklogcli"
 	"blackcat.ca/coding-ethos/go/internal/lintcli"
@@ -34,7 +36,9 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"blackcat.ca/coding-ethos/go/internal/toolchaincli"
+	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 	"blackcat.ca/coding-ethos/go/internal/webguidancecli"
 )
 
@@ -46,6 +50,7 @@ const (
 	agentShellInjectedEnv       = 3
 	agentShellProtectedEntryCap = 2
 	agentShellGitPathCap        = 2
+	agentShellGitExecutableName = "git"
 )
 
 var (
@@ -108,7 +113,12 @@ func (defaultRuntimeExecutor) execAgentShell(paths runtimePaths, command string)
 	processEvidence := sandbox.Evidence{}
 
 	if runtime.GOOS == linuxGOOS {
-		plan, agentEnv, clean, err := agentShellSandboxPlan(paths, shellPath, args)
+		plan, agentEnv, clean, err := agentShellSandboxPlan(
+			paths,
+			shellPath,
+			args,
+			command,
+		)
 		if err != nil {
 			exitErr(err)
 		}
@@ -176,6 +186,7 @@ func agentShellSandboxPlan(
 	paths runtimePaths,
 	executable string,
 	args []string,
+	command string,
 ) (sandbox.Plan, []string, func(), error) {
 	realGitPath, err := agentShellRealGitPath(paths)
 	if err != nil {
@@ -187,23 +198,14 @@ func agentShellSandboxPlan(
 		return sandbox.Plan{}, nil, cleanup, err
 	}
 
-	agentWritePaths, err := agentShellWorktreeWritePaths(paths.Root)
+	agentWritePaths, err := agentShellWritePaths(paths.Root)
 	if err != nil {
 		cleanup()
 
 		return sandbox.Plan{}, nil, func() {}, err
 	}
 
-	agentWriteDirs, err := agentShellEnsureWriteDirs(paths.Root)
-	if err != nil {
-		cleanup()
-
-		return sandbox.Plan{}, nil, func() {}, err
-	}
-
-	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
-
-	readOnlyPaths, err := agentShellReadOnlyPaths(paths.Root)
+	readOnlyPaths, err := agentShellReadOnlyPaths(paths.Root, paths.RunBinary, command)
 	if err != nil {
 		cleanup()
 
@@ -252,6 +254,30 @@ func agentShellSandboxPlan(
 	)
 
 	return plan, processEnv, cleanup, nil
+}
+
+// agentShellWritePaths assembles the full agent-shell writable set: the
+// worktree paths, the managed write directories, and the tool-config drift
+// manifest. The manifest lives directly under the read-only .coding-ethos pin
+// and is rewritten by config generation; without its override,
+// sync-tool-configs fails with EROFS inside the agent shell.
+func agentShellWritePaths(root string) ([]string, error) {
+	agentWritePaths, err := agentShellWorktreeWritePaths(root)
+	if err != nil {
+		return nil, err
+	}
+
+	agentWriteDirs, err := agentShellEnsureWriteDirs(root)
+	if err != nil {
+		return nil, err
+	}
+
+	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
+
+	// Repo-relative on purpose: the sandbox helper only creates missing
+	// write-path files for relative declarations, and repos that have never
+	// generated configs do not have the manifest yet.
+	return append(agentWritePaths, toolconfigs.HashManifestPath), nil
 }
 
 // agentShellEnsureWriteDirs creates the agent-shell managed write directories
@@ -589,7 +615,7 @@ func protectedAgentShellWorktreeEntry(name string) bool {
 // wrapper-gated Git write capability and cannot be pinned without disabling
 // Git itself. The sandbox refuses ambiguous entry types rather than silently
 // weakening either case.
-func agentShellReadOnlyPaths(root string) ([]string, error) {
+func agentShellReadOnlyPaths(root, runBinary, command string) ([]string, error) {
 	gitPath := filepath.Join(root, ".git")
 
 	gitInfo, err := os.Lstat(gitPath)
@@ -617,9 +643,75 @@ func agentShellReadOnlyPaths(root string) ([]string, error) {
 		return nil, fmt.Errorf("%w: %s", errAgentShellGitEntryType, gitPath)
 	}
 
-	paths = append(paths, filepath.Join(root, ".coding-ethos"))
+	if !agentShellGitMayReplacePolicyTree(runBinary, command) {
+		paths = append(paths, filepath.Join(root, ".coding-ethos"))
+	}
 
 	return paths, nil
+}
+
+// agentShellGitMayReplacePolicyTree recognizes the exact, static Git commands
+// that legitimately replace tracked worktree files. Git performs replacement
+// with unlink-and-rename, so a writable manifest file beneath a read-only
+// .coding-ethos directory is insufficient during merge, checkout, or the
+// pre-commit stash cycle. The exception stays fail-closed for compound shell
+// commands, dynamic expansion, redirects, assignments, and Git global options.
+func agentShellGitMayReplacePolicyTree(runBinary, command string) bool {
+	commands, err := shellparse.Commands(command)
+	if err != nil || len(commands) != 1 {
+		return false
+	}
+
+	operation, ok := agentShellStaticGitOperation(commands[0], runBinary)
+	if !ok {
+		return false
+	}
+
+	return slices.Contains([]string{
+		"checkout",
+		"cherry-pick",
+		"commit",
+		"merge",
+		"pull",
+		"rebase",
+		"reset",
+		"restore",
+		"revert",
+		"stash",
+		"switch",
+	}, operation)
+}
+
+func agentShellStaticGitOperation(
+	parsed shellparse.Command,
+	runBinary string,
+) (string, bool) {
+	if agentShellCommandHasDynamicBehavior(parsed) {
+		return "", false
+	}
+
+	if filepath.Base(parsed.Name) == agentShellGitExecutableName &&
+		len(parsed.Argv) >= 2 &&
+		filepath.Base(parsed.Argv[0]) == agentShellGitExecutableName &&
+		!strings.HasPrefix(parsed.Argv[1], "-") {
+		return gitwrap.ParseArgv(parsed.Argv).Operation, true
+	}
+
+	if len(parsed.Argv) >= 3 && parsed.Argv[1] == "policy-git" &&
+		filepath.Clean(parsed.Argv[0]) == filepath.Clean(runBinary) &&
+		!strings.HasPrefix(parsed.Argv[2], "-") {
+		return gitwrap.ParseArgv(parsed.Argv[2:]).Operation, true
+	}
+
+	return "", false
+}
+
+func agentShellCommandHasDynamicBehavior(parsed shellparse.Command) bool {
+	return len(parsed.Assignments) > 0 || len(parsed.Redirects) > 0 ||
+		parsed.Background || parsed.HasCommandSubstitution ||
+		parsed.HasDynamicExpansion || parsed.HasHeredoc ||
+		parsed.HasProcessSubstitution || parsed.HasSubshell ||
+		parsed.IsFunctionDeclaration
 }
 
 func agentShellProcessEnv(

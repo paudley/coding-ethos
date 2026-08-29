@@ -322,6 +322,10 @@ func (event Event) HasReturnCode() bool {
 	return responseStatusFailed(event.ToolResponse)
 }
 
+// statusFailedValue is the shared "failed" status token used by tool
+// responses, hook output keyword scans, and proxy result summaries.
+const statusFailedValue = "failed"
+
 func responseStatusFailed(response map[string]any) bool {
 	for _, key := range []string{"status", "state", "outcome"} {
 		value, ok := response[key].(string)
@@ -330,7 +334,7 @@ func responseStatusFailed(response map[string]any) bool {
 		}
 
 		switch strings.ToLower(strings.TrimSpace(value)) {
-		case "blocked", "error", "failed", "failure":
+		case "blocked", "error", statusFailedValue, "failure":
 			return true
 		}
 	}

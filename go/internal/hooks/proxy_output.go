@@ -991,7 +991,7 @@ func proxyToolResultStatus(event Event) string {
 	}
 
 	if event.ReturnCode() != 0 {
-		return "failed"
+		return statusFailedValue
 	}
 
 	return "succeeded"

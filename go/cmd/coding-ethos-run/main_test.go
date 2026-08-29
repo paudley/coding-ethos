@@ -1782,6 +1782,7 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 		paths,
 		"/usr/bin/env",
 		[]string{"bash", "-lc", "git status"},
+		"git status",
 	)
 	defer cleanup()
 	if err != nil {
@@ -2013,7 +2014,11 @@ func TestAgentShellWorktreeRootIsWritableAndProtectedEntriesArePinned(t *testing
 			"created, deleted or renamed: %#v", got)
 	}
 
-	pinned, err := agentShellReadOnlyPaths(root)
+	pinned, err := agentShellReadOnlyPaths(
+		root,
+		"/trusted/bin/coding-ethos-run",
+		"git status",
+	)
 	if err != nil {
 		t.Fatalf("agentShellReadOnlyPaths() error = %v", err)
 	}
@@ -2037,7 +2042,11 @@ func TestAgentShellPrimaryGitDirectoryRemainsAnExplicitWriteCapability(t *testin
 		t.Fatalf("create primary git directory: %v", err)
 	}
 
-	pinned, err := agentShellReadOnlyPaths(root)
+	pinned, err := agentShellReadOnlyPaths(
+		root,
+		"/trusted/bin/coding-ethos-run",
+		"git status",
+	)
 	if err != nil {
 		t.Fatalf("agentShellReadOnlyPaths() error = %v", err)
 	}
@@ -2052,6 +2061,78 @@ func TestAgentShellPrimaryGitDirectoryRemainsAnExplicitWriteCapability(t *testin
 	}
 }
 
+func TestAgentShellPolicyTreeWriteExceptionIsStaticAndGitScoped(t *testing.T) {
+	t.Parallel()
+
+	runBinary := "/trusted/bin/coding-ethos-run"
+	allowed := []string{
+		"git merge --no-edit main",
+		"/usr/bin/git commit -S -m test",
+		"git stash push --keep-index",
+		runBinary + " policy-git merge --no-edit main",
+	}
+	for _, command := range allowed {
+		if !agentShellGitMayReplacePolicyTree(runBinary, command) {
+			t.Fatalf("static Git worktree command was not admitted: %q", command)
+		}
+	}
+
+	denied := []string{
+		"git status",
+		"git -c core.hooksPath=/tmp merge main",
+		"git merge main; touch .coding-ethos/policy",
+		`git merge "$TARGET"`,
+		"MODE=test git merge main",
+		"git merge main > .coding-ethos/result",
+		"/tmp/coding-ethos-run policy-git merge main",
+	}
+	for _, command := range denied {
+		if agentShellGitMayReplacePolicyTree(runBinary, command) {
+			t.Fatalf(
+				"non-static or non-worktree command received policy-tree access: %q",
+				command,
+			)
+		}
+	}
+}
+
+func TestAgentShellMergeMayReplaceTrackedPolicyFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gitPointer := filepath.Join(root, ".git")
+	if err := os.WriteFile(
+		gitPointer,
+		[]byte("gitdir: /tmp/git\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("create linked-worktree git pointer: %v", err)
+	}
+	policyTree := filepath.Join(root, ".coding-ethos")
+	if err := os.Mkdir(policyTree, 0o700); err != nil {
+		t.Fatalf("create policy directory: %v", err)
+	}
+
+	runBinary := "/trusted/bin/coding-ethos-run"
+	pinned, err := agentShellReadOnlyPaths(
+		root,
+		runBinary,
+		runBinary+" policy-git merge --no-edit main",
+	)
+	if err != nil {
+		t.Fatalf("agentShellReadOnlyPaths() error = %v", err)
+	}
+	if slices.Contains(pinned, policyTree) {
+		t.Fatalf(
+			"merge cannot unlink tracked policy files while parent is pinned: %#v",
+			pinned,
+		)
+	}
+	if !slices.Contains(pinned, gitPointer) {
+		t.Fatalf("linked-worktree git pointer lost read-only protection: %#v", pinned)
+	}
+}
+
 func TestAgentShellSandboxPlanFailsClosedWithoutNativeHelper(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("agent-shell native sandbox is Linux-only")
@@ -2063,6 +2144,7 @@ func TestAgentShellSandboxPlanFailsClosedWithoutNativeHelper(t *testing.T) {
 		paths,
 		"/usr/bin/env",
 		[]string{"bash", "-lc", "git status"},
+		"git status",
 	)
 	defer cleanup()
 	if err == nil {
