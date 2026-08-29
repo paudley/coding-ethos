@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: AGPL-3.0-only
+
+PREFIX ex: <https://example.org/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+SELECT ?s ?o WHERE {
+  GRAPH ex:g {
+    ?s ex:p/ex:q+ ?o .
+    ?reifier rdf:reifies <<( ?s ex:p ?o )>> .
+  }
+  SERVICE SILENT <https://example.org/sparql> {
+    ?s ex:remote ?o .
+  }
+}

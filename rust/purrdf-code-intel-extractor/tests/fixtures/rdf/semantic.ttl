@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: AGPL-3.0-only
+
+@prefix ex: <https://example.org/> .
+
+ex:s ex:p ex:o .
+ex:s ex:friend [ ex:name "anonymous" ] .
+ex:r <http://www.w3.org/1999/02/22-rdf-syntax-ns#reifies> <<( ex:s ex:p ex:o )>> .
+ex:r ex:confidence "0.9" .

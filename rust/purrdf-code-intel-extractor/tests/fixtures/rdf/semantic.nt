@@ -1,0 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: AGPL-3.0-only
+<https://example.org/s> <https://example.org/p> _:blank .
+_:blank <https://example.org/label> "blank" .
