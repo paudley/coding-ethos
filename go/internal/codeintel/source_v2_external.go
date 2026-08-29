@@ -473,8 +473,8 @@ func validateExternalFactStart(
 	}
 
 	if provenance.SpanFidelity == externalExtractorSpanFidelitySubjectStart &&
-		provenance.Start != nil &&
-		(provenance.Start.ByteOffset < 0 || provenance.Start.Line < 1 ||
+		(provenance.Start == nil || provenance.Start.ByteOffset < 0 ||
+			provenance.Start.Line < 1 ||
 			provenance.Start.Column < 1) {
 		return fmt.Errorf(
 			"%w: invalid external fact start position for %q",

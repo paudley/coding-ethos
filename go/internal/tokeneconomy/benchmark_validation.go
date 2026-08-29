@@ -137,7 +137,6 @@ func benchmarkChangedPaths(
 		workspace.Path,
 		"ls-files",
 		"--others",
-		"--exclude-standard",
 		"-z",
 	)
 	if err != nil {

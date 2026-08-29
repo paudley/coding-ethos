@@ -352,6 +352,8 @@ func validateUsage(usage TokenUsage) error {
 func usageDecreased(previous, current TokenUsage) bool {
 	return current.InputTokens < previous.InputTokens ||
 		current.CachedInputTokens < previous.CachedInputTokens ||
+		current.CacheCreationInputTokens < previous.CacheCreationInputTokens ||
+		current.CacheReadInputTokens < previous.CacheReadInputTokens ||
 		current.OutputTokens < previous.OutputTokens ||
 		current.ReasoningOutputTokens < previous.ReasoningOutputTokens ||
 		current.TotalTokens < previous.TotalTokens

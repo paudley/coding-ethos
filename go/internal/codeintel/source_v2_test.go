@@ -575,9 +575,15 @@ func TestRepositoryIDUsesDocumentedLocalFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read root commit: %v", err)
 	}
+	canonicalCommonDir := layout.commonGitDir
+	resolvedCommonDir, resolveErr := filepath.EvalSymlinks(layout.commonGitDir)
+	if resolveErr == nil {
+		canonicalCommonDir = resolvedCommonDir
+	}
 	expected := RepositoryID(sourceV2Digest(
 		"repository",
-		"local-common-dir:"+filepath.ToSlash(layout.commonGitDir)+"\x00"+rootCommit,
+		"local-common-dir:"+filepath.ToSlash(filepath.Clean(canonicalCommonDir))+
+			"\x00"+rootCommit,
 	))
 	if layout.repositoryID != expected {
 		t.Fatalf("local repository ID = %q, want %q", layout.repositoryID, expected)
@@ -735,6 +741,8 @@ func TestExternalExtractorFactsEnforceSemanticProvenanceAndSpans(t *testing.T) {
 	wrongParser.Facts[0].Provenance.Parser = "wrong-parser"
 	wrongFidelity := validExternalExtractorResult(astfacts.LanguageTurtle)
 	wrongFidelity.Facts[0].Provenance.SpanFidelity = externalExtractorSpanFidelityNone
+	missingStart := validExternalExtractorResult(astfacts.LanguageTurtle)
+	missingStart.Facts[0].Provenance.Start = nil
 	invalidStart := validExternalExtractorResult(astfacts.LanguageTurtle)
 	invalidStart.Facts[0].Provenance.Start = &ExternalExtractorPosition{
 		ByteOffset: -1,
@@ -752,6 +760,7 @@ func TestExternalExtractorFactsEnforceSemanticProvenanceAndSpans(t *testing.T) {
 		"duplicate":        duplicate,
 		"wrong parser":     wrongParser,
 		"wrong fidelity":   wrongFidelity,
+		"missing start":    missingStart,
 		"invalid start":    invalidStart,
 		"span-free start":  spanFreeStart,
 		"unknown language": {Language: "python"},

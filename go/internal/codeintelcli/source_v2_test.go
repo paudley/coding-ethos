@@ -27,7 +27,16 @@ func TestSyncAndStatusCommandsEmitTypedV2Receipts(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 	runSourceV2CLIGit(t, root, "add", "app.go")
-	runSourceV2CLIGit(t, root, "commit", "-m", "base")
+	runSourceV2CLIGit(
+		t,
+		root,
+		"-c",
+		"commit.gpgSign=false",
+		"commit",
+		"--no-gpg-sign",
+		"-m",
+		"base",
+	)
 
 	var runErr error
 	syncOutput := captureStdout(t, func() {

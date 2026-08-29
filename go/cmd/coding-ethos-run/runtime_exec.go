@@ -37,6 +37,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
+	"blackcat.ca/coding-ethos/go/internal/sharedlock"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"blackcat.ca/coding-ethos/go/internal/toolchaincli"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
@@ -350,19 +351,11 @@ func validateSharedLockDirectory(path string) error {
 		return fmt.Errorf("inspect shared lock directory %s: %w", path, err)
 	}
 
-	if !validSharedLockDirectoryMetadata(path, info) {
+	if !sharedlock.ValidDirectoryMetadata(path, info) {
 		return fmt.Errorf("%w: %s", errSharedLockDirectoryShape, path)
 	}
 
 	return nil
-}
-
-func validSharedLockDirectoryMetadata(path string, info os.FileInfo) bool {
-	mode := info.Mode()
-
-	return filepath.IsAbs(path) && filepath.Dir(path) == "/var/tmp" &&
-		info.IsDir() && mode&os.ModeSymlink == 0 &&
-		mode.Perm() == 0o777 && mode&os.ModeSticky != 0
 }
 
 // agentShellEnsureWriteDirs creates the agent-shell managed write directories

@@ -478,6 +478,9 @@ func comparisonFor(
 }
 
 func comparisonConclusion(comparison Comparison) Conclusion {
+	if !comparison.PrecisionMet {
+		return ConclusionInconclusive
+	}
 	if comparison.SavingsPercentInterval.Lower > 0 {
 		if !comparison.QualityNonInferior {
 			return ConclusionQualityTradeoff
@@ -488,11 +491,8 @@ func comparisonConclusion(comparison Comparison) Conclusion {
 	if comparison.SavingsPercentInterval.Upper < 0 {
 		return ConclusionTokenRegression
 	}
-	if comparison.PrecisionMet {
-		return ConclusionNoDifference
-	}
 
-	return ConclusionInconclusive
+	return ConclusionNoDifference
 }
 
 func sha256Bytes(payload []byte) [32]byte {

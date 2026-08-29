@@ -54,6 +54,28 @@ func TestParseCodexLedgerRejectsDecreasingCumulativeUsage(t *testing.T) {
 	}
 }
 
+func TestUsageDecreasedCoversCumulativeCacheCounters(t *testing.T) {
+	t.Parallel()
+
+	previous := TokenUsage{
+		CacheCreationInputTokens: 20,
+		CacheReadInputTokens:     30,
+	}
+	for name, current := range map[string]TokenUsage{
+		"cache creation": {CacheCreationInputTokens: 19, CacheReadInputTokens: 30},
+		"cache read":     {CacheCreationInputTokens: 20, CacheReadInputTokens: 29},
+	} {
+		if !usageDecreased(previous, current) {
+			t.Errorf(
+				"%s decrease was accepted: previous=%#v current=%#v",
+				name,
+				previous,
+				current,
+			)
+		}
+	}
+}
+
 func TestParseClaudeLedgerDeduplicatesMessagesAndExcludesSyntheticUsage(t *testing.T) {
 	t.Parallel()
 

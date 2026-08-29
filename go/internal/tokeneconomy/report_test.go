@@ -481,6 +481,25 @@ func TestExperimentReportDoesNotTreatZeroAcceptedRunsAsPrecise(t *testing.T) {
 	}
 }
 
+func TestComparisonConclusionRequiresPrecisionForDirectionalClaims(t *testing.T) {
+	t.Parallel()
+
+	for name, interval := range map[string]Interval{
+		"savings":    {Lower: 0.1, Upper: 100},
+		"regression": {Lower: -100, Upper: -0.1},
+	} {
+		comparison := Comparison{
+			SavingsPercentInterval: interval,
+			QualityNonInferior:     true,
+		}
+		if conclusion := comparisonConclusion(
+			comparison,
+		); conclusion != ConclusionInconclusive {
+			t.Errorf("imprecise %s conclusion = %q, want inconclusive", name, conclusion)
+		}
+	}
+}
+
 func TestWriteReportArtifactsIsCreateNewAndVerifiable(t *testing.T) {
 	t.Parallel()
 
@@ -654,7 +673,7 @@ func TestReadRunMechanismsMeasuresFirstTransformsAndRepeatedAdvice(t *testing.T)
 			('outside', 'session-2', 'payload_injection', 'same', 999)`,
 		`INSERT INTO proxy_transforms VALUES
 			('e1', 0, 100), ('e1', 1, 200), ('e2', 0, 50),
-			('e3', 0, 70), ('outside', 0, 999)`,
+			('e3', 0, 70), ('outside', 0, 5)`,
 	} {
 		if _, err = database.Exec(statement); err != nil {
 			_ = database.Close()
@@ -679,6 +698,15 @@ func TestReadRunMechanismsMeasuresFirstTransformsAndRepeatedAdvice(t *testing.T)
 	}
 	if metrics != want {
 		t.Fatalf("mechanism metrics = %#v, want %#v", metrics, want)
+	}
+	clamped, err := readRunMechanisms(context.Background(), path, "session-2")
+	if err != nil || clamped.RawContextTokens != 5 ||
+		clamped.DeliveredContextTokens != 999 || clamped.AvoidedContextTokens != 0 {
+		t.Fatalf(
+			"negative avoided-token delta was not clamped: metrics=%#v error=%v",
+			clamped,
+			err,
+		)
 	}
 }
 

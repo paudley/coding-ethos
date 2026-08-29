@@ -66,7 +66,7 @@ func prepareBenchmarkWorkspace(
 
 	for _, arguments := range [][]string{
 		{"init", "--quiet", "--initial-branch=benchmark"},
-		{"add", "--all"},
+		{"add", "--all", "--force"},
 		{
 			"-c", "user.name=Coding Ethos Benchmark",
 			"-c", "user.email=benchmark@invalid",

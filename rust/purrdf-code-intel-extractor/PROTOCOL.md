@@ -105,9 +105,11 @@ null:
 
 Term tags are `iri`, `blank`, `literal`, `quoted_triple`, and `variable`.
 Literal terms carry `value`, nullable `datatype`, nullable `language`, and
-nullable `direction`. A quoted-triple term recursively carries `subject`, an IRI
-string `predicate`, and `object`. Blank values include the `_:` prefix; variable
-values omit the `?` or `$` sigil.
+nullable `direction`. A quoted-triple term recursively carries `subject`, a
+string `predicate`, and `object`. The predicate is an IRI when concrete; a
+SPARQL variable predicate retains its leading `?` sigil so it cannot be mistaken
+for an IRI. Blank values include the `_:` prefix. Values in tagged `variable`
+terms omit the `?` or `$` sigil.
 
 RDF fact kinds are `rdf_quad`, `rdf_reifier`, and `rdf_annotation`. SPARQL facts
 describe the parsed public algebra, including document/query form, triple and

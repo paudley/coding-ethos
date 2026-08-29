@@ -34,7 +34,7 @@ func TestCodeIntelTaskMetaPublishesAdditiveV2Receipt(t *testing.T) {
 		t.Fatalf("marshal task metadata: %v", err)
 	}
 	for _, expected := range []string{
-		`"coding-ethos.code-intel/v2"`,
+		`"coding-ethos.code-intel/v2":{`,
 		`"contract":"coding-ethos.code-intel/v2"`,
 		`"status":"exact"`,
 	} {

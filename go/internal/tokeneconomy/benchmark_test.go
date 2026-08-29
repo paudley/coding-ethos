@@ -340,6 +340,72 @@ func TestRunCodexBenchmarkReportsHomeCleanupFailure(t *testing.T) {
 	}
 }
 
+func TestBenchmarkWorkspaceTracksIgnoredFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	repository := filepath.Join(root, "source")
+	if err := os.Mkdir(repository, 0o700); err != nil {
+		t.Fatalf("create source repository: %v", err)
+	}
+	writeTestFile(t, filepath.Join(repository, ".gitignore"), "ignored-*.txt\n", 0o600)
+	writeTestFile(
+		t,
+		filepath.Join(repository, "ignored-baseline.txt"),
+		"baseline\n",
+		0o600,
+	)
+	runTestGit(t, repository, "init", "--quiet", "--initial-branch=main")
+	runTestGit(t, repository, "add", "--all", "--force")
+	runTestGit(
+		t,
+		repository,
+		"-c",
+		"user.name=Benchmark Test",
+		"-c",
+		"user.email=benchmark@invalid",
+		"-c",
+		"commit.gpgSign=false",
+		"commit",
+		"--quiet",
+		"--no-gpg-sign",
+		"-m",
+		"baseline",
+	)
+	commit := strings.TrimSpace(runTestGit(t, repository, "rev-parse", "HEAD"))
+	archiveSHA, err := benchmarkSourceArchiveSHA256(
+		context.Background(),
+		repository,
+		commit,
+	)
+	if err != nil {
+		t.Fatalf("hash source archive: %v", err)
+	}
+
+	workspace, err := prepareBenchmarkWorkspace(
+		context.Background(),
+		BenchmarkTask{
+			RepositoryPath:      repository,
+			Commit:              commit,
+			SourceArchiveSHA256: archiveSHA,
+		},
+		filepath.Join(root, "workspace"),
+	)
+	if err != nil {
+		t.Fatalf("prepare benchmark workspace: %v", err)
+	}
+	paths, err := benchmarkChangedPaths(context.Background(), workspace)
+	if err != nil || len(paths) != 0 {
+		t.Fatalf("frozen ignored baseline appeared changed: paths=%v error=%v", paths, err)
+	}
+
+	writeTestFile(t, filepath.Join(workspace.Path, "ignored-new.txt"), "new\n", 0o600)
+	paths, err = benchmarkChangedPaths(context.Background(), workspace)
+	if err != nil || !slices.Equal(paths, []string{"ignored-new.txt"}) {
+		t.Fatalf("ignored workspace write was not tracked: paths=%v error=%v", paths, err)
+	}
+}
+
 func TestRunBenchmarkUsesIsolatedArmsAndResumesWithoutReplacement(t *testing.T) {
 	fixture := newBenchmarkFixture(t)
 	prepared, err := LoadBenchmarkManifest(context.Background(), fixture.manifestPath)

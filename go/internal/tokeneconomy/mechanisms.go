@@ -88,7 +88,10 @@ func queryRunMechanisms(
 		return MechanismMetrics{}, fmt.Errorf("query run mechanism evidence: %w", err)
 	}
 
-	metrics.AvoidedContextTokens = metrics.RawContextTokens - metrics.DeliveredContextTokens
+	metrics.AvoidedContextTokens = max(
+		metrics.RawContextTokens-metrics.DeliveredContextTokens,
+		0,
+	)
 
 	return metrics, nil
 }
