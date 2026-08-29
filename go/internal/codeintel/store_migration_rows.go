@@ -158,6 +158,7 @@ func mergeMigrationTable(
 		sourceTable,
 		destinationTable,
 		spec,
+		columns,
 	)
 	if err != nil {
 		return StoreMigrationTable{}, err
@@ -203,13 +204,20 @@ func validateMigrationTableKeys(
 	sourceTable string,
 	destinationTable string,
 	spec migrationTableSpec,
+	columns []migrationColumn,
 ) error {
-	err := validateMigrationKeyUniqueness(ctx, destination, sourceTable, spec)
+	err := validateMigrationKeyConsistency(ctx, destination, sourceTable, spec, columns)
 	if err != nil {
 		return fmt.Errorf("validate source %s: %w", spec.name, err)
 	}
 
-	err = validateMigrationKeyUniqueness(ctx, destination, destinationTable, spec)
+	err = validateMigrationKeyConsistency(
+		ctx,
+		destination,
+		destinationTable,
+		spec,
+		columns,
+	)
 	if err != nil {
 		return fmt.Errorf("validate destination %s: %w", spec.name, err)
 	}
@@ -320,34 +328,49 @@ func finishMigrationTable(
 	}, nil
 }
 
-func validateMigrationKeyUniqueness(
+func validateMigrationKeyConsistency(
 	ctx context.Context,
 	database migrationQueryer,
 	table string,
 	spec migrationTableSpec,
+	columns []migrationColumn,
 ) error {
 	keys := quoteMigrationIdentifiers(spec.keyColumns)
+	variantChecks := make([]string, 0, len(columns))
 
-	// #nosec G201 -- table and keys come from the validated schema inventory.
+	for _, column := range migrationColumnIdentifiers(columns) {
+		variantChecks = append(
+			variantChecks,
+			fmt.Sprintf(
+				"(COUNT(DISTINCT %s) > 1 OR (COUNT(%s) > 0 AND COUNT(%s) < COUNT(*)))",
+				column,
+				column,
+				column,
+			),
+		)
+	}
+
+	// #nosec G201 -- table, keys, and columns come from the validated schema inventory.
 	query := fmt.Sprintf(
-		"SELECT COUNT(*) FROM (SELECT %s FROM %s GROUP BY %s HAVING COUNT(*) > 1)",
+		"SELECT COUNT(*) FROM (SELECT %s FROM %s GROUP BY %s HAVING %s)",
 		strings.Join(keys, ", "),
 		table,
 		strings.Join(keys, ", "),
+		strings.Join(variantChecks, " OR "),
 	)
 
-	var duplicates int64
+	var conflictingKeys int64
 
-	err := database.QueryRowContext(ctx, query).Scan(&duplicates)
+	err := database.QueryRowContext(ctx, query).Scan(&conflictingKeys)
 	if err != nil {
-		return fmt.Errorf("query duplicate migration keys: %w", err)
+		return fmt.Errorf("query conflicting migration key variants: %w", err)
 	}
 
-	if duplicates != 0 {
+	if conflictingKeys != 0 {
 		return fmt.Errorf(
-			"%w: table has %d duplicate migration keys for %s",
+			"%w: table has %d conflicting row variants for migration key %s",
 			errStoreMigrationIntegrity,
-			duplicates,
+			conflictingKeys,
 			strings.Join(spec.keyColumns, ","),
 		)
 	}
@@ -368,14 +391,23 @@ func migrationDuplicateCounts(
 
 	// #nosec G201 -- identifiers come from the validated schema inventory.
 	query := fmt.Sprintf(
-		`SELECT COUNT(*),
-		COALESCE(SUM(CASE WHEN %s THEN 0 ELSE 1 END), 0)
-		FROM %s AS source
-		JOIN %s AS destination ON %s`,
+		`SELECT
+		COALESCE(SUM(CASE WHEN EXISTS (
+			SELECT 1 FROM %s AS destination WHERE %s
+		) THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN EXISTS (
+			SELECT 1 FROM %s AS destination WHERE %s
+		) AND NOT EXISTS (
+			SELECT 1 FROM %s AS destination WHERE %s
+		) THEN 1 ELSE 0 END), 0)
+		FROM %s AS source`,
+		destinationTable,
 		equal,
-		sourceTable,
 		destinationTable,
 		join,
+		destinationTable,
+		equal,
+		sourceTable,
 	)
 
 	var matchedRows, conflictRows int64
