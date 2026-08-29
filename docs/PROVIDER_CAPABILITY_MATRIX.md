@@ -92,7 +92,7 @@ Safety caveats:
 - Coverage: partial
 - Settings target: .codex/config.toml
 - MCP setup: .codex/config.toml mcp_servers.coding-ethos stdio server
-- Block response shape: decision = block plus permissionDecision = deny for PreToolUse
+- Block response shape: exit 2 with stderr reason or decision = block plus permissionDecision = deny for PreToolUse
 - Context/advice shape: additionalContext where native; compact systemMessage otherwise
 - Memory interception: provider memory imports into .coding-ethos/memories
 - Memory fallback: memory.centralized denial points at the central memory file
