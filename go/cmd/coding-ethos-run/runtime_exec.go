@@ -205,7 +205,7 @@ func agentShellSandboxPlan(
 		return sandbox.Plan{}, nil, func() {}, err
 	}
 
-	readOnlyPaths, err := agentShellReadOnlyPaths(paths.Root, command)
+	readOnlyPaths, err := agentShellReadOnlyPaths(paths.Root, paths.RunBinary, command)
 	if err != nil {
 		cleanup()
 
@@ -615,7 +615,7 @@ func protectedAgentShellWorktreeEntry(name string) bool {
 // wrapper-gated Git write capability and cannot be pinned without disabling
 // Git itself. The sandbox refuses ambiguous entry types rather than silently
 // weakening either case.
-func agentShellReadOnlyPaths(root, command string) ([]string, error) {
+func agentShellReadOnlyPaths(root, runBinary, command string) ([]string, error) {
 	gitPath := filepath.Join(root, ".git")
 
 	gitInfo, err := os.Lstat(gitPath)
@@ -643,7 +643,7 @@ func agentShellReadOnlyPaths(root, command string) ([]string, error) {
 		return nil, fmt.Errorf("%w: %s", errAgentShellGitEntryType, gitPath)
 	}
 
-	if !agentShellGitMayReplacePolicyTree(command) {
+	if !agentShellGitMayReplacePolicyTree(runBinary, command) {
 		paths = append(paths, filepath.Join(root, ".coding-ethos"))
 	}
 
@@ -656,18 +656,16 @@ func agentShellReadOnlyPaths(root, command string) ([]string, error) {
 // .coding-ethos directory is insufficient during merge, checkout, or the
 // pre-commit stash cycle. The exception stays fail-closed for compound shell
 // commands, dynamic expansion, redirects, assignments, and Git global options.
-func agentShellGitMayReplacePolicyTree(command string) bool {
+func agentShellGitMayReplacePolicyTree(runBinary, command string) bool {
 	commands, err := shellparse.Commands(command)
 	if err != nil || len(commands) != 1 {
 		return false
 	}
 
-	parsed := commands[0]
-	if !agentShellStaticGitCommand(parsed) {
+	operation, ok := agentShellStaticGitOperation(commands[0], runBinary)
+	if !ok {
 		return false
 	}
-
-	operation := gitwrap.ParseArgv(parsed.Argv).Operation
 
 	return slices.Contains([]string{
 		"checkout",
@@ -684,14 +682,28 @@ func agentShellGitMayReplacePolicyTree(command string) bool {
 	}, operation)
 }
 
-func agentShellStaticGitCommand(parsed shellparse.Command) bool {
-	if filepath.Base(parsed.Name) != agentShellGitExecutableName || len(parsed.Argv) < 2 ||
-		filepath.Base(parsed.Argv[0]) != agentShellGitExecutableName ||
-		strings.HasPrefix(parsed.Argv[1], "-") {
-		return false
+func agentShellStaticGitOperation(
+	parsed shellparse.Command,
+	runBinary string,
+) (string, bool) {
+	if agentShellCommandHasDynamicBehavior(parsed) {
+		return "", false
 	}
 
-	return !agentShellCommandHasDynamicBehavior(parsed)
+	if filepath.Base(parsed.Name) == agentShellGitExecutableName &&
+		len(parsed.Argv) >= 2 &&
+		filepath.Base(parsed.Argv[0]) == agentShellGitExecutableName &&
+		!strings.HasPrefix(parsed.Argv[1], "-") {
+		return gitwrap.ParseArgv(parsed.Argv).Operation, true
+	}
+
+	if len(parsed.Argv) >= 3 && parsed.Argv[1] == "policy-git" &&
+		filepath.Clean(parsed.Argv[0]) == filepath.Clean(runBinary) &&
+		!strings.HasPrefix(parsed.Argv[2], "-") {
+		return gitwrap.ParseArgv(parsed.Argv[2:]).Operation, true
+	}
+
+	return "", false
 }
 
 func agentShellCommandHasDynamicBehavior(parsed shellparse.Command) bool {

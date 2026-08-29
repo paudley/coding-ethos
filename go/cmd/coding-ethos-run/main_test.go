@@ -1952,7 +1952,11 @@ func TestAgentShellWorktreeRootIsWritableAndProtectedEntriesArePinned(t *testing
 			"created, deleted or renamed: %#v", got)
 	}
 
-	pinned, err := agentShellReadOnlyPaths(root, "git status")
+	pinned, err := agentShellReadOnlyPaths(
+		root,
+		"/trusted/bin/coding-ethos-run",
+		"git status",
+	)
 	if err != nil {
 		t.Fatalf("agentShellReadOnlyPaths() error = %v", err)
 	}
@@ -1976,7 +1980,11 @@ func TestAgentShellPrimaryGitDirectoryRemainsAnExplicitWriteCapability(t *testin
 		t.Fatalf("create primary git directory: %v", err)
 	}
 
-	pinned, err := agentShellReadOnlyPaths(root, "git status")
+	pinned, err := agentShellReadOnlyPaths(
+		root,
+		"/trusted/bin/coding-ethos-run",
+		"git status",
+	)
 	if err != nil {
 		t.Fatalf("agentShellReadOnlyPaths() error = %v", err)
 	}
@@ -1994,13 +2002,15 @@ func TestAgentShellPrimaryGitDirectoryRemainsAnExplicitWriteCapability(t *testin
 func TestAgentShellPolicyTreeWriteExceptionIsStaticAndGitScoped(t *testing.T) {
 	t.Parallel()
 
+	runBinary := "/trusted/bin/coding-ethos-run"
 	allowed := []string{
 		"git merge --no-edit main",
 		"/usr/bin/git commit -S -m test",
 		"git stash push --keep-index",
+		runBinary + " policy-git merge --no-edit main",
 	}
 	for _, command := range allowed {
-		if !agentShellGitMayReplacePolicyTree(command) {
+		if !agentShellGitMayReplacePolicyTree(runBinary, command) {
 			t.Fatalf("static Git worktree command was not admitted: %q", command)
 		}
 	}
@@ -2012,9 +2022,10 @@ func TestAgentShellPolicyTreeWriteExceptionIsStaticAndGitScoped(t *testing.T) {
 		`git merge "$TARGET"`,
 		"MODE=test git merge main",
 		"git merge main > .coding-ethos/result",
+		"/tmp/coding-ethos-run policy-git merge main",
 	}
 	for _, command := range denied {
-		if agentShellGitMayReplacePolicyTree(command) {
+		if agentShellGitMayReplacePolicyTree(runBinary, command) {
 			t.Fatalf(
 				"non-static or non-worktree command received policy-tree access: %q",
 				command,
@@ -2040,7 +2051,12 @@ func TestAgentShellMergeMayReplaceTrackedPolicyFiles(t *testing.T) {
 		t.Fatalf("create policy directory: %v", err)
 	}
 
-	pinned, err := agentShellReadOnlyPaths(root, "git merge --no-edit main")
+	runBinary := "/trusted/bin/coding-ethos-run"
+	pinned, err := agentShellReadOnlyPaths(
+		root,
+		runBinary,
+		runBinary+" policy-git merge --no-edit main",
+	)
 	if err != nil {
 		t.Fatalf("agentShellReadOnlyPaths() error = %v", err)
 	}
