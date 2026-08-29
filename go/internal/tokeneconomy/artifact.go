@@ -166,11 +166,11 @@ func formatReportMarkdown(report Report) string {
 
 		output.WriteString("\n### Verified sources\n\n")
 		for _, source := range report.Historical.Sources {
-			output.WriteString("- `")
-			output.WriteString(strings.ReplaceAll(source.Path, "`", "\\`"))
-			output.WriteString("`: `")
-			output.WriteString(source.SHA256After)
-			output.WriteString("` (unchanged)\n")
+			output.WriteString("- ")
+			output.WriteString(markdownCodeSpan(source.Path))
+			output.WriteString(": ")
+			output.WriteString(markdownCodeSpan(source.SHA256After))
+			output.WriteString(" (unchanged)\n")
 		}
 	}
 
@@ -215,6 +215,31 @@ func formatReportMarkdown(report Report) string {
 	}
 
 	return output.String()
+}
+
+func markdownCodeSpan(value string) string {
+	value = strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
+	longestRun := 0
+	currentRun := 0
+	for _, character := range value {
+		if character != '`' {
+			currentRun = 0
+
+			continue
+		}
+
+		currentRun++
+		longestRun = max(longestRun, currentRun)
+	}
+
+	delimiter := strings.Repeat("`", longestRun+1)
+	padding := ""
+	if strings.HasPrefix(value, "`") || strings.HasSuffix(value, "`") ||
+		strings.HasPrefix(value, " ") || strings.HasSuffix(value, " ") {
+		padding = " "
+	}
+
+	return delimiter + padding + value + padding + delimiter
 }
 
 func writeMarkdownField(output *strings.Builder, label, value string) {

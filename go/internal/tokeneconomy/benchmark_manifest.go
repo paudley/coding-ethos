@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
 	"go.yaml.in/yaml/v3"
 
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
@@ -498,31 +499,90 @@ func validateFullConfigOverrides(overrides []string) error {
 		)
 	}
 
-	forbidden := []string{
-		"approval_policy=",
-		"model=",
-		"model_reasoning_effort=",
-		"project_doc_max_bytes=",
-		"sandbox_mode=",
-		"sandbox_workspace_write.network_access=",
+	controlledPaths := [][]string{
+		{"approval_policy"},
+		{"model"},
+		{"model_reasoning_effort"},
+		{"project_doc_max_bytes"},
+		{"sandbox_mode"},
+		{"sandbox_workspace_write", "network_access"},
 	}
-	for _, override := range overrides {
-		cleaned := strings.ReplaceAll(strings.TrimSpace(override), " ", "")
-		if cleaned == "" || !strings.Contains(cleaned, "=") {
-			return fmt.Errorf("%w: invalid full config override", errInvalidBenchmarkManifest)
+	seenPaths := map[string]struct{}{}
+	for index, override := range overrides {
+		config := map[string]any{}
+		if strings.TrimSpace(override) == "" ||
+			toml.Unmarshal([]byte(override), &config) != nil || len(config) == 0 {
+			return fmt.Errorf(
+				"%w: full config override %d is invalid TOML",
+				errInvalidBenchmarkManifest,
+				index+1,
+			)
 		}
-		for _, prefix := range forbidden {
-			if strings.HasPrefix(cleaned, prefix) {
+
+		paths, leafPaths := benchmarkConfigPaths(config, nil)
+		for _, path := range paths {
+			for _, controlledPath := range controlledPaths {
+				if !benchmarkConfigPathsRelated(path, controlledPath) {
+					continue
+				}
+
 				return fmt.Errorf(
 					"%w: full config override changes controlled setting %q",
 					errInvalidBenchmarkManifest,
-					override,
+					strings.Join(controlledPath, "."),
 				)
 			}
+		}
+
+		for _, path := range leafPaths {
+			identity := strings.Join(path, "\x00")
+			if _, found := seenPaths[identity]; found {
+				return fmt.Errorf(
+					"%w: duplicate full config override %q",
+					errInvalidBenchmarkManifest,
+					strings.Join(path, "."),
+				)
+			}
+			seenPaths[identity] = struct{}{}
 		}
 	}
 
 	return nil
+}
+
+func benchmarkConfigPaths(
+	config map[string]any,
+	prefix []string,
+) ([][]string, [][]string) {
+	paths := [][]string{}
+	leaves := [][]string{}
+	for key, value := range config {
+		path := append(slices.Clone(prefix), key)
+		paths = append(paths, path)
+
+		nested, isTable := value.(map[string]any)
+		if !isTable || len(nested) == 0 {
+			leaves = append(leaves, path)
+
+			continue
+		}
+
+		nestedPaths, nestedLeaves := benchmarkConfigPaths(nested, path)
+		paths = append(paths, nestedPaths...)
+		leaves = append(leaves, nestedLeaves...)
+	}
+
+	return paths, leaves
+}
+
+func benchmarkConfigPathsRelated(left, right []string) bool {
+	for index := range min(len(left), len(right)) {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+
+	return true
 }
 
 func validateBenchmarkTask(ctx context.Context, task BenchmarkTask) error {

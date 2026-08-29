@@ -4,9 +4,11 @@
 package tokeneconomy
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	_ "github.com/duckdb/duckdb-go/v2"
+	"github.com/yuin/goldmark"
 )
 
 func TestHistoricalReportLabelsGrossReductionNonCausal(t *testing.T) {
@@ -572,7 +575,7 @@ func TestFormatReportMarkdownIncludesVerifiedContextAndComparisonQuality(t *test
 	markdown := formatReportMarkdown(report)
 	for _, expected := range []string{
 		"## Observational context reduction",
-		"- `evidence\\`store.duckdb`: `abc123` (unchanged)",
+		"- ``evidence`store.duckdb``: `abc123` (unchanged)",
 		"| full | off | 2 | 12.50% | 10.00% to 15.00% | 95.00% | non-inferior |",
 		"| static | off | 1 | -2.00% | -5.00% to 1.00% | 90.00% | " +
 			"not established |",
@@ -580,6 +583,41 @@ func TestFormatReportMarkdownIncludesVerifiedContextAndComparisonQuality(t *test
 	} {
 		if !strings.Contains(markdown, expected) {
 			t.Fatalf("Markdown report missing %q:\n%s", expected, markdown)
+		}
+	}
+
+	var rendered bytes.Buffer
+	if err := goldmark.Convert([]byte(markdown), &rendered); err != nil {
+		t.Fatalf("render Markdown report: %v", err)
+	}
+	if !strings.Contains(rendered.String(), "<code>evidence`store.duckdb</code>") {
+		t.Fatalf(
+			"verified source path did not round trip through Markdown: %s",
+			rendered.String(),
+		)
+	}
+}
+
+func TestMarkdownCodeSpanRoundTripsDelimiterEdges(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{
+		"plain",
+		"evidence`store.duckdb",
+		"evidence``store.duckdb",
+		"`boundary`",
+		" leading-space",
+		"trailing-space ",
+	} {
+		var rendered bytes.Buffer
+		err := goldmark.Convert([]byte(markdownCodeSpan(value)), &rendered)
+		if err != nil {
+			t.Fatalf("render code span for %q: %v", value, err)
+		}
+
+		want := "<p><code>" + html.EscapeString(value) + "</code></p>\n"
+		if rendered.String() != want {
+			t.Fatalf("code span for %q rendered as %q, want %q", value, rendered.String(), want)
 		}
 	}
 }

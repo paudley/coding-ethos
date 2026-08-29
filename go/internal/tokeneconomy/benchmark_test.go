@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -228,6 +229,117 @@ func TestBenchmarkCodexArgumentsDisableSandboxNetwork(t *testing.T) {
 	}
 }
 
+func TestValidateFullConfigOverridesParsesTOMLStructure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		overrides []string
+		wantError string
+	}{
+		{
+			name:      "legitimate feature",
+			overrides: []string{" features . code_intel = true "},
+		},
+		{
+			name:      "quoted controlled key",
+			overrides: []string{`"sandbox_mode" = "danger-full-access"`},
+			wantError: "sandbox_mode",
+		},
+		{
+			name: "quoted controlled path segment",
+			overrides: []string{
+				`"sandbox_workspace_write" . "network_access" = true`,
+			},
+			wantError: "sandbox_workspace_write.network_access",
+		},
+		{
+			name: "controlled inline parent table",
+			overrides: []string{
+				`sandbox_workspace_write = { network_access = true }`,
+			},
+			wantError: "sandbox_workspace_write.network_access",
+		},
+		{
+			name: "duplicate normalized path",
+			overrides: []string{
+				"features.code_intel=true",
+				`features."code_intel"=false`,
+			},
+			wantError: "duplicate full config override",
+		},
+		{
+			name:      "invalid TOML",
+			overrides: []string{"features.code_intel=["},
+			wantError: "invalid TOML",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateFullConfigOverrides(test.overrides)
+			if test.wantError == "" {
+				if err != nil {
+					t.Fatalf("validate legitimate overrides: %v", err)
+				}
+
+				return
+			}
+			if !errors.Is(err, errInvalidBenchmarkManifest) ||
+				!strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("error = %v, want invalid manifest containing %q", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestRunCodexBenchmarkReportsHomeCleanupFailure(t *testing.T) {
+	t.Parallel()
+
+	fixture := newBenchmarkFixture(t)
+	prepared, err := LoadBenchmarkManifest(context.Background(), fixture.manifestPath)
+	if err != nil {
+		t.Fatalf("load benchmark manifest: %v", err)
+	}
+
+	runRoot := filepath.Join(fixture.root, "cleanup-run")
+	workspace := filepath.Join(fixture.root, "cleanup-workspace")
+	for _, path := range []string{runRoot, workspace} {
+		if err = os.Mkdir(path, 0o700); err != nil {
+			t.Fatalf("create benchmark path %s: %v", path, err)
+		}
+	}
+
+	cleanupFailure := errors.New("synthetic cleanup failure")
+	removedPath := ""
+	outcome := runCodexBenchmarkWithHomeRemover(
+		context.Background(),
+		prepared.Manifest,
+		prepared.Manifest.Tasks[0],
+		benchmarkRunSpec{TaskID: "diagnostic-one", RunID: "cleanup", Arm: ArmOff},
+		runRoot,
+		workspace,
+		func(path string) error {
+			removedPath = path
+
+			return cleanupFailure
+		},
+	)
+	if removedPath == "" || !errors.Is(outcome.EvidenceError, cleanupFailure) ||
+		!strings.Contains(strings.Join(outcome.Errors, "; "), "remove isolated Codex home") {
+		t.Fatalf(
+			"cleanup failure was not returned: path=%q outcome=%#v",
+			removedPath,
+			outcome,
+		)
+	}
+	if _, err = os.Stat(filepath.Join(removedPath, "auth.json")); err != nil {
+		t.Fatalf("cleanup failure fixture did not retain copied auth: %v", err)
+	}
+}
+
 func TestRunBenchmarkUsesIsolatedArmsAndResumesWithoutReplacement(t *testing.T) {
 	fixture := newBenchmarkFixture(t)
 	prepared, err := LoadBenchmarkManifest(context.Background(), fixture.manifestPath)
@@ -243,6 +355,17 @@ func TestRunBenchmarkUsesIsolatedArmsAndResumesWithoutReplacement(t *testing.T) 
 	}
 	if first.NewlyRecorded != 6 || first.PreviouslyRecorded != 0 {
 		t.Fatalf("unexpected first run summary: %#v", first)
+	}
+	temporaryHomes, err := filepath.Glob(filepath.Join(
+		stateRoot,
+		".coding-ethos",
+		"token-economy-runs",
+		fixture.experimentID,
+		"*",
+		".codex-home-*",
+	))
+	if err != nil || len(temporaryHomes) != 0 {
+		t.Fatalf("temporary Codex homes survived: paths=%v error=%v", temporaryHomes, err)
 	}
 
 	store, err := Open(context.Background(), DefaultDBPath(stateRoot))

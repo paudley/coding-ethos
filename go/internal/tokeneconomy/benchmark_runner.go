@@ -473,6 +473,26 @@ func runCodexBenchmark(
 	runRoot string,
 	workspace string,
 ) codexBenchmarkOutcome {
+	return runCodexBenchmarkWithHomeRemover(
+		ctx,
+		manifest,
+		task,
+		spec,
+		runRoot,
+		workspace,
+		os.RemoveAll,
+	)
+}
+
+func runCodexBenchmarkWithHomeRemover(
+	ctx context.Context,
+	manifest BenchmarkManifest,
+	task BenchmarkTask,
+	spec benchmarkRunSpec,
+	runRoot string,
+	workspace string,
+	removeHome func(string) error,
+) codexBenchmarkOutcome {
 	started := time.Now().UTC()
 	outcome := codexBenchmarkOutcome{
 		StartedAtUTC: started.Format(time.RFC3339Nano),
@@ -496,39 +516,41 @@ func runCodexBenchmark(
 
 		return finishCodexOutcome(outcome, started)
 	}
-	defer func() {
-		if removeErr := os.RemoveAll(codexHome); removeErr != nil {
-			outcome.Errors = append(
-				outcome.Errors,
-				"remove isolated Codex home: "+removeErr.Error(),
-			)
+	finish := func() codexBenchmarkOutcome {
+		removeErr := removeHome(codexHome)
+		if removeErr != nil {
+			cleanupErr := fmt.Errorf("remove isolated Codex home: %w", removeErr)
+			outcome.EvidenceError = errors.Join(outcome.EvidenceError, cleanupErr)
+			outcome.Errors = append(outcome.Errors, cleanupErr.Error())
 		}
-	}()
+
+		return finishCodexOutcome(outcome, started)
+	}
 
 	err = populateBenchmarkCodexHome(codexHome, manifest, spec.Arm)
 	if err != nil {
 		outcome.Errors = append(outcome.Errors, err.Error())
 
-		return finishCodexOutcome(outcome, started)
+		return finish()
 	}
 
 	prompt, err := os.ReadFile(task.PromptPath)
 	if err != nil {
 		outcome.Errors = append(outcome.Errors, fmt.Sprintf("read benchmark prompt: %v", err))
 
-		return finishCodexOutcome(outcome, started)
+		return finish()
 	}
 	if len(prompt) > maximumBenchmarkPromptBytes {
 		outcome.Errors = append(outcome.Errors, "benchmark prompt exceeds size limit")
 
-		return finishCodexOutcome(outcome, started)
+		return finish()
 	}
 
 	stdout, stderr, err := createAgentLogs(runRoot)
 	if err != nil {
 		outcome.Errors = append(outcome.Errors, err.Error())
 
-		return finishCodexOutcome(outcome, started)
+		return finish()
 	}
 
 	runContext, cancel := context.WithTimeout(ctx, agentTimeout)
@@ -569,7 +591,7 @@ func runCodexBenchmark(
 		outcome.FullStateRoot = filepath.Join(runRoot, "coding-ethos-state")
 	}
 
-	return finishCodexOutcome(outcome, started)
+	return finish()
 }
 
 func finishCodexOutcome(
