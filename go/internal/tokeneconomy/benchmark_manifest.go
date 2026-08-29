@@ -522,18 +522,8 @@ func validateFullConfigOverrides(overrides []string) error {
 		}
 
 		paths, leafPaths := benchmarkConfigPaths(config, nil)
-		for _, path := range paths {
-			for _, controlledPath := range controlledPaths {
-				if !benchmarkConfigPathsRelated(path, controlledPath) {
-					continue
-				}
-
-				return fmt.Errorf(
-					"%w: full config override changes controlled setting %q",
-					errInvalidBenchmarkManifest,
-					strings.Join(controlledPath, "."),
-				)
-			}
+		if err := validateControlledFullConfigPaths(paths, controlledPaths); err != nil {
+			return err
 		}
 		if _, err := canonicalFullConfigOverride(override); err != nil {
 			return fmt.Errorf(
@@ -554,6 +544,24 @@ func validateFullConfigOverrides(overrides []string) error {
 				)
 			}
 			seenPaths[identity] = struct{}{}
+		}
+	}
+
+	return nil
+}
+
+func validateControlledFullConfigPaths(paths, controlledPaths [][]string) error {
+	for _, path := range paths {
+		for _, controlledPath := range controlledPaths {
+			if !benchmarkConfigPathsRelated(path, controlledPath) {
+				continue
+			}
+
+			return fmt.Errorf(
+				"%w: full config override changes controlled setting %q",
+				errInvalidBenchmarkManifest,
+				strings.Join(controlledPath, "."),
+			)
 		}
 	}
 
