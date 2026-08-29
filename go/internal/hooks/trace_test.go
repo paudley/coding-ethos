@@ -296,10 +296,12 @@ func TestWriteAgentHookTraceCorrelatesAllowedRetryWithPriorRemediation(
 		}},
 	}
 
-	err := WriteAgentHookTrace(t.TempDir(), event, blocked)
+	sourceRunDir := t.TempDir()
+	err := WriteAgentHookTrace(sourceRunDir, event, blocked)
 	if err != nil {
 		t.Fatalf("write blocked hook trace: %v", err)
 	}
+	sourceTrace, _ := readTracePayload(t, sourceRunDir)
 
 	event.ToolInput = map[string]any{
 		"command": "cerun -- git commit -m test",
@@ -321,6 +323,7 @@ func TestWriteAgentHookTraceCorrelatesAllowedRetryWithPriorRemediation(
 	if outcome["event"] != "attempted" ||
 		outcome["remediation_id"] == "" ||
 		outcome["finding_id"] == "" ||
+		outcome["source_trace_id"] != sourceTrace["trace_id"] ||
 		outcome["trace_id"] != trace["trace_id"] {
 		t.Fatalf("allowed retry lacks correlated remediation outcome: %#v", outcome)
 	}

@@ -21,6 +21,9 @@ type remediationReference struct {
 	SourceTraceID string `json:"source_trace_id"`
 	PolicyID      string `json:"policy_id,omitempty"`
 	SkillID       string `json:"skill_id,omitempty"`
+	File          string `json:"file,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Provider      string `json:"provider,omitempty"`
 	Tool          string `json:"tool,omitempty"`
 }
 
@@ -214,6 +217,9 @@ func remediationReferences(
 			SourceTraceID: traceID,
 			PolicyID:      remediation.PolicyID,
 			SkillID:       remediation.SkillID,
+			File:          remediation.File,
+			Path:          remediation.Path,
+			Provider:      event.Provider(),
 			Tool:          event.ToolName,
 		})
 	}
@@ -294,10 +300,15 @@ func remediationOutcomeEvent(
 	result := evidence.RemediationEvent{
 		RemediationID: reference.RemediationID,
 		FindingID:     reference.FindingID,
+		SourceTraceID: reference.SourceTraceID,
 		TraceID:       traceID,
 		Event:         outcome,
 		PolicyID:      reference.PolicyID,
 		SkillID:       reference.SkillID,
+		File:          reference.File,
+		Path:          reference.Path,
+		Provider:      reference.Provider,
+		Tool:          reference.Tool,
 		SearchText: strings.TrimSpace(strings.Join([]string{
 			reference.PolicyID,
 			reference.SkillID,

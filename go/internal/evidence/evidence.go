@@ -66,10 +66,15 @@ type RemediationEvent struct {
 	ID            string `json:"id"`
 	RemediationID string `json:"remediation_id,omitempty"`
 	FindingID     string `json:"finding_id,omitempty"`
+	SourceTraceID string `json:"source_trace_id,omitempty"`
 	TraceID       string `json:"trace_id,omitempty"`
 	Event         string `json:"event"`
 	PolicyID      string `json:"policy_id,omitempty"`
 	SkillID       string `json:"skill_id,omitempty"`
+	File          string `json:"file,omitempty"`
+	Path          string `json:"path,omitempty"`
+	Provider      string `json:"provider,omitempty"`
+	Tool          string `json:"tool,omitempty"`
 	SearchText    string `json:"search_text,omitempty"`
 	SchemaVersion int    `json:"schema_version"`
 }

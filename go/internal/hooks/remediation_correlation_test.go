@@ -46,6 +46,7 @@ func TestRemediationCorrelationRecordsRepeatedAttemptedAndFixedEvents(t *testing
 		repeated,
 		"repeated",
 		"trace-repeated",
+		"trace-suggested",
 	)
 
 	attempted := applyRemediationCorrelation(
@@ -61,6 +62,7 @@ func TestRemediationCorrelationRecordsRepeatedAttemptedAndFixedEvents(t *testing
 		attempted,
 		"attempted",
 		"trace-attempted",
+		"trace-repeated",
 	)
 
 	fixed := applyRemediationCorrelation(
@@ -77,7 +79,13 @@ func TestRemediationCorrelationRecordsRepeatedAttemptedAndFixedEvents(t *testing
 		nil,
 		&record,
 	)
-	assertRemediationCorrelationEvent(t, fixed, "fixed", "trace-fixed")
+	assertRemediationCorrelationEvent(
+		t,
+		fixed,
+		"fixed",
+		"trace-fixed",
+		"trace-repeated",
+	)
 
 	if len(record.PendingRemediations) != 0 ||
 		len(record.AttemptedRemediations) != 0 {
@@ -137,7 +145,54 @@ func TestRemediationCorrelationDoesNotCrossSessions(t *testing.T) {
 		sourceSession,
 		"attempted",
 		"trace-source-attempt",
+		"trace-source-session",
 	)
+}
+
+func TestRemediationCorrelationRecordsAbandonedEventAtSessionEnd(t *testing.T) {
+	record := lifecycleSessionRecord{}
+	remediations := []agentmsg.Remediation{{
+		ID:       "remediation-abandoned",
+		PolicyID: "policy.abandoned",
+		SkillID:  "skill-abandoned",
+		File:     "pkg/app.go",
+	}}
+	findings := []evidence.Finding{{ID: "finding-abandoned"}}
+
+	applyRemediationCorrelation(
+		Event{
+			HookEventName: eventPreToolUse,
+			ProviderHint:  providerCodex,
+			ToolName:      toolBash,
+		},
+		Result{Status: statusBlocked},
+		"trace-abandoned-source",
+		remediations,
+		findings,
+		&record,
+	)
+
+	abandoned := applyRemediationCorrelation(
+		Event{HookEventName: eventSessionEnd},
+		Result{Status: statusAllowed},
+		"trace-session-end",
+		nil,
+		nil,
+		&record,
+	)
+	assertRemediationCorrelationEvent(
+		t,
+		abandoned,
+		"abandoned",
+		"trace-session-end",
+		"trace-abandoned-source",
+	)
+
+	if abandoned[0].Provider != providerCodex ||
+		abandoned[0].Tool != toolBash ||
+		abandoned[0].File != "pkg/app.go" {
+		t.Fatalf("abandoned remediation context = %#v", abandoned[0])
+	}
 }
 
 func assertRemediationCorrelationEvent(
@@ -145,6 +200,7 @@ func assertRemediationCorrelationEvent(
 	events []evidence.RemediationEvent,
 	wantEvent string,
 	wantTraceID string,
+	wantSourceTraceID string,
 ) {
 	t.Helper()
 
@@ -154,12 +210,14 @@ func assertRemediationCorrelationEvent(
 
 	event := events[0]
 	if event.Event != wantEvent || event.TraceID != wantTraceID ||
+		event.SourceTraceID != wantSourceTraceID ||
 		event.RemediationID == "" || event.FindingID == "" || event.ID == "" {
 		t.Fatalf(
-			"remediation event = %#v, want event=%q trace=%q with identities",
+			"remediation event = %#v, want event=%q trace=%q source=%q with identities",
 			event,
 			wantEvent,
 			wantTraceID,
+			wantSourceTraceID,
 		)
 	}
 }
