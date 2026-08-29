@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: AGPL-3.0-only
+
+[package]
+name = "coding-ethos-purrdf-extractor"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[dependencies]
+purrdf-rdf = { git = "ssh://git@ssh.github.com:443/Blackcat-Informatics/purrdf.git", rev = "3aa4ba514ee9cdbfb6966bd0f1fedb87e0d8a0b6" }
+purrdf-sparql-algebra = { git = "ssh://git@ssh.github.com:443/Blackcat-Informatics/purrdf.git", rev = "3aa4ba514ee9cdbfb6966bd0f1fedb87e0d8a0b6" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[[bin]]
+name = "coding-ethos-purrdf-extractor"
+path = "src/main.rs"
