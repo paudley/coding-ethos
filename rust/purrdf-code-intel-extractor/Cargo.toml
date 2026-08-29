@@ -9,8 +9,8 @@ license = "AGPL-3.0-only"
 publish = false
 
 [dependencies]
-purrdf-rdf = { git = "ssh://git@ssh.github.com:443/Blackcat-Informatics/purrdf.git", rev = "3aa4ba514ee9cdbfb6966bd0f1fedb87e0d8a0b6" }
-purrdf-sparql-algebra = { git = "ssh://git@ssh.github.com:443/Blackcat-Informatics/purrdf.git", rev = "3aa4ba514ee9cdbfb6966bd0f1fedb87e0d8a0b6" }
+purrdf-rdf = { git = "https://github.com/Blackcat-Informatics/purrdf.git", rev = "3aa4ba514ee9cdbfb6966bd0f1fedb87e0d8a0b6" }
+purrdf-sparql-algebra = { git = "https://github.com/Blackcat-Informatics/purrdf.git", rev = "3aa4ba514ee9cdbfb6966bd0f1fedb87e0d8a0b6" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 sha2 = "0.10.9"
