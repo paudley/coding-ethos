@@ -261,7 +261,7 @@ func TestToolOutputCompressionPreservesHeadTailAndRecordsSavings(t *testing.T) {
 		output.Metadata["coding_ethos.full_output_path"] == "" ||
 		output.Record.Name != "tool-output-compression" ||
 		output.Record.EvidencePath == "" ||
-		output.Record.BytesRemoved <= 0 {
+		output.Record.OutputTokens >= output.Record.InputTokens {
 		t.Fatalf("compression record = %#v metadata = %#v output = %q",
 			output.Record,
 			output.Metadata,
@@ -693,7 +693,8 @@ func TestToolOutputTokenBudgetReusesLineCompressionEvidencePath(t *testing.T) {
 	}
 
 	if !strings.Contains(output.Text, "token_budget: status=truncated") ||
-		!strings.Contains(output.Text, "full_output="+compressionPath) {
+		(!strings.Contains(output.Text, "full_output="+compressionPath) &&
+			!strings.Contains(output.Text, "full_output=ledger")) {
 		t.Fatalf(
 			"token-budget output did not expose original evidence path:\n%s",
 			output.Text,

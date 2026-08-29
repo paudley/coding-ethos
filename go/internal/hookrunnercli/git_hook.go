@@ -45,7 +45,12 @@ func runGitHookCommand(cfg Config, args []string) int {
 	case hookStagePreCommit:
 		return runPreCommitHook(cfg, args[1:])
 	case hookStagePrePush:
-		return runPrePushHook(cfg, os.Stdin)
+		remoteName := ""
+		if len(args) > 1 {
+			remoteName = args[1]
+		}
+
+		return runPrePushHook(cfg, os.Stdin, remoteName)
 	case "commit-msg":
 		fmt.Fprintln(
 			os.Stderr,
@@ -101,7 +106,7 @@ func runPreCommitHook(cfg Config, args []string) int {
 	return runNamedHookGroups(cfg, []string{"ai"}, files)
 }
 
-func runPrePushHook(cfg Config, input io.Reader) int {
+func runPrePushHook(cfg Config, input io.Reader, remoteName string) int {
 	if exit := rejectInvalidHookSettings(); exit != 0 {
 		return exit
 	}
@@ -111,7 +116,7 @@ func runPrePushHook(cfg Config, input io.Reader) int {
 
 	defer restoreRoot()
 
-	files, err := pushedFiles(input)
+	files, err := pushedFiles(input, remoteName)
 	if err != nil {
 		writef(os.Stderr, "FATAL: %v\n", err)
 
@@ -479,7 +484,7 @@ func hookFilesForPreCommit(allFiles bool) ([]string, error) {
 	return gitLines("diff", "--cached", "--name-only", "--diff-filter=ACMR")
 }
 
-func pushedFiles(input io.Reader) ([]string, error) {
+func pushedFiles(input io.Reader, remoteName string) ([]string, error) {
 	scanner := bufio.NewScanner(input)
 	seen := map[string]bool{}
 	files := []string{}
@@ -496,11 +501,12 @@ func pushedFiles(input io.Reader) ([]string, error) {
 		)
 
 		if fields[3] == allZeroSHA {
+			base := newBranchDiffBase(remoteName, fields[1])
 			changed, err = gitLinesInRoot(
 				localRepoRoot(),
 				"diff",
 				"--name-only",
-				emptyTreeSHA,
+				base,
 				fields[1],
 			)
 		} else {
@@ -553,6 +559,27 @@ func pushedFiles(input io.Reader) ([]string, error) {
 	}
 
 	return gitLinesInRoot(localRepoRoot(), "diff", "--name-only", "HEAD")
+}
+
+func newBranchDiffBase(remoteName, localSHA string) string {
+	remoteName = strings.TrimSpace(remoteName)
+	if remoteName == "" {
+		return emptyTreeSHA
+	}
+
+	trackingHead := "refs/remotes/" + remoteName + "/HEAD"
+	mergeBase := gitOutputInRoot(
+		localRepoRoot(),
+		"merge-base",
+		trackingHead,
+		localSHA,
+	)
+
+	if mergeBase == "" {
+		return emptyTreeSHA
+	}
+
+	return mergeBase
 }
 
 func gitLines(args ...string) ([]string, error) {

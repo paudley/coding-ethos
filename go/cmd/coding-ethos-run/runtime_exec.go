@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -51,6 +52,8 @@ const (
 	agentShellProtectedEntryCap = 2
 	agentShellGitPathCap        = 2
 	agentShellGitExecutableName = "git"
+	envSharedLockDirectories    = "CODE_ETHOS_SHARED_LOCK_DIRECTORIES"
+	maxSharedLockDirectories    = 4
 )
 
 var (
@@ -63,6 +66,12 @@ var (
 	errExecutablePathDirectory = apperror.StaticError("executable path is a directory")
 	errExecutablePathNoExecBit = apperror.StaticError(
 		"executable path has no executable bit",
+	)
+	errSharedLockDirectoryLimit = apperror.StaticError(
+		"shared lock directory count exceeds limit",
+	)
+	errSharedLockDirectoryShape = apperror.StaticError(
+		"shared lock directory must be a non-symlink mode-1777 direct child of /var/tmp",
 	)
 )
 
@@ -274,10 +283,86 @@ func agentShellWritePaths(root string) ([]string, error) {
 
 	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
 
+	sharedLockDirectories, err := agentShellSharedLockDirectories()
+	if err != nil {
+		return nil, err
+	}
+
+	agentWritePaths = append(agentWritePaths, sharedLockDirectories...)
+
 	// Repo-relative on purpose: the sandbox helper only creates missing
 	// write-path files for relative declarations, and repos that have never
 	// generated configs do not have the manifest yet.
 	return append(agentWritePaths, toolconfigs.HashManifestPath), nil
+}
+
+// agentShellSharedLockDirectories carries only outer-supervisor-admitted host
+// locks into the nested Landlock policy. The outer sandbox remains the mount
+// authority; this inner boundary additionally requires the exact host-global
+// lock shape used for cross-worktree serialization.
+func agentShellSharedLockDirectories() ([]string, error) {
+	raw := strings.TrimSpace(os.Getenv(envSharedLockDirectories))
+	if raw == "" {
+		return nil, nil
+	}
+
+	var configured []string
+
+	err := json.Unmarshal([]byte(raw), &configured)
+	if err != nil {
+		return nil, fmt.Errorf("decode shared lock directories: %w", err)
+	}
+
+	if len(configured) > maxSharedLockDirectories {
+		return nil, fmt.Errorf(
+			"%w: count=%d limit=%d",
+			errSharedLockDirectoryLimit,
+			len(configured),
+			maxSharedLockDirectories,
+		)
+	}
+
+	directories := make([]string, 0, len(configured))
+	seen := make(map[string]bool, len(configured))
+
+	for _, path := range configured {
+		path = filepath.Clean(strings.TrimSpace(path))
+
+		if seen[path] {
+			continue
+		}
+
+		err = validateSharedLockDirectory(path)
+		if err != nil {
+			return nil, err
+		}
+
+		seen[path] = true
+		directories = append(directories, path)
+	}
+
+	return directories, nil
+}
+
+func validateSharedLockDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect shared lock directory %s: %w", path, err)
+	}
+
+	if !validSharedLockDirectoryMetadata(path, info) {
+		return fmt.Errorf("%w: %s", errSharedLockDirectoryShape, path)
+	}
+
+	return nil
+}
+
+func validSharedLockDirectoryMetadata(path string, info os.FileInfo) bool {
+	mode := info.Mode()
+
+	return filepath.IsAbs(path) && filepath.Dir(path) == "/var/tmp" &&
+		info.IsDir() && mode&os.ModeSymlink == 0 &&
+		mode.Perm() == 0o777 && mode&os.ModeSticky != 0
 }
 
 // agentShellEnsureWriteDirs creates the agent-shell managed write directories

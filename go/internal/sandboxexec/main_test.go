@@ -157,6 +157,38 @@ func TestCleanPolicyPathStaysInsideRepo(t *testing.T) {
 	}
 }
 
+func TestSharedLockDirectoryMetadataAllowsOnlyTheValidatedCapabilityShape(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	shared := t.TempDir()
+	if err := os.Chmod(shared, os.ModeSticky|0o777); err != nil {
+		t.Fatalf("set shared lock directory mode: %v", err)
+	}
+	info, err := os.Lstat(shared)
+	if err != nil {
+		t.Fatalf("inspect shared lock metadata: %v", err)
+	}
+	if !validSharedLockDirectoryMetadata("/var/tmp/coding-ethos-sandbox-lock-test", info) {
+		t.Fatal("the exact direct-child mode-1777 capability shape was rejected")
+	}
+
+	if err := os.Chmod(shared, 0o0777); err != nil {
+		t.Fatalf("remove sticky bit: %v", err)
+	}
+	info, err = os.Lstat(shared)
+	if err != nil {
+		t.Fatalf("inspect non-sticky metadata: %v", err)
+	}
+	if validSharedLockDirectoryMetadata("/var/tmp/coding-ethos-sandbox-lock-test", info) {
+		t.Fatal("a non-sticky external directory became a sandbox write capability")
+	}
+	if validSharedLockDirectoryMetadata("/tmp/coding-ethos-sandbox-lock-test", info) {
+		t.Fatal("a path outside /var/tmp became a sandbox write capability")
+	}
+}
+
 func TestCleanPolicyPathAllowsCurrentTerminal(t *testing.T) {
 	root := t.TempDir()
 

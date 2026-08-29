@@ -1850,6 +1850,36 @@ func TestAgentShellTerminalPathAllowsCurrentPTYOnly(t *testing.T) {
 	}
 }
 
+func TestSharedLockDirectoryMetadataRequiresTheExactExternalCapabilityShape(
+	t *testing.T,
+) {
+	shared := t.TempDir()
+	if err := os.Chmod(shared, os.ModeSticky|0o777); err != nil {
+		t.Fatalf("set shared lock directory mode: %v", err)
+	}
+	info, err := os.Lstat(shared)
+	if err != nil {
+		t.Fatalf("inspect shared lock metadata: %v", err)
+	}
+	if !validSharedLockDirectoryMetadata("/var/tmp/coding-ethos-shared-lock-test", info) {
+		t.Fatal("the exact direct-child mode-1777 capability shape was rejected")
+	}
+
+	if err := os.Chmod(shared, 0o0777); err != nil {
+		t.Fatalf("remove sticky bit: %v", err)
+	}
+	info, err = os.Lstat(shared)
+	if err != nil {
+		t.Fatalf("inspect non-sticky metadata: %v", err)
+	}
+	if validSharedLockDirectoryMetadata("/var/tmp/coding-ethos-shared-lock-test", info) {
+		t.Fatal("a non-sticky external directory became a shared lock capability")
+	}
+	if validSharedLockDirectoryMetadata("/tmp/coding-ethos-shared-lock-test", info) {
+		t.Fatal("a path outside /var/tmp became a shared lock capability")
+	}
+}
+
 func containsFlagValue(args []string, flag, value string) bool {
 	for index := 0; index < len(args)-1; index++ {
 		if args[index] == flag && args[index+1] == value {

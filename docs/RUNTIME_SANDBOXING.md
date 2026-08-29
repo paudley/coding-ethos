@@ -58,6 +58,13 @@ They are for required workspace or toolchain directories, not policy
 exceptions; `.git` write binds remain blocked even if a consumer lists them
 here.
 
+An outer supervisor may also carry its already-mounted cross-worktree lock
+directories into the nested agent shell through
+`CODE_ETHOS_SHARED_LOCK_DIRECTORIES`, encoded as a JSON string array. Coding
+Ethos accepts only existing, non-symlink, mode-1777 direct children of
+`/var/tmp`; all other external paths fail closed. The variable grants no host
+mount by itself—the outer supervisor remains the mount authority.
+
 Consumer repositories can also opt specific managed tools into network access:
 
 ```yaml
