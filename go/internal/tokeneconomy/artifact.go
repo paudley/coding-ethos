@@ -120,10 +120,22 @@ func writeExclusiveArtifact(path string, payload []byte) error {
 		return fmt.Errorf("create token-economy artifact %s: %w", path, err)
 	}
 
+	return writeExclusiveArtifactFile(path, file, payload)
+}
+
+func writeExclusiveArtifactFile(path string, file *os.File, payload []byte) error {
 	_, writeErr := file.Write(payload)
 	syncErr := file.Sync()
 	closeErr := file.Close()
-	if err = errors.Join(writeErr, syncErr, closeErr); err != nil {
+	if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
+		removeErr := os.Remove(path)
+		if removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			err = errors.Join(
+				err,
+				fmt.Errorf("remove partial token-economy artifact %s: %w", path, removeErr),
+			)
+		}
+
 		return fmt.Errorf("write token-economy artifact %s: %w", path, err)
 	}
 

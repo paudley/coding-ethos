@@ -218,14 +218,39 @@ func TestBenchmarkEnvironmentUsesBenignAllowlist(t *testing.T) {
 func TestBenchmarkCodexArgumentsDisableSandboxNetwork(t *testing.T) {
 	t.Parallel()
 
-	arguments := benchmarkCodexArguments(BenchmarkManifest{
+	arguments, err := benchmarkCodexArguments(BenchmarkManifest{
 		Provider: BenchmarkProvider{
 			Model:           "fixed-model",
 			ReasoningEffort: "high",
 		},
 	}, ArmOff, "/frozen/workspace")
+	if err != nil {
+		t.Fatalf("build Codex benchmark arguments: %v", err)
+	}
 	if !slices.Contains(arguments, "sandbox_workspace_write.network_access=false") {
 		t.Fatalf("Codex benchmark arguments do not disable sandbox network: %#v", arguments)
+	}
+}
+
+func TestBenchmarkCodexArgumentsCanonicalizeFullOverrides(t *testing.T) {
+	t.Parallel()
+
+	manifest := BenchmarkManifest{
+		Provider: BenchmarkProvider{
+			Model:           "fixed-model",
+			ReasoningEffort: "high",
+		},
+		FullConfigOverrides: []string{` features . "code_intel" = true `},
+	}
+	arguments, err := benchmarkCodexArguments(manifest, ArmFull, "/frozen/workspace")
+	if err != nil {
+		t.Fatalf("build Codex benchmark arguments: %v", err)
+	}
+	if !slices.Contains(arguments, "features.code_intel=true") {
+		t.Fatalf("Codex benchmark arguments omit canonical override: %#v", arguments)
+	}
+	if slices.Contains(arguments, manifest.FullConfigOverrides[0]) {
+		t.Fatalf("Codex benchmark arguments forwarded raw TOML: %#v", arguments)
 	}
 }
 

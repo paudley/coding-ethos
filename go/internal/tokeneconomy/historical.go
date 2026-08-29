@@ -547,8 +547,10 @@ func (aggregate *historicalAggregate) finish(
 	aggregate.metrics.Sources = sources
 	aggregate.metrics.ProxySessions = len(aggregate.sessionOwners)
 
-	aggregate.metrics.AvoidedContextTokens = aggregate.metrics.RawContextTokens -
-		aggregate.metrics.DeliveredContextTokens
+	aggregate.metrics.AvoidedContextTokens = avoidedContextTokens(
+		aggregate.metrics.RawContextTokens,
+		aggregate.metrics.DeliveredContextTokens,
+	)
 
 	if aggregate.metrics.RawContextTokens > 0 {
 		aggregate.metrics.GrossReductionPercent = percentageScale *

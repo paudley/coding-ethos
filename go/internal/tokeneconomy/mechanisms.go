@@ -88,10 +88,15 @@ func queryRunMechanisms(
 		return MechanismMetrics{}, fmt.Errorf("query run mechanism evidence: %w", err)
 	}
 
-	metrics.AvoidedContextTokens = max(
-		metrics.RawContextTokens-metrics.DeliveredContextTokens,
-		0,
+	metrics.AvoidedContextTokens = avoidedContextTokens(
+		metrics.RawContextTokens,
+		metrics.DeliveredContextTokens,
 	)
 
 	return metrics, nil
+}
+
+// avoidedContextTokens treats context expansion as zero savings, never negative savings.
+func avoidedContextTokens(rawContextTokens, deliveredContextTokens int64) int64 {
+	return max(rawContextTokens-deliveredContextTokens, 0)
 }

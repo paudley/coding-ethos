@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"html"
 	"os"
@@ -541,6 +542,27 @@ func TestWriteReportArtifactsIsCreateNewAndVerifiable(t *testing.T) {
 	}
 }
 
+func TestWriteExclusiveArtifactRemovesPartialFileAfterWriteFailure(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "partial.json")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, storeFileMode)
+	if err != nil {
+		t.Fatalf("create partial artifact fixture: %v", err)
+	}
+	if err = file.Close(); err != nil {
+		t.Fatalf("close partial artifact fixture: %v", err)
+	}
+
+	err = writeExclusiveArtifactFile(path, file, []byte("payload"))
+	if err == nil {
+		t.Fatal("write through a closed artifact unexpectedly succeeded")
+	}
+	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("partial artifact survived failed write: %v", statErr)
+	}
+}
+
 func TestFormatReportMarkdownIncludesVerifiedContextAndComparisonQuality(t *testing.T) {
 	t.Parallel()
 
@@ -707,6 +729,21 @@ func TestReadRunMechanismsMeasuresFirstTransformsAndRepeatedAdvice(t *testing.T)
 			clamped,
 			err,
 		)
+	}
+}
+
+func TestHistoricalAggregateTreatsExpansionAsZeroSavings(t *testing.T) {
+	t.Parallel()
+
+	aggregate := historicalAggregate{
+		metrics: HistoricalMetrics{
+			RawContextTokens:       5,
+			DeliveredContextTokens: 9,
+		},
+	}
+	metrics, _ := aggregate.finish(historicalWindow{}, nil)
+	if metrics.AvoidedContextTokens != 0 || metrics.GrossReductionPercent != 0 {
+		t.Fatalf("historical expansion reported negative savings: %#v", metrics)
 	}
 }
 

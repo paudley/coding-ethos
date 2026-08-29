@@ -545,6 +545,12 @@ func runCodexBenchmarkWithHomeRemover(
 
 		return finish()
 	}
+	arguments, err := benchmarkCodexArguments(manifest, spec.Arm, workspace)
+	if err != nil {
+		outcome.Errors = append(outcome.Errors, err.Error())
+
+		return finish()
+	}
 
 	stdout, stderr, err := createAgentLogs(runRoot)
 	if err != nil {
@@ -556,7 +562,6 @@ func runCodexBenchmarkWithHomeRemover(
 	runContext, cancel := context.WithTimeout(ctx, agentTimeout)
 	defer cancel()
 
-	arguments := benchmarkCodexArguments(manifest, spec.Arm, workspace)
 	command := safeexec.CommandContext(
 		runContext,
 		manifest.Provider.Executable,
@@ -670,7 +675,7 @@ func benchmarkCodexArguments(
 	manifest BenchmarkManifest,
 	arm Arm,
 	workspace string,
-) []string {
+) ([]string, error) {
 	arguments := []string{
 		"exec",
 		"--json",
@@ -693,12 +698,20 @@ func benchmarkCodexArguments(
 		"sandbox_workspace_write.network_access=false",
 	}
 	if arm == ArmFull {
-		for _, override := range manifest.FullConfigOverrides {
-			arguments = append(arguments, codexConfigFlag, override)
+		for index, override := range manifest.FullConfigOverrides {
+			canonical, err := canonicalFullConfigOverride(override)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"canonicalize full config override %d: %w",
+					index+1,
+					err,
+				)
+			}
+			arguments = append(arguments, codexConfigFlag, canonical)
 		}
 	}
 
-	return append(arguments, "-")
+	return append(arguments, "-"), nil
 }
 
 func benchmarkAgentEnvironment(

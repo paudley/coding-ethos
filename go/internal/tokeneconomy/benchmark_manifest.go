@@ -39,10 +39,12 @@ const (
 )
 
 var (
-	errInvalidBenchmarkManifest = errors.New("invalid token-economy benchmark manifest")
-	benchmarkIDPattern          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-	benchmarkCommitPattern      = regexp.MustCompile(`^[a-f0-9]{40}$`)
-	hexSHA256Pattern            = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	errInvalidBenchmarkManifest  = errors.New("invalid token-economy benchmark manifest")
+	errInvalidFullConfigOverride = errors.New("invalid benchmark full config override")
+	benchmarkIDPattern           = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	benchmarkCommitPattern       = regexp.MustCompile(`^[a-f0-9]{40}$`)
+	benchmarkConfigKeyPattern    = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	hexSHA256Pattern             = regexp.MustCompile(`^[a-f0-9]{64}$`)
 )
 
 // BenchmarkManifest is the versioned YAML experiment contract.
@@ -533,6 +535,14 @@ func validateFullConfigOverrides(overrides []string) error {
 				)
 			}
 		}
+		if _, err := canonicalFullConfigOverride(override); err != nil {
+			return fmt.Errorf(
+				"%w: full config override %d: %w",
+				errInvalidBenchmarkManifest,
+				index+1,
+				err,
+			)
+		}
 
 		for _, path := range leafPaths {
 			identity := strings.Join(path, "\x00")
@@ -548,6 +558,72 @@ func validateFullConfigOverrides(overrides []string) error {
 	}
 
 	return nil
+}
+
+func canonicalFullConfigOverride(override string) (string, error) {
+	config := map[string]any{}
+	if strings.TrimSpace(override) == "" ||
+		toml.Unmarshal([]byte(override), &config) != nil || len(config) == 0 {
+		return "", fmt.Errorf("%w: invalid TOML", errInvalidFullConfigOverride)
+	}
+
+	_, leafPaths := benchmarkConfigPaths(config, nil)
+	if len(leafPaths) != 1 {
+		return "", fmt.Errorf(
+			"%w: must define exactly one setting",
+			errInvalidFullConfigOverride,
+		)
+	}
+	path := leafPaths[0]
+	for _, segment := range path {
+		if !benchmarkConfigKeyPattern.MatchString(segment) {
+			return "", fmt.Errorf(
+				"%w: uses a key that cannot be forwarded safely",
+				errInvalidFullConfigOverride,
+			)
+		}
+	}
+
+	value, found := benchmarkConfigValue(config, path)
+	if !found {
+		return "", fmt.Errorf(
+			"%w: does not resolve to its parsed setting",
+			errInvalidFullConfigOverride,
+		)
+	}
+	encoded, err := toml.Marshal(map[string]any{"value": value})
+	if err != nil {
+		return "", fmt.Errorf("cannot encode its parsed value: %w", err)
+	}
+	line := strings.TrimSuffix(string(encoded), "\n")
+	const valuePrefix = "value = "
+	if !strings.HasPrefix(line, valuePrefix) || strings.Contains(line, "\n") {
+		return "", fmt.Errorf(
+			"%w: uses a value that cannot be forwarded safely",
+			errInvalidFullConfigOverride,
+		)
+	}
+
+	return strings.Join(path, ".") + "=" + strings.TrimPrefix(line, valuePrefix), nil
+}
+
+func benchmarkConfigValue(config map[string]any, path []string) (any, bool) {
+	current := config
+	for index, segment := range path {
+		value, found := current[segment]
+		if !found {
+			return nil, false
+		}
+		if index == len(path)-1 {
+			return value, true
+		}
+		current, found = value.(map[string]any)
+		if !found {
+			return nil, false
+		}
+	}
+
+	return nil, false
 }
 
 func benchmarkConfigPaths(

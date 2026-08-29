@@ -427,7 +427,7 @@ func validateExternalExtractorFact(
 		return err
 	}
 
-	return validateExternalFactStart(result.Path, provenance)
+	return validateExternalFactStart(result.Path, fact.Subject, provenance)
 }
 
 func validateExternalFactProvenance(
@@ -461,6 +461,7 @@ func validateExternalFactProvenance(
 
 func validateExternalFactStart(
 	path string,
+	subject json.RawMessage,
 	provenance ExternalExtractorProvenance,
 ) error {
 	if provenance.SpanFidelity == externalExtractorSpanFidelityNone &&
@@ -472,10 +473,16 @@ func validateExternalFactStart(
 		)
 	}
 
-	if provenance.SpanFidelity == externalExtractorSpanFidelitySubjectStart &&
-		(provenance.Start == nil || provenance.Start.ByteOffset < 0 ||
-			provenance.Start.Line < 1 ||
-			provenance.Start.Column < 1) {
+	if provenance.SpanFidelity != externalExtractorSpanFidelitySubjectStart {
+		return nil
+	}
+
+	if provenance.Start == nil && externalFactHasQuotedTripleSubject(subject) {
+		return nil
+	}
+
+	if provenance.Start == nil || provenance.Start.ByteOffset < 0 ||
+		provenance.Start.Line < 1 || provenance.Start.Column < 1 {
 		return fmt.Errorf(
 			"%w: invalid external fact start position for %q",
 			errInvalidExternalExtractorResponse,
@@ -484,4 +491,17 @@ func validateExternalFactStart(
 	}
 
 	return nil
+}
+
+func externalFactHasQuotedTripleSubject(subject json.RawMessage) bool {
+	var term struct {
+		Kind string `json:"kind"`
+	}
+
+	err := json.Unmarshal(subject, &term)
+	if err != nil {
+		return false
+	}
+
+	return term.Kind == "quoted_triple"
 }

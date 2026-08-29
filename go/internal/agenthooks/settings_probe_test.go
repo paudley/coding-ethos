@@ -91,3 +91,23 @@ func TestValidateKimiStopContinuationRejectsMissingResponse(t *testing.T) {
 		t.Fatalf("error = %v, want missing native response", err)
 	}
 }
+
+func TestValidateKimiStopContinuationRejectsBooleanPermissionDecision(t *testing.T) {
+	t.Parallel()
+
+	err := validateKimiStopContinuationProbe(hookProbeResult{
+		exitCode: 0,
+		stdout: "{\"message\":\"\",\"hookSpecificOutput\":" +
+			"{\"permissionDecision\":true}}\n",
+		payload: map[string]any{
+			"message": "",
+			"hookSpecificOutput": map[string]any{
+				"permissionDecision": true,
+			},
+		},
+	})
+	if err == nil ||
+		!strings.Contains(err.Error(), "permissionDecision must be a string") {
+		t.Fatalf("error = %v, want non-string permissionDecision rejection", err)
+	}
+}

@@ -36,7 +36,6 @@ func (extractor *sourceV2FakeExtractor) Extract(
 	results := make([]ExternalExtractorResult, 0, len(files))
 	for _, file := range files {
 		language := astfacts.LanguageTurtle
-		parser := externalExtractorParserRDF
 		switch filepath.Ext(file.Path) {
 		case ".trig":
 			language = astfacts.LanguageTriG
@@ -46,7 +45,14 @@ func (extractor *sourceV2FakeExtractor) Extract(
 			language = astfacts.LanguageNQuads
 		case ".rq", ".sparql":
 			language = astfacts.LanguageSPARQL
-			parser = externalExtractorParserSPARQL
+		}
+		parser, spanFidelity, err := externalFactContract(language)
+		if err != nil {
+			return ExternalExtractorResponse{}, err
+		}
+		start := &ExternalExtractorPosition{Line: 1, Column: 1}
+		if spanFidelity == externalExtractorSpanFidelityNone {
+			start = nil
 		}
 
 		results = append(results, ExternalExtractorResult{
@@ -58,11 +64,15 @@ func (extractor *sourceV2FakeExtractor) Extract(
 			Facts: []ExternalExtractorFact{{
 				ID:   "fact:sha256:fixture",
 				Kind: "triple",
+				Subject: json.RawMessage(
+					`{"kind":"iri","value":"https://example.test/subject"}`,
+				),
 				Provenance: ExternalExtractorProvenance{
+					Start:          start,
 					Class:          "EXTRACTED",
 					Parser:         parser,
 					ParserRevision: astfacts.PurrdfExtractorRevision,
-					SpanFidelity:   externalExtractorSpanFidelitySubjectStart,
+					SpanFidelity:   spanFidelity,
 					SourcePath:     file.Path,
 				},
 			}},
@@ -105,6 +115,7 @@ func TestSyncSourceIndexBuildsReusableBaseLaneDeltaAndExactQuery(t *testing.T) {
 		"ontology.ttl",
 		"@prefix ex: <https://example.test/> .\nex:s ex:p ex:o .\n",
 	)
+	writeSourceV2TestFile(t, root, "query.rq", "SELECT * WHERE { ?s ?p ?o }\n")
 
 	legacyPath := filepath.Join(root, ".coding-ethos", "code-intel.duckdb")
 	writeSourceV2TestFile(t, root, ".coding-ethos/code-intel.duckdb", "legacy-sentinel")
@@ -138,6 +149,12 @@ func TestSyncSourceIndexBuildsReusableBaseLaneDeltaAndExactQuery(t *testing.T) {
 	); got.Eligible != 1 ||
 		got.Indexed != 1 {
 		t.Fatalf("Turtle coverage = %#v", got)
+	}
+	if got := sourceV2CoverageForLanguage(
+		first.SourceReadiness.Coverage,
+		astfacts.LanguageSPARQL,
+	); got.Eligible != 1 || got.Indexed != 1 {
+		t.Fatalf("SPARQL coverage = %#v", got)
 	}
 	if extractor.calls != 1 || extractor.validations != 1 {
 		t.Fatalf(
@@ -732,6 +749,14 @@ func TestExternalExtractorFactsEnforceSemanticProvenanceAndSpans(t *testing.T) {
 	if err := validateExternalExtractorFacts(validSPARQL); err != nil {
 		t.Fatalf("valid SPARQL facts: %v", err)
 	}
+	quotedTriple := validExternalExtractorResult(astfacts.LanguageTurtle)
+	quotedTriple.Facts[0].Subject = json.RawMessage(
+		`{"kind":"quoted_triple","subject":{"kind":"iri","value":"https://example.test/s"},"predicate":"https://example.test/p","object":{"kind":"iri","value":"https://example.test/o"}}`,
+	)
+	quotedTriple.Facts[0].Provenance.Start = nil
+	if err := validateExternalExtractorFacts(quotedTriple); err != nil {
+		t.Fatalf("valid quoted-triple subject without a start: %v", err)
+	}
 
 	unidentified := validExternalExtractorResult(astfacts.LanguageTurtle)
 	unidentified.Facts[0].ID = ""
@@ -741,8 +766,8 @@ func TestExternalExtractorFactsEnforceSemanticProvenanceAndSpans(t *testing.T) {
 	wrongParser.Facts[0].Provenance.Parser = "wrong-parser"
 	wrongFidelity := validExternalExtractorResult(astfacts.LanguageTurtle)
 	wrongFidelity.Facts[0].Provenance.SpanFidelity = externalExtractorSpanFidelityNone
-	missingStart := validExternalExtractorResult(astfacts.LanguageTurtle)
-	missingStart.Facts[0].Provenance.Start = nil
+	nonQuotedMissingStart := validExternalExtractorResult(astfacts.LanguageTurtle)
+	nonQuotedMissingStart.Facts[0].Provenance.Start = nil
 	invalidStart := validExternalExtractorResult(astfacts.LanguageTurtle)
 	invalidStart.Facts[0].Provenance.Start = &ExternalExtractorPosition{
 		ByteOffset: -1,
@@ -756,14 +781,14 @@ func TestExternalExtractorFactsEnforceSemanticProvenanceAndSpans(t *testing.T) {
 	}
 
 	for name, result := range map[string]ExternalExtractorResult{
-		"unidentified":     unidentified,
-		"duplicate":        duplicate,
-		"wrong parser":     wrongParser,
-		"wrong fidelity":   wrongFidelity,
-		"missing start":    missingStart,
-		"invalid start":    invalidStart,
-		"span-free start":  spanFreeStart,
-		"unknown language": {Language: "python"},
+		"unidentified":             unidentified,
+		"duplicate":                duplicate,
+		"wrong parser":             wrongParser,
+		"wrong fidelity":           wrongFidelity,
+		"non-quoted missing start": nonQuotedMissingStart,
+		"invalid start":            invalidStart,
+		"span-free start":          spanFreeStart,
+		"unknown language":         {Language: "python"},
 	} {
 		if err := validateExternalExtractorFacts(result); err == nil {
 			t.Errorf("%s external facts unexpectedly passed", name)
@@ -792,6 +817,9 @@ func validExternalExtractorResult(language string) ExternalExtractorResult {
 		Facts: []ExternalExtractorFact{{
 			ID:   "fact:sha256:fixture",
 			Kind: "semantic",
+			Subject: json.RawMessage(
+				`{"kind":"iri","value":"https://example.test/subject"}`,
+			),
 			Provenance: ExternalExtractorProvenance{
 				Start:          start,
 				Class:          "EXTRACTED",
