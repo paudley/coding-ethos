@@ -699,22 +699,45 @@ func validateKimiStopContinuationProbe(result hookProbeResult) error {
 		)
 	}
 
-	if hookOutput, found := result.payload["hookSpecificOutput"].(map[string]any); found {
-		if decision, present := hookOutput["permissionDecision"]; present {
-			if _, valid := decision.(string); !valid {
-				return apperror.Wrapf(
-					apperror.StaticError(
-						"Kimi Stop hook permissionDecision must be a string; stdout=%s",
-					),
-					"Kimi Stop hook permissionDecision must be a string; stdout=%s",
-					result.stdout,
-				)
-			}
-
-			return validateKimiStructuredDeny(result)
-		}
+	hookOutputValue, present := result.payload["hookSpecificOutput"]
+	if present {
+		return validateKimiStopHookOutput(result, hookOutputValue)
 	}
 
+	return validateKimiStopMessage(result)
+}
+
+func validateKimiStopHookOutput(result hookProbeResult, value any) error {
+	hookOutput, valid := value.(map[string]any)
+	if !valid {
+		return apperror.Wrapf(
+			apperror.StaticError(
+				"Kimi Stop hook hookSpecificOutput must be an object; stdout=%s",
+			),
+			"Kimi Stop hook hookSpecificOutput must be an object; stdout=%s",
+			result.stdout,
+		)
+	}
+
+	decision, present := hookOutput["permissionDecision"]
+	if !present {
+		return validateKimiStopMessage(result)
+	}
+
+	if _, valid = decision.(string); !valid {
+		return apperror.Wrapf(
+			apperror.StaticError(
+				"Kimi Stop hook permissionDecision must be a string; stdout=%s",
+			),
+			"Kimi Stop hook permissionDecision must be a string; stdout=%s",
+			result.stdout,
+		)
+	}
+
+	return validateKimiStructuredDeny(result)
+}
+
+func validateKimiStopMessage(result hookProbeResult) error {
 	// A supervising hook may legitimately allow a clean Stop. Kimi still
 	// receives a native, decoded response proving the hook ran; only a
 	// supervisor that finds unfinished work needs to return the deny shape that

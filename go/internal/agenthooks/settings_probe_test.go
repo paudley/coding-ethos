@@ -111,3 +111,20 @@ func TestValidateKimiStopContinuationRejectsBooleanPermissionDecision(t *testing
 		t.Fatalf("error = %v, want non-string permissionDecision rejection", err)
 	}
 }
+
+func TestValidateKimiStopContinuationRejectsNonObjectHookOutput(t *testing.T) {
+	t.Parallel()
+
+	err := validateKimiStopContinuationProbe(hookProbeResult{
+		exitCode: 0,
+		stdout:   "{\"message\":\"\",\"hookSpecificOutput\":true}\n",
+		payload: map[string]any{
+			"message":            "",
+			"hookSpecificOutput": true,
+		},
+	})
+	if err == nil ||
+		!strings.Contains(err.Error(), "hookSpecificOutput must be an object") {
+		t.Fatalf("error = %v, want non-object hookSpecificOutput rejection", err)
+	}
+}
