@@ -98,6 +98,10 @@ func TestCapabilitiesReportsRuntimeContractAndKimi(t *testing.T) {
 		`"mcp_command_flag": "--mcp-command"`,
 		`"hook_timeout_flag": "--hook-timeout-seconds"`,
 		`"runtime_policy_command": "runtime-policy"`,
+		`"code_intel": {`,
+		`"contract": "coding-ethos.code-intel/v2"`,
+		`"sync_command": "coding-ethos-code-intel sync --root <worktree>"`,
+		`"status_command": "coding-ethos-code-intel status --root <worktree>"`,
 		`"provider": "kimi"`,
 	} {
 		if !strings.Contains(output, expected) {

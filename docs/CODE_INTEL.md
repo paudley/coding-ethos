@@ -11,18 +11,24 @@ before they run broad shell commands or repeat failed edits.
 
 ## Design Position
 
-Use one repo-local storage substrate with separate logical responsibilities:
+Use explicit storage layers with separate logical responsibilities:
 
-- **DuckDB is the canonical fact store.** It owns traces, policy decisions,
-  remediations, outcomes, code symbols, AST graph edges, file metadata, and
-  full-text search.
+- **Immutable source generations are the exact source-fact substrate.** A
+  content-addressed base manifest is shared through the Git common directory;
+  each worktree owns its delta manifest, tombstones, and current-generation
+  receipt. No shared writable DuckDB is used for these source facts.
+- **DuckDB remains the v1-compatible analytical and telemetry store.** It owns
+  traces, policy decisions, remediations, outcomes, derived AST graph edges,
+  file metadata, and full-text search. Existing v1 stores are retained during
+  the v2 migration and can be rebuilt explicitly as derived state.
 - **duckdb-vss is the active vector backend.** It keeps embeddings, metadata
   filters, and similarity search inside repo-local DuckDB files through the
   pure-Go `github.com/duckdb/duckdb-go/v2` integration, with no native sidecar, daemon,
   hosted service, or conditional build path.
 
-Vector indexes are derived artifacts. They must be rebuildable from the
-canonical DuckDB store and the checked-out repository contents.
+Vector indexes and DuckDB query indexes are derived artifacts. Source readiness
+and vector readiness are reported separately so a missing embedding cannot make
+an exact source generation look stale, or vice versa.
 
 ## Goals
 
@@ -55,9 +61,14 @@ repository
   policy bundle
       |
       v
-Tree-sitter AST extraction
+Central language registry
+  Tree-sitter / Goldmark / PurRDF batch extractor
       |
-      +--> DuckDB canonical store
+      +--> immutable source generation
+      |      shared content-addressed fragments + base manifest
+      |      lane-local delta manifest + tombstones + status receipt
+      |
+      +--> DuckDB derived/telemetry store (v1-compatible)
       |      files
       |      symbols
       |      AST nodes
@@ -114,11 +125,13 @@ same facts; they must not become a second parsing or policy interpretation path.
 The AST layer follows the resolver pattern proven in `~/Active/pyqa_lint`:
 language detection, parser binding, parser reuse, tree traversal, and
 line-to-nearest-context lookup live behind one Go entrypoint. The active
-resolver supports Go, Python, JavaScript/TypeScript, shell, YAML, JSON, and
-TOML. JSON and TOML are treated as first-class config-policy surfaces, so
-agents can retrieve precise config entries instead of reading whole config
-files. Markdown remains intentionally deferred until the project selects a
-maintained Go binding or a first-class adapter for its parser layout.
+resolver supports Go, Python, JavaScript/TypeScript/TSX, Rust, shell, YAML,
+JSON, TOML, and Markdown. JSON and TOML are treated as first-class
+config-policy surfaces, so agents can retrieve precise config entries instead
+of reading whole config files. Every registry entry exposes an exact parser
+fingerprint. Turtle, TriG, N-Triples, N-Quads, and SPARQL use the optional
+one-shot `coding-ethos-purrdf-extractor`; a missing or mismatched external
+extractor fails sync, and is never silently replaced by regex facts.
 
 Tree-sitter-backed policy diagnostics carry AST metadata into SARIF result
 properties and partial fingerprints. Code scanning can therefore track the
@@ -210,6 +223,124 @@ separate shadow database. Inbound and outbound policy denials are exposed
 through MCP `code_intel_proxy_denials`, which queries the same ledger instead of
 reinterpreting proxy policy. The trust boundary and event contract are
 documented in [AGENT_PROXY.md](AGENT_PROXY.md).
+
+## Exact Source Generations (`coding-ethos.code-intel/v2`)
+
+Run a source sync for the exact worktree that an agent will use, then inspect
+the typed receipt:
+
+```bash
+coding-ethos-code-intel sync --root /path/to/worktree
+coding-ethos-code-intel status --root /path/to/worktree
+```
+
+`RepositoryID` hashes the normalized `origin` URL plus the sorted repository
+root-commit set, so equivalent clones share an identity while unrelated
+histories cannot collide. The normalization removes credentials, default
+ports, a trailing `.git`, query, and fragment; SCP-like SSH and canonical SSH
+URLs normalize identically. A repository without `origin` uses the explicit
+path-local fallback `local-common-dir:<canonical-git-common-dir>` plus the same
+root-commit set. Shallow repositories fail closed because their true root
+commit is unavailable. `SourceSnapshotID` hashes repository identity, HEAD,
+current eligible source bytes, config, and the exact extractor set, and
+`GenerationID` hashes the snapshot plus its base and delta manifests. A status
+is `exact` only when every eligible file is indexed by the declared extractor.
+`partial`, `failed`, `missing`, and `stale` are explicit non-exact states.
+Coverage is reported per language with
+`eligible`, `indexed`, `cache_hits`, `unsupported`, `excluded`, `oversized`,
+`failed`, and `stale` counts.
+
+When Turtle, TriG, N-Triples, N-Quads, or SPARQL input is eligible, sync first
+performs an empty protocol exchange with the pinned PurRDF helper. A missing
+helper or any protocol, version, name, or PurRDF-revision mismatch is a hard
+sync error, including when immutable fragments could otherwise be reused.
+Non-RDF repositories do not require the helper. Per-file parser diagnostics
+from a correctly identified helper remain explicit `failed` coverage.
+
+Both commands emit deterministic field shapes. A sync receipt has this form:
+
+```json
+{
+  "contract": "coding-ethos.code-intel/v2",
+  "kind": "coding-ethos.code-intel.sync/v2",
+  "generated_at_utc": "...",
+  "repair": "coding-ethos-code-intel sync --root .",
+  "source_readiness": {
+    "identity": {
+      "repository_id": "repository:sha256:...",
+      "source_snapshot_id": "snapshot:sha256:...",
+      "generation_id": "generation:sha256:...",
+      "head_oid": "...",
+      "worktree_id": "worktree:sha256:...",
+      "worktree_fingerprint": "worktree-content:sha256:...",
+      "config_hash": "config:sha256:...",
+      "extractor_set_hash": "extractors:sha256:..."
+    },
+    "coverage": [],
+    "status": "exact"
+  },
+  "vector_readiness": {
+    "status": "not_evaluated",
+    "ready_records": 0,
+    "missing_vectors": 0
+  },
+  "storage": {
+    "shared_root": "...",
+    "lane_root": "...",
+    "base_manifest_id": "base:sha256:...",
+    "delta_manifest_id": "delta:sha256:..."
+  },
+  "sync": {
+    "files_indexed": 0,
+    "files_failed": 0,
+    "fragments_reused": 0,
+    "fragments_written": 0
+  }
+}
+```
+
+The `status` receipt uses kind `coding-ethos.code-intel.status/v2` and omits
+the `sync` summary. Hook TOON and MCP response metadata expose the same receipt
+under the additive key `coding-ethos.code-intel/v2`. The Go query boundary is
+`QuerySourceIndex`; it refuses missing or stale generations and returns the
+generation identity with path-bound symbol, import, and PurRDF facts. Built-in
+facts carry `EXTRACTED` provenance, the exact parser fingerprint, span fidelity,
+and deterministic confidence. PurRDF facts preserve the helper's parser
+revision and explicit `subject_start` or `none` span fidelity.
+
+Shared objects live under
+`<git-common-dir>/coding-ethos/code-intel/v2/{fragments,bases}` and are created
+immutably. Lane deltas, tombstones, and `current.json` live under the resolved
+state root plus a worktree-specific lane ID. A v2 sync does not delete or
+rewrite a v1 DuckDB. `rebuild-derived` refreshes the derived DuckDB explicitly;
+`rebuild-index` is retained only as a deprecated alias during migration.
+
+The PurRDF helper protocol is `coding-ethos.external-extractor.v1`. The helper
+receives UTF-8 file content through one stdin JSON batch and returns facts on
+stdout; it does not read the worktree, use a network, or run as a daemon. A
+valid batch may contain per-file errors, which remain visible as failed
+language coverage. A missing or mismatched helper aborts sync before a current
+generation receipt is published.
+
+Warm-cache effectiveness is observable through `cache_hits`,
+`fragments_reused`, and `fragments_written`. Run the focused benchmark with
+`go test ./internal/codeintel -run '^$' -bench SourceV2` when comparing cold
+and warm generation costs; keep repository size and extractor fingerprints in
+the benchmark report.
+
+`agent-hooks capabilities` advertises this optional surface as:
+
+```json
+{
+  "code_intel": {
+    "contract": "coding-ethos.code-intel/v2",
+    "sync_command": "coding-ethos-code-intel sync --root <worktree>",
+    "status_command": "coding-ethos-code-intel status --root <worktree>",
+    "source_readiness_statuses": ["exact", "partial", "failed", "missing", "stale"],
+    "vector_readiness_statuses": ["not_evaluated", "partial", "ready"]
+  }
+}
+```
 
 ## Canonical DuckDB Store
 
@@ -367,12 +498,17 @@ bin/coding-ethos-run code-intel hybrid-search --text 'unused import' --model-id 
 bin/coding-ethos-run code-intel index-status --model-id voyage-code-3
 bin/coding-ethos-run code-intel vector-stats
 bin/coding-ethos-run code-intel search --text 'unused import'
+bin/coding-ethos-run code-intel sync --root .
+bin/coding-ethos-run code-intel status --root .
+bin/coding-ethos-run code-intel rebuild-derived --root .
+# Deprecated compatibility alias:
 bin/coding-ethos-run code-intel rebuild-index --root .
 bin/coding-ethos-run code-intel workspace status --root ..
 ```
 
-These commands read retained `.coding-ethos` traces and write only the
-repo-local `.coding-ethos/code-intel.duckdb` store.
+Legacy analytical commands read retained `.coding-ethos` traces and write the
+repo-local `.coding-ethos/code-intel.duckdb` store. The v2 `sync` and `status`
+commands use the immutable shared-base and lane-delta layout described above.
 
 Workspace commands are the exception to repo-local state because they model a
 parent directory or worktree family. They store only registry and derived

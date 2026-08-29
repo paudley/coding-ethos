@@ -89,3 +89,16 @@ func TestRepairGitignoreIsIdempotent(t *testing.T) {
 		t.Fatalf("second RepairGitignore changed = true, want false")
 	}
 }
+
+func TestRuntimePathsIncludeExactSourceIndexState(t *testing.T) {
+	t.Parallel()
+
+	const sourceIndexState = ".coding-ethos/code-intel-v2/"
+	for _, path := range RuntimePaths() {
+		if path == sourceIndexState {
+			return
+		}
+	}
+
+	t.Fatalf("RuntimePaths missing %q", sourceIndexState)
+}

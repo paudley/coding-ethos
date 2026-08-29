@@ -50,7 +50,8 @@ func codeIntelArgs(root, stateRoot string, args []string) []string {
 		next = append(next, "--root", root)
 	}
 
-	if !hasFlag(args, "--db") && !sameCleanPath(root, stateRoot) {
+	sourceOnlyCommand := slices.Contains([]string{"sync", "status"}, args[0])
+	if !sourceOnlyCommand && !hasFlag(args, "--db") && !sameCleanPath(root, stateRoot) {
 		next = append(
 			next,
 			"--db",

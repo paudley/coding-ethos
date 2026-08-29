@@ -146,6 +146,77 @@ func TestAnalyzeIndexesCodeSymbolsImportsAndReferences(t *testing.T) {
 	}
 }
 
+func TestAnalyzeIndexesRustAndPublishesExactExtractorDescriptors(t *testing.T) {
+	t.Parallel()
+
+	file, found, err := Analyze("src/lib.rs", []byte(`
+use std::collections::HashMap;
+
+trait Runner {
+	fn run(&self);
+}
+
+struct Worker;
+
+impl Runner for Worker {
+	fn run(&self) {
+		helper();
+	}
+}
+
+fn helper() {}
+`))
+	if err != nil {
+		t.Fatalf("analyze Rust: %v", err)
+	}
+	if !found || file.Language != LanguageRust || file.HasParseError {
+		t.Fatalf("Rust facts = %#v found=%v", file, found)
+	}
+	if !hasSymbol(file.Symbols, "Worker", "struct") ||
+		!hasSymbol(file.Symbols, "Runner", "trait") ||
+		!hasSymbol(file.Symbols, "helper", "function") {
+		t.Fatalf("Rust symbols missing: %#v", file.Symbols)
+	}
+	if !hasImport(file.Imports, "std::collections::HashMap") {
+		t.Fatalf("Rust import missing: %#v", file.Imports)
+	}
+	if !hasCall(file.Symbols, "Worker.run", "helper") {
+		t.Fatalf("Rust call missing: %#v", file.Symbols)
+	}
+
+	name, fingerprint := ParserMetadataForPath("src/lib.rs")
+	if name != "tree-sitter-rust" || fingerprint != "tree-sitter-rust@v0.23.2" {
+		t.Fatalf("Rust parser metadata = %q %q", name, fingerprint)
+	}
+
+	rdf, ok := SourceLanguageForPath("ontology/model.ttl")
+	if !ok || rdf.BuiltIn || rdf.Extractor.Protocol != PurrdfExtractorProtocol ||
+		rdf.Extractor.Fingerprint != "purrdf@1+purrdf-"+PurrdfExtractorRevision {
+		t.Fatalf("PurRDF descriptor = %#v ok=%v", rdf, ok)
+	}
+	for path, language := range map[string]string{
+		"ontology/model.trig": LanguageTriG,
+		"ontology/model.nt":   LanguageNTriples,
+		"ontology/model.nq":   LanguageNQuads,
+		"ontology/query.rq":   LanguageSPARQL,
+	} {
+		descriptor, found := SourceLanguageForPath(path)
+		if !found || descriptor.Language != language || descriptor.BuiltIn {
+			t.Errorf("PurRDF descriptor for %q = %#v found=%v", path, descriptor, found)
+		}
+	}
+
+	typescript, ok := SourceLanguageForPath("web/app.ts")
+	if !ok || typescript.Variant != "typescript" {
+		t.Fatalf("TypeScript descriptor = %#v ok=%v", typescript, ok)
+	}
+	tsx, ok := SourceLanguageForPath("web/app.tsx")
+	if !ok || tsx.Variant != "tsx" ||
+		tsx.Extractor.Fingerprint == typescript.Extractor.Fingerprint {
+		t.Fatalf("TSX descriptor = %#v ok=%v", tsx, ok)
+	}
+}
+
 func TestAnalyzeIndexesJavaScriptAndTypeScriptFacts(t *testing.T) {
 	t.Parallel()
 

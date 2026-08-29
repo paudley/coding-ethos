@@ -338,7 +338,7 @@ func outputSurfaceChecks(report outputsurface.Report) []operatorStatusCheck {
 		checks = append(checks, operatorStatusCheck{
 			Name:   "code_intel_db",
 			Status: operatorStatusWarn,
-			Detail: "code-intel DuckDB store is missing; run code-intel rebuild-index",
+			Detail: "code-intel DuckDB store is missing; run code-intel rebuild-derived",
 		})
 	case codeIntelDB.DBStats == nil:
 		checks = append(checks, operatorStatusCheck{

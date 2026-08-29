@@ -205,7 +205,7 @@ func TestFormatDownstreamAnalysisTOONEmitsActionableSummary(t *testing.T) {
 	analysis := DownstreamAnalysis{
 		IssueSummary: DownstreamIssueSummary{
 			NextActions: []string{
-				"coding-ethos-run code-intel rebuild-index --root <repo>",
+				"coding-ethos-run code-intel rebuild-derived --root <repo>",
 			},
 		},
 		PolicyBlockers: []DownstreamPolicyBlocker{{
@@ -267,7 +267,7 @@ func TestFormatDownstreamAnalysisHumanEmitsStableSummary(t *testing.T) {
 	analysis := DownstreamAnalysis{
 		IssueSummary: DownstreamIssueSummary{
 			NextActions: []string{
-				"coding-ethos-run code-intel rebuild-index --root <repo>",
+				"coding-ethos-run code-intel rebuild-derived --root <repo>",
 			},
 		},
 		PolicyBlockers: []DownstreamPolicyBlocker{

@@ -944,7 +944,7 @@ case "$*" in
   "check-ignore --quiet .claude/settings.local.json")
     exit 0
     ;;
-  "check-ignore --quiet .coding-ethos/cache/"|"check-ignore --quiet .coding-ethos/code-intel.duckdb"|"check-ignore --quiet .coding-ethos/code-intel.duckdb.wal"|"check-ignore --quiet .coding-ethos/events/"|"check-ignore --quiet .coding-ethos/hook-runs/"|"check-ignore --quiet .coding-ethos/lint-runs/"|"check-ignore --quiet .coding-ethos/prune-runs/"|"check-ignore --quiet .coding-ethos/state/")
+  "check-ignore --quiet .coding-ethos/cache/"|"check-ignore --quiet .coding-ethos/code-intel-v2/"|"check-ignore --quiet .coding-ethos/code-intel.duckdb"|"check-ignore --quiet .coding-ethos/code-intel.duckdb.wal"|"check-ignore --quiet .coding-ethos/events/"|"check-ignore --quiet .coding-ethos/hook-runs/"|"check-ignore --quiet .coding-ethos/lint-runs/"|"check-ignore --quiet .coding-ethos/prune-runs/"|"check-ignore --quiet .coding-ethos/state/")
     exit 0
     ;;
   "check-ignore --quiet .gemini/settings.json"|"check-ignore --quiet .mcp.json")
@@ -965,7 +965,7 @@ exit 2
 		t.Fatalf("checkRuntimeIgnoresCommand() = %d, want 0", got)
 	}
 
-	if got := requiredRuntimeIgnorePaths(); len(got) != 11 {
+	if got := requiredRuntimeIgnorePaths(); len(got) != 12 {
 		t.Fatalf("requiredRuntimeIgnorePaths() = %#v", got)
 	}
 }

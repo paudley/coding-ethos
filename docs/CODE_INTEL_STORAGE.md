@@ -5,11 +5,22 @@
 
 ## Decision
 
-`coding-ethos` uses append-only event files as durable telemetry and DuckDB as
-the only local analytical code-intel store.
+`coding-ethos` uses immutable content-addressed files for exact source facts,
+append-only event files for durable telemetry, and DuckDB for derived local
+analytics.
+
+- `<git-common-dir>/coding-ethos/code-intel/v2/` contains immutable shared
+  fragments and HEAD base manifests.
+- `<state-root>/.coding-ethos/code-intel-v2/lanes/<worktree-id>/` contains one
+  worktree's immutable delta manifests, tombstones, and current receipt.
 
 - `.coding-ethos/events/*.jsonl` is the durable live telemetry surface.
 - `.coding-ethos/code-intel.duckdb` is the local analytical query index.
+
+Manifest repository identity is independent of these storage paths: it hashes
+the normalized origin URL and repository root-commit set. Repositories without
+an origin use a documented path-local common-directory fallback; shallow
+repositories cannot produce an exact identity.
 
 Hook, lint, proxy, SARIF, remediation, and embedding entrypoints write a
 structured event before they update the DuckDB query index. The DuckDB index is
@@ -30,8 +41,15 @@ rebuildable analytical surface.
 
 ## Operational Contract
 
-- `code-intel rebuild-index` creates or refreshes `code-intel.duckdb` and
+- `code-intel sync` creates or reuses an exact v2 source generation without
+  deleting or rewriting the v1 store.
+- Eligible RDF or SPARQL requires an identity-validated pinned PurRDF helper;
+  missing or mismatched helpers fail sync instead of degrading silently.
+- `code-intel status` compares the recorded source snapshot to the current
+  worktree and reports exact, partial, failed, missing, or stale coverage.
+- `code-intel rebuild-derived` creates or refreshes `code-intel.duckdb` and
   removes obsolete pre-DuckDB store artifacts without importing them.
+- `code-intel rebuild-index` is a deprecated alias for `rebuild-derived`.
 - `code-intel downstream-analysis` reads DuckDB and retained logs. Its default
   `json` output is stable for automation; `--format toon` provides the compact
   operator handoff, and `--format human` provides a short readable summary.
@@ -61,4 +79,4 @@ Downstream reports expose storage and support fields directly:
 These fields are intended for issue-ready support summaries without manual DB or
 log spelunking. Compact downstream output ranks blocking friction ahead of
 allowed activity and includes command-ready repair guidance such as
-`coding-ethos-run code-intel rebuild-index --root <repo>`.
+`coding-ethos-run code-intel rebuild-derived --root <repo>`.

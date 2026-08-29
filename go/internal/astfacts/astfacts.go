@@ -21,14 +21,16 @@ import (
 const (
 	symbolKindConfigEntry = "config_entry"
 	symbolKindFunction    = "function"
+	unknownParserMetadata = "unknown"
 )
 
 type File struct {
-	ContentHash string
-	Language    string
-	Symbols     []Symbol
-	Imports     []Import
-	LineCount   int
+	ContentHash   string
+	Language      string
+	Symbols       []Symbol
+	Imports       []Import
+	LineCount     int
+	HasParseError bool
 }
 
 type Import struct {
@@ -283,7 +285,7 @@ func processCall(
 
 func isCallNode(language, nodeKind string) bool {
 	switch language {
-	case LanguageGo, LanguageJavaScript, LanguageTypeScript:
+	case LanguageGo, LanguageJavaScript, LanguageRust, LanguageTypeScript:
 		return nodeKind == "call_expression"
 	case LanguagePython:
 		return nodeKind == "call"
@@ -299,29 +301,30 @@ func callFunctionName(language string, contents []byte, node *tree_sitter.Node) 
 		return ""
 	}
 
-	// For member calls (e.g. obj.method()), we want the method name.
-	switch language {
-	case LanguageGo:
-		if functionNode.Kind() == "selector_expression" {
-			if field := functionNode.ChildByFieldName("field"); field != nil {
-				return cleanSymbolName(field.Utf8Text(contents))
-			}
-		}
-	case LanguagePython:
-		if functionNode.Kind() == "attribute" {
-			if attr := functionNode.ChildByFieldName("attribute"); attr != nil {
-				return cleanSymbolName(attr.Utf8Text(contents))
-			}
-		}
-	case LanguageJavaScript, LanguageTypeScript:
-		if functionNode.Kind() == "member_expression" {
-			if property := functionNode.ChildByFieldName("property"); property != nil {
-				return cleanSymbolName(property.Utf8Text(contents))
-			}
+	memberKind, memberField := callMemberMetadata(language)
+	if functionNode.Kind() == memberKind {
+		member := functionNode.ChildByFieldName(memberField)
+		if member != nil {
+			return cleanSymbolName(member.Utf8Text(contents))
 		}
 	}
 
 	return cleanSymbolName(functionNode.Utf8Text(contents))
+}
+
+func callMemberMetadata(language string) (string, string) {
+	switch language {
+	case LanguageGo:
+		return "selector_expression", "field"
+	case LanguagePython:
+		return "attribute", "attribute"
+	case LanguageJavaScript, LanguageTypeScript:
+		return "member_expression", "property"
+	case LanguageRust:
+		return "field_expression", "field"
+	default:
+		return "", ""
+	}
 }
 
 func BaseNames(
@@ -384,6 +387,8 @@ func importNodeKind(language, nodeKind string) bool {
 	switch language {
 	case LanguageGo:
 		return nodeKind == "import_spec"
+	case LanguageRust:
+		return nodeKind == "use_declaration"
 	case LanguagePython:
 		return nodeKind == "import_statement" || nodeKind == "import_from_statement"
 	case LanguageJavaScript, LanguageTypeScript:
@@ -406,6 +411,10 @@ func ImportTarget(language string, contents []byte, node *tree_sitter.Node) stri
 
 		if name := firstDescendantText(contents, node, pythonImportNameNodeKind); name != "" {
 			return cleanImportTarget(name)
+		}
+	case LanguageRust:
+		if argument := node.ChildByFieldName("argument"); argument != nil {
+			return cleanRustImportTarget(argument.Utf8Text(contents))
 		}
 	}
 
@@ -483,7 +492,7 @@ func pythonImportNameNodeKind(nodeKind string) bool {
 
 func referenceIdentifierKind(language, nodeKind string) bool {
 	switch language {
-	case LanguageGo, LanguagePython, LanguageJavaScript, LanguageTypeScript:
+	case LanguageGo, LanguagePython, LanguageJavaScript, LanguageRust, LanguageTypeScript:
 		return nodeKind == "identifier"
 	case LanguageShell:
 		return nodeKind == "word" || nodeKind == "command_name"
@@ -509,7 +518,7 @@ type nodeSymbolKindEntry struct {
 }
 
 func nodeSymbolKindEntries() []nodeSymbolKindEntry {
-	return []nodeSymbolKindEntry{
+	entries := []nodeSymbolKindEntry{
 		{
 			Language:   LanguageGo,
 			NodeKind:   "function_declaration",
@@ -586,10 +595,31 @@ func nodeSymbolKindEntries() []nodeSymbolKindEntry {
 			SymbolKind: symbolKindConfigEntry,
 		},
 	}
+
+	return slices.Concat(entries, rustNodeSymbolKindEntries())
+}
+
+func rustNodeSymbolKindEntries() []nodeSymbolKindEntry {
+	return []nodeSymbolKindEntry{
+		{Language: LanguageRust, NodeKind: "const_item", SymbolKind: "constant"},
+		{Language: LanguageRust, NodeKind: "enum_item", SymbolKind: "enum"},
+		{Language: LanguageRust, NodeKind: "function_item", SymbolKind: symbolKindFunction},
+		{Language: LanguageRust, NodeKind: "impl_item", SymbolKind: "implementation"},
+		{Language: LanguageRust, NodeKind: "macro_definition", SymbolKind: "macro"},
+		{Language: LanguageRust, NodeKind: "mod_item", SymbolKind: "module"},
+		{Language: LanguageRust, NodeKind: "static_item", SymbolKind: "constant"},
+		{Language: LanguageRust, NodeKind: "struct_item", SymbolKind: "struct"},
+		{Language: LanguageRust, NodeKind: "trait_item", SymbolKind: "trait"},
+		{Language: LanguageRust, NodeKind: "type_item", SymbolKind: "type"},
+	}
 }
 
 func SymbolName(node *tree_sitter.Node, contents []byte) string {
 	name := node.ChildByFieldName("name")
+	if name == nil && node.Kind() == "impl_item" {
+		name = node.ChildByFieldName("type")
+	}
+
 	if name == nil {
 		name = node.ChildByFieldName("key")
 	}
@@ -619,11 +649,23 @@ func cleanMarkdownHeading(text string) string {
 }
 
 func ParserMetadataForLanguage(language string) (string, string) {
-	if language == LanguageMarkdown {
-		return "goldmark", "v1.8.2"
+	for _, descriptor := range LanguageDescriptors() {
+		if descriptor.Language == language {
+			return descriptor.Extractor.Name, descriptor.Extractor.Fingerprint
+		}
 	}
 
-	return "tree-sitter", "go-tree-sitter"
+	return unknownParserMetadata, unknownParserMetadata
+}
+
+// ParserMetadataForPath returns the exact extractor fingerprint for a source path.
+func ParserMetadataForPath(path string) (string, string) {
+	descriptor, ok := SourceLanguageForPath(path)
+	if !ok {
+		return unknownParserMetadata, unknownParserMetadata
+	}
+
+	return descriptor.Extractor.Name, descriptor.Extractor.Fingerprint
 }
 
 func AnalyzeMarkdown(path string, contents []byte) File {
@@ -796,6 +838,13 @@ func cleanImportTarget(value string) string {
 	value = strings.TrimSpace(value)
 
 	return strings.Trim(value, ".")
+}
+
+func cleanRustImportTarget(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimSuffix(value, ";")
+
+	return strings.TrimSpace(value)
 }
 
 func sortedMapKeys(values map[string]bool) []string {

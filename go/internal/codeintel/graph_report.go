@@ -361,7 +361,7 @@ func graphReportWarnings(stats Stats, repoMap RepoMap) []string {
 	if stats.Files == 0 || stats.CodeChunks == 0 {
 		warnings = append(
 			warnings,
-			"code index is empty; run code-intel index-code or rebuild-index",
+			"code index is empty; run code-intel index-code or rebuild-derived",
 		)
 	}
 

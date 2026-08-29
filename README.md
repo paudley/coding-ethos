@@ -464,7 +464,9 @@ bin/coding-ethos-run code-intel decisions add --title 'Use explicit startup' --r
 bin/coding-ethos-run code-intel decisions import docs/decisions
 bin/coding-ethos-run code-intel decisions list --path pkg/app.py --query startup
 bin/coding-ethos-run code-intel decisions health --path pkg/app.py
-bin/coding-ethos-run code-intel rebuild-index
+bin/coding-ethos-run code-intel sync --root .
+bin/coding-ethos-run code-intel status --root .
+bin/coding-ethos-run code-intel rebuild-derived
 bin/coding-ethos-run code-intel hook-usage --risk-category bypass
 bin/coding-ethos-run code-intel record-hook-review --trace-id hook-1 --disposition false_positive
 bin/coding-ethos-run code-intel hook-reviews --disposition false_positive
@@ -576,8 +578,12 @@ Use `--format json|toon|human` to choose between the stable automation payload,
 compact TOON handoff, or a short operator-readable summary. The compact output
 puts blocking friction, affected command families, repeated remediation loops,
 storage repair commands, and evidence gaps ahead of high-volume allowed events.
-`rebuild-index` refreshes the DuckDB analytical index from append-only events
-and retained event logs, then removes obsolete store files after rebuild.
+`sync` creates the exact immutable source generation for the current worktree.
+`status` compares that generation to current source bytes and reports source
+readiness independently from vector readiness. `rebuild-derived` refreshes the
+DuckDB analytical index from append-only events and retained event logs, then
+removes obsolete store files after rebuild. The old `rebuild-index` spelling is
+a deprecated compatibility alias.
 
 Inspect the repo-local disk output surface before pruning or deeper analysis:
 
@@ -687,8 +693,10 @@ detected repo paths, likely symbols, direct graph edges, repeated-failure
 evidence, risk flags, and exact MCP follow-up calls such as
 `code_intel_context_card {"path":"pkg/app.py"}`. Missing or stale code-intel
 does not block the tool result; the hook emits a concise refresh hint with
-`coding-ethos-code-intel rebuild-index`. Repositories can disable or cap this
-context with `proxy.code_intel_enrichment` in `repo_config.yaml`.
+`coding-ethos-code-intel sync --root .`. Hook and MCP metadata carry the
+additive exact-source receipt under `coding-ethos.code-intel/v2`.
+Repositories can disable or cap this context with `proxy.code_intel_enrichment`
+in `repo_config.yaml`.
 
 PreToolUse hooks also perform narrow semantic policy injection. Mutating Git
 intents such as `policy-git commit` inject the `safe-git-workflow` skill pointer
@@ -1589,6 +1597,11 @@ bin/coding-ethos-run agent-hooks doctor
 bin/coding-ethos-run agent-hooks verify
 bin/coding-ethos-run agent-hooks capabilities
 ```
+
+The versioned capability report includes an optional `code_intel` object with
+contract `coding-ethos.code-intel/v2` and the exact `sync` and `status` command
+templates. Orchestrators can feature-detect that object without changing the
+existing agent-hooks v1 discovery envelope.
 
 Agent hook generation is all-or-nothing. `sync` writes every supported
 repo-local surface. Provider support levels, native settings files, hook events,
