@@ -22,9 +22,13 @@ import (
 )
 
 const (
-	externalExtractorStatusError = "error"
-	externalExtractorStatusOK    = "ok"
-	purrdfExtractorBinary        = "coding-ethos-purrdf-extractor"
+	externalExtractorParserRDF                = "purrdf-rdf"
+	externalExtractorParserSPARQL             = "purrdf-sparql-algebra"
+	externalExtractorSpanFidelityNone         = "none"
+	externalExtractorSpanFidelitySubjectStart = "subject_start"
+	externalExtractorStatusError              = "error"
+	externalExtractorStatusOK                 = "ok"
+	purrdfExtractorBinary                     = "coding-ethos-purrdf-extractor"
 )
 
 var errExternalExtractorUnavailable = errors.New(
@@ -349,9 +353,11 @@ func externalFactContract(language string) (string, string, error) {
 		astfacts.LanguageTriG,
 		astfacts.LanguageNTriples,
 		astfacts.LanguageNQuads:
-		return "purrdf-rdf", "subject_start", nil
+		return externalExtractorParserRDF,
+			externalExtractorSpanFidelitySubjectStart,
+			nil
 	case astfacts.LanguageSPARQL:
-		return "purrdf-sparql-algebra", "none", nil
+		return externalExtractorParserSPARQL, externalExtractorSpanFidelityNone, nil
 	default:
 		return "", "", fmt.Errorf(
 			"%w: unexpected external extractor language %q",
@@ -457,7 +463,8 @@ func validateExternalFactStart(
 	path string,
 	provenance ExternalExtractorProvenance,
 ) error {
-	if provenance.SpanFidelity == "none" && provenance.Start != nil {
+	if provenance.SpanFidelity == externalExtractorSpanFidelityNone &&
+		provenance.Start != nil {
 		return fmt.Errorf(
 			"%w: span-free external fact has a start position for %q",
 			errInvalidExternalExtractorResponse,
@@ -465,7 +472,8 @@ func validateExternalFactStart(
 		)
 	}
 
-	if provenance.SpanFidelity == "subject_start" && provenance.Start != nil &&
+	if provenance.SpanFidelity == externalExtractorSpanFidelitySubjectStart &&
+		provenance.Start != nil &&
 		(provenance.Start.ByteOffset < 0 || provenance.Start.Line < 1 ||
 			provenance.Start.Column < 1) {
 		return fmt.Errorf(

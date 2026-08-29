@@ -36,7 +36,7 @@ func (extractor *sourceV2FakeExtractor) Extract(
 	results := make([]ExternalExtractorResult, 0, len(files))
 	for _, file := range files {
 		language := astfacts.LanguageTurtle
-		parser := "purrdf-rdf"
+		parser := externalExtractorParserRDF
 		switch filepath.Ext(file.Path) {
 		case ".trig":
 			language = astfacts.LanguageTriG
@@ -46,7 +46,7 @@ func (extractor *sourceV2FakeExtractor) Extract(
 			language = astfacts.LanguageNQuads
 		case ".rq", ".sparql":
 			language = astfacts.LanguageSPARQL
-			parser = "purrdf-sparql-algebra"
+			parser = externalExtractorParserSPARQL
 		}
 
 		results = append(results, ExternalExtractorResult{
@@ -62,7 +62,7 @@ func (extractor *sourceV2FakeExtractor) Extract(
 					Class:          "EXTRACTED",
 					Parser:         parser,
 					ParserRevision: astfacts.PurrdfExtractorRevision,
-					SpanFidelity:   "subject_start",
+					SpanFidelity:   externalExtractorSpanFidelitySubjectStart,
 					SourcePath:     file.Path,
 				},
 			}},
@@ -734,7 +734,7 @@ func TestExternalExtractorFactsEnforceSemanticProvenanceAndSpans(t *testing.T) {
 	wrongParser := validExternalExtractorResult(astfacts.LanguageTurtle)
 	wrongParser.Facts[0].Provenance.Parser = "wrong-parser"
 	wrongFidelity := validExternalExtractorResult(astfacts.LanguageTurtle)
-	wrongFidelity.Facts[0].Provenance.SpanFidelity = "none"
+	wrongFidelity.Facts[0].Provenance.SpanFidelity = externalExtractorSpanFidelityNone
 	invalidStart := validExternalExtractorResult(astfacts.LanguageTurtle)
 	invalidStart.Facts[0].Provenance.Start = &ExternalExtractorPosition{
 		ByteOffset: -1,
@@ -763,12 +763,12 @@ func TestExternalExtractorFactsEnforceSemanticProvenanceAndSpans(t *testing.T) {
 }
 
 func validExternalExtractorResult(language string) ExternalExtractorResult {
-	parser := "purrdf-rdf"
-	spanFidelity := "subject_start"
+	parser := externalExtractorParserRDF
+	spanFidelity := externalExtractorSpanFidelitySubjectStart
 	start := &ExternalExtractorPosition{Line: 1, Column: 1}
 	if language == astfacts.LanguageSPARQL {
-		parser = "purrdf-sparql-algebra"
-		spanFidelity = "none"
+		parser = externalExtractorParserSPARQL
+		spanFidelity = externalExtractorSpanFidelityNone
 		start = nil
 	}
 
