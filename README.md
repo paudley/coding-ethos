@@ -474,6 +474,10 @@ bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel proxy-events --session-id sess-1
 bin/coding-ethos-run code-intel session-snapshot --session-id sess-1 --format toon
 bin/coding-ethos-run code-intel context-advice --session-id sess-1 --format toon
+bin/coding-ethos-run code-intel token-economy ledger --provider codex --path /absolute/path/to/rollout.jsonl
+bin/coding-ethos-run code-intel token-economy benchmark validate --manifest /private/protocol/frozen.yaml
+bin/coding-ethos-run code-intel token-economy benchmark run --manifest /private/protocol/frozen.yaml --state-root /private/evidence --approved-max-runs 30
+bin/coding-ethos-run code-intel token-economy report --historical --db /private/lane-1/code-intel.duckdb --db /private/lane-2/code-intel.duckdb --from 2026-08-01T00:00:00Z --to 2026-09-01T00:00:00Z --output-prefix /private/reports/history
 bin/coding-ethos-run code-intel repeated-edits --path pkg/app.py
 bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
 bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports

@@ -15,6 +15,8 @@ const (
 	golangciLintFormatTool       = "golangci-lint-format"
 	golangciLintTool             = "golangci-lint"
 	injectedRootArgCount         = 2
+	reportCommand                = "report"
+	tokenEconomyCommand          = "token-economy"
 )
 
 func runnerArgs(argv []string) []string {
@@ -34,6 +36,10 @@ func runnerArgs(argv []string) []string {
 }
 
 func codeIntelArgs(root, stateRoot string, args []string) []string {
+	if len(args) > 0 && args[0] == tokenEconomyCommand {
+		return tokenEconomyArgs(root, stateRoot, args)
+	}
+
 	args = withoutFlags(args, "--state-root")
 	if len(args) == 0 {
 		return args
@@ -53,6 +59,26 @@ func codeIntelArgs(root, stateRoot string, args []string) []string {
 	}
 
 	next = append(next, args[1:]...)
+
+	return next
+}
+
+//nolint:wsl_v5 // Nested injection keeps the emitted argv sequence adjacent.
+func tokenEconomyArgs(root, stateRoot string, args []string) []string {
+	if len(args) < 2 || args[1] != reportCommand {
+		return append([]string(nil), args...)
+	}
+
+	explicitStateRoot := flagValue(args[2:], "--state-root", "")
+	next := []string{args[0], args[1]}
+	if !hasFlag(args[2:], "--root") {
+		next = append(next, "--root", root)
+	}
+	if explicitStateRoot == "" && !sameCleanPath(root, stateRoot) {
+		next = append(next, "--state-root", stateRoot)
+	}
+
+	next = append(next, args[2:]...)
 
 	return next
 }
