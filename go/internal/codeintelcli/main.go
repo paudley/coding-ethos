@@ -105,6 +105,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"skill-health":              printSkillHealth,
 		"stats":                     printStats,
 		"surprises":                 printSurprises,
+		tokenEconomyCommand:         tokenEconomy,
 		"upsert-vector":             upsertVector,
 		"vector-stats":              printVectorStats,
 		"workspace":                 workspace,

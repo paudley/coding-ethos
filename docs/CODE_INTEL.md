@@ -228,6 +228,66 @@ its before/after file hashes must match. When `--destination` is omitted, the
 command resolves it through `CODE_ETHOS_STATE_ROOT`; when `--source` is omitted,
 the repository-local store is used.
 
+## Token Economy Evidence
+
+`code-intel token-economy` measures context reduction without treating an
+enabled-only trace as a causal savings result. Its evidence lives in the
+separate private store `.coding-ethos/token-economy.duckdb`, so benchmark
+records do not change the code-intel migration inventory.
+
+Inspect a provider-native ledger without retaining prompt or response bodies:
+
+```bash
+bin/coding-ethos-run code-intel token-economy ledger \
+  --provider codex --path /absolute/path/to/rollout.jsonl
+```
+
+Codex ledgers use the final cumulative provider total and treat cached input as
+a subset. Claude ledgers deduplicate message IDs, exclude synthetic messages,
+and sum input, cache-creation, cache-read, and output tokens. A ledger that
+changes while being read, contains conflicting identities, or has decreasing
+cumulative usage fails closed.
+
+Write an observational historical report from existing proxy transforms:
+
+```bash
+bin/coding-ethos-run code-intel token-economy report \
+  --historical \
+  --db /private/lane-1/code-intel.duckdb \
+  --db /private/lane-2/code-intel.duckdb \
+  --from 2026-08-01T00:00:00Z \
+  --to 2026-09-01T00:00:00Z \
+  --output-prefix /private/reports/token-economy-history
+```
+
+Historical inputs are explicit and `--db` is repeatable. The UTC interval is
+half-open: `--from` is inclusive and `--to` is exclusive. Sources are
+canonicalized and ordered before aggregation. The command rejects repeated
+source files and event IDs found in more than one source, hashes every source
+before and after the read, and records the ordered paths and both hashes in the
+report.
+
+Write a controlled report after benchmark runs have been recorded:
+
+```bash
+bin/coding-ethos-run code-intel token-economy report \
+  --experiment-id EXPERIMENT \
+  --output-prefix /private/reports/token-economy-EXPERIMENT
+```
+
+Both report modes create JSON, Markdown, and a detached SHA-256 receipt with
+mode `0600`; existing paths are never overwritten. Historical reports always
+set `causal=false`. Controlled reports require randomized and isolated full,
+static, and off arms, complete provider ledgers and validation receipts, at
+least ten tasks, a savings interval excluding zero, and acceptance-rate
+noninferiority before returning `causal_savings`. Controlled intervals spend
+alpha across predeclared complete-block checkpoints to preserve 95% family-wise
+confidence during adaptive collection.
+
+The complete frozen-manifest, three-arm runner, adaptive collection, and
+failure-accounting protocol is documented in
+[`TOKEN_ECONOMY.md`](TOKEN_ECONOMY.md).
+
 The first implementation should create `.coding-ethos/code-intel.duckdb` with
 tables for:
 
@@ -293,6 +353,7 @@ bin/coding-ethos-run code-intel proxy-sessions --provider codex
 bin/coding-ethos-run code-intel proxy-events --session-id sess-1
 bin/coding-ethos-run code-intel session-snapshot --session-id sess-1 --format toon
 bin/coding-ethos-run code-intel context-advice --format toon
+bin/coding-ethos-run code-intel token-economy report --historical --db /private/code-intel.duckdb --from 2026-08-01T00:00:00Z --to 2026-09-01T00:00:00Z --output-prefix /private/reports/history
 bin/coding-ethos-run code-intel remediation-outcomes --outcome repeated
 bin/coding-ethos-run code-intel remediation-effectiveness --policy-id python.unused_imports
 bin/coding-ethos-run code-intel skill-health --format toon

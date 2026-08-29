@@ -228,6 +228,68 @@ func TestCodeIntelArgsBindPrivateStateDatabase(t *testing.T) {
 	}
 }
 
+func TestCodeIntelArgsBindTokenEconomyStateRootAfterNestedCommand(t *testing.T) {
+	t.Parallel()
+
+	args := codeIntelArgs(
+		"/repo",
+		"/private/state",
+		[]string{"token-economy", "report", "--historical", "--output-prefix", "/tmp/report"},
+	)
+
+	want := []string{
+		"token-economy",
+		"report",
+		"--root",
+		"/repo",
+		"--state-root",
+		"/private/state",
+		"--historical",
+		"--output-prefix",
+		"/tmp/report",
+	}
+	if !slices.Equal(args, want) {
+		t.Fatalf("codeIntelArgs() = %#v, want %#v", args, want)
+	}
+}
+
+func TestCodeIntelArgsDoNotRewriteExplicitBenchmarkContract(t *testing.T) {
+	t.Parallel()
+
+	input := []string{
+		"token-economy",
+		"benchmark",
+		"run",
+		"--manifest",
+		"/private/benchmark.yaml",
+		"--state-root",
+		"/private/evidence",
+		"--approved-max-runs",
+		"3",
+	}
+	args := codeIntelArgs("/repo", "/ambient/state", input)
+	if !slices.Equal(args, input) {
+		t.Fatalf("codeIntelArgs() = %#v, want explicit contract %#v", args, input)
+	}
+}
+
+func TestCodeIntelArgsDoNotAddReportFlagsToLedger(t *testing.T) {
+	t.Parallel()
+
+	input := []string{
+		"token-economy",
+		"ledger",
+		"--provider",
+		"codex",
+		"--path",
+		"/private/rollout.jsonl",
+	}
+	args := codeIntelArgs("/repo", "/ambient/state", input)
+	if !slices.Equal(args, input) {
+		t.Fatalf("codeIntelArgs() = %#v, want ledger contract %#v", args, input)
+	}
+}
+
 func TestAgentHooksArgsInjectCapabilityEthosRootWithoutHookCommand(t *testing.T) {
 	t.Parallel()
 
