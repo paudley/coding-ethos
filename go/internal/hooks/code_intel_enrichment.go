@@ -27,7 +27,7 @@ const (
 	defaultCodeIntelEnrichmentMaxEdges       = 4
 	defaultCodeIntelEnrichmentMaxFailures    = 4
 	defaultCodeIntelEnrichmentMaxOutputPaths = 12
-	codeIntelEnrichmentRefreshCommand        = "coding-ethos-code-intel rebuild-index"
+	codeIntelEnrichmentRefreshCommand        = "coding-ethos-code-intel sync --root ."
 	codeIntelTimestampSQLLayout              = "2006-01-02 15:04:05"
 	unknownValue                             = "unknown"
 	codeIntelFreshnessStateDirMode           = 0o700
@@ -50,6 +50,7 @@ type codeIntelEnrichmentOptions struct {
 }
 
 type codeIntelEnrichment struct {
+	V2           *codeintel.SourceStatusReceipt
 	Status       string
 	Refresh      string
 	Reason       string
@@ -224,22 +225,32 @@ func buildCodeIntelEnrichment(
 	)
 	defer cancel()
 
+	sourceStatus, sourceStatusErr := codeintel.SourceIndexStatus(ctx, root)
+
 	store, err := codeintel.OpenReadOnly(
 		ctx,
 		codeintel.DefaultDBPath(codeintel.ResolveStateRoot(root)),
 	)
 	if err != nil {
-		return codeIntelEnrichment{
+		enrichment := codeIntelEnrichment{
 			Status:  codeIntelStatusMissingIndex,
 			Refresh: codeIntelEnrichmentRefreshCommand,
 			Reason:  "code-intel index is not available",
 		}
+		if sourceStatusErr == nil {
+			enrichment.V2 = &sourceStatus
+		}
+
+		return enrichment
 	}
 	defer store.Close()
 
 	enrichment := codeIntelEnrichment{
 		Status:  codeIntelIndexStatus(ctx, store),
 		Refresh: codeIntelEnrichmentRefreshCommand,
+	}
+	if sourceStatusErr == nil {
+		enrichment.V2 = &sourceStatus
 	}
 
 	paths := enrichmentTargetPaths(event, root, toolOutput, options.MaxPaths)
@@ -904,6 +915,8 @@ func renderCodeIntelEnrichment(enrichment codeIntelEnrichment) string {
 		lines = append(lines, "reason: "+toonCell(enrichment.Reason))
 	}
 
+	lines = appendCodeIntelV2Metadata(lines, enrichment.V2)
+
 	lines = appendEnrichmentPaths(lines, enrichment.Paths)
 	lines = appendEnrichmentSymbols(lines, enrichment.Symbols)
 	lines = appendEnrichmentRelated(lines, enrichment.Related)
@@ -911,6 +924,27 @@ func renderCodeIntelEnrichment(enrichment codeIntelEnrichment) string {
 	lines = appendEnrichmentNextCalls(lines, enrichment.NextMCPCalls)
 
 	return strings.Join(lines, "\n")
+}
+
+func appendCodeIntelV2Metadata(
+	lines []string,
+	receipt *codeintel.SourceStatusReceipt,
+) []string {
+	if receipt == nil {
+		return lines
+	}
+
+	identity := receipt.SourceReadiness.Identity
+
+	return append(lines,
+		"coding-ethos.code-intel/v2:",
+		"  source_status: "+toonCell(receipt.SourceReadiness.Status),
+		"  repository_id: "+toonCell(string(identity.RepositoryID)),
+		"  source_snapshot_id: "+toonCell(string(identity.SourceSnapshotID)),
+		"  generation_id: "+toonCell(string(identity.GenerationID)),
+		"  vector_status: "+toonCell(receipt.VectorReadiness.Status),
+		"  repair: "+toonCell(receipt.Repair),
+	)
 }
 
 func appendEnrichmentPaths(

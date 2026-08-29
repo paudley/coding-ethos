@@ -50,7 +50,7 @@ func Parse(path string, contents []byte) (*tree_sitter.Tree, bool, error) {
 }
 
 func (resolver *Resolver) Analyze(path string, contents []byte) (File, bool, error) {
-	language, parserLanguage, ok := languageForPath(path)
+	language, parserKey, parserLanguage, ok := languageForPath(path)
 	if !ok {
 		return File{}, false, nil
 	}
@@ -59,7 +59,7 @@ func (resolver *Resolver) Analyze(path string, contents []byte) (File, bool, err
 		return resolver.analyzeMarkdown(path, contents), true, nil
 	}
 
-	tree, err := resolver.parse(path, language, parserLanguage, contents)
+	tree, err := resolver.parse(path, parserKey, parserLanguage, contents)
 	if err != nil {
 		return File{}, false, err
 	}
@@ -69,11 +69,12 @@ func (resolver *Resolver) Analyze(path string, contents []byte) (File, bool, err
 	root := tree.RootNode()
 
 	return File{
-		Symbols:     CollectSymbols(path, language, contents, root, lineCount),
-		Imports:     CollectImports(language, contents, root),
-		ContentHash: ContentHash(contents),
-		Language:    language,
-		LineCount:   lineCount,
+		Symbols:       CollectSymbols(path, language, contents, root, lineCount),
+		Imports:       CollectImports(language, contents, root),
+		ContentHash:   ContentHash(contents),
+		Language:      language,
+		LineCount:     lineCount,
+		HasParseError: root.HasError(),
 	}, true, nil
 }
 
@@ -111,12 +112,12 @@ func (resolver *Resolver) Parse(
 	path string,
 	contents []byte,
 ) (*tree_sitter.Tree, bool, error) {
-	language, parserLanguage, ok := languageForPath(path)
+	language, parserKey, parserLanguage, ok := languageForPath(path)
 	if !ok || language == LanguageMarkdown {
 		return nil, false, nil
 	}
 
-	tree, err := resolver.parse(path, language, parserLanguage, contents)
+	tree, err := resolver.parse(path, parserKey, parserLanguage, contents)
 	if err != nil {
 		return nil, true, err
 	}
@@ -130,11 +131,11 @@ func (resolver *Resolver) analyzeMarkdown(path string, contents []byte) File {
 
 func (resolver *Resolver) parse(
 	path string,
-	language string,
+	parserKey string,
 	parserLanguage unsafe.Pointer,
 	contents []byte,
 ) (*tree_sitter.Tree, error) {
-	entry, err := resolver.parserEntry(path, language, parserLanguage)
+	entry, err := resolver.parserEntry(path, parserKey, parserLanguage)
 	if err != nil {
 		return nil, err
 	}
@@ -156,13 +157,13 @@ func (resolver *Resolver) parse(
 
 func (resolver *Resolver) parserEntry(
 	path string,
-	language string,
+	parserKey string,
 	parserLanguage unsafe.Pointer,
 ) (*parserEntry, error) {
 	resolver.mu.Lock()
 	defer resolver.mu.Unlock()
 
-	entry := resolver.parsers[language]
+	entry := resolver.parsers[parserKey]
 	if entry == nil {
 		parser := tree_sitter.NewParser()
 
@@ -174,7 +175,7 @@ func (resolver *Resolver) parserEntry(
 		}
 
 		entry = &parserEntry{parser: parser}
-		resolver.parsers[language] = entry
+		resolver.parsers[parserKey] = entry
 	}
 
 	return entry, nil

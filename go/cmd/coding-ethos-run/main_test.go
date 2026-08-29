@@ -290,6 +290,18 @@ func TestCodeIntelArgsDoNotAddReportFlagsToLedger(t *testing.T) {
 	}
 }
 
+func TestCodeIntelArgsKeepSourceV2CommandsFreeOfDuckDBFlags(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"sync", "status"} {
+		got := codeIntelArgs("/repo", "/private/state", []string{command})
+		want := []string{command, "--root", "/repo"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("codeIntelArgs(%q) = %#v, want %#v", command, got, want)
+		}
+	}
+}
+
 func TestAgentHooksArgsInjectCapabilityEthosRootWithoutHookCommand(t *testing.T) {
 	t.Parallel()
 

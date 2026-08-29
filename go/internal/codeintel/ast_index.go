@@ -774,7 +774,7 @@ func (indexer ASTIndexer) indexFile(
 
 	existing, found := existingFiles[relativePath]
 
-	parserName, parserVersion := astfacts.ParserMetadataForLanguage(language)
+	parserName, parserVersion := astfacts.ParserMetadataForPath(path)
 	sourceModTime := formatSourceModTime(info.ModTime())
 
 	if found &&

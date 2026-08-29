@@ -487,7 +487,7 @@ func downstreamEvidenceGaps(analysis DownstreamAnalysis) []DownstreamEvidenceGap
 			Source:         "hook-runs/event.json",
 			QueryIndex:     analysis.StorageHealth.Backend,
 			Count:          analysis.LogSignals.EventJSONCount,
-			Recommendation: "run code-intel rebuild-index to materialize durable events",
+			Recommendation: "run code-intel rebuild-derived to materialize durable events",
 		})
 	}
 
@@ -540,7 +540,7 @@ func downstreamIssueSummary(analysis DownstreamAnalysis) DownstreamIssueSummary 
 	if analysis.StorageHealth.Recommendation != downstreamHealthy {
 		summary.NextActions = append(
 			summary.NextActions,
-			"coding-ethos-run code-intel rebuild-index --root <repo>",
+			"coding-ethos-run code-intel rebuild-derived --root <repo>",
 		)
 	}
 
