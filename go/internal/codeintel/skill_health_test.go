@@ -173,6 +173,55 @@ func TestStoreRecordsSkillObservationAsUnknownOutcome(t *testing.T) {
 	}
 }
 
+func TestFormatSkillHealthTOONSerializesSummaryAndEscapesCells(t *testing.T) {
+	t.Parallel()
+
+	report := SkillHealthReport{
+		Kind:            "skill health",
+		GeneratedAtUTC:  "2026-08-29T21:00:00Z",
+		PromotionPolicy: "promote: fixed",
+		Summary: SkillHealthSummary{
+			Known:             7,
+			Observed:          6,
+			Unknown:           1,
+			Unused:            2,
+			FrequentlyFailing: 3,
+			Improving:         4,
+			Stale:             5,
+		},
+		Skills: []SkillHealthRecord{{
+			SkillID:    "safe-git-workflow",
+			Status:     "healthy",
+			Trend:      "stable_success",
+			Total:      5,
+			SourcePath: "skills,safe-git\nworkflow",
+			Window7:    SkillHealthWindow{Fixed: 1, Repeated: 2},
+			Window30:   SkillHealthWindow{Fixed: 3, Repeated: 4},
+		}},
+	}
+
+	want := strings.Join([]string{
+		"code_intel_skill_health:",
+		`  kind: "skill health"`,
+		`  generated_at_utc: "2026-08-29T21:00:00Z"`,
+		`  promotion_policy: "promote: fixed"`,
+		"  known: 7",
+		"  observed: 6",
+		"  unknown: 1",
+		"  unused: 2",
+		"  frequently_failing: 3",
+		"  improving: 4",
+		"  stale: 5",
+		"  skills[skill_id,status,trend,total,7d_fixed,7d_repeated," +
+			"30d_fixed,30d_repeated,last_used_utc,source_path]:",
+		`    safe-git-workflow,healthy,stable_success,5,1,2,3,4,"","skills,safe-git workflow"`,
+	}, "\n") + "\n"
+
+	if got := FormatSkillHealthTOON(report); got != want {
+		t.Fatalf("skill health TOON mismatch:\n--- got ---\n%s--- want ---\n%s", got, want)
+	}
+}
+
 func recordSkillHealthOutcome(
 	t *testing.T,
 	ctx context.Context,

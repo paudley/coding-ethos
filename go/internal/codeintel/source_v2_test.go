@@ -714,3 +714,83 @@ func TestExternalExtractorResponseRejectsWrongRevision(t *testing.T) {
 		t.Fatalf("wrong extractor revision accepted: %s", payload)
 	}
 }
+
+func TestExternalExtractorFactsEnforceSemanticProvenanceAndSpans(t *testing.T) {
+	t.Parallel()
+
+	validTurtle := validExternalExtractorResult(astfacts.LanguageTurtle)
+	if err := validateExternalExtractorFacts(validTurtle); err != nil {
+		t.Fatalf("valid Turtle facts: %v", err)
+	}
+	validSPARQL := validExternalExtractorResult(astfacts.LanguageSPARQL)
+	if err := validateExternalExtractorFacts(validSPARQL); err != nil {
+		t.Fatalf("valid SPARQL facts: %v", err)
+	}
+
+	unidentified := validExternalExtractorResult(astfacts.LanguageTurtle)
+	unidentified.Facts[0].ID = ""
+	duplicate := validExternalExtractorResult(astfacts.LanguageTurtle)
+	duplicate.Facts = append(duplicate.Facts, duplicate.Facts[0])
+	wrongParser := validExternalExtractorResult(astfacts.LanguageTurtle)
+	wrongParser.Facts[0].Provenance.Parser = "wrong-parser"
+	wrongFidelity := validExternalExtractorResult(astfacts.LanguageTurtle)
+	wrongFidelity.Facts[0].Provenance.SpanFidelity = "none"
+	invalidStart := validExternalExtractorResult(astfacts.LanguageTurtle)
+	invalidStart.Facts[0].Provenance.Start = &ExternalExtractorPosition{
+		ByteOffset: -1,
+		Line:       0,
+		Column:     0,
+	}
+	spanFreeStart := validExternalExtractorResult(astfacts.LanguageSPARQL)
+	spanFreeStart.Facts[0].Provenance.Start = &ExternalExtractorPosition{
+		Line:   1,
+		Column: 1,
+	}
+
+	for name, result := range map[string]ExternalExtractorResult{
+		"unidentified":     unidentified,
+		"duplicate":        duplicate,
+		"wrong parser":     wrongParser,
+		"wrong fidelity":   wrongFidelity,
+		"invalid start":    invalidStart,
+		"span-free start":  spanFreeStart,
+		"unknown language": {Language: "python"},
+	} {
+		if err := validateExternalExtractorFacts(result); err == nil {
+			t.Errorf("%s external facts unexpectedly passed", name)
+		}
+	}
+}
+
+func validExternalExtractorResult(language string) ExternalExtractorResult {
+	parser := "purrdf-rdf"
+	spanFidelity := "subject_start"
+	start := &ExternalExtractorPosition{Line: 1, Column: 1}
+	if language == astfacts.LanguageSPARQL {
+		parser = "purrdf-sparql-algebra"
+		spanFidelity = "none"
+		start = nil
+	}
+
+	path := "model.ttl"
+	if language == astfacts.LanguageSPARQL {
+		path = "query.rq"
+	}
+
+	return ExternalExtractorResult{
+		Path:     path,
+		Language: language,
+		Facts: []ExternalExtractorFact{{
+			ID:   "fact:sha256:fixture",
+			Kind: "semantic",
+			Provenance: ExternalExtractorProvenance{
+				Start:          start,
+				Class:          "EXTRACTED",
+				Parser:         parser,
+				ParserRevision: astfacts.PurrdfExtractorRevision,
+				SpanFidelity:   spanFidelity,
+				SourcePath:     path,
+			},
+		}},
+	}
+}

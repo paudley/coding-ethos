@@ -519,6 +519,131 @@ func TestWriteReportArtifactsIsCreateNewAndVerifiable(t *testing.T) {
 	}
 }
 
+func TestFormatReportMarkdownIncludesVerifiedContextAndComparisonQuality(t *testing.T) {
+	t.Parallel()
+
+	report := Report{
+		Cohort:         "cohort-a",
+		GeneratedAtUTC: "2026-08-29T21:00:00Z",
+		Conclusion:     ConclusionCausalSavings,
+		Causal:         true,
+		Historical: &HistoricalMetrics{
+			FromUTC:                "2026-08-01T00:00:00Z",
+			ToUTC:                  "2026-09-01T00:00:00Z",
+			RawContextTokens:       1000,
+			DeliveredContextTokens: 600,
+			AvoidedContextTokens:   400,
+			GrossReductionPercent:  40,
+			Sources: []HistoricalSource{{
+				Path:        "evidence`store.duckdb",
+				SHA256After: "abc123",
+			}},
+		},
+		Comparisons: []Comparison{
+			{
+				TreatmentArm:           ArmFull,
+				ControlArm:             ArmOff,
+				TaskCount:              2,
+				SavingsPercent:         12.5,
+				SavingsPercentInterval: Interval{Lower: 10, Upper: 15},
+				ConfidenceLevelPercent: 95,
+				QualityNonInferior:     true,
+			},
+			{
+				TreatmentArm:           ArmStatic,
+				ControlArm:             ArmOff,
+				TaskCount:              1,
+				SavingsPercent:         -2,
+				SavingsPercentInterval: Interval{Lower: -5, Upper: 1},
+				ConfidenceLevelPercent: 90,
+			},
+		},
+		Coverage: Coverage{
+			TaskCount:          3,
+			CompleteTaskCount:  2,
+			CompleteBlockCount: 4,
+			PartialBlockCount:  1,
+			RunCount:           9,
+			AcceptedRunCount:   8,
+			Reasons:            []string{"one incomplete\nblock"},
+		},
+	}
+
+	markdown := formatReportMarkdown(report)
+	for _, expected := range []string{
+		"## Observational context reduction",
+		"- `evidence\\`store.duckdb`: `abc123` (unchanged)",
+		"| full | off | 2 | 12.50% | 10.00% to 15.00% | 95.00% | non-inferior |",
+		"| static | off | 1 | -2.00% | -5.00% to 1.00% | 90.00% | " +
+			"not established |",
+		"- one incomplete block",
+	} {
+		if !strings.Contains(markdown, expected) {
+			t.Fatalf("Markdown report missing %q:\n%s", expected, markdown)
+		}
+	}
+}
+
+func TestReadRunMechanismsMeasuresFirstTransformsAndRepeatedAdvice(t *testing.T) {
+	t.Parallel()
+
+	missing, err := readRunMechanisms(
+		context.Background(),
+		filepath.Join(t.TempDir(), "missing.duckdb"),
+		"session-1",
+	)
+	if err != nil || missing != (MechanismMetrics{}) {
+		t.Fatalf("missing mechanism store = %#v, %v", missing, err)
+	}
+
+	path := filepath.Join(t.TempDir(), "mechanisms.duckdb")
+	database, err := sql.Open("duckdb", path)
+	if err != nil {
+		t.Fatalf("open mechanism fixture: %v", err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE proxy_events(
+			event_id TEXT, session_id TEXT, event_kind TEXT,
+			output_hash TEXT, output_tokens BIGINT
+		)`,
+		`CREATE TABLE proxy_transforms(
+			event_id TEXT, ordinal INTEGER, input_tokens BIGINT
+		)`,
+		`INSERT INTO proxy_events VALUES
+			('e1', 'session-1', 'payload_injection', 'same', 40),
+			('e2', 'session-1', 'payload_injection', 'same', 20),
+			('e3', 'session-1', 'response', '', 30),
+			('outside', 'session-2', 'payload_injection', 'same', 999)`,
+		`INSERT INTO proxy_transforms VALUES
+			('e1', 0, 100), ('e1', 1, 200), ('e2', 0, 50),
+			('e3', 0, 70), ('outside', 0, 999)`,
+	} {
+		if _, err = database.Exec(statement); err != nil {
+			_ = database.Close()
+			t.Fatalf("create mechanism fixture: %v", err)
+		}
+	}
+	if err = database.Close(); err != nil {
+		t.Fatalf("close mechanism fixture: %v", err)
+	}
+
+	metrics, err := readRunMechanisms(context.Background(), path, "session-1")
+	if err != nil {
+		t.Fatalf("read mechanism evidence: %v", err)
+	}
+	want := MechanismMetrics{
+		RawContextTokens:       220,
+		DeliveredContextTokens: 90,
+		AvoidedContextTokens:   130,
+		InjectedGuidanceTokens: 60,
+		RepeatedAdviceCount:    1,
+		TransformEventCount:    3,
+	}
+	if metrics != want {
+		t.Fatalf("mechanism metrics = %#v, want %#v", metrics, want)
+	}
+}
+
 func createHistoricalFixture(t *testing.T) string {
 	t.Helper()
 
