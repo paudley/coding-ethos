@@ -149,8 +149,8 @@ func codexProviderCapability() ProviderCapability {
 			"Stop",
 		},
 		SettingsTarget: ".codex/config.toml",
-		BlockResponseShape: "decision = block plus permissionDecision = deny " +
-			"for PreToolUse",
+		BlockResponseShape: "exit 2 with stderr reason or decision = block plus " +
+			"permissionDecision = deny for PreToolUse",
 		ContextAdviceShape: "additionalContext where native; compact " +
 			"systemMessage otherwise",
 		MCPSetup: ".codex/config.toml mcp_servers.coding-ethos stdio server",

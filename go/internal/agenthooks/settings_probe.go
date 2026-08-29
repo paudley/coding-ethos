@@ -586,6 +586,18 @@ func validateCodexBlockReason(
 	if result.exitCode == 0 {
 		return apperror.StaticError("codex raw git probe should block")
 	}
+	// Codex's native command-hook block contract is exit 2 with the reason on
+	// stderr. Coding Ethos's own hook adapter also emits a structured JSON
+	// receipt, so verify both valid routes instead of requiring an external
+	// supervisor to manufacture stdout that Codex ignores on a blocking exit.
+	if strings.TrimSpace(result.stdout) == "" {
+		reason := strings.TrimSpace(result.stderr)
+		if reason == "" {
+			return apperror.StaticError("missing Codex block reason on stderr")
+		}
+
+		return validateCodexBlockReasonMarkers(reason, reasonMarkers)
+	}
 
 	actual, found := result.payload["decision"].(string)
 	if !found || actual != "block" {
@@ -606,15 +618,9 @@ func validateCodexBlockReason(
 		)
 	}
 
-	for _, marker := range reasonMarkers {
-		if !strings.Contains(reason, marker) {
-			return apperror.Wrapf(
-				apperror.StaticError("codex block reason lost marker %q: %s"),
-				"codex block reason lost marker %q: %s",
-				marker,
-				reason,
-			)
-		}
+	err := validateCodexBlockReasonMarkers(reason, reasonMarkers)
+	if err != nil {
+		return err
 	}
 
 	permissionReason, found := nestedString(
@@ -628,6 +634,21 @@ func validateCodexBlockReason(
 			"missing permissionDecisionReason in %s",
 			result.stdout,
 		)
+	}
+
+	return nil
+}
+
+func validateCodexBlockReasonMarkers(reason string, reasonMarkers []string) error {
+	for _, marker := range reasonMarkers {
+		if !strings.Contains(reason, marker) {
+			return apperror.Wrapf(
+				apperror.StaticError("codex block reason lost marker %q: %s"),
+				"codex block reason lost marker %q: %s",
+				marker,
+				reason,
+			)
+		}
 	}
 
 	return nil
@@ -670,7 +691,26 @@ func validateKimiStopContinuationProbe(result hookProbeResult) error {
 		)
 	}
 
-	return validateKimiStructuredDeny(result)
+	if _, found := nestedString(
+		result.payload,
+		"hookSpecificOutput",
+		"permissionDecision",
+	); found {
+		return validateKimiStructuredDeny(result)
+	}
+	// A supervising hook may legitimately allow a clean Stop. Kimi still
+	// receives a native, decoded response proving the hook ran; only a
+	// supervisor that finds unfinished work needs to return the deny shape that
+	// continues the turn.
+	if _, found := result.payload["message"].(string); !found {
+		return apperror.Wrapf(
+			apperror.StaticError("Kimi Stop hook returned no native response: %s"),
+			"Kimi Stop hook returned no native response: %s",
+			result.stdout,
+		)
+	}
+
+	return nil
 }
 
 func validateKimiStructuredDeny(result hookProbeResult) error {
