@@ -931,6 +931,11 @@ install/check emit only status plus artifact-step rows, while parent lint emits
 the normal coding-ethos TOON lint report. See `TO_MY_PARENT.md` for the parent
 artifact contract.
 
+`parent-install` rebuilds the checkout-authoritative Go tools and atomically
+projects byte-identical executables into the parent repository's stable common
+Git runtime. `parent-check` hashes both sides and fails if that projection is
+missing, non-executable, symlinked back to a retiring checkout, or stale.
+
 When `parent-install` or `parent-lint` receives an external `--state-root`, it
 leaves the consumer checkout's tracked `.gitignore` unchanged. Other generated
 parent artifacts remain normal consumer surfaces; repo-local state retains the
@@ -939,7 +944,9 @@ runtime-ignore repair.
 Git hooks installed for a parent repository route through its stable common
 Git runtime at `.git/coding-ethos-hooks/bin/coding-ethos-run`. They never point
 at a worktree-local build path, so one worktree cannot strand every sibling's
-hooks when its own checkout is retired or hidden by a lane sandbox.
+hooks when its own checkout is retired or hidden by a lane sandbox. Running the
+supported parent workflow refreshes and verifies that shared executable
+projection as part of the same install/check contract.
 
 Parent repos can opt into profile defaults in `repo_config.yaml`:
 

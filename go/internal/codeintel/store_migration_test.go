@@ -119,7 +119,7 @@ func TestMigrateStoreRejectsUnequalDuplicateRows(t *testing.T) {
 	}
 }
 
-func TestMigrateStorePreservesEqualLogicalKeyDuplicates(t *testing.T) {
+func TestMigrateStorePreservesAndDeduplicatesEqualLogicalKeyRows(t *testing.T) {
 	tests := []struct {
 		name                string
 		sourceCopies        int
@@ -170,25 +170,45 @@ func TestMigrateStorePreservesEqualLogicalKeyDuplicates(t *testing.T) {
 				t.Fatalf("migrate equal logical-key duplicates: %v", err)
 			}
 
-			for _, tableName := range []string{
+			lshEvidence := migrationTableEvidence(t, result.Manifest.Tables, "lsh_bands")
+			if lshEvidence.SourceRows != int64(test.sourceCopies) ||
+				lshEvidence.ImportedRows != test.wantImported ||
+				lshEvidence.MatchedRows != test.wantMatched ||
+				lshEvidence.DestinationRows != test.wantDestinationRows {
+				t.Fatalf("unexpected lsh_bands evidence: %#v", lshEvidence)
+			}
+			assertMigrationTableRowCount(
+				t,
+				ctx,
+				destinationPath,
 				"lsh_bands",
+				test.wantDestinationRows,
+			)
+
+			for _, tableName := range []string{
 				"code_intel_fts",
 				"code_intel_search_terms",
 			} {
 				evidence := migrationTableEvidence(t, result.Manifest.Tables, tableName)
+				wantImported := min(test.wantImported, 1)
+				wantDestinationRows := min(test.wantDestinationRows, 1)
+				wantDeduplicated := int64(0)
+				if test.destinationCopies == 0 {
+					wantDeduplicated = int64(test.sourceCopies) - wantImported
+				}
 				if evidence.SourceRows != int64(test.sourceCopies) ||
-					evidence.ImportedRows != test.wantImported ||
+					evidence.ImportedRows != wantImported ||
 					evidence.MatchedRows != test.wantMatched ||
-					evidence.DestinationRows != test.wantDestinationRows {
+					evidence.DeduplicatedRows != wantDeduplicated ||
+					evidence.DestinationRows != wantDestinationRows {
 					t.Fatalf("unexpected %s evidence: %#v", tableName, evidence)
 				}
-
 				assertMigrationTableRowCount(
 					t,
 					ctx,
 					destinationPath,
 					tableName,
-					test.wantDestinationRows,
+					wantDestinationRows,
 				)
 			}
 		})
@@ -222,9 +242,15 @@ func TestMigrateStoreRejectsConflictingLogicalKeyVariants(t *testing.T) {
 					SourcePath:      sourcePath,
 					DestinationPath: destinationPath,
 				})
-				if err == nil ||
-					!strings.Contains(err.Error(), "conflicting row variants") ||
-					!strings.Contains(err.Error(), tableName) {
+				conflictingVariant := err != nil &&
+					strings.Contains(err.Error(), "conflicting row variants") &&
+					strings.Contains(err.Error(), tableName)
+				conflictingUpgrade := err != nil && tableName == "code_intel_fts" &&
+					strings.Contains(
+						err.Error(),
+						"conflicting code intelligence FTS rows share identity",
+					)
+				if !conflictingVariant && !conflictingUpgrade {
 					t.Fatalf("expected %s conflict rejection, got %v", tableName, err)
 				}
 
@@ -454,8 +480,25 @@ func insertMigrationLogicalKeySupport(
 	database *sql.DB,
 ) {
 	t.Helper()
+	for _, indexName := range []string{
+		"idx_code_intel_fts_id_unique",
+		"idx_code_intel_search_terms_unique",
+	} {
+		_, err := database.ExecContext(ctx, "DROP INDEX IF EXISTS "+indexName)
+		if err != nil {
+			t.Fatalf("drop v2 logical-key index %s: %v", indexName, err)
+		}
+	}
 
 	_, err := database.ExecContext(
+		ctx,
+		"UPDATE schema_metadata SET value = '1' WHERE key = 'schema_version'",
+	)
+	if err != nil {
+		t.Fatalf("mark logical-key fixture as schema v1: %v", err)
+	}
+
+	_, err = database.ExecContext(
 		ctx,
 		`INSERT OR IGNORE INTO code_files(
 			path, language, content_hash, size_bytes, line_count, indexed_at_utc
@@ -523,9 +566,13 @@ func recordTestMigrationIdentity(
 	repositoryRoot string,
 ) {
 	t.Helper()
-	store := openMigrationTestStore(t, ctx, databasePath)
+	database, err := sql.Open("duckdb", databasePath)
+	if err != nil {
+		t.Fatalf("open test migration identity database: %v", err)
+	}
+	defer database.Close()
 
-	_, err := store.Database().ExecContext(
+	_, err = database.ExecContext(
 		ctx,
 		`INSERT OR REPLACE INTO schema_metadata(key, value)
 		VALUES ('repository_identity', ?)`,
@@ -534,8 +581,6 @@ func recordTestMigrationIdentity(
 	if err != nil {
 		t.Fatalf("record test migration identity: %v", err)
 	}
-
-	closeMigrationTestStore(t, store)
 }
 
 func assertMigrationCodeFileHash(

@@ -250,6 +250,12 @@ Goal: make the checked-out `coding-ethos` repository the single build and
 runtime source of truth. Consumer repository hooks should only discover,
 repair, and dispatch.
 
+> Historical plan: the completed phases below describe the earlier
+> checkout-local runtime. The current worktree-safe contract keeps the selected
+> checkout as source/build authority and installs a byte-verified executable
+> projection in the Git-common `.git/coding-ethos-hooks` runtime. See
+> `docs/HOOK_RUNTIME_BOOTSTRAP.md` for the superseding architecture.
+
 ### Phase 1 - Runtime Layout
 
 - [x] Replace the consumer `.git/coding-ethos-hooks` runtime cache with

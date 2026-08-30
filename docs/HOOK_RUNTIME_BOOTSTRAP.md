@@ -5,50 +5,55 @@
 
 ## Decision
 
-The consumer repository hook shim must not own policy behavior.
+The consumer repository hook shim must not own policy behavior, and it must not
+point at a worktree that can be retired while sibling worktrees still use the
+same Git common directory.
 
 Its job is limited to:
 
-- discover the consumer repository root
-- locate the checked-out `coding-ethos` bundle for that repository
-- verify that required built artifacts exist inside that checkout
-- repair missing artifacts by running supported `make` targets in the
-  `coding-ethos` checkout
-- dispatch to the built hook binary
+- identify the hook kind
+- dispatch to the compiled runner installed in the repository's stable common
+  Git runtime
 
 Policy evaluation, policy freshness, generated prompt packs, runtime command
 selection, managed capture, diagnostics parsing, and hook behavior belong to
-the `coding-ethos` checkout. The shim is only a bootstrap and dispatch layer.
+the compiled Coding Ethos runtime. The checked-out Coding Ethos authority is
+the source and build authority; `.git/coding-ethos-hooks` is an installed,
+byte-verified projection for durable sibling-worktree execution.
 
 ## Rationale
 
-The `coding-ethos` checkout is already required for normal operation. Keeping a
-second runtime cache under the consumer repository `.git` directory creates two
-possible sources of truth:
+Git hook entrypoints live in the Git common directory and are shared by every
+worktree. Pointing those entrypoints at one authority checkout creates a hidden
+lifetime dependency: retiring or sandbox-hiding that checkout strands every
+sibling hook even though the common Git directory remains healthy.
 
-- the checked-out `coding-ethos` source tree
-- the installed `.git/coding-ethos-hooks` runtime cache
+The common runtime is therefore a projection, not a second source of truth:
 
-That split is fragile. Worktrees, submodules, generated policy files, touched
-configuration, and branch switches can cause the hook shim, `make build`, and
-runtime validation to resolve different roots. When that happens, lifecycle
-hooks can fail even though the correct repair command has been run elsewhere.
+- `coding-ethos/bin` is built from the selected authority checkout.
+- `parent-install` atomically copies every compiled Go command into the common
+  runtime.
+- `parent-check` requires regular executable files with byte-identical SHA-256
+  content and rejects symlinks back to an authority checkout.
+- `make build` installs the complete policy, pre-commit, toolchain, shim, and
+  executable projection.
 
-The simpler invariant is:
+The invariant is:
 
 ```text
-make in the coding-ethos checkout builds the hook runtime.
-hooks run the hook runtime from the coding-ethos checkout.
+the selected checkout builds and verifies authority artifacts.
+hooks execute the stable common projection of those artifacts.
 ```
 
-If the `coding-ethos` checkout is present and can build, the hook path should
-self-heal missing runtime artifacts. If the checkout is missing or cannot build,
-the error should name the exact checkout path and command required to fix it.
+If the projection is missing or stale, the error must name the exact supported
+`parent-install` or `make build` command. Lifecycle hooks must not silently
+select another worktree as authority.
 
 ## Target Runtime Layout
 
-Runtime artifacts live under the `coding-ethos` checkout and are ignored by
-Git:
+Authority build artifacts live under the selected `coding-ethos` checkout and
+are ignored by Git. The installed hook runtime lives under the consumer
+repository's Git common directory:
 
 ```text
 coding-ethos/
@@ -68,10 +73,18 @@ coding-ethos/
       go-bin/{golangci-lint,shfmt}
       github-bin/{actionlint,dotenv-linter,hadolint,shellcheck}
       prefix/bin/
+
+<git-common-dir>/coding-ethos-hooks/
+  bin/{coding-ethos-*,cerun,git,lint}
+  policy/{policy-bundle.json,policy-metadata.json}
+  pre-commit/
+  build/{policy,toolchain}/
+  {coding_ethos.yml,repo_ethos.yml,config.yaml}
 ```
 
-Consumer repository hooks should not install or validate policy bundles under
-the consumer `.git` directory.
+The common projection is runtime state and must never be committed. It is
+updated only through the supported install/build workflow and validated against
+the selected authority, rather than edited directly.
 
 ## Managed Toolchain
 
@@ -133,26 +146,26 @@ path.
 
 ## Hook Entrypoint Contract
 
-The installed consumer repository hook entrypoint should be a small executable
-script generated from the compiled `bin/coding-ethos-run` binary. The script
-passes the hook kind and hook name explicitly, for example
-`coding-ethos-run git-hook pre-commit "$@"`, so installed Git hooks do not rely
-on `argv[0]` inference.
+The installed consumer repository hook entrypoint is a small executable script.
+It passes the hook kind and hook name explicitly, for example
+`<git-common-dir>/coding-ethos-hooks/bin/coding-ethos-run git-hook pre-commit
+"$@"`, so installed Git hooks do not rely on `argv[0]` inference or a
+worktree-local path.
 
-The compiled runner owns the bootstrap contract:
+The supported install/check workflow owns the bootstrap contract:
 
-1. Resolve the consumer repository root from Git.
-2. Locate `coding-ethos`, preferably at `$consumer_root/coding-ethos`.
-3. Fail with a clear submodule checkout instruction if it is missing.
-4. Check for required artifacts in the `coding-ethos` checkout.
-5. If artifacts are missing, run:
+1. Resolve the consumer repository and its absolute Git common directory.
+2. Build Go tools from the explicitly selected Coding Ethos authority.
+3. Atomically install the compiled executables into the common runtime.
+4. Install the remaining policy, toolchain, and hook artifacts through
+   `make build` when the full runtime is being refreshed.
+5. Verify executable type, mode, and byte identity with:
 
    ```bash
-   make -C "$coding_ethos_root" build
+   coding-ethos/bin/coding-ethos-run parent-check --repo "$consumer_root"
    ```
 
-6. Re-check the required artifacts.
-7. Exec the built hook binary from the `coding-ethos` checkout.
+6. Install Git entrypoints that dispatch only to the common runner.
 
 The hook entrypoint contract must not:
 
@@ -161,19 +174,22 @@ The hook entrypoint contract must not:
 - select policy files
 - inspect policy source configuration
 - rewrite generated protected files by hand
-- maintain a second runtime cache in the consumer `.git` directory
+- point to a worktree-local authority path
+- accept a symlinked executable projection back to an authority checkout
 - write response caches or other transient runtime state into `.git`
 
 ## Repair Rules
 
-Bootstrap repair should run only when required artifacts are missing or invalid
-enough that they cannot be executed. It should not run because a timestamp looks
-old.
+Bootstrap repair is explicit. `parent-install` refreshes generated parent
+artifacts and compiled common-runtime executables; `make build` refreshes the
+complete projection. It should not run because a timestamp looks old.
 
-Examples that should trigger repair:
+Examples that require repair:
 
 - missing hook binary
 - non-executable hook binary
+- symlinked common-runtime executable
+- executable whose SHA-256 differs from the authority build
 - missing compiled policy bundle
 - unreadable compiled policy bundle
 - missing managed toolchain manifest
@@ -185,7 +201,7 @@ Examples that should not block lifecycle hooks:
 
 - source config has a newer mtime than the compiled bundle
 - generated files were touched by checkout tools
-- another worktree has a different runtime cache
+- another worktree has different ignored build products
 
 Strict freshness validation belongs in explicit maintainer/CI commands such as
 `make validate`, `make cutover-verify`, and CI. Freshness is based on the
@@ -200,11 +216,13 @@ Bootstrap needs a few guardrails:
 - Use an interprocess lock, preferably `flock`, so concurrent hooks do not run
   multiple builds over the same output directory.
 - Print the exact failed command and preserve build output when repair fails.
-- Keep build outputs under ignored `bin/` and `build/` directories.
-- Keep transient repo-local runtime caches under ignored `.coding-ethos/cache/`
-  paths, not under `.git`.
-- Keep installed hook entrypoints as stable generated scripts and move
-  versioned behavior into the `coding-ethos` checkout.
+- Keep authority build outputs under ignored `bin/` and `build/` directories.
+- Keep response, trace, and other transient repo-local caches under ignored
+  `.coding-ethos/` paths, not under the Git common runtime.
+- Install common-runtime executables with temporary-file sync plus atomic
+  rename, and verify them by content rather than mtime.
+- Keep installed hook entrypoints stable and move versioned behavior into the
+  compiled common projection.
 
 ## Hook Execution Model
 
@@ -266,6 +284,8 @@ complete coverage.
 
 ## Migration Direction
 
-Runtime artifacts are built and executed from the checked-out `coding-ethos`
-repository. New hook behavior must use that single source of truth instead of
-adding cache-local compatibility paths.
+Runtime artifacts are built from an explicitly selected `coding-ethos`
+authority and executed from the stable common Git projection. New hook behavior
+must preserve that one-way authority-to-projection relationship: no hook may
+select an arbitrary sibling checkout, and no installed executable may link back
+to a checkout that can be retired.

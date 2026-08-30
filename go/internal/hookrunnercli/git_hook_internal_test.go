@@ -246,6 +246,25 @@ func TestHookGroupResultFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestHookGroupResultFilePathAcceptsGoTempDir(t *testing.T) {
+	goTempDir := filepath.Join(t.TempDir(), "go-temp")
+	if err := os.MkdirAll(goTempDir, 0o700); err != nil {
+		t.Fatalf("create Go temp dir: %v", err)
+	}
+	t.Setenv("GOTMPDIR", goTempDir)
+
+	resultPath := filepath.Join(goTempDir, "result.json")
+	cleanPath, ok := hookGroupResultFilePath(resultPath)
+	if !ok || cleanPath != resultPath {
+		t.Fatalf(
+			"hookGroupResultFilePath() = %q, %t; want %q, true",
+			cleanPath,
+			ok,
+			resultPath,
+		)
+	}
+}
+
 func TestReadHookGroupResultFileRejectsNonTempPath(t *testing.T) {
 	t.Parallel()
 

@@ -18,6 +18,14 @@ package policy
 // CEL engine does not make. Registering these does not move enforcement.
 
 func hookRoutePolicies(principles map[string]Principle) map[string]Policy {
+	policies := coreHookRoutePolicies(principles)
+	policy := requiredGateExitStatusRoutePolicy(principles)
+	policies[policy.ID] = policy
+
+	return policies
+}
+
+func coreHookRoutePolicies(principles map[string]Principle) map[string]Policy {
 	return map[string]Policy{
 		"shell.file_tool_emulation": {
 			ID:       "shell.file_tool_emulation",
@@ -95,6 +103,36 @@ func hookRoutePolicies(principles map[string]Principle) map[string]Policy {
 			Evaluators: []Evaluator{
 				{Kind: "external", Name: "hook.parallel_tool_batch_unsupported"},
 			},
+		},
+	}
+}
+
+func requiredGateExitStatusRoutePolicy(
+	principles map[string]Principle,
+) Policy {
+	return Policy{
+		ID:       "shell.required_gate_exit_status",
+		Category: "shell",
+		Source: SourceRef{
+			File: "config.yaml",
+			Path: "shell.required_gate_exit_status",
+		},
+		PrincipleIDs: principleRefs(
+			principles,
+			"validation-at-the-gate",
+			"evidence-based-engineering-and-decision-quality",
+		),
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		DefenseLayers:   hookRouteDefenseLayers(),
+		Message: "Required repository gates must return their own exact " +
+			"terminal status.",
+		Suggestion: "Run the gate directly. If output must be filtered or " +
+			"logged, enable pipefail or capture the gate status immediately " +
+			"and exit with that exact value.",
+		AppliesTo: AppliesTo{Tools: []string{"Bash"}},
+		Evaluators: []Evaluator{
+			{Kind: "external", Name: "shell.required_gate_exit_status"},
 		},
 	}
 }

@@ -856,7 +856,7 @@ func runPolicyGitHandler(paths runtimePaths, rest []string) error {
 		paths,
 		"coding-ethos-git",
 		append(
-			[]string{"--bundle", bundlePath, "--real-git", realGitPath, "--"},
+			[]string{"--bundle", bundlePath, "--real-git", realGitPath},
 			rest...,
 		)...)
 

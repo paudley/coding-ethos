@@ -67,6 +67,66 @@ func TestGitCommitReadsMessageFromStdin(t *testing.T) {
 	}
 }
 
+func TestParsePolicyGitArgsPreservesGitGlobalOptions(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parsePolicyGitArgs([]string{
+		"--bundle", "/policy/bundle.json",
+		"--real-git=/usr/bin/git",
+		"--check-only",
+		"-c", "core.useBuiltinFSMonitor=false",
+		"init", "--template=/tmp/hooks",
+	})
+	if err != nil {
+		t.Fatalf("parsePolicyGitArgs: %v", err)
+	}
+
+	if parsed.bundlePath != "/policy/bundle.json" || parsed.realGit != "/usr/bin/git" ||
+		!parsed.checkOnly {
+		t.Fatalf("wrapper options = %#v", parsed)
+	}
+	want := "-c core.useBuiltinFSMonitor=false init --template=/tmp/hooks"
+	if got := strings.Join(parsed.gitArgv, " "); got != want {
+		t.Fatalf("git argv = %q, want %q", got, want)
+	}
+}
+
+func TestParsePolicyGitArgsHonorsExplicitBoundary(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parsePolicyGitArgs([]string{
+		"--bundle=/policy/bundle.json",
+		"--json=false",
+		"--",
+		"--future-git-global", "value", "status",
+	})
+	if err != nil {
+		t.Fatalf("parsePolicyGitArgs: %v", err)
+	}
+	if parsed.jsonOutput {
+		t.Fatal("--json=false was not retained")
+	}
+	if got := strings.Join(
+		parsed.gitArgv,
+		" ",
+	); got != "--future-git-global value status" {
+		t.Fatalf("git argv = %q", got)
+	}
+}
+
+func TestParsePolicyGitArgsRejectsUnknownWrapperOption(t *testing.T) {
+	t.Parallel()
+
+	_, err := parsePolicyGitArgs([]string{
+		"--bundle=/policy/bundle.json",
+		"--typo-wrapper-option",
+		"status",
+	})
+	if err == nil || !strings.Contains(err.Error(), "unknown policy-git option") {
+		t.Fatalf("error = %v, want unknown wrapper option", err)
+	}
+}
+
 func TestGitOptionsForNonStdinCommand(t *testing.T) {
 	t.Parallel()
 

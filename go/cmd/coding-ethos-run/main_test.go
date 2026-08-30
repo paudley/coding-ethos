@@ -780,6 +780,79 @@ func TestParentGoToolsCheckPassesWhenBinariesAreCurrent(t *testing.T) {
 	}
 }
 
+func TestParentHookRuntimeSyncConvergesAndCheckDetectsDrift(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	paths.ToolsSource = parentGoToolsSourceFixture(t, paths.EthosRoot)
+	touchParentGoTools(t, paths, time.Now())
+	options := parentWorkflowOptions{Repo: paths.Root}
+
+	err := syncParentHookRuntimeExecutables(paths, options)
+	if err != nil {
+		t.Fatalf("syncParentHookRuntimeExecutables: %v", err)
+	}
+
+	err = checkParentHookRuntimeExecutables(paths, options)
+	if err != nil {
+		t.Fatalf("checkParentHookRuntimeExecutables: %v", err)
+	}
+
+	installed := filepath.Join(
+		parentHookRuntimeBinDir(paths, options),
+		"coding-ethos-run",
+	)
+	writeExecutableFixture(t, installed, "#!/usr/bin/env sh\necho stale\n")
+
+	err = checkParentHookRuntimeExecutables(paths, options)
+	if !errors.Is(err, errParentArtifactDrift) ||
+		!strings.Contains(err.Error(), "coding-ethos-run(content)") ||
+		!strings.Contains(err.Error(), "parent-install") {
+		t.Fatalf("check drift error = %v", err)
+	}
+
+	err = syncParentHookRuntimeExecutables(paths, options)
+	if err != nil {
+		t.Fatalf("repair parent hook runtime: %v", err)
+	}
+
+	err = checkParentHookRuntimeExecutables(paths, options)
+	if err != nil {
+		t.Fatalf("check repaired parent hook runtime: %v", err)
+	}
+}
+
+func TestParentHookRuntimeCheckRejectsCheckoutSymlink(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	paths.ToolsSource = parentGoToolsSourceFixture(t, paths.EthosRoot)
+	touchParentGoTools(t, paths, time.Now())
+	options := parentWorkflowOptions{Repo: paths.Root}
+	runtimeBin := parentHookRuntimeBinDir(paths, options)
+
+	err := os.MkdirAll(runtimeBin, 0o755)
+	if err != nil {
+		t.Fatalf("create hook runtime: %v", err)
+	}
+
+	for _, tool := range parentGoToolFixtureCommands() {
+		destination := filepath.Join(runtimeBin, tool)
+		source := filepath.Join(paths.BinDir, tool)
+
+		err = os.Symlink(source, destination)
+		if err != nil {
+			t.Fatalf("symlink %s: %v", tool, err)
+		}
+	}
+
+	err = checkParentHookRuntimeExecutables(paths, options)
+	if !errors.Is(err, errParentArtifactDrift) ||
+		!strings.Contains(err.Error(), "coding-ethos-run(not_regular)") {
+		t.Fatalf("check symlink error = %v", err)
+	}
+}
+
 func TestSyncParentPolicyBundleUsesParentRepoConfig(t *testing.T) {
 	t.Parallel()
 
@@ -2441,9 +2514,38 @@ func TestPolicyGitIgnoresSpoofedAgentShellSandboxEnv(t *testing.T) {
 	if !strings.Contains(
 		got,
 		"exec:coding-ethos-git --bundle "+hookPolicyBundlePath(paths)+
-			" --real-git "+paths.RealGit+" -- status",
+			" --real-git "+paths.RealGit+" status",
 	) {
 		t.Fatalf("policy-git did not execute managed git: %#v", calls)
+	}
+}
+
+func TestPolicyGitForwardsWrapperFlagsBeforeGitArgv(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+	writePolicyBundleForTest(t, hookPolicyBundlePath(paths))
+
+	err := run(paths, []string{
+		"policy-git",
+		"--admin-approved",
+		"--check-only",
+		"commit",
+		"-m",
+		"verified",
+	})
+	if err != nil {
+		t.Fatalf("run policy-git with wrapper flags: %v", err)
+	}
+
+	got := strings.Join(calls, "\n")
+	if !strings.Contains(
+		got,
+		"exec:coding-ethos-git --bundle "+hookPolicyBundlePath(paths)+
+			" --real-git "+paths.RealGit+
+			" --admin-approved --check-only commit -m verified",
+	) {
+		t.Fatalf("policy-git did not preserve wrapper flags: %#v", calls)
 	}
 }
 
@@ -2472,7 +2574,7 @@ func TestPolicyGitIgnoresArbitraryEnvRealGitExecutable(t *testing.T) {
 	if !strings.Contains(
 		got,
 		"exec:coding-ethos-git --bundle "+hookPolicyBundlePath(paths)+
-			" --real-git "+paths.RealGit+" -- status",
+			" --real-git "+paths.RealGit+" status",
 	) {
 		t.Fatalf("policy-git did not execute managed git: %#v", calls)
 	}

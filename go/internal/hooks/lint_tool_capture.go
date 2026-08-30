@@ -237,7 +237,7 @@ func commandLintToolArgs(segment []string) (toolcatalog.CapturedTool, []string, 
 }
 
 func envLintToolArgs(segment []string) (toolcatalog.CapturedTool, []string, bool) {
-	if filepath.Base(segment[0]) != "env" {
+	if filepath.Base(segment[0]) != tokenEnv {
 		return toolcatalog.CapturedTool{}, nil, false
 	}
 
@@ -382,7 +382,8 @@ func firstMentionedCapturedTool(command string) toolcatalog.CapturedTool {
 func isPythonCommand(token string) bool {
 	base := filepath.Base(token)
 
-	return base == "python" || base == "python3" || strings.HasPrefix(base, "python3.")
+	return base == pythonExecutable || base == "python3" ||
+		strings.HasPrefix(base, "python3.")
 }
 
 func segmentMentionsUnmanagedLintTool(segment []string) toolcatalog.CapturedTool {
@@ -416,7 +417,7 @@ func shellCommandUsesLintToolIndirection(parsed shellparse.Command) bool {
 	switch shellCommandName(parsed) {
 	case "bash", "sh", "zsh", "dash":
 		return shellExecArgumentMentionsCapturedTool(parsed)
-	case "eval", "alias", "exec":
+	case "eval", "alias", tokenExec:
 		return shellCommandArgMentionsCapturedTool(parsed)
 	default:
 		return shellPythonCommandMentionsCapturedTool(parsed)

@@ -388,11 +388,6 @@ func hookGroupResultFilePath(path string) (string, bool) {
 		return "", false
 	}
 
-	tempDir, err := resolvedPath(os.TempDir())
-	if err != nil {
-		return "", false
-	}
-
 	absolutePath, err := filepath.Abs(cleanPath)
 	if err != nil {
 		return "", false
@@ -403,14 +398,44 @@ func hookGroupResultFilePath(path string) (string, bool) {
 		return "", false
 	}
 
-	relativePath, err := filepath.Rel(tempDir, resolvedTarget)
-	if err != nil ||
-		relativePath == ".." ||
-		strings.HasPrefix(relativePath, ".."+string(os.PathSeparator)) {
+	if !pathWithinTemporaryRoots(resolvedTarget) {
 		return "", false
 	}
 
 	return absolutePath, true
+}
+
+func pathWithinTemporaryRoots(path string) bool {
+	for _, root := range temporaryRoots() {
+		relativePath, err := filepath.Rel(root, path)
+		if err == nil &&
+			relativePath != ".." &&
+			!strings.HasPrefix(relativePath, ".."+string(os.PathSeparator)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func temporaryRoots() []string {
+	roots := []string{}
+
+	for _, candidate := range []string{os.TempDir(), os.Getenv("GOTMPDIR")} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+
+		resolved, err := resolvedPath(candidate)
+		if err != nil || slices.Contains(roots, resolved) {
+			continue
+		}
+
+		roots = append(roots, resolved)
+	}
+
+	return roots
 }
 
 func resolvedPath(path string) (string, error) {

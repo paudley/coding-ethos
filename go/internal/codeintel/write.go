@@ -995,11 +995,22 @@ func upsertCodeFile(
 ) error {
 	_, err := transaction.ExecContext(
 		ctx,
-		`INSERT OR REPLACE INTO code_files(
+		`INSERT INTO code_files(
 			path, language, content_hash, parser_name, parser_version,
 			source_mtime_utc, deleted_at_utc, size_bytes, line_count,
 			indexed_at_utc, stale_reason
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET
+			language = excluded.language,
+			content_hash = excluded.content_hash,
+			parser_name = excluded.parser_name,
+			parser_version = excluded.parser_version,
+			source_mtime_utc = excluded.source_mtime_utc,
+			deleted_at_utc = excluded.deleted_at_utc,
+			size_bytes = excluded.size_bytes,
+			line_count = excluded.line_count,
+			indexed_at_utc = excluded.indexed_at_utc,
+			stale_reason = excluded.stale_reason`,
 		file.Path,
 		file.Language,
 		file.ContentHash,
@@ -1022,11 +1033,29 @@ func upsertCodeFile(
 func insertCodeChunk(ctx context.Context, transaction *sql.Tx, chunk CodeChunk) error {
 	_, inlineErrO := transaction.ExecContext(
 		ctx,
-		`INSERT OR REPLACE INTO code_chunks(
+		`INSERT INTO code_chunks(
 			chunk_id, path, language, node_kind, symbol_kind, symbol_name,
 			symbol_path, parent_symbol_path, parent_chunk_id, start_byte, end_byte, start_line,
 			end_line, content_hash, normalized_hash, minhash_sig, search_text, raw_text
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(chunk_id) DO UPDATE SET
+			path = excluded.path,
+			language = excluded.language,
+			node_kind = excluded.node_kind,
+			symbol_kind = excluded.symbol_kind,
+			symbol_name = excluded.symbol_name,
+			symbol_path = excluded.symbol_path,
+			parent_symbol_path = excluded.parent_symbol_path,
+			parent_chunk_id = excluded.parent_chunk_id,
+			start_byte = excluded.start_byte,
+			end_byte = excluded.end_byte,
+			start_line = excluded.start_line,
+			end_line = excluded.end_line,
+			content_hash = excluded.content_hash,
+			normalized_hash = excluded.normalized_hash,
+			minhash_sig = excluded.minhash_sig,
+			search_text = excluded.search_text,
+			raw_text = excluded.raw_text`,
 		chunk.ID,
 		chunk.Path,
 		chunk.Language,
@@ -1065,11 +1094,21 @@ func insertCodeChunk(ctx context.Context, transaction *sql.Tx, chunk CodeChunk) 
 func insertCodeEdge(ctx context.Context, transaction *sql.Tx, edge CodeEdge) error {
 	_, inlineErrP := transaction.ExecContext(
 		ctx,
-		`INSERT OR REPLACE INTO code_edges(
+		`INSERT INTO code_edges(
 			edge_id, edge_kind, path, source_chunk_id, target_path,
 			target_chunk_id, target_symbol_path, target_name,
 			provenance_class, raw_text
-		) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, ?)
+		ON CONFLICT(edge_id) DO UPDATE SET
+			edge_kind = excluded.edge_kind,
+			path = excluded.path,
+			source_chunk_id = excluded.source_chunk_id,
+			target_path = excluded.target_path,
+			target_chunk_id = excluded.target_chunk_id,
+			target_symbol_path = excluded.target_symbol_path,
+			target_name = excluded.target_name,
+			provenance_class = excluded.provenance_class,
+			raw_text = excluded.raw_text`,
 		edge.ID,
 		edge.Kind,
 		edge.Path,
@@ -1292,7 +1331,16 @@ func insertFTS(ctx context.Context, transaction *sql.Tx, row ftsRow) error {
 		ctx,
 		`INSERT INTO code_intel_fts(
 			fts_id, kind, record_id, trace_id, policy_id, skill_id, path, message, search_text
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(fts_id) DO UPDATE SET
+			kind = excluded.kind,
+			record_id = excluded.record_id,
+			trace_id = excluded.trace_id,
+			policy_id = excluded.policy_id,
+			skill_id = excluded.skill_id,
+			path = excluded.path,
+			message = excluded.message,
+			search_text = excluded.search_text`,
 		rowID,
 		row.Kind,
 		row.RecordID,
@@ -1307,7 +1355,7 @@ func insertFTS(ctx context.Context, transaction *sql.Tx, row ftsRow) error {
 		return fmt.Errorf("insert code intelligence FTS row: %w", err)
 	}
 
-	return insertSearchTerms(ctx, transaction, rowID, row.SearchText)
+	return synchronizeSearchTerms(ctx, transaction, rowID, row.SearchText)
 }
 
 func ftsRowID(row ftsRow) string {
@@ -1323,7 +1371,14 @@ func insertSearchTerms(
 	for _, term := range searchTerms(text) {
 		_, err := transaction.ExecContext(
 			ctx,
-			`INSERT INTO code_intel_search_terms(term, fts_id) VALUES (?, ?)`,
+			`INSERT INTO code_intel_search_terms(term, fts_id)
+			SELECT ?, ?
+			WHERE NOT EXISTS (
+				SELECT 1 FROM code_intel_search_terms
+				WHERE term = ? AND fts_id = ?
+			)`,
+			term,
+			rowID,
 			term,
 			rowID,
 		)
@@ -1333,6 +1388,79 @@ func insertSearchTerms(
 	}
 
 	return nil
+}
+
+func synchronizeSearchTerms(
+	ctx context.Context,
+	transaction *sql.Tx,
+	rowID string,
+	text string,
+) error {
+	desired := searchTerms(text)
+	desiredSet := make(map[string]bool, len(desired))
+
+	for _, term := range desired {
+		desiredSet[term] = true
+	}
+
+	existing, err := existingSearchTerms(ctx, transaction, rowID)
+	if err != nil {
+		return err
+	}
+
+	for _, term := range existing {
+		if desiredSet[term] {
+			continue
+		}
+
+		_, err = transaction.ExecContext(
+			ctx,
+			"DELETE FROM code_intel_search_terms WHERE term = ? AND fts_id = ?",
+			term,
+			rowID,
+		)
+		if err != nil {
+			return fmt.Errorf("delete stale code intelligence search term: %w", err)
+		}
+	}
+
+	return insertSearchTerms(ctx, transaction, rowID, text)
+}
+
+func existingSearchTerms(
+	ctx context.Context,
+	transaction *sql.Tx,
+	rowID string,
+) ([]string, error) {
+	rows, err := transaction.QueryContext(
+		ctx,
+		"SELECT term FROM code_intel_search_terms WHERE fts_id = ?",
+		rowID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query existing code intelligence search terms: %w", err)
+	}
+	defer rows.Close()
+
+	existing := []string{}
+
+	for rows.Next() {
+		var term string
+
+		err = rows.Scan(&term)
+		if err != nil {
+			return nil, fmt.Errorf("scan existing code intelligence search term: %w", err)
+		}
+
+		existing = append(existing, term)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("iterate existing code intelligence search terms: %w", err)
+	}
+
+	return existing, nil
 }
 
 func remediationSearchText(remediation agentmsg.Remediation) string {

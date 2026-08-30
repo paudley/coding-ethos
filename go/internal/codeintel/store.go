@@ -19,7 +19,7 @@ import (
 const (
 	sourcePathClauseCapacityFactor = 2
 	sourcePathQueryArgFactor       = 4
-	schemaVersion                  = 1
+	schemaVersion                  = 2
 	storeDirMode                   = 0o700
 	storeLockWait                  = 2 * time.Second
 	storeLockRetryInterval         = 100 * time.Millisecond
@@ -33,34 +33,37 @@ type Store struct {
 type storeOpenFunc func(context.Context, string) (*Store, error)
 
 type Stats struct {
-	Traces              int `json:"traces"`
-	HookEvents          int `json:"hook_events"`
-	HookDecisions       int `json:"hook_decisions"`
-	HookTargets         int `json:"hook_targets"`
-	HookReviews         int `json:"hook_reviews"`
-	ProxySessions       int `json:"proxy_sessions"`
-	ProxyEvents         int `json:"proxy_events"`
-	ProxyTransforms     int `json:"proxy_transforms"`
-	Findings            int `json:"findings"`
-	Files               int `json:"files"`
-	CodeChunks          int `json:"code_chunks"`
-	CodeEdges           int `json:"code_edges"`
-	GitFileSignals      int `json:"git_file_signals"`
-	GitCoChanges        int `json:"git_cochanges"`
-	CodeHealthSnapshots int `json:"code_health_snapshots"`
-	CodeHealthTargets   int `json:"code_health_targets"`
-	CodeHealthCoverage  int `json:"code_health_coverage"`
-	ASTFindingLinks     int `json:"ast_finding_links"`
-	Decisions           int `json:"decisions"`
-	DecisionLinks       int `json:"decision_links"`
-	Remediations        int `json:"remediations"`
-	RemediationEvents   int `json:"remediation_events"`
-	SARIFRuns           int `json:"sarif_runs"`
-	SARIFResults        int `json:"sarif_results"`
-	RemediationOutcomes int `json:"remediation_outcomes"`
-	EmbeddingRecords    int `json:"embedding_records"`
-	FtsRows             int `json:"fts_rows"`
-	SchemaVersion       int `json:"schema_version"`
+	Traces                  int `json:"traces"`
+	HookEvents              int `json:"hook_events"`
+	HookDecisions           int `json:"hook_decisions"`
+	HookTargets             int `json:"hook_targets"`
+	HookReviews             int `json:"hook_reviews"`
+	ProxySessions           int `json:"proxy_sessions"`
+	ProxyEvents             int `json:"proxy_events"`
+	ProxyTransforms         int `json:"proxy_transforms"`
+	Findings                int `json:"findings"`
+	Files                   int `json:"files"`
+	CodeChunks              int `json:"code_chunks"`
+	CodeEdges               int `json:"code_edges"`
+	GitFileSignals          int `json:"git_file_signals"`
+	GitCoChanges            int `json:"git_cochanges"`
+	CodeHealthSnapshots     int `json:"code_health_snapshots"`
+	CodeHealthTargets       int `json:"code_health_targets"`
+	CodeHealthCoverage      int `json:"code_health_coverage"`
+	ASTFindingLinks         int `json:"ast_finding_links"`
+	Decisions               int `json:"decisions"`
+	DecisionLinks           int `json:"decision_links"`
+	Remediations            int `json:"remediations"`
+	RemediationEvents       int `json:"remediation_events"`
+	SARIFRuns               int `json:"sarif_runs"`
+	SARIFResults            int `json:"sarif_results"`
+	RemediationOutcomes     int `json:"remediation_outcomes"`
+	EmbeddingRecords        int `json:"embedding_records"`
+	FtsRows                 int `json:"fts_rows"`
+	FtsDuplicateRows        int `json:"fts_duplicate_rows"`
+	SearchTermRows          int `json:"search_term_rows"`
+	SearchTermDuplicateRows int `json:"search_term_duplicate_rows"`
+	SchemaVersion           int `json:"schema_version"`
 }
 
 type RowPruneSummary struct {
@@ -533,21 +536,27 @@ func migrateStore(ctx context.Context, database *sql.DB) error {
 		}
 	}
 
+	err := deduplicateSearchIdentity(ctx, database)
+	if err != nil {
+		return err
+	}
+
 	for _, statement := range indexSchemaStatements() {
-		_, err := database.ExecContext(ctx, statement)
+		_, err = database.ExecContext(ctx, statement)
 		if err != nil {
 			return fmt.Errorf("migrate code intelligence indexes: %w", err)
 		}
 	}
 
-	err := backfillSearchTerms(ctx, database)
+	err = backfillSearchTerms(ctx, database)
 	if err != nil {
 		return err
 	}
 
 	_, err = database.ExecContext(
 		ctx,
-		"INSERT OR REPLACE INTO schema_metadata(key, value) VALUES('schema_version', ?)",
+		`INSERT INTO schema_metadata(key, value) VALUES('schema_version', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
 		schemaVersion,
 	)
 	if err != nil {
@@ -696,6 +705,27 @@ func statCountQueries(stats *Stats) []statCountQuery {
 			name:   "code_intel_fts",
 			query:  "SELECT COUNT(*) FROM code_intel_fts",
 			target: &stats.FtsRows,
+		},
+		{
+			name: "duplicate code_intel_fts identities",
+			query: `SELECT
+				(SELECT COUNT(*) FROM code_intel_fts) -
+				(SELECT COUNT(*) FROM (SELECT DISTINCT fts_id FROM code_intel_fts) AS identities)`,
+			target: &stats.FtsDuplicateRows,
+		},
+		{
+			name:   "code_intel_search_terms",
+			query:  "SELECT COUNT(*) FROM code_intel_search_terms",
+			target: &stats.SearchTermRows,
+		},
+		{
+			name: "duplicate code_intel_search_terms identities",
+			query: `SELECT
+				(SELECT COUNT(*) FROM code_intel_search_terms) -
+				(SELECT COUNT(*) FROM (
+					SELECT DISTINCT term, fts_id FROM code_intel_search_terms
+				) AS identities)`,
+			target: &stats.SearchTermDuplicateRows,
 		},
 	}
 }

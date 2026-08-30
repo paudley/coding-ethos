@@ -255,6 +255,7 @@ func inspectMigrationTable(
 		ctx,
 		destination,
 		destinationTable,
+		spec,
 	)
 	if err != nil {
 		return migrationTableBaseline{}, err
@@ -308,7 +309,14 @@ func finishMigrationTable(
 	}
 
 	importedRows := destinationRows - baseline.destinationRowsBefore
-	if baseline.sourceRows != importedRows+baseline.matchedRows {
+	deduplicatedRows := int64(0)
+
+	if spec.deduplicateRows {
+		deduplicatedRows = baseline.sourceRows - importedRows - baseline.matchedRows
+	}
+
+	if deduplicatedRows < 0 ||
+		baseline.sourceRows != importedRows+baseline.matchedRows+deduplicatedRows {
 		return StoreMigrationTable{}, fmt.Errorf(
 			"%w: row accounting mismatch in %s",
 			errStoreMigrationIntegrity,
@@ -323,6 +331,7 @@ func finishMigrationTable(
 		SourceRows:         baseline.sourceRows,
 		ImportedRows:       importedRows,
 		MatchedRows:        baseline.matchedRows,
+		DeduplicatedRows:   deduplicatedRows,
 		DestinationRows:    destinationRows,
 		SourceRowsVerified: true,
 	}, nil
@@ -337,6 +346,7 @@ func validateMigrationKeyConsistency(
 ) error {
 	keys := quoteMigrationIdentifiers(spec.keyColumns)
 	variantChecks := make([]string, 0, len(columns))
+	rowPredicate := migrationRowPredicate(spec, "")
 
 	for _, column := range migrationColumnIdentifiers(columns) {
 		variantChecks = append(
@@ -352,9 +362,10 @@ func validateMigrationKeyConsistency(
 
 	// #nosec G201 -- table, keys, and columns come from the validated schema inventory.
 	query := fmt.Sprintf(
-		"SELECT COUNT(*) FROM (SELECT %s FROM %s GROUP BY %s HAVING %s)",
+		"SELECT COUNT(*) FROM (SELECT %s FROM %s WHERE %s GROUP BY %s HAVING %s)",
 		strings.Join(keys, ", "),
 		table,
+		rowPredicate,
 		strings.Join(keys, ", "),
 		strings.Join(variantChecks, " OR "),
 	)
@@ -388,26 +399,32 @@ func migrationDuplicateCounts(
 ) (int64, int64, error) {
 	join := migrationKeyEquality("source", "destination", spec.keyColumns)
 	equal := migrationColumnEquality("source", "destination", columns)
+	sourcePredicate := migrationRowPredicate(spec, "source")
+	destinationPredicate := migrationRowPredicate(spec, "destination")
 
 	// #nosec G201 -- identifiers come from the validated schema inventory.
 	query := fmt.Sprintf(
 		`SELECT
 		COALESCE(SUM(CASE WHEN EXISTS (
-			SELECT 1 FROM %s AS destination WHERE %s
+			SELECT 1 FROM %s AS destination WHERE %s AND %s
 		) THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(CASE WHEN EXISTS (
-			SELECT 1 FROM %s AS destination WHERE %s
+			SELECT 1 FROM %s AS destination WHERE %s AND %s
 		) AND NOT EXISTS (
-			SELECT 1 FROM %s AS destination WHERE %s
+			SELECT 1 FROM %s AS destination WHERE %s AND %s
 		) THEN 1 ELSE 0 END), 0)
-		FROM %s AS source`,
+		FROM %s AS source WHERE %s`,
 		destinationTable,
+		destinationPredicate,
 		equal,
 		destinationTable,
+		destinationPredicate,
 		join,
 		destinationTable,
+		destinationPredicate,
 		equal,
 		sourceTable,
+		sourcePredicate,
 	)
 
 	var matchedRows, conflictRows int64
@@ -430,20 +447,31 @@ func insertMissingMigrationRows(
 ) error {
 	columnNames := migrationColumnIdentifiers(columns)
 	selectedColumns := qualifiedMigrationIdentifiers("source", columnNames)
+	selectModifier := ""
+
+	if spec.deduplicateRows {
+		selectModifier = "DISTINCT "
+	}
+
 	join := migrationKeyEquality("source", "destination", spec.keyColumns)
+	sourcePredicate := migrationRowPredicate(spec, "source")
+	destinationPredicate := migrationRowPredicate(spec, "destination")
 
 	// #nosec G201 -- identifiers come from the validated schema inventory.
 	query := fmt.Sprintf(
 		`INSERT INTO %s(%s)
-		SELECT %s FROM %s AS source
-		WHERE NOT EXISTS (
-			SELECT 1 FROM %s AS destination WHERE %s
+		SELECT %s%s FROM %s AS source
+		WHERE %s AND NOT EXISTS (
+			SELECT 1 FROM %s AS destination WHERE %s AND %s
 		)`,
 		destinationTable,
 		strings.Join(columnNames, ", "),
+		selectModifier,
 		strings.Join(selectedColumns, ", "),
 		sourceTable,
+		sourcePredicate,
 		destinationTable,
+		destinationPredicate,
 		join,
 	)
 
@@ -512,9 +540,10 @@ func migrationTableRowCount(
 	ctx context.Context,
 	database migrationQueryer,
 	table string,
+	spec migrationTableSpec,
 ) (int64, error) {
 	// #nosec G201 -- table comes from the validated schema inventory.
-	query := "SELECT COUNT(*) FROM " + table
+	query := "SELECT COUNT(*) FROM " + table + " WHERE " + migrationRowPredicate(spec, "")
 
 	var count int64
 
@@ -563,9 +592,10 @@ func queryMigrationRows(
 ) (*sql.Rows, error) {
 	// #nosec G201 -- table and columns come from the validated schema inventory.
 	query := fmt.Sprintf(
-		"SELECT %s FROM %s ORDER BY %s",
+		"SELECT %s FROM %s WHERE %s ORDER BY %s",
 		strings.Join(migrationColumnIdentifiers(columns), ", "),
 		table,
+		migrationRowPredicate(spec, ""),
 		strings.Join(quoteMigrationIdentifiers(spec.keyColumns), ", "),
 	)
 
@@ -575,6 +605,19 @@ func queryMigrationRows(
 	}
 
 	return rows, nil
+}
+
+func migrationRowPredicate(spec migrationTableSpec, alias string) string {
+	if !spec.excludeVersionRow {
+		return "TRUE"
+	}
+
+	column := quoteMigrationIdentifier("key")
+	if alias != "" {
+		column = alias + "." + column
+	}
+
+	return column + " != 'schema_version'"
 }
 
 func hashMigrationRows(

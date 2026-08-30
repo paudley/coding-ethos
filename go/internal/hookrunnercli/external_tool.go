@@ -317,6 +317,59 @@ func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 	}, nil
 }
 
+// prepareHookProcessCacheEnvironment projects the consumer-owned cache roots
+// onto the hook runner itself. Nested pre-commit languages can start before an
+// individual external-tool request is constructed; setting these variables at
+// the command boundary prevents uv, Go, Cargo, and linters from falling back
+// to an unwritable operator cache. The returned closure restores the exact
+// caller environment for in-process tests and embedded invocations.
+func prepareHookProcessCacheEnvironment(root string) (func(), error) {
+	environment, err := externalToolCacheEnv(root)
+	if err != nil {
+		return nil, err
+	}
+
+	type priorValue struct {
+		value   string
+		existed bool
+	}
+
+	prior := map[string]priorValue{}
+
+	for _, item := range environment.items() {
+		name, value, found := strings.Cut(item, "=")
+		if !found {
+			continue
+		}
+
+		previous, existed := os.LookupEnv(name)
+		prior[name] = priorValue{value: previous, existed: existed}
+
+		setErr := os.Setenv(name, value)
+		if setErr != nil {
+			for restoreName, restoreValue := range prior {
+				if restoreValue.existed {
+					_ = os.Setenv(restoreName, restoreValue.value)
+				} else {
+					_ = os.Unsetenv(restoreName)
+				}
+			}
+
+			return nil, fmt.Errorf("set hook process cache environment %s: %w", name, setErr)
+		}
+	}
+
+	return func() {
+		for name, previous := range prior {
+			if previous.existed {
+				_ = os.Setenv(name, previous.value)
+			} else {
+				_ = os.Unsetenv(name)
+			}
+		}
+	}, nil
+}
+
 func (environment externalToolCacheEnvironment) overrides(name string) bool {
 	return environment.value(name) != ""
 }

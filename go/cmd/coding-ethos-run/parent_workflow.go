@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
@@ -41,11 +42,14 @@ const (
 )
 
 var (
-	errParentArtifactDrift      = errors.New("parent artifact drift")
-	errParentGoToolsStale       = errors.New("parent Go tools are stale")
-	errParentPathIsDirectory    = errors.New("path is a directory, want file")
-	errParentPathIsNotDirectory = errors.New("path is not a directory, want directory")
-	errParentRootNotAbsolute    = errors.New("parent workflow root must be absolute")
+	errParentArtifactDrift       = errors.New("parent artifact drift")
+	errParentGoToolsStale        = errors.New("parent Go tools are stale")
+	errParentPathIsDirectory     = errors.New("path is a directory, want file")
+	errParentPathIsNotDirectory  = errors.New("path is not a directory, want directory")
+	errParentRootNotAbsolute     = errors.New("parent workflow root must be absolute")
+	errParentSourceNotExecutable = errors.New(
+		"source executable is not a regular executable",
+	)
 )
 
 type parentWorkflowOptions struct {
@@ -240,6 +244,9 @@ func syncParentArtifacts(
 	steps = append(steps, runParentStep("go_tools", func() error {
 		return rebuildParentGoTools(paths)
 	}))
+	steps = append(steps, runParentStep("hook_runtime", func() error {
+		return syncParentHookRuntimeExecutables(paths, options)
+	}))
 	steps = append(steps, runParentStep("policy_bundle", func() error {
 		return syncParentPolicyBundle(paths, options)
 	}))
@@ -300,6 +307,9 @@ func checkParentArtifacts(
 	steps := []parentWorkflowStep{}
 	steps = append(steps, runParentStep("go_tools", func() error {
 		return checkParentGoTools(paths, options)
+	}))
+	steps = append(steps, runParentStep("hook_runtime", func() error {
+		return checkParentHookRuntimeExecutables(paths, options)
 	}))
 	steps = append(steps, runParentStep("policy_bundle", func() error {
 		return checkParentPolicyBundle(paths, options)
@@ -432,6 +442,209 @@ func parentGitCommonDir(paths runtimePaths, repo string) string {
 	}
 
 	return filepath.Join(repo, ".git")
+}
+
+func parentHookRuntimeBinDir(paths runtimePaths, options parentWorkflowOptions) string {
+	return filepath.Join(
+		parentGitCommonDir(paths, options.Repo),
+		"coding-ethos-hooks",
+		"bin",
+	)
+}
+
+func syncParentHookRuntimeExecutables(
+	paths runtimePaths,
+	options parentWorkflowOptions,
+) error {
+	tools, err := parentGoToolCommands(paths)
+	if err != nil {
+		return err
+	}
+
+	runtimeBin := parentHookRuntimeBinDir(paths, options)
+
+	err = os.MkdirAll(runtimeBin, parentExecutableDirMode)
+	if err != nil {
+		return fmt.Errorf("create parent hook runtime bin dir: %w", err)
+	}
+
+	for _, tool := range tools {
+		source := filepath.Join(paths.BinDir, tool)
+		destination := filepath.Join(runtimeBin, tool)
+
+		err = installParentHookRuntimeExecutable(source, destination)
+		if err != nil {
+			return fmt.Errorf("install parent hook runtime %s: %w", tool, err)
+		}
+	}
+
+	return nil
+}
+
+func installParentHookRuntimeExecutable(source, destination string) error {
+	info, err := os.Lstat(source)
+	if err != nil {
+		return fmt.Errorf("stat source executable %s: %w", source, err)
+	}
+
+	if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return fmt.Errorf("%w: %s", errParentSourceNotExecutable, source)
+	}
+
+	input, err := os.Open(source)
+	if err != nil {
+		return fmt.Errorf("open source executable %s: %w", source, err)
+	}
+	defer input.Close()
+
+	temporary, err := os.CreateTemp(
+		filepath.Dir(destination),
+		"."+filepath.Base(destination)+"-*.tmp",
+	)
+	if err != nil {
+		return fmt.Errorf("create temporary hook runtime executable: %w", err)
+	}
+
+	temporaryPath := temporary.Name()
+
+	defer func() {
+		_ = temporary.Close()
+		_ = os.Remove(temporaryPath)
+	}()
+
+	err = temporary.Chmod(info.Mode().Perm())
+	if err != nil {
+		return fmt.Errorf("set temporary hook runtime executable mode: %w", err)
+	}
+
+	_, err = io.Copy(temporary, input)
+	if err != nil {
+		return fmt.Errorf("copy hook runtime executable: %w", err)
+	}
+
+	err = temporary.Sync()
+	if err != nil {
+		return fmt.Errorf("sync temporary hook runtime executable: %w", err)
+	}
+
+	err = temporary.Close()
+	if err != nil {
+		return fmt.Errorf("close temporary hook runtime executable: %w", err)
+	}
+
+	err = os.Rename(temporaryPath, destination)
+	if err != nil {
+		return fmt.Errorf("activate hook runtime executable %s: %w", destination, err)
+	}
+
+	return nil
+}
+
+func checkParentHookRuntimeExecutables(
+	paths runtimePaths,
+	options parentWorkflowOptions,
+) error {
+	tools, err := parentGoToolCommands(paths)
+	if err != nil {
+		return err
+	}
+
+	runtimeBin := parentHookRuntimeBinDir(paths, options)
+	mismatched := []string{}
+
+	for _, tool := range tools {
+		source := filepath.Join(paths.BinDir, tool)
+		destination := filepath.Join(runtimeBin, tool)
+
+		status, err := compareParentHookRuntimeExecutable(source, destination)
+		if err != nil {
+			return fmt.Errorf("check parent hook runtime %s: %w", tool, err)
+		}
+
+		if status != "" {
+			mismatched = append(mismatched, tool+"("+status+")")
+		}
+	}
+
+	if len(mismatched) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: hook_runtime out of sync in %s checkout; run: %s; drift: %s",
+		errParentArtifactDrift,
+		parentCheckoutLocation(paths, options),
+		parentInstallCommand(options),
+		strings.Join(mismatched, " "),
+	)
+}
+
+func compareParentHookRuntimeExecutable(source, destination string) (string, error) {
+	sourceInfo, err := os.Lstat(source)
+	if err != nil {
+		return "", fmt.Errorf("stat source executable %s: %w", source, err)
+	}
+
+	if !sourceInfo.Mode().IsRegular() || sourceInfo.Mode()&0o111 == 0 {
+		return "", fmt.Errorf("%w: %s", errParentSourceNotExecutable, source)
+	}
+
+	destinationInfo, err := os.Lstat(destination)
+	if errors.Is(err, os.ErrNotExist) {
+		return "missing", nil
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("stat installed executable %s: %w", destination, err)
+	}
+
+	if !destinationInfo.Mode().IsRegular() {
+		return "not_regular", nil
+	}
+
+	if destinationInfo.Mode()&0o111 == 0 {
+		return "not_executable", nil
+	}
+
+	if sourceInfo.Size() != destinationInfo.Size() {
+		return "content", nil
+	}
+
+	sourceHash, err := parentFileSHA256(source)
+	if err != nil {
+		return "", err
+	}
+
+	destinationHash, err := parentFileSHA256(destination)
+	if err != nil {
+		return "", err
+	}
+
+	if sourceHash != destinationHash {
+		return "content", nil
+	}
+
+	return "", nil
+}
+
+func parentFileSHA256(path string) ([sha256.Size]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return [sha256.Size]byte{}, fmt.Errorf("open executable %s: %w", path, err)
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+
+	_, err = io.Copy(hash, file)
+	if err != nil {
+		return [sha256.Size]byte{}, fmt.Errorf("hash executable %s: %w", path, err)
+	}
+
+	var digest [sha256.Size]byte
+	copy(digest[:], hash.Sum(nil))
+
+	return digest, nil
 }
 
 func compileParentPolicyBundle(

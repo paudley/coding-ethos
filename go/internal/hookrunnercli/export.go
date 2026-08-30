@@ -13,6 +13,14 @@ func Run(args []string) int {
 		return 1
 	}
 
+	restoreCacheEnvironment, err := prepareHookProcessCacheEnvironment(repoRoot())
+	if err != nil {
+		writef(os.Stderr, "FATAL: prepare hook cache environment: %v\n", err)
+
+		return 1
+	}
+	defer restoreCacheEnvironment()
+
 	cfg, err := loadConfig()
 	if err != nil {
 		writef(os.Stderr, "FATAL: %v\n", err)

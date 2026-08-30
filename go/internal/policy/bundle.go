@@ -266,18 +266,19 @@ func examplePrinciples() map[string]Principle {
 
 func examplePolicies() map[string]Policy {
 	return map[string]Policy{
-		"python.conditional_imports":     exampleConditionalImportPolicy(),
-		"python.functional_idioms":       exampleFunctionalIdiomPolicy(),
-		"git.hook_bypass":                exampleHookBypassPolicy(),
-		"git.history_rewrite_prevention": exampleHistoryRewritePreventionPolicy(),
-		"git.protected_submodule_update": exampleProtectedSubmoduleUpdatePolicy(),
-		"git.commit_attribution":         exampleCommitAttributionPolicy(),
-		"git.commit_head_advanced":       exampleCommitHeadPolicy(),
-		"git.edit_evasive_git_execution": exampleEditEvasiveGitExecutionPolicy(),
-		"filesystem.protected_path":      exampleProtectedPathPolicy(),
-		"proxy.search_replace_edit":      ProxySearchReplaceEditPolicy(),
-		"shell.malformed_command":        exampleShellMalformedCommandPolicy(),
-		"shell.forbidden_strings":        exampleShellForbiddenStringsPolicy(),
+		"python.conditional_imports":      exampleConditionalImportPolicy(),
+		"python.functional_idioms":        exampleFunctionalIdiomPolicy(),
+		"git.hook_bypass":                 exampleHookBypassPolicy(),
+		"git.history_rewrite_prevention":  exampleHistoryRewritePreventionPolicy(),
+		"git.protected_submodule_update":  exampleProtectedSubmoduleUpdatePolicy(),
+		"git.commit_attribution":          exampleCommitAttributionPolicy(),
+		"git.commit_head_advanced":        exampleCommitHeadPolicy(),
+		"git.edit_evasive_git_execution":  exampleEditEvasiveGitExecutionPolicy(),
+		"filesystem.protected_path":       exampleProtectedPathPolicy(),
+		"proxy.search_replace_edit":       ProxySearchReplaceEditPolicy(),
+		"shell.malformed_command":         exampleShellMalformedCommandPolicy(),
+		"shell.required_gate_exit_status": exampleShellRequiredGateExitStatusPolicy(),
+		"shell.forbidden_strings":         exampleShellForbiddenStringsPolicy(),
 	}
 }
 
@@ -1079,6 +1080,32 @@ func exampleShellMalformedCommandPolicy() Policy {
 			Kind: "shell",
 			Name: "shell.malformed_command",
 		}},
+	}
+}
+
+func exampleShellRequiredGateExitStatusPolicy() Policy {
+	return Policy{
+		ID:       "shell.required_gate_exit_status",
+		Category: "shell",
+		Source: SourceRef{
+			File: "config.yaml",
+			Path: "shell.required_gate_exit_status",
+		},
+		PrincipleIDs: []string{
+			"validation-at-the-gate",
+			"evidence-based-engineering-and-decision-quality",
+		},
+		DefaultSeverity: "block",
+		SupportedModes:  []string{"block", "record"},
+		Message: "Required repository gates must return their own " +
+			"exact terminal status.",
+		Suggestion: "Run the gate directly, enable pipefail for pipelines, or capture " +
+			"and return the gate's exact status.",
+		DefenseLayers: hookRouteDefenseLayers(),
+		AppliesTo:     AppliesTo{Tools: []string{"Bash"}},
+		Evaluators: []Evaluator{
+			{Kind: "external", Name: "shell.required_gate_exit_status"},
+		},
 	}
 }
 

@@ -10,7 +10,33 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
+
+func TestPrepareHookProcessCacheEnvironmentSetsAndRestoresUVCache(t *testing.T) {
+	testlock.ProcessState(t, "hook-process-cache-environment")
+
+	root := t.TempDir()
+	t.Setenv("UV_CACHE_DIR", "/previous/uv-cache")
+	restore, err := prepareHookProcessCacheEnvironment(root)
+	if err != nil {
+		t.Fatalf("prepareHookProcessCacheEnvironment: %v", err)
+	}
+
+	want := filepath.Join(root, ".coding-ethos", "cache", "uv")
+	if got := os.Getenv("UV_CACHE_DIR"); got != want {
+		t.Fatalf("UV_CACHE_DIR = %q, want %q", got, want)
+	}
+	if info, statErr := os.Stat(want); statErr != nil || !info.IsDir() {
+		t.Fatalf("UV cache directory is not usable: info=%v error=%v", info, statErr)
+	}
+
+	restore()
+	if got := os.Getenv("UV_CACHE_DIR"); got != "/previous/uv-cache" {
+		t.Fatalf("restored UV_CACHE_DIR = %q", got)
+	}
+}
 
 func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	shimDir := t.TempDir()
