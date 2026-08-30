@@ -665,6 +665,46 @@ func TestRuntimePolicyBundleUsesPrivateStateRoot(t *testing.T) {
 	}
 }
 
+func TestParentUsesExternalStateRoot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		options parentWorkflowOptions
+		want    bool
+	}{
+		{name: "implicit repo-local", options: parentWorkflowOptions{Repo: "/repo"}},
+		{
+			name:    "explicit repo-local",
+			options: parentWorkflowOptions{Repo: "/repo", StateRoot: "/repo"},
+		},
+		{
+			name:    "clean-equivalent repo-local",
+			options: parentWorkflowOptions{Repo: "/repo/.", StateRoot: "/repo"},
+		},
+		{
+			name:    "external",
+			options: parentWorkflowOptions{Repo: "/repo", StateRoot: "/private/state"},
+			want:    true,
+		},
+		{
+			name:    "nested external",
+			options: parentWorkflowOptions{Repo: "/repo", StateRoot: "/repo/private-state"},
+			want:    true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := parentUsesExternalStateRoot(test.options); got != test.want {
+				t.Fatalf("parentUsesExternalStateRoot() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestParentStepStatusFailsOnAnyFailedStep(t *testing.T) {
 	t.Parallel()
 
@@ -3323,6 +3363,33 @@ func TestMakefileRoutesLintTargetsThroughManagedGroups(t *testing.T) {
 		if !strings.Contains(makefile, want) {
 			t.Fatalf("Makefile missing managed group route %q", want)
 		}
+	}
+}
+
+func TestMakefileRoutesParentGitHooksThroughStableCommonRuntime(t *testing.T) {
+	t.Parallel()
+
+	payload, err := os.ReadFile(filepath.Join("..", "..", "..", "Makefile"))
+	if err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+
+	makefile := string(payload)
+	for _, want := range []string{
+		`$(call install_git_hooks,$(LOCAL_HOOKS_DIR),$(GO_HOOK))`,
+		`$(call install_git_hooks,$(HOOKS_DIR),$(PARENT_HOOK_BIN_DIR)/coding-ethos-run)`,
+		`_sync-git-hooks: ensure-go go-tools-install _sync-parent-hook-runtime`,
+	} {
+		if !strings.Contains(makefile, want) {
+			t.Fatalf("Makefile missing stable Git hook route %q", want)
+		}
+	}
+
+	if strings.Contains(
+		makefile,
+		`$(call install_git_hooks,$(HOOKS_DIR),$(GO_HOOK))`,
+	) {
+		t.Fatal("Makefile routes parent Git hooks through a worktree-local runner")
 	}
 }
 

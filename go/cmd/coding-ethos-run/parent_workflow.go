@@ -270,19 +270,25 @@ func syncParentArtifacts(
 	steps = append(steps, runParentStep("agent_hooks", func() error {
 		return agenthooks.SyncSettings(options.Repo, parentAgentHookCommand(paths))
 	}))
-	steps = append(steps, runParentStep("repo_ignores", func() error {
-		_, err := repoignore.RepairGitignore(options.Repo)
-		if err != nil {
-			return fmt.Errorf("repair repo ignores: %w", err)
-		}
+	if !parentUsesExternalStateRoot(options) {
+		steps = append(steps, runParentStep("repo_ignores", func() error {
+			_, err := repoignore.RepairGitignore(options.Repo)
+			if err != nil {
+				return fmt.Errorf("repair repo ignores: %w", err)
+			}
 
-		return nil
-	}))
+			return nil
+		}))
+	}
 	steps = append(steps, runParentStep("code_intel", func() error {
 		return refreshParentCodeIntel(options.Repo)
 	}))
 
 	return steps
+}
+
+func parentUsesExternalStateRoot(options parentWorkflowOptions) bool {
+	return options.StateRoot != "" && !sameCleanPath(options.StateRoot, options.Repo)
 }
 
 func checkParentArtifacts(
