@@ -27,6 +27,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/sharedlock"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 func TestRunnerArgsInferGitHookFromExecutableName(t *testing.T) {
@@ -2400,7 +2401,7 @@ func TestPolicyGitIgnoresSpoofedAgentShellSandboxEnv(t *testing.T) {
 	if !strings.Contains(
 		got,
 		"exec:coding-ethos-git --bundle "+hookPolicyBundlePath(paths)+
-			" --real-git "+paths.RealGit+" status",
+			" --real-git "+paths.RealGit+" -- status",
 	) {
 		t.Fatalf("policy-git did not execute managed git: %#v", calls)
 	}
@@ -2431,9 +2432,121 @@ func TestPolicyGitIgnoresArbitraryEnvRealGitExecutable(t *testing.T) {
 	if !strings.Contains(
 		got,
 		"exec:coding-ethos-git --bundle "+hookPolicyBundlePath(paths)+
-			" --real-git "+paths.RealGit+" status",
+			" --real-git "+paths.RealGit+" -- status",
 	) {
 		t.Fatalf("policy-git did not execute managed git: %#v", calls)
+	}
+}
+
+func TestPolicyToolExecutesActionlintShellcheckDependencyRaw(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+
+	tool, found := toolcatalog.HookOwnedTool("shellcheck")
+	if !found {
+		t.Fatal("managed shellcheck tool is not registered")
+	}
+
+	shellcheck := tool.ManagedExecutablePath(paths.EthosRoot)
+	if err := os.MkdirAll(filepath.Dir(shellcheck), 0o755); err != nil {
+		t.Fatalf("create managed shellcheck fixture directory: %v", err)
+	}
+	writeExecutableFixture(t, shellcheck, "#!/usr/bin/env sh\nexit 0\n")
+
+	args := []string{
+		"shellcheck",
+		"--norc",
+		"-f", "json",
+		"-x",
+		"--shell", "bash",
+		"-",
+	}
+	err := runPolicyToolForParent(paths, args, "/managed/bin/actionlint")
+	if err != nil {
+		t.Fatalf("run actionlint shellcheck dependency: %v", err)
+	}
+
+	want := "execpath:" + shellcheck + " " + strings.Join(args[1:], " ")
+	if !slices.Contains(calls, want) {
+		t.Fatalf("managed shellcheck was not executed raw; calls = %#v", calls)
+	}
+}
+
+func TestPolicyToolCapturesShellcheckOutsideActionlint(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+
+	err := runPolicyToolForParent(
+		paths,
+		[]string{"shellcheck", "-f", "json", "-"},
+		"/usr/bin/bash",
+	)
+	if err != nil {
+		t.Fatalf("run direct shellcheck: %v", err)
+	}
+
+	joined := strings.Join(calls, "\n")
+	if !strings.Contains(joined, "exec-lint:") || strings.Contains(joined, "execpath:") {
+		t.Fatalf("direct shellcheck bypassed managed capture: %#v", calls)
+	}
+}
+
+func TestActionlintShellcheckDependencyRequiresJSONStdinContract(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		parent string
+		tool   string
+		args   []string
+		want   bool
+	}{
+		{
+			name:   "actionlint json stdin",
+			parent: "/managed/bin/actionlint",
+			tool:   "shellcheck",
+			args:   []string{"--norc", "-f", "json", "-"},
+			want:   true,
+		},
+		{
+			name:   "long json format",
+			parent: "/managed/bin/actionlint",
+			tool:   "shellcheck",
+			args:   []string{"--format=json", "-"},
+			want:   true,
+		},
+		{
+			name:   "wrong parent",
+			parent: "/usr/bin/bash",
+			tool:   "shellcheck",
+			args:   []string{"-f", "json", "-"},
+		},
+		{
+			name:   "not stdin",
+			parent: "/managed/bin/actionlint",
+			tool:   "shellcheck",
+			args:   []string{"-f", "json", "script.sh"},
+		},
+		{
+			name:   "not json",
+			parent: "/managed/bin/actionlint",
+			tool:   "shellcheck",
+			args:   []string{"-f", "gcc", "-"},
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := actionlintShellcheckDependency(test.parent, test.tool, test.args)
+			if got != test.want {
+				t.Fatalf("actionlintShellcheckDependency() = %v, want %v", got, test.want)
+			}
+		})
 	}
 }
 

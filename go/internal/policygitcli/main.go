@@ -187,6 +187,8 @@ func gitOptions(
 		}
 	}
 
+	argv = withoutInitialRedundantChangeDir(argv)
+
 	stdin, err := stdinForGitArgv(argv)
 	if err != nil {
 		return gitwrap.Options{}, err
@@ -198,6 +200,15 @@ func gitOptions(
 		Cwd:           cwd,
 		Stdin:         stdin,
 	}, nil
+}
+
+func withoutInitialRedundantChangeDir(argv []string) []string {
+	index := 0
+	for index+1 < len(argv) && argv[index] == "-C" && argv[index+1] == "." {
+		index += 2
+	}
+
+	return append([]string(nil), argv[index:]...)
 }
 
 func stdinForGitArgv(argv []string) ([]byte, error) {

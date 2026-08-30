@@ -84,6 +84,48 @@ func TestGitOptionsForNonStdinCommand(t *testing.T) {
 	}
 }
 
+func TestGitOptionsDropsOnlyInitialRedundantChangeDir(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{
+			name: "redundant current directory",
+			argv: []string{"-C", ".", "diff", "--staged"},
+			want: "diff --staged",
+		},
+		{
+			name: "real directory change remains policy visible",
+			argv: []string{"-C", "../other", "diff", "--staged"},
+			want: "-C ../other diff --staged",
+		},
+		{
+			name: "operation change detection flag is untouched",
+			argv: []string{"diff", "-C", "."},
+			want: "diff -C .",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			options, err := gitOptions(test.argv, t.TempDir(), false)
+			if err != nil {
+				t.Fatalf("gitOptions: %v", err)
+			}
+
+			if got := strings.Join(options.Argv, " "); got != test.want {
+				t.Fatalf("argv = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestReadBundleAndMaybePrintJSON(t *testing.T) {
 	t.Parallel()
 
