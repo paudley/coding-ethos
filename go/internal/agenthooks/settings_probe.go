@@ -586,6 +586,26 @@ func validateCodexBlockReason(
 	if result.exitCode == 0 {
 		return apperror.StaticError("codex raw git probe should block")
 	}
+	// Codex's native command-hook block contract is exit 2 with the reason on
+	// stderr. Coding Ethos's own hook adapter also emits a structured JSON
+	// receipt, so verify both valid routes instead of requiring an external
+	// supervisor to manufacture stdout that Codex ignores on a blocking exit.
+	if strings.TrimSpace(result.stdout) == "" {
+		if result.exitCode != nativeBlockExitCode {
+			return apperror.Wrapf(
+				apperror.StaticError("Codex native block exit = %d, want 2"),
+				"Codex native block exit = %d, want 2",
+				result.exitCode,
+			)
+		}
+
+		reason := strings.TrimSpace(result.stderr)
+		if reason == "" {
+			return apperror.StaticError("missing Codex block reason on stderr")
+		}
+
+		return validateCodexBlockReasonMarkers(reason, reasonMarkers)
+	}
 
 	actual, found := result.payload["decision"].(string)
 	if !found || actual != "block" {
@@ -606,15 +626,9 @@ func validateCodexBlockReason(
 		)
 	}
 
-	for _, marker := range reasonMarkers {
-		if !strings.Contains(reason, marker) {
-			return apperror.Wrapf(
-				apperror.StaticError("codex block reason lost marker %q: %s"),
-				"codex block reason lost marker %q: %s",
-				marker,
-				reason,
-			)
-		}
+	err := validateCodexBlockReasonMarkers(reason, reasonMarkers)
+	if err != nil {
+		return err
 	}
 
 	permissionReason, found := nestedString(
@@ -633,6 +647,21 @@ func validateCodexBlockReason(
 	return nil
 }
 
+func validateCodexBlockReasonMarkers(reason string, reasonMarkers []string) error {
+	for _, marker := range reasonMarkers {
+		if !strings.Contains(reason, marker) {
+			return apperror.Wrapf(
+				apperror.StaticError("codex block reason lost marker %q: %s"),
+				"codex block reason lost marker %q: %s",
+				marker,
+				reason,
+			)
+		}
+	}
+
+	return nil
+}
+
 func validateClaudeBlockProbe(result hookProbeResult) error {
 	return validateDecisionProbe(result, "block")
 }
@@ -646,7 +675,7 @@ func validateGeminiDenyProbe(result hookProbeResult) error {
 }
 
 func validateKimiDenyProbe(result hookProbeResult) error {
-	if result.exitCode != kimiBlockExitCode {
+	if result.exitCode != nativeBlockExitCode {
 		return apperror.Wrapf(
 			apperror.StaticError("Kimi deny probe exit = %d, want 2"),
 			"Kimi deny probe exit = %d, want 2",
@@ -670,7 +699,58 @@ func validateKimiStopContinuationProbe(result hookProbeResult) error {
 		)
 	}
 
+	hookOutputValue, present := result.payload["hookSpecificOutput"]
+	if present {
+		return validateKimiStopHookOutput(result, hookOutputValue)
+	}
+
+	return validateKimiStopMessage(result)
+}
+
+func validateKimiStopHookOutput(result hookProbeResult, value any) error {
+	hookOutput, valid := value.(map[string]any)
+	if !valid {
+		return apperror.Wrapf(
+			apperror.StaticError(
+				"Kimi Stop hook hookSpecificOutput must be an object; stdout=%s",
+			),
+			"Kimi Stop hook hookSpecificOutput must be an object; stdout=%s",
+			result.stdout,
+		)
+	}
+
+	decision, present := hookOutput["permissionDecision"]
+	if !present {
+		return validateKimiStopMessage(result)
+	}
+
+	if _, valid = decision.(string); !valid {
+		return apperror.Wrapf(
+			apperror.StaticError(
+				"Kimi Stop hook permissionDecision must be a string; stdout=%s",
+			),
+			"Kimi Stop hook permissionDecision must be a string; stdout=%s",
+			result.stdout,
+		)
+	}
+
 	return validateKimiStructuredDeny(result)
+}
+
+func validateKimiStopMessage(result hookProbeResult) error {
+	// A supervising hook may legitimately allow a clean Stop. Kimi still
+	// receives a native, decoded response proving the hook ran; only a
+	// supervisor that finds unfinished work needs to return the deny shape that
+	// continues the turn.
+	if _, found := result.payload["message"].(string); !found {
+		return apperror.Wrapf(
+			apperror.StaticError("Kimi Stop hook returned no native response: %s"),
+			"Kimi Stop hook returned no native response: %s",
+			result.stdout,
+		)
+	}
+
+	return nil
 }
 
 func validateKimiStructuredDeny(result hookProbeResult) error {

@@ -37,19 +37,27 @@ const AgentHooksAPIVersion = "coding-ethos.agent-hooks/v1"
 
 // CapabilityReport is the machine-readable agent-hook capability response.
 type CapabilityReport struct {
-	APIVersion           string `json:"api_version"`
-	RuntimeVersion       string `json:"runtime_version"`
-	SettingsRootFlag     string `json:"settings_root_flag"`
-	RepositoryRootFlag   string `json:"repository_root_flag"`
-	StateRootFlag        string `json:"state_root_flag"`
-	MCPCommandFlag       string `json:"mcp_command_flag"`
-	HookTimeoutFlag      string `json:"hook_timeout_flag"`
-	RuntimePolicyCommand string `json:"runtime_policy_command"`
+	CodeIntel              *CodeIntelCapability           `json:"code_intel,omitempty"`
+	APIVersion             string                         `json:"api_version"`
+	RuntimeVersion         string                         `json:"runtime_version"`
+	SettingsRootFlag       string                         `json:"settings_root_flag"`
+	RepositoryRootFlag     string                         `json:"repository_root_flag"`
+	StateRootFlag          string                         `json:"state_root_flag"`
+	MCPCommandFlag         string                         `json:"mcp_command_flag"`
+	HookTimeoutFlag        string                         `json:"hook_timeout_flag"`
+	RuntimePolicyCommand   string                         `json:"runtime_policy_command"`
+	HookContracts          []hooks.HookContractCapability `json:"hook_contracts"`
+	Providers              []ProviderCapability           `json:"providers"`
+	SupportsPrivateOverlay bool                           `json:"supports_private_overlay"`
+}
 
-	HookContracts []hooks.HookContractCapability `json:"hook_contracts"`
-	Providers     []ProviderCapability           `json:"providers"`
-
-	SupportsPrivateOverlay bool `json:"supports_private_overlay"`
+// CodeIntelCapability advertises the optional exact-source readiness contract.
+type CodeIntelCapability struct {
+	Contract                string   `json:"contract"`
+	SyncCommand             string   `json:"sync_command"`
+	StatusCommand           string   `json:"status_command"`
+	SourceReadinessStatuses []string `json:"source_readiness_statuses"`
+	VectorReadinessStatuses []string `json:"vector_readiness_statuses"`
 }
 
 // Capabilities returns versioned hook contracts and provider adapters.
@@ -60,7 +68,14 @@ func Capabilities(runtimeVersion string) CapabilityReport {
 		HookContracts: []hooks.HookContractCapability{
 			hooks.HookContractV1Capability(),
 		},
-		Providers:              ProviderCapabilities(),
+		Providers: ProviderCapabilities(),
+		CodeIntel: &CodeIntelCapability{
+			Contract:                "coding-ethos.code-intel/v2",
+			SyncCommand:             "coding-ethos-code-intel sync --root <worktree>",
+			StatusCommand:           "coding-ethos-code-intel status --root <worktree>",
+			SourceReadinessStatuses: []string{"exact", "partial", "failed", "missing", "stale"},
+			VectorReadinessStatuses: []string{"not_evaluated", "partial", "ready"},
+		},
 		SettingsRootFlag:       "--root",
 		RepositoryRootFlag:     "--repo-root",
 		StateRootFlag:          "--state-root",
@@ -134,8 +149,8 @@ func codexProviderCapability() ProviderCapability {
 			"Stop",
 		},
 		SettingsTarget: ".codex/config.toml",
-		BlockResponseShape: "decision = block plus permissionDecision = deny " +
-			"for PreToolUse",
+		BlockResponseShape: "exit 2 with stderr reason or decision = block plus " +
+			"permissionDecision = deny for PreToolUse",
 		ContextAdviceShape: "additionalContext where native; compact " +
 			"systemMessage otherwise",
 		MCPSetup: ".codex/config.toml mcp_servers.coding-ethos stdio server",

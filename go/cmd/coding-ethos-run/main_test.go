@@ -24,6 +24,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
+	"blackcat.ca/coding-ethos/go/internal/sharedlock"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
@@ -225,6 +226,80 @@ func TestCodeIntelArgsBindPrivateStateDatabase(t *testing.T) {
 	}
 	if !slices.Equal(args, want) {
 		t.Fatalf("codeIntelArgs() = %#v, want %#v", args, want)
+	}
+}
+
+func TestCodeIntelArgsBindTokenEconomyStateRootAfterNestedCommand(t *testing.T) {
+	t.Parallel()
+
+	args := codeIntelArgs(
+		"/repo",
+		"/private/state",
+		[]string{"token-economy", "report", "--historical", "--output-prefix", "/tmp/report"},
+	)
+
+	want := []string{
+		"token-economy",
+		"report",
+		"--root",
+		"/repo",
+		"--state-root",
+		"/private/state",
+		"--historical",
+		"--output-prefix",
+		"/tmp/report",
+	}
+	if !slices.Equal(args, want) {
+		t.Fatalf("codeIntelArgs() = %#v, want %#v", args, want)
+	}
+}
+
+func TestCodeIntelArgsDoNotRewriteExplicitBenchmarkContract(t *testing.T) {
+	t.Parallel()
+
+	input := []string{
+		"token-economy",
+		"benchmark",
+		"run",
+		"--manifest",
+		"/private/benchmark.yaml",
+		"--state-root",
+		"/private/evidence",
+		"--approved-max-runs",
+		"3",
+	}
+	args := codeIntelArgs("/repo", "/ambient/state", input)
+	if !slices.Equal(args, input) {
+		t.Fatalf("codeIntelArgs() = %#v, want explicit contract %#v", args, input)
+	}
+}
+
+func TestCodeIntelArgsDoNotAddReportFlagsToLedger(t *testing.T) {
+	t.Parallel()
+
+	input := []string{
+		"token-economy",
+		"ledger",
+		"--provider",
+		"codex",
+		"--path",
+		"/private/rollout.jsonl",
+	}
+	args := codeIntelArgs("/repo", "/ambient/state", input)
+	if !slices.Equal(args, input) {
+		t.Fatalf("codeIntelArgs() = %#v, want ledger contract %#v", args, input)
+	}
+}
+
+func TestCodeIntelArgsKeepSourceV2CommandsFreeOfDuckDBFlags(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"sync", "status"} {
+		got := codeIntelArgs("/repo", "/private/state", []string{command})
+		want := []string{command, "--root", "/repo"}
+		if !slices.Equal(got, want) {
+			t.Fatalf("codeIntelArgs(%q) = %#v, want %#v", command, got, want)
+		}
 	}
 }
 
@@ -1720,6 +1795,7 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 		paths,
 		"/usr/bin/env",
 		[]string{"bash", "-lc", "git status"},
+		"git status",
 	)
 	defer cleanup()
 	if err != nil {
@@ -1849,6 +1925,36 @@ func TestAgentShellTerminalPathAllowsCurrentPTYOnly(t *testing.T) {
 	}
 }
 
+func TestSharedLockDirectoryMetadataRequiresTheExactExternalCapabilityShape(
+	t *testing.T,
+) {
+	shared := t.TempDir()
+	if err := os.Chmod(shared, os.ModeSticky|0o777); err != nil {
+		t.Fatalf("set shared lock directory mode: %v", err)
+	}
+	info, err := os.Lstat(shared)
+	if err != nil {
+		t.Fatalf("inspect shared lock metadata: %v", err)
+	}
+	if !sharedlock.ValidDirectoryMetadata("/var/tmp/coding-ethos-shared-lock-test", info) {
+		t.Fatal("the exact direct-child mode-1777 capability shape was rejected")
+	}
+
+	if err := os.Chmod(shared, 0o0777); err != nil {
+		t.Fatalf("remove sticky bit: %v", err)
+	}
+	info, err = os.Lstat(shared)
+	if err != nil {
+		t.Fatalf("inspect non-sticky metadata: %v", err)
+	}
+	if sharedlock.ValidDirectoryMetadata("/var/tmp/coding-ethos-shared-lock-test", info) {
+		t.Fatal("a non-sticky external directory became a shared lock capability")
+	}
+	if sharedlock.ValidDirectoryMetadata("/tmp/coding-ethos-shared-lock-test", info) {
+		t.Fatal("a path outside /var/tmp became a shared lock capability")
+	}
+}
+
 func containsFlagValue(args []string, flag, value string) bool {
 	for index := 0; index < len(args)-1; index++ {
 		if args[index] == flag && args[index+1] == value {
@@ -1951,7 +2057,11 @@ func TestAgentShellWorktreeRootIsWritableAndProtectedEntriesArePinned(t *testing
 			"created, deleted or renamed: %#v", got)
 	}
 
-	pinned, err := agentShellReadOnlyPaths(root)
+	pinned, err := agentShellReadOnlyPaths(
+		root,
+		"/trusted/bin/coding-ethos-run",
+		"git status",
+	)
 	if err != nil {
 		t.Fatalf("agentShellReadOnlyPaths() error = %v", err)
 	}
@@ -1975,7 +2085,11 @@ func TestAgentShellPrimaryGitDirectoryRemainsAnExplicitWriteCapability(t *testin
 		t.Fatalf("create primary git directory: %v", err)
 	}
 
-	pinned, err := agentShellReadOnlyPaths(root)
+	pinned, err := agentShellReadOnlyPaths(
+		root,
+		"/trusted/bin/coding-ethos-run",
+		"git status",
+	)
 	if err != nil {
 		t.Fatalf("agentShellReadOnlyPaths() error = %v", err)
 	}
@@ -1990,6 +2104,78 @@ func TestAgentShellPrimaryGitDirectoryRemainsAnExplicitWriteCapability(t *testin
 	}
 }
 
+func TestAgentShellPolicyTreeWriteExceptionIsStaticAndGitScoped(t *testing.T) {
+	t.Parallel()
+
+	runBinary := "/trusted/bin/coding-ethos-run"
+	allowed := []string{
+		"git merge --no-edit main",
+		"/usr/bin/git commit -S -m test",
+		"git stash push --keep-index",
+		runBinary + " policy-git merge --no-edit main",
+	}
+	for _, command := range allowed {
+		if !agentShellGitMayReplacePolicyTree(runBinary, command) {
+			t.Fatalf("static Git worktree command was not admitted: %q", command)
+		}
+	}
+
+	denied := []string{
+		"git status",
+		"git -c core.hooksPath=/tmp merge main",
+		"git merge main; touch .coding-ethos/policy",
+		`git merge "$TARGET"`,
+		"MODE=test git merge main",
+		"git merge main > .coding-ethos/result",
+		"/tmp/coding-ethos-run policy-git merge main",
+	}
+	for _, command := range denied {
+		if agentShellGitMayReplacePolicyTree(runBinary, command) {
+			t.Fatalf(
+				"non-static or non-worktree command received policy-tree access: %q",
+				command,
+			)
+		}
+	}
+}
+
+func TestAgentShellMergeMayReplaceTrackedPolicyFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	gitPointer := filepath.Join(root, ".git")
+	if err := os.WriteFile(
+		gitPointer,
+		[]byte("gitdir: /tmp/git\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("create linked-worktree git pointer: %v", err)
+	}
+	policyTree := filepath.Join(root, ".coding-ethos")
+	if err := os.Mkdir(policyTree, 0o700); err != nil {
+		t.Fatalf("create policy directory: %v", err)
+	}
+
+	runBinary := "/trusted/bin/coding-ethos-run"
+	pinned, err := agentShellReadOnlyPaths(
+		root,
+		runBinary,
+		runBinary+" policy-git merge --no-edit main",
+	)
+	if err != nil {
+		t.Fatalf("agentShellReadOnlyPaths() error = %v", err)
+	}
+	if slices.Contains(pinned, policyTree) {
+		t.Fatalf(
+			"merge cannot unlink tracked policy files while parent is pinned: %#v",
+			pinned,
+		)
+	}
+	if !slices.Contains(pinned, gitPointer) {
+		t.Fatalf("linked-worktree git pointer lost read-only protection: %#v", pinned)
+	}
+}
+
 func TestAgentShellSandboxPlanFailsClosedWithoutNativeHelper(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("agent-shell native sandbox is Linux-only")
@@ -2001,6 +2187,7 @@ func TestAgentShellSandboxPlanFailsClosedWithoutNativeHelper(t *testing.T) {
 		paths,
 		"/usr/bin/env",
 		[]string{"bash", "-lc", "git status"},
+		"git status",
 	)
 	defer cleanup()
 	if err == nil {

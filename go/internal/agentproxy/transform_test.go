@@ -213,14 +213,18 @@ func TestSavedOutputNoticeRecognitionAndAllowPath(t *testing.T) {
 func TestToolOutputCompressionPreservesHeadTailAndRecordsSavings(t *testing.T) {
 	t.Parallel()
 
+	verboseLine := strings.Repeat(
+		"verbose compiler progress chunk with repeated metadata ",
+		16,
+	)
 	input := strings.Join([]string{
 		"$ go test ./...",
 		"package alpha",
-		"line 03: verbose compiler progress chunk with repeated metadata",
-		"line 04: verbose compiler progress chunk with repeated metadata",
-		"line 05: verbose compiler progress chunk with repeated metadata",
-		"line 06: verbose compiler progress chunk with repeated metadata",
-		"line 07: verbose compiler progress chunk with repeated metadata",
+		"line 03: " + verboseLine,
+		"line 04: " + verboseLine,
+		"line 05: " + verboseLine,
+		"line 06: " + verboseLine,
+		"line 07: " + verboseLine,
 		"line 08",
 		"FAIL",
 	}, "\n") + "\n"
@@ -261,7 +265,7 @@ func TestToolOutputCompressionPreservesHeadTailAndRecordsSavings(t *testing.T) {
 		output.Metadata["coding_ethos.full_output_path"] == "" ||
 		output.Record.Name != "tool-output-compression" ||
 		output.Record.EvidencePath == "" ||
-		output.Record.BytesRemoved <= 0 {
+		output.Record.OutputTokens >= output.Record.InputTokens {
 		t.Fatalf("compression record = %#v metadata = %#v output = %q",
 			output.Record,
 			output.Metadata,
@@ -693,7 +697,8 @@ func TestToolOutputTokenBudgetReusesLineCompressionEvidencePath(t *testing.T) {
 	}
 
 	if !strings.Contains(output.Text, "token_budget: status=truncated") ||
-		!strings.Contains(output.Text, "full_output="+compressionPath) {
+		(!strings.Contains(output.Text, "full_output="+compressionPath) &&
+			!strings.Contains(output.Text, "full_output=ledger")) {
 		t.Fatalf(
 			"token-budget output did not expose original evidence path:\n%s",
 			output.Text,

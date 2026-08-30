@@ -29,6 +29,9 @@ const (
 func deleteTraceRows(ctx context.Context, transaction *sql.Tx, traceID string) error {
 	for _, statement := range []string{
 		"DELETE FROM code_intel_fts WHERE trace_id = ?",
+		`DELETE FROM remediation_outcomes
+		WHERE followup_trace_id = ?
+			AND outcome_id LIKE 'automatic-remediation-outcome:%'`,
 		"DELETE FROM code_delete_intents WHERE trace_id = ?",
 		"DELETE FROM hook_targets WHERE trace_id = ?",
 		"DELETE FROM hook_decisions WHERE trace_id = ?",

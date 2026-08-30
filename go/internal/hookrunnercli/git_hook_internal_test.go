@@ -93,7 +93,7 @@ func TestPushedFilesParsesPrePushRefs(t *testing.T) {
 		"refs/heads/main " + localSHA + " refs/heads/main " + remoteSHA + "\n",
 	)
 
-	files, err := pushedFiles(input)
+	files, err := pushedFiles(input, "")
 	if err != nil {
 		t.Fatalf("pushedFiles() returned error: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestPushedFilesHandlesNewBranchAndDeleteRefs(t *testing.T) {
 			"refs/heads/gone " + allZeroSHA + " refs/heads/gone " + localSHA + "\n",
 	)
 
-	files, err := pushedFiles(input)
+	files, err := pushedFiles(input, "")
 	if err != nil {
 		t.Fatalf("pushedFiles() returned error: %v", err)
 	}
@@ -127,6 +127,39 @@ func TestPushedFilesHandlesNewBranchAndDeleteRefs(t *testing.T) {
 	want := []string{"first.py", "second.py"}
 	if !reflect.DeepEqual(files, want) {
 		t.Fatalf("pushed files = %#v, want %#v", files, want)
+	}
+}
+
+func TestPushedFilesScopesNewBranchToRemoteDefaultBranch(t *testing.T) {
+	root := setupGitHookTestRepo(t)
+	chdirForTest(t, root)
+	mustWriteTestFile(t, "base.py", "print('base')\n")
+	runGitTestCommand(t, "add", "base.py")
+	runGitTestCommand(t, "commit", "-m", "test: base")
+	baseSHA := gitTestOutput(t, "rev-parse", "HEAD")
+	runGitTestCommand(t, "update-ref", "refs/remotes/origin/main", baseSHA)
+	runGitTestCommand(
+		t,
+		"symbolic-ref",
+		"refs/remotes/origin/HEAD",
+		"refs/remotes/origin/main",
+	)
+
+	mustWriteTestFile(t, "feature.py", "print('feature')\n")
+	runGitTestCommand(t, "add", "feature.py")
+	runGitTestCommand(t, "commit", "-m", "test: feature")
+	localSHA := gitTestOutput(t, "rev-parse", "HEAD")
+
+	input := strings.NewReader(
+		"refs/heads/feature " + localSHA + " refs/heads/feature " + allZeroSHA + "\n",
+	)
+	files, err := pushedFiles(input, "origin")
+	if err != nil {
+		t.Fatalf("pushedFiles() returned error: %v", err)
+	}
+
+	if !reflect.DeepEqual(files, []string{"feature.py"}) {
+		t.Fatalf("pushed files = %#v, want feature.py", files)
 	}
 }
 
@@ -144,7 +177,7 @@ func TestPushedFilesDeduplicatesMultipleRefs(t *testing.T) {
 
 	line := "refs/heads/main " + localSHA + " refs/heads/main " + remoteSHA + "\n"
 
-	files, err := pushedFiles(strings.NewReader(line + line))
+	files, err := pushedFiles(strings.NewReader(line+line), "")
 	if err != nil {
 		t.Fatalf("pushedFiles() returned error: %v", err)
 	}
@@ -365,8 +398,8 @@ exit 2
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	files, err := pushedFiles(strings.NewReader(
-		"refs/heads/feature abc123 refs/heads/feature " + allZeroSHA + "\n",
-	))
+		"refs/heads/feature abc123 refs/heads/feature "+allZeroSHA+"\n",
+	), "")
 	if err != nil {
 		t.Fatalf("pushedFiles: %v", err)
 	}
@@ -413,7 +446,7 @@ exit 2
 
 	files, err := pushedFiles(strings.NewReader(
 		"refs/heads/feature local123 refs/heads/feature remote123\n",
-	))
+	), "")
 	if err != nil {
 		t.Fatalf("pushedFiles: %v", err)
 	}

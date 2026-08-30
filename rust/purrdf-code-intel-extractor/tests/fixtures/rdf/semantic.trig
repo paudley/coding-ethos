@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: AGPL-3.0-only
+
+@prefix ex: <https://example.org/> .
+
+ex:s ex:p ex:o .
+ex:g {
+  ex:inside ex:p <<( ex:s ex:p ex:o )>> .
+  _:named ex:label "named graph blank" .
+}

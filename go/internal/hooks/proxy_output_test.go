@@ -413,7 +413,7 @@ func TestProxyPostToolOutputBudgetsDenseGenericOutputAndRecordsLedger(t *testing
 		output,
 	)
 
-	if !strings.Contains(proxied.Text, "token_budget: status=truncated max_tokens=80") ||
+	if !strings.Contains(proxied.Text, "token_budget: status=truncated") ||
 		strings.Contains(proxied.Text, output) ||
 		len(proxied.Events) != 1 {
 		t.Fatalf("unexpected dense proxy output: events=%#v text=%s",

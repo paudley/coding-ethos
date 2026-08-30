@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"blackcat.ca/coding-ethos/go/internal/sharedlock"
 )
 
 func TestParseOptionsNormalizesPathsAndPreservesCommand(t *testing.T) {
@@ -154,6 +156,64 @@ func TestCleanPolicyPathStaysInsideRepo(t *testing.T) {
 	nullDevice, ok := cleanPolicyPath(root, os.DevNull, false)
 	if !ok || nullDevice != os.DevNull {
 		t.Fatalf("cleanPolicyPath dev null = %q %t", nullDevice, ok)
+	}
+}
+
+func TestSharedLockDirectoryMetadataAllowsOnlyTheValidatedCapabilityShape(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	shared := t.TempDir()
+	if err := os.Chmod(shared, os.ModeSticky|0o777); err != nil {
+		t.Fatalf("set shared lock directory mode: %v", err)
+	}
+	info, err := os.Lstat(shared)
+	if err != nil {
+		t.Fatalf("inspect shared lock metadata: %v", err)
+	}
+	if !sharedlock.ValidDirectoryMetadata(
+		"/var/tmp/coding-ethos-sandbox-lock-test",
+		info,
+	) {
+		t.Fatal("the exact direct-child mode-1777 capability shape was rejected")
+	}
+
+	if err := os.Chmod(shared, 0o0777); err != nil {
+		t.Fatalf("remove sticky bit: %v", err)
+	}
+	info, err = os.Lstat(shared)
+	if err != nil {
+		t.Fatalf("inspect non-sticky metadata: %v", err)
+	}
+	if sharedlock.ValidDirectoryMetadata("/var/tmp/coding-ethos-sandbox-lock-test", info) {
+		t.Fatal("a non-sticky external directory became a sandbox write capability")
+	}
+	if sharedlock.ValidDirectoryMetadata("/tmp/coding-ethos-sandbox-lock-test", info) {
+		t.Fatal("a path outside /var/tmp became a sandbox write capability")
+	}
+
+	if err = os.Chmod(shared, os.ModeSticky|0o755); err != nil {
+		t.Fatalf("narrow shared lock directory mode: %v", err)
+	}
+	info, err = os.Lstat(shared)
+	if err != nil {
+		t.Fatalf("inspect mode-1755 metadata: %v", err)
+	}
+	if sharedlock.ValidDirectoryMetadata("/var/tmp/coding-ethos-sandbox-lock-test", info) {
+		t.Fatal("a mode-1755 directory became a sandbox write capability")
+	}
+
+	link := filepath.Join(t.TempDir(), "shared-lock-link")
+	if err = os.Symlink(shared, link); err != nil {
+		t.Fatalf("create shared lock symlink: %v", err)
+	}
+	info, err = os.Lstat(link)
+	if err != nil {
+		t.Fatalf("inspect shared lock symlink: %v", err)
+	}
+	if sharedlock.ValidDirectoryMetadata("/var/tmp/coding-ethos-sandbox-lock-test", info) {
+		t.Fatal("a symlink became a sandbox write capability")
 	}
 }
 

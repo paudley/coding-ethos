@@ -24,6 +24,7 @@ func RuntimePaths() []string {
 	return []string{
 		".claude/settings.local.json",
 		".coding-ethos/cache/",
+		".coding-ethos/code-intel-v2/",
 		".coding-ethos/code-intel.duckdb",
 		".coding-ethos/code-intel.duckdb.wal",
 		".coding-ethos/events/",

@@ -4,6 +4,7 @@
 package mcp
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,6 +14,59 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 )
+
+func TestCodeIntelTaskMetaPublishesAdditiveV2Receipt(t *testing.T) {
+	t.Parallel()
+
+	meta := codeIntelTaskMeta{
+		Compression: "bounded_json",
+		DataSources: []string{},
+		V2: &codeintel.SourceStatusReceipt{
+			Contract: "coding-ethos.code-intel/v2",
+			Kind:     "coding-ethos.code-intel.status/v2",
+			SourceReadiness: codeintel.SourceReadiness{
+				Status: codeintel.SourceStatusExact,
+			},
+		},
+	}
+	payload, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("marshal task metadata: %v", err)
+	}
+	for _, expected := range []string{
+		`"coding-ethos.code-intel/v2":{`,
+		`"contract":"coding-ethos.code-intel/v2"`,
+		`"status":"exact"`,
+	} {
+		if !strings.Contains(string(payload), expected) {
+			t.Fatalf("v2 MCP metadata missing %q: %s", expected, payload)
+		}
+	}
+}
+
+func TestCodeIntelV2VectorReadinessKeepsUnevaluatedSeparate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		ready   int
+		missing int
+		want    string
+	}{
+		{name: "no derived records", want: codeintel.VectorStatusNotEvaluated},
+		{name: "missing vectors", ready: 2, missing: 1, want: codeintel.VectorStatusPartial},
+		{name: "complete vectors", ready: 2, want: codeintel.VectorStatusReady},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			actual := codeIntelV2VectorReadiness(test.ready, test.missing)
+			if actual.Status != test.want || actual.ReadyRecords != test.ready ||
+				actual.MissingVectors != test.missing {
+				t.Fatalf("vector readiness = %#v, want status %q", actual, test.want)
+			}
+		})
+	}
+}
 
 func TestCapWorkspaceSearchResultsRespectsLimit(t *testing.T) {
 	t.Parallel()

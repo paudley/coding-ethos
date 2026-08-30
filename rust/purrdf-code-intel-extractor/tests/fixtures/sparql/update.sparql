@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcat.ca>
+# SPDX-License-Identifier: AGPL-3.0-only
+
+PREFIX ex: <https://example.org/>
+
+INSERT DATA {
+  GRAPH ex:g { ex:s ex:p ex:o }
+};
+DELETE { GRAPH ex:g { ?s ex:p ?o } }
+INSERT { GRAPH ex:h { ?s ex:p ?o } }
+USING NAMED ex:g
+WHERE { GRAPH ex:g { ?s ex:p ?o } };
+MOVE SILENT GRAPH ex:g TO GRAPH ex:h

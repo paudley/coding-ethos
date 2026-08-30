@@ -91,6 +91,7 @@ func commandHandlers() map[string]codeIntelCommand {
 		"record-hook-review":        recordHookReview,
 		"record-proxy-event":        recordProxyEvent,
 		"record-outcome":            recordOutcome,
+		"rebuild-derived":           rebuildDerived,
 		"rebuild-index":             rebuildIndex,
 		"remediation-effectiveness": printRemediationEffectiveness,
 		"remediation-outcomes":      printRemediationOutcomes,
@@ -104,7 +105,10 @@ func commandHandlers() map[string]codeIntelCommand {
 		"session-snapshot":          printSessionSnapshot,
 		"skill-health":              printSkillHealth,
 		"stats":                     printStats,
+		"status":                    printSourceIndexStatus,
 		"surprises":                 printSurprises,
+		"sync":                      syncSourceIndex,
+		tokenEconomyCommand:         tokenEconomy,
 		"upsert-vector":             upsertVector,
 		"vector-stats":              printVectorStats,
 		"workspace":                 workspace,
@@ -803,30 +807,6 @@ func legacyDownstreamAnalysis(
 	return analysis, nil
 }
 
-func rebuildIndex(ctx context.Context, args []string) error {
-	flags := flag.NewFlagSet("rebuild-index", flag.ExitOnError)
-	root := flags.String("root", ".", "Repository root containing .coding-ethos")
-	dbPath := flags.String("db", "", "Legacy DuckDB code intelligence database path")
-	duckDBPath := flags.String("duckdb", "", "DuckDB code intelligence database path")
-
-	err := parseCommandFlags(flags, args, "rebuild-index")
-	if err != nil {
-		return err
-	}
-
-	summary, err := codeintel.RebuildDuckDBIndex(
-		ctx,
-		*root,
-		resolvedDuckDBPath(*root, *duckDBPath),
-		resolvedDBPath(*root, *dbPath),
-	)
-	if err != nil {
-		return fmt.Errorf("rebuild DuckDB code intelligence index: %w", err)
-	}
-
-	return encodeJSON(os.Stdout, summary)
-}
-
 func printRepeatedFailures(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("repeated-failures", flag.ExitOnError)
 	storeFlags := addStoreFlags(flags, "Repository root containing .coding-ethos")
@@ -950,7 +930,8 @@ func printVectorStats(ctx context.Context, args []string) error {
 		return fmt.Errorf("open vector index: %w", err)
 	}
 
-	if closer, ok := index.(interface{ Close() error }); ok {
+	closer, ok := index.(interface{ Close() error })
+	if ok {
 		defer closer.Close()
 	}
 
@@ -1132,6 +1113,20 @@ func printIndexStatus(ctx context.Context, args []string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("read index status: %w", err)
+	}
+
+	sourceStatus, sourceStatusErr := codeintel.SourceIndexStatus(ctx, *root)
+	if sourceStatusErr == nil {
+		sourceStatus.VectorReadiness = codeintel.VectorReadiness{
+			Status:         codeintel.VectorStatusReady,
+			ReadyRecords:   status.ReadyRecords,
+			MissingVectors: status.MissingVectors,
+		}
+		if status.MissingVectors > 0 {
+			sourceStatus.VectorReadiness.Status = codeintel.VectorStatusPartial
+		}
+
+		status.V2 = &sourceStatus
 	}
 
 	return encodeJSON(os.Stdout, status)

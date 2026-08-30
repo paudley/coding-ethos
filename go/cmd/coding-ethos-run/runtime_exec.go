@@ -5,11 +5,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/githookcli"
+	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookcli"
 	"blackcat.ca/coding-ethos/go/internal/hooklogcli"
 	"blackcat.ca/coding-ethos/go/internal/lintcli"
@@ -34,6 +37,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
+	"blackcat.ca/coding-ethos/go/internal/sharedlock"
+	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"blackcat.ca/coding-ethos/go/internal/toolchaincli"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 	"blackcat.ca/coding-ethos/go/internal/webguidancecli"
@@ -47,6 +52,9 @@ const (
 	agentShellInjectedEnv       = 3
 	agentShellProtectedEntryCap = 2
 	agentShellGitPathCap        = 2
+	agentShellGitExecutableName = "git"
+	envSharedLockDirectories    = "CODE_ETHOS_SHARED_LOCK_DIRECTORIES"
+	maxSharedLockDirectories    = 4
 )
 
 var (
@@ -59,6 +67,12 @@ var (
 	errExecutablePathDirectory = apperror.StaticError("executable path is a directory")
 	errExecutablePathNoExecBit = apperror.StaticError(
 		"executable path has no executable bit",
+	)
+	errSharedLockDirectoryLimit = apperror.StaticError(
+		"shared lock directory count exceeds limit",
+	)
+	errSharedLockDirectoryShape = apperror.StaticError(
+		"shared lock directory must be a non-symlink mode-1777 direct child of /var/tmp",
 	)
 )
 
@@ -109,7 +123,12 @@ func (defaultRuntimeExecutor) execAgentShell(paths runtimePaths, command string)
 	processEvidence := sandbox.Evidence{}
 
 	if runtime.GOOS == linuxGOOS {
-		plan, agentEnv, clean, err := agentShellSandboxPlan(paths, shellPath, args)
+		plan, agentEnv, clean, err := agentShellSandboxPlan(
+			paths,
+			shellPath,
+			args,
+			command,
+		)
 		if err != nil {
 			exitErr(err)
 		}
@@ -177,6 +196,7 @@ func agentShellSandboxPlan(
 	paths runtimePaths,
 	executable string,
 	args []string,
+	command string,
 ) (sandbox.Plan, []string, func(), error) {
 	realGitPath, err := agentShellRealGitPath(paths)
 	if err != nil {
@@ -195,7 +215,7 @@ func agentShellSandboxPlan(
 		return sandbox.Plan{}, nil, func() {}, err
 	}
 
-	readOnlyPaths, err := agentShellReadOnlyPaths(paths.Root)
+	readOnlyPaths, err := agentShellReadOnlyPaths(paths.Root, paths.RunBinary, command)
 	if err != nil {
 		cleanup()
 
@@ -264,10 +284,78 @@ func agentShellWritePaths(root string) ([]string, error) {
 
 	agentWritePaths = append(agentWritePaths, agentWriteDirs...)
 
+	sharedLockDirectories, err := agentShellSharedLockDirectories()
+	if err != nil {
+		return nil, err
+	}
+
+	agentWritePaths = append(agentWritePaths, sharedLockDirectories...)
+
 	// Repo-relative on purpose: the sandbox helper only creates missing
 	// write-path files for relative declarations, and repos that have never
 	// generated configs do not have the manifest yet.
 	return append(agentWritePaths, toolconfigs.HashManifestPath), nil
+}
+
+// agentShellSharedLockDirectories carries only outer-supervisor-admitted host
+// locks into the nested Landlock policy. The outer sandbox remains the mount
+// authority; this inner boundary additionally requires the exact host-global
+// lock shape used for cross-worktree serialization.
+func agentShellSharedLockDirectories() ([]string, error) {
+	raw := strings.TrimSpace(os.Getenv(envSharedLockDirectories))
+	if raw == "" {
+		return nil, nil
+	}
+
+	var configured []string
+
+	err := json.Unmarshal([]byte(raw), &configured)
+	if err != nil {
+		return nil, fmt.Errorf("decode shared lock directories: %w", err)
+	}
+
+	if len(configured) > maxSharedLockDirectories {
+		return nil, fmt.Errorf(
+			"%w: count=%d limit=%d",
+			errSharedLockDirectoryLimit,
+			len(configured),
+			maxSharedLockDirectories,
+		)
+	}
+
+	directories := make([]string, 0, len(configured))
+	seen := make(map[string]bool, len(configured))
+
+	for _, path := range configured {
+		path = filepath.Clean(strings.TrimSpace(path))
+
+		if seen[path] {
+			continue
+		}
+
+		err = validateSharedLockDirectory(path)
+		if err != nil {
+			return nil, err
+		}
+
+		seen[path] = true
+		directories = append(directories, path)
+	}
+
+	return directories, nil
+}
+
+func validateSharedLockDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect shared lock directory %s: %w", path, err)
+	}
+
+	if !sharedlock.ValidDirectoryMetadata(path, info) {
+		return fmt.Errorf("%w: %s", errSharedLockDirectoryShape, path)
+	}
+
+	return nil
 }
 
 // agentShellEnsureWriteDirs creates the agent-shell managed write directories
@@ -605,7 +693,7 @@ func protectedAgentShellWorktreeEntry(name string) bool {
 // wrapper-gated Git write capability and cannot be pinned without disabling
 // Git itself. The sandbox refuses ambiguous entry types rather than silently
 // weakening either case.
-func agentShellReadOnlyPaths(root string) ([]string, error) {
+func agentShellReadOnlyPaths(root, runBinary, command string) ([]string, error) {
 	gitPath := filepath.Join(root, ".git")
 
 	gitInfo, err := os.Lstat(gitPath)
@@ -633,9 +721,75 @@ func agentShellReadOnlyPaths(root string) ([]string, error) {
 		return nil, fmt.Errorf("%w: %s", errAgentShellGitEntryType, gitPath)
 	}
 
-	paths = append(paths, filepath.Join(root, ".coding-ethos"))
+	if !agentShellGitMayReplacePolicyTree(runBinary, command) {
+		paths = append(paths, filepath.Join(root, ".coding-ethos"))
+	}
 
 	return paths, nil
+}
+
+// agentShellGitMayReplacePolicyTree recognizes the exact, static Git commands
+// that legitimately replace tracked worktree files. Git performs replacement
+// with unlink-and-rename, so a writable manifest file beneath a read-only
+// .coding-ethos directory is insufficient during merge, checkout, or the
+// pre-commit stash cycle. The exception stays fail-closed for compound shell
+// commands, dynamic expansion, redirects, assignments, and Git global options.
+func agentShellGitMayReplacePolicyTree(runBinary, command string) bool {
+	commands, err := shellparse.Commands(command)
+	if err != nil || len(commands) != 1 {
+		return false
+	}
+
+	operation, ok := agentShellStaticGitOperation(commands[0], runBinary)
+	if !ok {
+		return false
+	}
+
+	return slices.Contains([]string{
+		"checkout",
+		"cherry-pick",
+		"commit",
+		"merge",
+		"pull",
+		"rebase",
+		"reset",
+		"restore",
+		"revert",
+		"stash",
+		"switch",
+	}, operation)
+}
+
+func agentShellStaticGitOperation(
+	parsed shellparse.Command,
+	runBinary string,
+) (string, bool) {
+	if agentShellCommandHasDynamicBehavior(parsed) {
+		return "", false
+	}
+
+	if filepath.Base(parsed.Name) == agentShellGitExecutableName &&
+		len(parsed.Argv) >= 2 &&
+		filepath.Base(parsed.Argv[0]) == agentShellGitExecutableName &&
+		!strings.HasPrefix(parsed.Argv[1], "-") {
+		return gitwrap.ParseArgv(parsed.Argv).Operation, true
+	}
+
+	if len(parsed.Argv) >= 3 && parsed.Argv[1] == "policy-git" &&
+		filepath.Clean(parsed.Argv[0]) == filepath.Clean(runBinary) &&
+		!strings.HasPrefix(parsed.Argv[2], "-") {
+		return gitwrap.ParseArgv(parsed.Argv[2:]).Operation, true
+	}
+
+	return "", false
+}
+
+func agentShellCommandHasDynamicBehavior(parsed shellparse.Command) bool {
+	return len(parsed.Assignments) > 0 || len(parsed.Redirects) > 0 ||
+		parsed.Background || parsed.HasCommandSubstitution ||
+		parsed.HasDynamicExpansion || parsed.HasHeredoc ||
+		parsed.HasProcessSubstitution || parsed.HasSubshell ||
+		parsed.IsFunctionDeclaration
 }
 
 func agentShellProcessEnv(

@@ -17,6 +17,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/execguard"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
+	"blackcat.ca/coding-ethos/go/internal/sharedlock"
 )
 
 var errSandboxExecCommand = apperror.StaticError("sandbox exec requires command")
@@ -291,7 +292,17 @@ func allowedSystemWritePath(path string) bool {
 		allowedTerminalWritePath(path) ||
 		allowedManagedTempWritePath(path) ||
 		allowedGPGHomeWritePath(path) ||
-		allowedGPGRuntimeWritePath(path)
+		allowedGPGRuntimeWritePath(path) ||
+		allowedSharedLockDirectory(path)
+}
+
+func allowedSharedLockDirectory(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+
+	return sharedlock.ValidDirectoryMetadata(path, info)
 }
 
 func allowedTerminalWritePath(path string) bool {

@@ -41,20 +41,24 @@ const (
 )
 
 type codeIntelTaskMeta struct {
-	RepoHeadCommit string   `json:"repo_head_commit,omitempty"`
-	IndexAge       string   `json:"index_age,omitempty"`
-	IndexedAtUTC   string   `json:"indexed_at_utc,omitempty"`
-	StaleWarning   string   `json:"stale_warning,omitempty"`
-	Compression    string   `json:"compression"`
-	DataSources    []string `json:"data_sources"`
-	ReadyRecords   int      `json:"ready_records"`
-	MissingVectors int      `json:"missing_vectors"`
-	IndexedFiles   int      `json:"indexed_files"`
-	IndexedChunks  int      `json:"indexed_chunks"`
-	SchemaVersion  int      `json:"schema_version"`
-	Fresh          bool     `json:"fresh"`
-	Truncated      bool     `json:"truncated"`
+	//nolint:tagliatelle // The public versioned key is frozen.
+	V2             *sourceStatusReceipt `json:"coding-ethos.code-intel/v2,omitempty"`
+	IndexAge       string               `json:"index_age,omitempty"`
+	IndexedAtUTC   string               `json:"indexed_at_utc,omitempty"`
+	StaleWarning   string               `json:"stale_warning,omitempty"`
+	Compression    string               `json:"compression"`
+	RepoHeadCommit string               `json:"repo_head_commit,omitempty"`
+	DataSources    []string             `json:"data_sources"`
+	ReadyRecords   int                  `json:"ready_records"`
+	IndexedFiles   int                  `json:"indexed_files"`
+	IndexedChunks  int                  `json:"indexed_chunks"`
+	SchemaVersion  int                  `json:"schema_version"`
+	MissingVectors int                  `json:"missing_vectors"`
+	Fresh          bool                 `json:"fresh"`
+	Truncated      bool                 `json:"truncated"`
 }
+
+type sourceStatusReceipt = codeintel.SourceStatusReceipt
 
 type codeIntelCitation struct {
 	Kind       string `json:"kind"`
@@ -449,6 +453,8 @@ func (server Server) codeIntelIndexStatus(args json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read code intelligence index status: %w", err)
 	}
+
+	attachCodeIntelV2Status(ctx, server.codeIntelRoot(), &status)
 
 	return status, nil
 }
@@ -1187,11 +1193,55 @@ func (server Server) codeIntelTaskMetaForRoot(
 		IndexedChunks:  status.Stats.CodeChunks,
 		SchemaVersion:  status.Stats.SchemaVersion,
 	}
+
+	sourceStatus, sourceStatusErr := codeintel.SourceIndexStatus(ctx, root)
+	if sourceStatusErr == nil {
+		sourceStatus.VectorReadiness = codeIntelV2VectorReadiness(
+			status.ReadyRecords,
+			status.MissingVectors,
+		)
+		meta.V2 = &sourceStatus
+	}
+
 	if !meta.Fresh {
 		meta.StaleWarning = "code-intel vectors are missing for some ready records"
 	}
 
 	return meta, nil
+}
+
+func attachCodeIntelV2Status(
+	ctx context.Context,
+	root string,
+	status *codeintel.IndexStatus,
+) {
+	sourceStatus, err := codeintel.SourceIndexStatus(ctx, root)
+	if err != nil {
+		return
+	}
+
+	sourceStatus.VectorReadiness = codeIntelV2VectorReadiness(
+		status.ReadyRecords,
+		status.MissingVectors,
+	)
+	status.V2 = &sourceStatus
+}
+
+func codeIntelV2VectorReadiness(
+	readyRecords, missingVectors int,
+) codeintel.VectorReadiness {
+	status := codeintel.VectorStatusNotEvaluated
+	if missingVectors > 0 {
+		status = codeintel.VectorStatusPartial
+	} else if readyRecords > 0 {
+		status = codeintel.VectorStatusReady
+	}
+
+	return codeintel.VectorReadiness{
+		Status:         status,
+		ReadyRecords:   readyRecords,
+		MissingVectors: missingVectors,
+	}
 }
 
 func indexAgeDescription(indexedAt string) string {

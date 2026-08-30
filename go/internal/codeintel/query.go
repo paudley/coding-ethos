@@ -138,6 +138,8 @@ type CodeFileIndexStats struct {
 }
 
 type IndexStatus struct {
+	//nolint:tagliatelle // The public versioned key is frozen.
+	V2               *SourceStatusReceipt `json:"coding-ethos.code-intel/v2,omitempty"`
 	Backend          string               `json:"backend"`
 	ModelID          string               `json:"model_id,omitempty"`
 	Collection       string               `json:"collection,omitempty"`

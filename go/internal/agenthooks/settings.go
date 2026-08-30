@@ -33,7 +33,7 @@ const (
 	hookProbeDeadlineMargin   = 2 * time.Second
 	maximumHookTimeoutSeconds = 3600
 	codexConfigGrowth         = 2
-	kimiBlockExitCode         = 2
+	nativeBlockExitCode       = 2
 	mcpServerName             = "coding-ethos"
 	minimumHookArgs           = 2
 	settingsDirMode           = 0o755

@@ -448,7 +448,7 @@ func accumulateOutcomeCounters(
 	switch strings.ToLower(strings.TrimSpace(outcome)) {
 	case "fixed", "success", "succeeded":
 		*fixed++
-	case "repeated", "failed", "failure":
+	case "repeated", SourceStatusFailed, "failure":
 		*repeated++
 	case "attempted":
 		*attempted++

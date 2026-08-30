@@ -5579,8 +5579,10 @@ func TestRunReportsStaleCodeIntelEnrichmentForModifiedReadTarget(t *testing.T) {
 	for _, expected := range []string{
 		"code_intel_enrichment:",
 		"status: stale",
-		"refresh: coding-ethos-code-intel rebuild-index",
+		"refresh: coding-ethos-code-intel sync --root .",
 		"reason: stale code context; refresh required",
+		"coding-ethos.code-intel/v2:",
+		"  source_status: missing",
 		`code_intel_context_card {"path":"pkg/app.py"}`,
 	} {
 		if !strings.Contains(context, expected) {
@@ -5641,11 +5643,22 @@ func TestRunAddsGoldenCodeIntelEnrichmentForGlobTool(t *testing.T) {
 	if result.HookSpecificOutput == nil {
 		t.Fatalf("missing code-intel enrichment output: %#v", result)
 	}
+	v2, err := codeintel.SourceIndexStatus(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("read expected v2 status: %v", err)
+	}
 
 	expected := strings.Join([]string{
 		"code_intel_enrichment:",
 		"status: ready",
-		"refresh: coding-ethos-code-intel rebuild-index",
+		"refresh: coding-ethos-code-intel sync --root .",
+		"coding-ethos.code-intel/v2:",
+		"  source_status: missing",
+		"  repository_id: " + string(v2.SourceReadiness.Identity.RepositoryID),
+		"  source_snapshot_id: " + string(v2.SourceReadiness.Identity.SourceSnapshotID),
+		"  generation_id: ",
+		"  vector_status: not_evaluated",
+		"  repair: coding-ethos-code-intel sync --root .",
 		"paths[1]{path,language,lines,symbols,risk}:",
 		"  pkg/app.py,python,3,1,normal",
 		"symbols[1]{path,symbol,line,signature}:",
@@ -5734,7 +5747,9 @@ func TestRunReportsMissingCodeIntelIndexForSearchTool(t *testing.T) {
 	for _, expected := range []string{
 		"code_intel_enrichment:",
 		"status: missing_index",
-		"refresh: coding-ethos-code-intel rebuild-index",
+		"refresh: coding-ethos-code-intel sync --root .",
+		"coding-ethos.code-intel/v2:",
+		"  source_status: missing",
 	} {
 		if !strings.Contains(context, expected) {
 			t.Fatalf("missing-index context lacks %q:\n%s", expected, context)
@@ -5860,7 +5875,7 @@ func TestRunDedupesCodeIntelFreshnessNoticeAfterCommit(t *testing.T) {
 	firstContext := first.HookSpecificOutput.AdditionalContext
 	if !strings.Contains(firstContext, "code_intel_freshness:") ||
 		!strings.Contains(firstContext, "status: stale") ||
-		!strings.Contains(firstContext, "coding-ethos-code-intel rebuild-index") {
+		!strings.Contains(firstContext, "coding-ethos-code-intel sync --root .") {
 		t.Fatalf("first commit missing freshness notice:\n%s", firstContext)
 	}
 

@@ -23,12 +23,16 @@ MANAGED_PREFIX_DIR := $(TOOLCHAIN_DIR)/prefix
 MANAGED_GITHUB_BIN_DIR := $(TOOLCHAIN_DIR)/github-bin
 MANAGED_TOOLCHAIN_SOURCE := $(PRECOMMIT_DIR)hooks/managed-toolchain.tsv
 MANAGED_TOOLCHAIN_MANIFEST := $(TOOLCHAIN_DIR)/manifest.tsv
+PURRDF_EXTRACTOR_DIR := $(LOCAL_REPO_ROOT)/rust/purrdf-code-intel-extractor
+PURRDF_EXTRACTOR_MANIFEST := $(PURRDF_EXTRACTOR_DIR)/Cargo.toml
+PURRDF_EXTRACTOR_BINARY := coding-ethos-purrdf-extractor
 
 GIT ?= /usr/bin/git
 UV ?= uv
 PYTHON ?= python
 GO ?= go
 GOFMT ?= gofmt
+CARGO ?= cargo
 GO_BUILD_FLAGS ?= -trimpath -buildvcs=false
 GO_BUILD_CACHE_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/go-build
 UV_CACHE_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/uv
@@ -245,6 +249,8 @@ endef
 	go-hook-runner-install \
 	policy-bundle-install \
 	go-tools-smoke \
+	purrdf-extractor-check \
+	purrdf-extractor-install \
 	go-tools-clean \
 	clean-cache \
 	sync-tool-configs \
@@ -446,7 +452,7 @@ python-coverage: ensure-uv ## Run Python tests with coverage enforcement.
 	@$(UV) run coverage report --fail-under="$(PYTHON_COVERAGE_MIN)"
 	@$(UV) run coverage xml -o "$(GO_COVERAGE_DIR)/coverage-python.xml"
 
-check: check-local-artifacts test check-tool-configs check-gemini-prompts check-agent-skills check-provider-matrix go-test go-e2e-test ## Run the repo's current verification gate.
+check: check-local-artifacts test check-tool-configs check-gemini-prompts check-agent-skills check-provider-matrix go-test go-e2e-test purrdf-extractor-check ## Run the repo's current verification gate.
 
 check-local-artifacts: ## Fail if local build artifacts escaped managed output dirs.
 	@$(call print_step,Checking for unmanaged local build artifacts)
@@ -588,7 +594,36 @@ check-provider-matrix: ensure-go go-tools-install ## Fail if the provider capabi
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-agent-hooks" \
 		check-provider-matrix --root "$(LOCAL_REPO_ROOT)"
 
-build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills sync-provider-matrix go-tools-install repair-repo-ignores _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
+build: sync-tool-configs sync-consumer-tool-configs sync-gemini-prompts _sync-agent-skills _sync-consumer-agent-skills sync-provider-matrix go-tools-install purrdf-extractor-install repair-repo-ignores _sync-git-hooks _sync-agent-hooks _sync-consumer-agent-hooks managed-toolchain-install go-hook-runner-install policy-bundle-install _sync-parent-hook-runtime ## Build checkout-local hook runtime artifacts.
+
+purrdf-extractor-check: ## Test the optional PurRDF code-intel extractor when present.
+	@if [ -f "$(PURRDF_EXTRACTOR_MANIFEST)" ]; then \
+		command -v "$(CARGO)" >/dev/null 2>&1 || { \
+			printf '$(COLOR_WARN)cargo is required for the PurRDF extractor.$(COLOR_RESET)\n' >&2; \
+			exit 1; \
+		}; \
+		$(call print_step,Testing PurRDF code-intel extractor); \
+		"$(CARGO)" test --locked --manifest-path "$(PURRDF_EXTRACTOR_MANIFEST)"; \
+	else \
+		$(call print_info,PurRDF extractor subtree not present in this checkout); \
+	fi
+
+purrdf-extractor-install: ## Build and install the optional PurRDF extractor when present.
+	@if [ -f "$(PURRDF_EXTRACTOR_MANIFEST)" ]; then \
+		command -v "$(CARGO)" >/dev/null 2>&1 || { \
+			printf '$(COLOR_WARN)cargo is required for the PurRDF extractor.$(COLOR_RESET)\n' >&2; \
+			exit 1; \
+		}; \
+		$(call print_step,Building PurRDF code-intel extractor); \
+		"$(CARGO)" build --locked --release --manifest-path "$(PURRDF_EXTRACTOR_MANIFEST)"; \
+		mkdir -p "$(GO_TOOLS_BIN_DIR)"; \
+		install -m 0755 \
+			"$(PURRDF_EXTRACTOR_DIR)/target/release/$(PURRDF_EXTRACTOR_BINARY)" \
+			"$(GO_TOOLS_BIN_DIR)/$(PURRDF_EXTRACTOR_BINARY)"; \
+		$(call print_info,installed: $(GO_TOOLS_BIN_DIR)/$(PURRDF_EXTRACTOR_BINARY)); \
+	else \
+		$(call print_info,PurRDF extractor subtree not present in this checkout); \
+	fi
 
 sandbox-runtime-validate: ensure-go go-tools-install ## Validate required sandbox runtime.
 	@$(call print_step,Validating native sandbox runtime)

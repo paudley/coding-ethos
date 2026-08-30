@@ -216,7 +216,7 @@ func sessionStartStorageUpgradeContext(cwd string) string {
 				feedback.S("storage", "code-intel"),
 				feedback.S("status", "upgrade_failed"),
 				feedback.S("reason", err.Error()),
-				feedback.S("repair", "Run coding-ethos-code-intel rebuild-index."),
+				feedback.S("repair", "Run coding-ethos-code-intel rebuild-derived."),
 			},
 		}, feedback.FormatTOON)
 	}
