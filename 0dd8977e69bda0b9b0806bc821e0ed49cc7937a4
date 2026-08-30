@@ -1,0 +1,17 @@
+ghprsq structured squash audit metadata
+
+parent_hashes: a7e2b946f02f8f778b9f3d4fc87e1c903711841c
+
+GhpRsq-Schema: 1
+GhpRsq-Merge-Style: structured-squash
+GhpRsq-GitHub-Repo: paudley/coding-ethos
+GhpRsq-GitHub-Pull-Request: 270
+GhpRsq-GitHub-PR-URL: https://github.com/paudley/coding-ethos/pull/270
+GhpRsq-Base-Ref: main
+GhpRsq-Base-OID: 70614e55945368129fd1b10dbdbcdee9616eb7cf
+GhpRsq-Head-Ref: integration/code-intel-v2
+GhpRsq-Head-OID: a7e2b946f02f8f778b9f3d4fc87e1c903711841c
+GhpRsq-Result-Tree: ed28298c4132a6091878603df39664b532f4620c
+GhpRsq-Result-Commit: 0dd8977e69bda0b9b0806bc821e0ed49cc7937a4
+GhpRsq-Parent-Hashes: a7e2b946f02f8f778b9f3d4fc87e1c903711841c
+GhpRsq-Squash-Notes-SHA256: efd3e9a48c78f68314da2f47df612d9c211198fba38600d2c91b82909f51b0a8
