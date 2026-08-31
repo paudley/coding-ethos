@@ -31,6 +31,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
+	"blackcat.ca/coding-ethos/go/internal/toolprotocol"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -508,7 +509,11 @@ func capturedProcessArgv(plan sandbox.Plan) []string {
 	return append([]string{plan.Executable}, plan.Args...)
 }
 
-func capturedProcessEnv(environ []string, cacheEnv sandboxCacheEnvironment) []string {
+func capturedProcessEnv(
+	environ []string,
+	cacheEnv sandboxCacheEnvironment,
+	tool string,
+) []string {
 	out := make([]string, 0, len(environ))
 	hasPath := false
 
@@ -556,6 +561,9 @@ func capturedProcessEnv(environ []string, cacheEnv sandboxCacheEnvironment) []st
 	}
 
 	out = append(out, cacheEnv.items()...)
+	if tool == toolprotocol.ActionlintTool {
+		out = append(out, toolprotocol.ActionlintShellcheckEnvironment())
+	}
 
 	return out
 }

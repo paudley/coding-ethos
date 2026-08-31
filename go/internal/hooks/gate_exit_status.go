@@ -24,6 +24,8 @@ const (
 		"by a shell fallback."
 	gatePipelineReason = "Required repository gate pipelines must enable " +
 		"pipefail so the gate status remains authoritative."
+	gateNestingReason = "Required repository gate inspection exceeded the " +
+		"supported shell nesting depth."
 	gateSequenceReason = "Commands after a required repository gate must " +
 		"capture and return the gate's exact exit status."
 )
@@ -55,7 +57,11 @@ func maskedRequiredGateStatus(
 	inheritedPipefail bool,
 	depth int,
 ) (string, bool) {
-	if depth > maxGateShellDepth || strings.TrimSpace(command) == "" {
+	if depth > maxGateShellDepth {
+		return gateNestingReason, true
+	}
+
+	if strings.TrimSpace(command) == "" {
 		return "", false
 	}
 
@@ -64,12 +70,16 @@ func maskedRequiredGateStatus(
 		return "", false
 	}
 
-	pipefail := inheritedPipefail || parsed.enablesPipefail()
+	pipefail := inheritedPipefail
 
 	for index := range parsed.segments {
 		reason, masked := parsed.maskedSegmentStatus(index, pipefail, depth)
 		if masked {
 			return reason, true
+		}
+
+		if isPipefailCommand(gateExecutableArgv(parsed.segments[index])) {
+			pipefail = true
 		}
 	}
 
@@ -168,16 +178,6 @@ func parseGateShell(command string) (gateShell, error) {
 	}
 
 	return parsed, nil
-}
-
-func (parsed gateShell) enablesPipefail() bool {
-	for _, segment := range parsed.segments {
-		if isPipefailCommand(gateExecutableArgv(segment)) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func isPipefailCommand(argv []string) bool {
@@ -441,13 +441,18 @@ func nestedShellScript(argv []string) (string, bool, bool) {
 			continue
 		}
 
-		if strings.HasPrefix(argv[index], "-") &&
-			strings.Contains(argv[index], "c") && index+1 < len(argv) {
+		if shellCommandStringOption(argv[index]) && index+1 < len(argv) {
 			return argv[index+1], pipefail, true
 		}
 	}
 
 	return "", pipefail, false
+}
+
+func shellCommandStringOption(argument string) bool {
+	return strings.HasPrefix(argument, "-") &&
+		!strings.HasPrefix(argument, "--") &&
+		strings.Contains(argument[1:], "c")
 }
 
 func shellExecutable(argument string) bool {
@@ -473,14 +478,16 @@ func requiredGateArgv(argv []string) bool {
 }
 
 func requiredExecutableGate(name string, arguments []string) bool {
+	if isPythonCommand(name) {
+		return len(arguments) > 1 && arguments[0] == "-m" &&
+			arguments[1] == pytestExecutable
+	}
+
 	switch name {
 	case "cargo":
 		return requiredCargoGate(arguments)
 	case "go":
 		return requiredGoGate(arguments)
-	case pythonExecutable, "python3":
-		return len(arguments) > 1 && arguments[0] == "-m" &&
-			arguments[1] == pytestExecutable
 	case pytestExecutable, "ghprsq":
 		return true
 	case preCommitExecutable:

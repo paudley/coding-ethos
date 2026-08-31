@@ -24,6 +24,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/sandbox"
+	"blackcat.ca/coding-ethos/go/internal/toolprotocol"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -2060,11 +2061,11 @@ func TestRunCapturedToolLogsForcedStructuredFormats(t *testing.T) {
 				"",
 				io.Discard,
 			)
+			content := singleTraceContent(t, repo)
 			if exitCode != 1 {
-				t.Fatalf("exit code = %d, want 1", exitCode)
+				t.Fatalf("exit code = %d, want 1; trace:\n%s", exitCode, content)
 			}
 
-			content := singleTraceContent(t, repo)
 			for _, want := range []string{
 				`"source_tool": "` + test.wantTool + `"`,
 				`"file": "` + test.wantFile + `"`,
@@ -2447,6 +2448,8 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 		"OTHER=value",
 		"TMPDIR=/tmp/host",
 		"GOCACHE=/tmp/go-cache",
+		"GOPATH=/tmp/go-path",
+		"GOMODCACHE=/tmp/go-mod-cache",
 		"GOLANGCI_LINT_CACHE=/tmp/golangci-cache",
 		"GOROOT=/tmp/go-root",
 		"CGO_ENABLED=0",
@@ -2456,13 +2459,15 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 	}, sandboxCacheEnvironment{
 		TempDir:         "/repo/.coding-ethos/cache/sandbox-tmp",
 		GoCache:         "/repo/.coding-ethos/cache/go-build",
+		GoPath:          "/repo/.coding-ethos/cache/go-path",
+		GoModCache:      "/repo/.coding-ethos/cache/go-path/pkg/mod",
 		GolangCILintDir: "/repo/.coding-ethos/cache/golangci-lint",
 		GoRoot:          "/repo/go-root",
 		CGOEnabled:      "1",
 		CC:              "/usr/bin/gcc",
 		CompilerPath:    "/usr/bin",
 		Assembler:       "/usr/bin/as",
-	})
+	}, "ruff")
 
 	if !capturedEnvPathContains(env, realDir) {
 		t.Fatalf("captured env PATH = %#v, want entry %q", env, realDir)
@@ -2479,6 +2484,8 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 
 	for _, want := range []string{
 		"GOCACHE=/repo/.coding-ethos/cache/go-build",
+		"GOPATH=/repo/.coding-ethos/cache/go-path",
+		"GOMODCACHE=/repo/.coding-ethos/cache/go-path/pkg/mod",
 		"GOLANGCI_LINT_CACHE=/repo/.coding-ethos/cache/golangci-lint",
 		"GOROOT=/repo/go-root",
 		"CGO_ENABLED=1",
@@ -2489,6 +2496,15 @@ func TestCapturedProcessEnvRemovesCodingEthosGitShimPath(t *testing.T) {
 	} {
 		if !slices.Contains(env, want) {
 			t.Fatalf("captured env missing cache override %q: %#v", want, env)
+		}
+	}
+
+	for _, inherited := range []string{
+		"GOPATH=/tmp/go-path",
+		"GOMODCACHE=/tmp/go-mod-cache",
+	} {
+		if slices.Contains(env, inherited) {
+			t.Fatalf("captured env kept host Go path %q: %#v", inherited, env)
 		}
 	}
 
@@ -2520,10 +2536,58 @@ func capturedEnvPathContains(env []string, entry string) bool {
 	return false
 }
 
+func TestCapturedProcessEnvMarksOnlyManagedActionlint(t *testing.T) {
+	t.Parallel()
+
+	inherited := []string{
+		toolprotocol.ActionlintShellcheckEnv + "=untrusted",
+		"OTHER=value",
+	}
+	want := toolprotocol.ActionlintShellcheckEnvironment()
+
+	actionlintEnv := capturedProcessEnv(
+		inherited,
+		sandboxCacheEnvironment{},
+		toolprotocol.ActionlintTool,
+	)
+	if count := countEnvironmentEntry(actionlintEnv, want); count != 1 {
+		t.Fatalf(
+			"managed actionlint protocol marker count = %d, want 1: %#v",
+			count,
+			actionlintEnv,
+		)
+	}
+
+	shellcheckEnv := capturedProcessEnv(
+		inherited,
+		sandboxCacheEnvironment{},
+		toolprotocol.ShellcheckTool,
+	)
+	for _, item := range shellcheckEnv {
+		if strings.HasPrefix(item, toolprotocol.ActionlintShellcheckEnv+"=") {
+			t.Fatalf(
+				"ordinary ShellCheck inherited actionlint protocol marker: %#v",
+				shellcheckEnv,
+			)
+		}
+	}
+}
+
+func countEnvironmentEntry(env []string, want string) int {
+	count := 0
+	for _, item := range env {
+		if item == want {
+			count++
+		}
+	}
+
+	return count
+}
+
 func TestCapturedProcessEnvAddsUsablePathWhenInheritedPathMissing(t *testing.T) {
 	t.Parallel()
 
-	env := capturedProcessEnv([]string{"OTHER=value"}, sandboxCacheEnvironment{})
+	env := capturedProcessEnv([]string{"OTHER=value"}, sandboxCacheEnvironment{}, "ruff")
 
 	for _, item := range env {
 		name, value, ok := strings.Cut(item, "=")

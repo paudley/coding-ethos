@@ -6,6 +6,8 @@ package hookrunnercli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -70,7 +72,7 @@ func runExternalTool(request externalToolRequest) externalToolResult {
 	)
 	defer cancel()
 
-	env, envErr := externalToolEnv(request.Env)
+	env, envErr := externalToolEnv(request)
 	if envErr != nil {
 		return externalToolResult{
 			ExitCode:      1,
@@ -179,11 +181,18 @@ func externalToolCombinedOutput(stdout, stderr string) string {
 	}
 }
 
-func externalToolEnv(extra []string) ([]string, error) {
-	env := make([]string, 0, len(os.Environ())+len(extra))
+func externalToolEnv(request externalToolRequest) ([]string, error) {
+	env := make([]string, 0, len(os.Environ())+len(request.Env))
 	hasPath := false
 
-	cacheEnv, err := externalToolCacheEnv(repoRoot())
+	root := repoRoot()
+
+	cacheEnv, err := externalToolCacheEnv(root)
+	if err != nil {
+		return nil, err
+	}
+
+	uvEnv, err := externalToolUVEnv(root, request.Command, request.Dir)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +211,7 @@ func externalToolEnv(extra []string) ([]string, error) {
 			continue
 		}
 
-		if found && cacheEnv.overrides(name) {
+		if found && (cacheEnv.overrides(name) || externalToolUVScopeName(name)) {
 			continue
 		}
 
@@ -218,17 +227,18 @@ func externalToolEnv(extra []string) ([]string, error) {
 	env = append(env, "GIT_CONFIG_GLOBAL="+os.DevNull)
 	env = append(env, "XDG_CONFIG_HOME="+os.DevNull)
 	env = append(env, cacheEnv.items()...)
+	env = append(env, uvEnv...)
 
-	return append(env, extra...), nil
+	return append(env, request.Env...), nil
 }
 
 type externalToolCacheEnvironment struct {
 	GoTemp          string
 	GoCache         string
+	GoPath          string
+	GoModCache      string
 	GolangCILintDir string
 	UVCache         string
-	UVProjectEnv    string
-	UVFrozen        string
 	// CargoTarget is per-repository build output, like GoCache.
 	CargoTarget string
 	// CargoHome and RustupHome are the operator's, not the repository's. Cargo
@@ -291,17 +301,19 @@ func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 
 	goTemp := filepath.Join(root, ".coding-ethos", "cache", "go-tmp")
 	goCache := filepath.Join(root, sandbox.SandboxGoCachePath)
+	goPath := filepath.Join(root, sandbox.SandboxGoPath)
+	goModCache := filepath.Join(root, sandbox.SandboxGoModCachePath)
 	golangCILintDir := filepath.Join(root, sandbox.SandboxGolangCIPath)
 	uvCache := filepath.Join(root, ".coding-ethos", "cache", "uv")
-	uvProjectEnv := filepath.Join(root, ".coding-ethos", "cache", "uv-project-env")
 	cargoTarget := filepath.Join(root, ".coding-ethos", "cache", "cargo-target")
 
 	for _, dir := range []string{
 		goTemp,
 		goCache,
+		goPath,
+		goModCache,
 		golangCILintDir,
 		uvCache,
-		uvProjectEnv,
 		cargoTarget,
 	} {
 		err := os.MkdirAll(dir, externalToolCacheDirMode)
@@ -319,10 +331,10 @@ func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 	return externalToolCacheEnvironment{
 		GoTemp:          goTemp,
 		GoCache:         goCache,
+		GoPath:          goPath,
+		GoModCache:      goModCache,
 		GolangCILintDir: golangCILintDir,
 		UVCache:         uvCache,
-		UVProjectEnv:    uvProjectEnv,
-		UVFrozen:        "1",
 		CargoTarget:     cargoTarget,
 		CargoHome:       cargoHome,
 		RustupHome:      rustupHome,
@@ -331,10 +343,13 @@ func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 
 // prepareHookProcessCacheEnvironment projects the consumer-owned cache roots
 // onto the hook runner itself. Nested pre-commit languages can start before an
-// individual external-tool request is constructed; setting these variables at
-// the command boundary prevents uv, Go, Cargo, and linters from falling back
-// to an unwritable operator cache. The returned closure restores the exact
-// caller environment for in-process tests and embedded invocations.
+// individual external-tool request is constructed; setting universal cache
+// variables at the command boundary prevents uv, Go, Cargo, and linters from
+// falling back to an unwritable operator cache. GOPATH also keeps Go's checksum
+// database inside the consumer cache; GOMODCACHE is its pkg/mod child. UV
+// project environments and frozen mode remain scoped to individual uv child
+// invocations. The returned closure restores the exact caller environment for
+// in-process tests and embedded invocations.
 func prepareHookProcessCacheEnvironment(root string) (func(), error) {
 	environment, err := externalToolCacheEnv(root)
 	if err != nil {
@@ -393,10 +408,10 @@ func (environment externalToolCacheEnvironment) items() []string {
 		"TMPDIR",
 		"GOTMPDIR",
 		"GOCACHE",
+		"GOPATH",
+		"GOMODCACHE",
 		"GOLANGCI_LINT_CACHE",
 		"UV_CACHE_DIR",
-		"UV_PROJECT_ENVIRONMENT",
-		"UV_FROZEN",
 		"CARGO_TARGET_DIR",
 		"CARGO_HOME",
 		"RUSTUP_HOME",
@@ -418,14 +433,14 @@ func (environment externalToolCacheEnvironment) value(name string) string {
 		return environment.GoTemp
 	case "GOCACHE":
 		return environment.GoCache
+	case "GOPATH":
+		return environment.GoPath
+	case "GOMODCACHE":
+		return environment.GoModCache
 	case "GOLANGCI_LINT_CACHE":
 		return environment.GolangCILintDir
 	case "UV_CACHE_DIR":
 		return environment.UVCache
-	case "UV_PROJECT_ENVIRONMENT":
-		return environment.UVProjectEnv
-	case "UV_FROZEN":
-		return environment.UVFrozen
 	case "CARGO_TARGET_DIR":
 		return environment.CargoTarget
 	case "CARGO_HOME":
@@ -435,6 +450,157 @@ func (environment externalToolCacheEnvironment) value(name string) string {
 	default:
 		return ""
 	}
+}
+
+func externalToolUVEnv(root string, command []string, dir string) ([]string, error) {
+	project, active, err := activeUVProject(command, dir)
+	if err != nil || !active || strings.TrimSpace(root) == "" || root == "." {
+		return nil, err
+	}
+
+	digest := sha256.Sum256([]byte(project))
+
+	projectEnv := filepath.Join(
+		root,
+		".coding-ethos",
+		"cache",
+		"uv-project-env",
+		hex.EncodeToString(digest[:]),
+	)
+
+	err = os.MkdirAll(projectEnv, externalToolCacheDirMode)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"create uv project environment %s: %w",
+			projectEnv,
+			err,
+		)
+	}
+
+	env := []string{"UV_PROJECT_ENVIRONMENT=" + projectEnv}
+	if uvInvocationRequestsFrozen(command) || uvProjectHasCommittedLock(project) {
+		env = append(env, "UV_FROZEN=1")
+	}
+
+	return env, nil
+}
+
+func activeUVProject(command []string, dir string) (string, bool, error) {
+	if len(command) == 0 || filepath.Base(command[0]) != "uv" ||
+		slices.Contains(command[1:], "--no-project") {
+		return "", false, nil
+	}
+
+	workingDir := strings.TrimSpace(dir)
+	if workingDir == "" {
+		var err error
+
+		workingDir, err = os.Getwd()
+		if err != nil {
+			return "", false, fmt.Errorf("resolve uv command directory: %w", err)
+		}
+	}
+
+	project := workingDir
+
+	explicitProject, explicit := uvProjectArgument(command)
+	if explicit {
+		project = explicitProject
+		if !filepath.IsAbs(project) {
+			project = filepath.Join(workingDir, project)
+		}
+	}
+
+	project, err := canonicalUVProjectPath(project)
+	if err != nil {
+		return "", false, err
+	}
+
+	if !explicit {
+		project = discoverUVProjectRoot(project)
+	}
+
+	return project, true, nil
+}
+
+func uvProjectArgument(command []string) (string, bool) {
+	for index := 1; index < len(command); index++ {
+		if command[index] == "--project" && index+1 < len(command) {
+			return command[index+1], true
+		}
+
+		value, found := strings.CutPrefix(command[index], "--project=")
+		if found && value != "" {
+			return value, true
+		}
+	}
+
+	return "", false
+}
+
+func canonicalUVProjectPath(project string) (string, error) {
+	absolute, err := filepath.Abs(project)
+	if err != nil {
+		return "", fmt.Errorf("resolve uv project path %s: %w", project, err)
+	}
+
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err == nil {
+		return resolved, nil
+	}
+
+	if !os.IsNotExist(err) {
+		return "", fmt.Errorf("resolve uv project symlinks %s: %w", absolute, err)
+	}
+
+	return filepath.Clean(absolute), nil
+}
+
+func discoverUVProjectRoot(start string) string {
+	for current := start; ; current = filepath.Dir(current) {
+		info, err := os.Stat(filepath.Join(current, "pyproject.toml"))
+		if err == nil && !info.IsDir() {
+			return current
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return start
+		}
+	}
+}
+
+func uvInvocationRequestsFrozen(command []string) bool {
+	return slices.Contains(command[1:], "--frozen")
+}
+
+func uvProjectHasCommittedLock(project string) bool {
+	output, err := combinedGitOutputInRoot(project, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return false
+	}
+
+	gitRoot := strings.TrimSpace(string(output))
+	lockPath := filepath.Join(project, "uv.lock")
+
+	relative, err := filepath.Rel(gitRoot, lockPath)
+	if err != nil || relative == ".." ||
+		strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return false
+	}
+
+	_, err = combinedGitOutputInRoot(
+		gitRoot,
+		"cat-file",
+		"-e",
+		"HEAD:"+filepath.ToSlash(relative),
+	)
+
+	return err == nil
+}
+
+func externalToolUVScopeName(name string) bool {
+	return name == "UV_PROJECT_ENVIRONMENT" || name == "UV_FROZEN"
 }
 
 func externalToolPathWithoutGitShim(pathValue string) string {

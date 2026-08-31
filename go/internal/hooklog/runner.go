@@ -261,9 +261,9 @@ func autoPruneHookRuns(root string) error {
 }
 
 func shouldForceCodeIntelRefresh(command []string) bool {
-	// Parent workflows refresh their explicit --repo target as part of the
-	// workflow itself. Repeating that work here both doubles maintenance and,
-	// before command-root resolution, could index the invocation repository.
+	// Hooklog owns refreshes only for policy-lint, Git hooks, and the selected
+	// Make targets below. Parent-install, parent-check, and parent-lint do not
+	// refresh code intelligence and must not be described as doing so here.
 	return commandContains(command, "policy-lint") ||
 		commandContainsSequence(command, "git-hook", "pre-commit") ||
 		commandContainsSequence(command, "git-hook", "pre-push") ||

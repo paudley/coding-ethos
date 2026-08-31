@@ -19,6 +19,8 @@ type sandboxCacheEnvironment struct {
 	TempDir         string
 	RuntimeDir      string
 	GoCache         string
+	GoPath          string
+	GoModCache      string
 	GolangCILintDir string
 	GoRoot          string
 	CGOEnabled      string
@@ -103,6 +105,8 @@ func (environment sandboxCacheEnvironment) value(name string) string {
 		"TMPDIR":              environment.TempDir,
 		"XDG_RUNTIME_DIR":     environment.RuntimeDir,
 		"GOCACHE":             environment.GoCache,
+		"GOPATH":              environment.GoPath,
+		"GOMODCACHE":          environment.GoModCache,
 		"GOLANGCI_LINT_CACHE": environment.GolangCILintDir,
 		"GOROOT":              environment.GoRoot,
 		"CGO_ENABLED":         environment.CGOEnabled,
@@ -120,6 +124,8 @@ func (environment sandboxCacheEnvironment) names() []string {
 		"TMPDIR",
 		"XDG_RUNTIME_DIR",
 		"GOCACHE",
+		"GOPATH",
+		"GOMODCACHE",
 		"GOLANGCI_LINT_CACHE",
 		"GOROOT",
 		"CGO_ENABLED",
@@ -184,6 +190,19 @@ func sandboxCacheEnv(
 		return sandboxCacheEnvironment{}, err
 	}
 
+	goPath := filepath.Join(root, sandbox.SandboxGoPath)
+	goModCache := filepath.Join(root, sandbox.SandboxGoModCachePath)
+
+	err = makeSandboxDir(goPath, "Go path")
+	if err != nil {
+		return sandboxCacheEnvironment{}, err
+	}
+
+	err = makeSandboxDir(goModCache, "Go module cache")
+	if err != nil {
+		return sandboxCacheEnvironment{}, err
+	}
+
 	golangCILintDir := filepath.Join(root, sandbox.SandboxGolangCIPath)
 
 	err = makeSandboxDir(golangCILintDir, "golangci-lint cache")
@@ -201,6 +220,8 @@ func sandboxCacheEnv(
 		RuntimeDir:      runtimeDir,
 		CleanupTemp:     cleanupTemp,
 		GoCache:         goCache,
+		GoPath:          goPath,
+		GoModCache:      goModCache,
 		GolangCILintDir: golangCILintDir,
 		GoRoot:          managedGoRoot(ctx),
 		CGOEnabled:      "1",

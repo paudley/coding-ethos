@@ -20,7 +20,11 @@ import (
 )
 
 var (
-	shellStrictModePattern = regexp.MustCompile(
+	errShellHelperWorkingDirectoryRequired = errors.New(
+		"inspect tracked common shell helpers: repository working directory is required",
+	)
+	errShellHelperPrefixOutsideRepository = errors.New("is outside the repository")
+	shellStrictModePattern                = regexp.MustCompile(
 		`(?m)^\s*set\s+-[euo]+\s*pipefail|^\s*set\s+-euo\s+pipefail`,
 	)
 	shellCommonSourcePattern = regexp.MustCompile(
@@ -38,12 +42,25 @@ func EvaluateShellBestPractices(
 	policyDef policy.Policy,
 	context Context,
 ) ([]policy.Decision, error) {
+	if len(context.Files) == 0 {
+		return nil, nil
+	}
+
 	requireCommon := stringSliceOption(
 		context.EvaluatorOptions,
 		"require_common_for_prefixes",
 		[]string{"scripts/"},
 	)
-	if !repositoryHasTrackedCommonShellHelper(context.Cwd) {
+
+	hasCommonHelper, err := repositoryHasTrackedCommonShellHelper(
+		context.Cwd,
+		requireCommon,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if !hasCommonHelper {
 		requireCommon = nil
 	}
 
@@ -72,23 +89,98 @@ func EvaluateShellBestPractices(
 	return nil, nil
 }
 
-func repositoryHasTrackedCommonShellHelper(cwd string) bool {
+func repositoryHasTrackedCommonShellHelper(
+	cwd string,
+	requireCommonForPrefixes []string,
+) (bool, error) {
 	if strings.TrimSpace(cwd) == "" {
-		return false
+		return false, errShellHelperWorkingDirectoryRequired
 	}
 
-	output, err := GitCommand(cwd, "ls-files", "--cached").Output()
+	helperPaths, err := configuredCommonShellHelperPaths(
+		cwd,
+		requireCommonForPrefixes,
+	)
 	if err != nil {
-		return false
+		return false, err
 	}
+
+	if len(helperPaths) == 0 {
+		return false, nil
+	}
+
+	args := []string{"ls-files", "--cached", "--"}
+	for _, helperPath := range helperPaths {
+		args = append(args, ":(literal)"+helperPath)
+	}
+
+	output, err := GitCommand(cwd, args...).CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf(
+			"inspect tracked common shell helpers with git ls-files: %w: %s",
+			err,
+			strings.TrimSpace(string(output)),
+		)
+	}
+
+	configuredHelpers := stringSet(helperPaths)
 
 	for line := range strings.SplitSeq(string(output), "\n") {
-		if filepath.Base(strings.TrimSpace(line)) == "common.sh" {
-			return true
+		trackedPath := filepath.ToSlash(strings.TrimSpace(line))
+		if configuredHelpers[trackedPath] {
+			return true, nil
 		}
 	}
 
-	return false
+	return false, nil
+}
+
+func configuredCommonShellHelperPaths(
+	cwd string,
+	prefixes []string,
+) ([]string, error) {
+	repositoryRoot, err := filepath.Abs(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repository working directory: %w", err)
+	}
+
+	helperPaths := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		trimmed := strings.TrimSpace(prefix)
+		if trimmed == "" {
+			continue
+		}
+
+		cleaned := filepath.Clean(trimmed)
+		if filepath.IsAbs(cleaned) {
+			cleaned, err = filepath.Rel(repositoryRoot, cleaned)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"resolve common shell helper prefix %q: %w",
+					prefix,
+					err,
+				)
+			}
+		}
+
+		if cleaned == ".." || strings.HasPrefix(
+			cleaned,
+			".."+string(filepath.Separator),
+		) {
+			return nil, fmt.Errorf(
+				"common shell helper prefix %q %w",
+				prefix,
+				errShellHelperPrefixOutsideRepository,
+			)
+		}
+
+		helperPaths = append(
+			helperPaths,
+			filepath.ToSlash(filepath.Join(cleaned, "common.sh")),
+		)
+	}
+
+	return helperPaths, nil
 }
 
 func looksLikeShellFile(path string) bool {

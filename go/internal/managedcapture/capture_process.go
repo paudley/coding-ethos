@@ -169,7 +169,7 @@ func startCapturedOSProcess(
 		argv,
 		&os.ProcAttr{
 			Dir:   request.Cwd,
-			Env:   capturedProcessEnv(os.Environ(), cacheEnv),
+			Env:   capturedProcessEnv(os.Environ(), cacheEnv, request.Tool),
 			Files: files,
 			Sys:   capturedProcessSysProcAttr(cgroup, evidence),
 		},
