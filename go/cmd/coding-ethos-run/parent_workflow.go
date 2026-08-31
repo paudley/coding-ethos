@@ -340,6 +340,7 @@ func checkParentArtifacts(
 	steps = append(steps, runParentStep("agent_hooks", func() error {
 		return agenthooks.DoctorSettings(options.Repo, parentAgentHookCommand(paths))
 	}))
+
 	return steps
 }
 
