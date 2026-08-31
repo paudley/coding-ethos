@@ -219,6 +219,9 @@ Bootstrap needs a few guardrails:
 - Keep authority build outputs under ignored `bin/` and `build/` directories.
 - Keep response, trace, and other transient repo-local caches under ignored
   `.coding-ethos/` paths, not under the Git common runtime.
+- Hook-launched `uv` commands bind both their download cache and project
+  environment to the consumer-owned `.coding-ethos/cache/` tree. The installed
+  shared runtime remains read-only and never receives a generated `.venv`.
 - Install common-runtime executables with temporary-file sync plus atomic
   rename, and verify them by content rather than mtime.
 - Keep installed hook entrypoints stable and move versioned behavior into the

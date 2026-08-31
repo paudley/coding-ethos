@@ -227,6 +227,7 @@ type externalToolCacheEnvironment struct {
 	GoCache         string
 	GolangCILintDir string
 	UVCache         string
+	UVProjectEnv    string
 	// CargoTarget is per-repository build output, like GoCache.
 	CargoTarget string
 	// CargoHome and RustupHome are the operator's, not the repository's. Cargo
@@ -291,9 +292,17 @@ func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 	goCache := filepath.Join(root, sandbox.SandboxGoCachePath)
 	golangCILintDir := filepath.Join(root, sandbox.SandboxGolangCIPath)
 	uvCache := filepath.Join(root, ".coding-ethos", "cache", "uv")
+	uvProjectEnv := filepath.Join(root, ".coding-ethos", "cache", "uv-project-env")
 	cargoTarget := filepath.Join(root, ".coding-ethos", "cache", "cargo-target")
 
-	for _, dir := range []string{goTemp, goCache, golangCILintDir, uvCache, cargoTarget} {
+	for _, dir := range []string{
+		goTemp,
+		goCache,
+		golangCILintDir,
+		uvCache,
+		uvProjectEnv,
+		cargoTarget,
+	} {
 		err := os.MkdirAll(dir, externalToolCacheDirMode)
 		if err != nil {
 			return externalToolCacheEnvironment{}, fmt.Errorf(
@@ -311,6 +320,7 @@ func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 		GoCache:         goCache,
 		GolangCILintDir: golangCILintDir,
 		UVCache:         uvCache,
+		UVProjectEnv:    uvProjectEnv,
 		CargoTarget:     cargoTarget,
 		CargoHome:       cargoHome,
 		RustupHome:      rustupHome,
@@ -383,6 +393,7 @@ func (environment externalToolCacheEnvironment) items() []string {
 		"GOCACHE",
 		"GOLANGCI_LINT_CACHE",
 		"UV_CACHE_DIR",
+		"UV_PROJECT_ENVIRONMENT",
 		"CARGO_TARGET_DIR",
 		"CARGO_HOME",
 		"RUSTUP_HOME",
@@ -408,6 +419,8 @@ func (environment externalToolCacheEnvironment) value(name string) string {
 		return environment.GolangCILintDir
 	case "UV_CACHE_DIR":
 		return environment.UVCache
+	case "UV_PROJECT_ENVIRONMENT":
+		return environment.UVProjectEnv
 	case "CARGO_TARGET_DIR":
 		return environment.CargoTarget
 	case "CARGO_HOME":

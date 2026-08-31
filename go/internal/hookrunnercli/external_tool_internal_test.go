@@ -14,27 +14,41 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
-func TestPrepareHookProcessCacheEnvironmentSetsAndRestoresUVCache(t *testing.T) {
+func TestPrepareHookProcessCacheEnvironmentSetsAndRestoresUVEnvironment(t *testing.T) {
 	testlock.ProcessState(t, "hook-process-cache-environment")
 
 	root := t.TempDir()
 	t.Setenv("UV_CACHE_DIR", "/previous/uv-cache")
+	t.Setenv("UV_PROJECT_ENVIRONMENT", "/previous/uv-project-environment")
 	restore, err := prepareHookProcessCacheEnvironment(root)
 	if err != nil {
 		t.Fatalf("prepareHookProcessCacheEnvironment: %v", err)
 	}
 
-	want := filepath.Join(root, ".coding-ethos", "cache", "uv")
-	if got := os.Getenv("UV_CACHE_DIR"); got != want {
-		t.Fatalf("UV_CACHE_DIR = %q, want %q", got, want)
+	wantCache := filepath.Join(root, ".coding-ethos", "cache", "uv")
+	if got := os.Getenv("UV_CACHE_DIR"); got != wantCache {
+		t.Fatalf("UV_CACHE_DIR = %q, want %q", got, wantCache)
 	}
-	if info, statErr := os.Stat(want); statErr != nil || !info.IsDir() {
+	if info, statErr := os.Stat(wantCache); statErr != nil || !info.IsDir() {
 		t.Fatalf("UV cache directory is not usable: info=%v error=%v", info, statErr)
+	}
+
+	wantProjectEnv := filepath.Join(root, ".coding-ethos", "cache", "uv-project-env")
+	if got := os.Getenv("UV_PROJECT_ENVIRONMENT"); got != wantProjectEnv {
+		t.Fatalf("UV_PROJECT_ENVIRONMENT = %q, want %q", got, wantProjectEnv)
+	}
+	if info, statErr := os.Stat(wantProjectEnv); statErr != nil || !info.IsDir() {
+		t.Fatalf("UV project environment is not usable: info=%v error=%v", info, statErr)
 	}
 
 	restore()
 	if got := os.Getenv("UV_CACHE_DIR"); got != "/previous/uv-cache" {
 		t.Fatalf("restored UV_CACHE_DIR = %q", got)
+	}
+	if got := os.Getenv(
+		"UV_PROJECT_ENVIRONMENT",
+	); got != "/previous/uv-project-environment" {
+		t.Fatalf("restored UV_PROJECT_ENVIRONMENT = %q", got)
 	}
 }
 
@@ -129,6 +143,13 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 		"UV_CACHE_DIR="+filepath.Join(repo, ".coding-ethos/cache/uv"),
 	) {
 		t.Fatalf("externalToolEnv did not set uv cache dir: %#v", env)
+	}
+
+	if !slices.Contains(
+		env,
+		"UV_PROJECT_ENVIRONMENT="+filepath.Join(repo, ".coding-ethos/cache/uv-project-env"),
+	) {
+		t.Fatalf("externalToolEnv did not set uv project environment: %#v", env)
 	}
 
 	for _, item := range env {
