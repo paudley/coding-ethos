@@ -423,6 +423,11 @@ func piiScrubberOptions(config map[string]any) map[string]any {
 			[]string{"filesystem", "pii_scrubber", "literals"},
 			nil,
 		),
+		"allowed_patterns": stringSliceAt(
+			config,
+			[]string{"filesystem", "pii_scrubber", "allowed_patterns"},
+			[]string{`/home/agent/`},
+		),
 		"exempt_prefixes": stringSliceAt(
 			config,
 			[]string{"filesystem", "pii_scrubber", "exempt_prefixes"},

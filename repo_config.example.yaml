@@ -216,6 +216,8 @@ filesystem:
       - '/(home|Users)/[A-Za-z0-9._-]+/'
       - '/tmp/tmp\.[A-Za-z0-9._-]+'
     literals: []
+    allowed_patterns:
+      - '/home/agent/'
     exempt_prefixes:
       - .git/
 

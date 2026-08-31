@@ -251,6 +251,16 @@ func EvaluatePIIScrubber(
 		return nil, err
 	}
 
+	allowedPatterns, err := compiledPatterns(
+		context.EvaluatorOptions,
+		"allowed_patterns",
+		[]string{`/home/agent/`},
+		"allowed PII",
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	exemptPrefixes := stringSliceOption(
 		context.EvaluatorOptions,
 		"exempt_prefixes",
@@ -268,8 +278,13 @@ func EvaluatePIIScrubber(
 		found, err := scanGuardLines(
 			path,
 			func(lineNumber int, line string) ([]policy.Decision, bool) {
+				candidate := line
+				for _, allowed := range allowedPatterns {
+					candidate = allowed.ReplaceAllString(candidate, "")
+				}
+
 				for _, pattern := range patterns {
-					if pattern.MatchString(line) {
+					if pattern.MatchString(candidate) {
 						return []policy.Decision{
 							fileGuardDecision(
 								policyDef,
@@ -478,6 +493,27 @@ func piiPatterns(options map[string]any) ([]*regexp.Regexp, error) {
 
 	for _, literal := range stringSliceOption(options, "literals", nil) {
 		patterns = append(patterns, regexp.MustCompile(regexp.QuoteMeta(literal)))
+	}
+
+	return patterns, nil
+}
+
+func compiledPatterns(
+	options map[string]any,
+	key string,
+	defaults []string,
+	label string,
+) ([]*regexp.Regexp, error) {
+	rawPatterns := stringSliceOption(options, key, defaults)
+
+	patterns := make([]*regexp.Regexp, 0, len(rawPatterns))
+	for _, raw := range rawPatterns {
+		pattern, err := regexp.Compile(raw)
+		if err != nil {
+			return nil, fmt.Errorf("compile %s pattern %q: %w", label, raw, err)
+		}
+
+		patterns = append(patterns, pattern)
 	}
 
 	return patterns, nil
