@@ -19,6 +19,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
+	"blackcat.ca/coding-ethos/go/internal/generatedtrust"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hookrunnercli"
@@ -493,10 +494,11 @@ func runHookPolicy(
 	files []string,
 ) (lint.Result, error) {
 	result, err := lint.Run(bundle, lint.Options{
-		AdminApproved: adminApproved(cwd),
-		Scope:         scope,
-		Cwd:           cwd,
-		Files:         files,
+		AdminApproved:         adminApproved(cwd),
+		Scope:                 scope,
+		Cwd:                   cwd,
+		Files:                 files,
+		TrustedGeneratedFiles: generatedtrust.ExactStagedFiles(bundle, cwd, files),
 	})
 	if err != nil {
 		return lint.Result{}, fmt.Errorf("run hook policy: %w", err)

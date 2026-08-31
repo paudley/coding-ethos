@@ -37,3 +37,15 @@ func TestShouldForceCodeIntelRefreshKeepsHookAndRepoGates(t *testing.T) {
 		}
 	}
 }
+
+func TestShouldRefreshRepositorySkipsFailedHook(t *testing.T) {
+	t.Parallel()
+
+	command := []string{"coding-ethos-run", "git-hook", "pre-commit"}
+	if !shouldRefreshRepository(command, 0) {
+		t.Fatal("successful pre-commit should refresh repository code-intel")
+	}
+	if shouldRefreshRepository(command, 2) {
+		t.Fatal("blocked pre-commit must not perform a full repository refresh")
+	}
+}

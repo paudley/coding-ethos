@@ -5,13 +5,17 @@ package lint_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
+	"blackcat.ca/coding-ethos/go/internal/agenthooks"
+	"blackcat.ca/coding-ethos/go/internal/generatedtrust"
 	. "blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/policy"
+	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
 const statusBlocked = "blocked"
@@ -277,6 +281,125 @@ func TestRunLimitsForbiddenStringFileContentScanToAutomationSurfaces(t *testing.
 	}
 }
 
+func TestRunAllowsExactStagedGeneratedToolConfig(t *testing.T) {
+	t.Parallel()
+
+	ethosRoot := repoRootForLintTest(t)
+	repo := initializedLintGitRepo(t)
+
+	_, err := toolconfigs.Sync(ethosRoot, repo, "")
+	if err != nil {
+		t.Fatalf("sync generated tool configs: %v", err)
+	}
+	runLintGit(t, repo, "add", ".bandit.yml")
+
+	bundle := compiledRepoLintBundle(t)
+	files := []string{".bandit.yml"}
+	result, err := Run(bundle, Options{
+		Scope:                 ScopeStaged,
+		Cwd:                   repo,
+		Files:                 files,
+		TrustedGeneratedFiles: generatedtrust.ExactStagedFiles(bundle, repo, files),
+	})
+	if err != nil {
+		t.Fatalf("run staged generated-config lint: %v", err)
+	}
+	if lintResultHasBlockingDecision(result, "filesystem.protected_path") ||
+		lintResultHasBlockingDecision(result, "agent_workspace.enforcement_point_write") {
+		t.Fatalf("exact generated config was blocked: %#v", result.Decisions)
+	}
+}
+
+func TestRunBlocksDivergentStagedGeneratedToolConfig(t *testing.T) {
+	t.Parallel()
+
+	ethosRoot := repoRootForLintTest(t)
+	repo := initializedLintGitRepo(t)
+
+	_, err := toolconfigs.Sync(ethosRoot, repo, "")
+	if err != nil {
+		t.Fatalf("sync generated tool configs: %v", err)
+	}
+	path := filepath.Join(repo, ".bandit.yml")
+	expected, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read generated tool config: %v", err)
+	}
+	if err = os.WriteFile(path, []byte("skips: [B101]\n"), 0o600); err != nil {
+		t.Fatalf("write divergent generated tool config: %v", err)
+	}
+	runLintGit(t, repo, "add", ".bandit.yml")
+	if err = os.WriteFile(path, expected, 0o600); err != nil {
+		t.Fatalf("restore generated tool config: %v", err)
+	}
+
+	bundle := compiledRepoLintBundle(t)
+	files := []string{".bandit.yml"}
+	result, err := Run(bundle, Options{
+		Scope:                 ScopeStaged,
+		Cwd:                   repo,
+		Files:                 files,
+		TrustedGeneratedFiles: generatedtrust.ExactStagedFiles(bundle, repo, files),
+	})
+	if err != nil {
+		t.Fatalf("run divergent staged generated-config lint: %v", err)
+	}
+	if !lintResultHasBlockingDecision(result, "filesystem.protected_path") {
+		t.Fatalf("divergent generated config was not blocked: %#v", result.Decisions)
+	}
+}
+
+func TestRunAllowsExactStagedGeneratedAgentConfig(t *testing.T) {
+	t.Parallel()
+
+	ethosRoot := repoRootForLintTest(t)
+	repo := initializedLintGitRepo(t)
+	hookCommand := filepath.Join(ethosRoot, "bin", "coding-ethos-run") + " agent-hook"
+
+	if err := agenthooks.SyncSettings(repo, hookCommand); err != nil {
+		t.Fatalf("sync generated agent settings: %v", err)
+	}
+	runLintGit(t, repo, "add", ".codex/config.toml")
+
+	bundle := compiledRepoLintBundle(t)
+	files := []string{".codex/config.toml"}
+	result, err := Run(bundle, Options{
+		Scope:                 ScopeStaged,
+		Cwd:                   repo,
+		Files:                 files,
+		TrustedGeneratedFiles: generatedtrust.ExactStagedFiles(bundle, repo, files),
+	})
+	if err != nil {
+		t.Fatalf("run staged generated-agent lint: %v", err)
+	}
+	if lintResultHasBlockingDecision(result, "agent_workspace.enforcement_point_write") ||
+		lintResultHasBlockingDecision(result, "shell.forbidden_strings") {
+		t.Fatalf("exact generated agent config was blocked: %#v", result.Decisions)
+	}
+}
+
+func initializedLintGitRepo(t *testing.T) string {
+	t.Helper()
+
+	repo := t.TempDir()
+	runLintGit(t, repo, "init")
+	runLintGit(t, repo, "config", "user.email", "test@example.com")
+	runLintGit(t, repo, "config", "user.name", "Test")
+
+	return repo
+}
+
+func runLintGit(t *testing.T, cwd string, args ...string) {
+	t.Helper()
+
+	command := exec.Command("git", args...)
+	command.Dir = cwd
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
+	}
+}
+
 func TestRunAcceptsCommitMessageScope(t *testing.T) {
 	t.Parallel()
 
@@ -355,6 +478,17 @@ func TestRunBlocksSelfPromotionalCommitMessage(t *testing.T) {
 func lintResultHasDecision(result Result, policyID string) bool {
 	for _, decision := range result.Decisions {
 		if decision.PolicyID == policyID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func lintResultHasBlockingDecision(result Result, policyID string) bool {
+	for _, decision := range result.Decisions {
+		if decision.PolicyID == policyID &&
+			(decision.Decision == "block" || decision.Severity == "block") {
 			return true
 		}
 	}

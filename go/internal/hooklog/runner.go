@@ -167,7 +167,7 @@ func runWithStatus(options Options) (int, error) {
 		return 1, metadataErr
 	}
 
-	maintenanceErr := finishHookMaintenance(options, runDir)
+	maintenanceErr := finishHookMaintenance(options, runDir, status)
 
 	return completedHookStatus(status, err, maintenanceErr)
 }
@@ -199,8 +199,8 @@ func completedHookStatus(status int, runErr, maintenanceErr error) (int, error) 
 	return status, nil
 }
 
-func finishHookMaintenance(options Options, runDir string) error {
-	err := refreshCodeIntelAfterRun(options, runDir)
+func finishHookMaintenance(options Options, runDir string, status int) error {
+	err := refreshCodeIntelAfterRun(options, runDir, status)
 	if err != nil {
 		return err
 	}
@@ -214,8 +214,8 @@ func finishHookMaintenance(options Options, runDir string) error {
 	return nil
 }
 
-func refreshCodeIntelAfterRun(options Options, runDir string) error {
-	if shouldForceCodeIntelRefresh(options.Command) {
+func refreshCodeIntelAfterRun(options Options, runDir string, status int) error {
+	if shouldRefreshRepository(options.Command, status) {
 		_, err := codeintel.RefreshRepository(
 			context.Background(),
 			options.Root,
@@ -245,6 +245,10 @@ func refreshCodeIntelAfterRun(options Options, runDir string) error {
 	}
 
 	return nil
+}
+
+func shouldRefreshRepository(command []string, status int) bool {
+	return status == 0 && shouldForceCodeIntelRefresh(command)
 }
 
 func autoPruneHookRuns(root string) error {

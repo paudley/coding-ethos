@@ -940,6 +940,14 @@ Parent install and check are artifact workflows and do not perform a full
 repository code-intel refresh. Lint and Git-hook workflows refresh code intel
 when source analysis is actually part of the requested gate, so deploying or
 checking the runtime cannot be delayed by an unrelated whole-repository scan.
+Failed or policy-blocked hooks retain their trace evidence but do not perform a
+whole-repository refresh, because no accepted source transition occurred.
+
+Consumer commits may include generated tool and provider configuration only
+when the staged Git-index bytes exactly match output rendered by the active
+Coding Ethos authority. That narrow trust record exempts the generated surface
+from path-write guards while every content policy still runs; restoring a clean
+working-tree copy cannot conceal divergent staged bytes.
 
 When `parent-install` or `parent-lint` receives an external `--state-root`, it
 leaves the consumer checkout's tracked `.gitignore` unchanged. Other generated
