@@ -936,6 +936,11 @@ projects byte-identical executables into the parent repository's stable common
 Git runtime. `parent-check` hashes both sides and fails if that projection is
 missing, non-executable, symlinked back to a retiring checkout, or stale.
 
+Parent install and check are artifact workflows and do not perform a full
+repository code-intel refresh. Lint and Git-hook workflows refresh code intel
+when source analysis is actually part of the requested gate, so deploying or
+checking the runtime cannot be delayed by an unrelated whole-repository scan.
+
 When `parent-install` or `parent-lint` receives an external `--state-root`, it
 leaves the consumer checkout's tracked `.gitignore` unchanged. Other generated
 parent artifacts remain normal consumer surfaces; repo-local state retains the

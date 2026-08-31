@@ -20,7 +20,6 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/agenthooks"
 	"blackcat.ca/coding-ethos/go/internal/agentskills"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
-	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
@@ -289,10 +288,6 @@ func syncParentArtifacts(
 		}))
 	}
 
-	steps = append(steps, runParentStep("code_intel", func() error {
-		return refreshParentCodeIntel(options.Repo)
-	}))
-
 	return steps
 }
 
@@ -345,20 +340,7 @@ func checkParentArtifacts(
 	steps = append(steps, runParentStep("agent_hooks", func() error {
 		return agenthooks.DoctorSettings(options.Repo, parentAgentHookCommand(paths))
 	}))
-	steps = append(steps, runParentStep("code_intel", func() error {
-		return refreshParentCodeIntel(options.Repo)
-	}))
-
 	return steps
-}
-
-func refreshParentCodeIntel(repo string) error {
-	_, err := codeintel.RefreshRepository(context.Background(), repo, []string{"."})
-	if err != nil {
-		return fmt.Errorf("refresh code-intel: %w", err)
-	}
-
-	return nil
 }
 
 func syncParentPolicyBundle(paths runtimePaths, options parentWorkflowOptions) error {
