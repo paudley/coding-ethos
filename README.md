@@ -920,6 +920,7 @@ Make as a thin alias:
 
 ```bash
 coding-ethos/bin/coding-ethos-run parent-install
+coding-ethos/bin/coding-ethos-run parent-runtime-sync
 coding-ethos/bin/coding-ethos-run parent-check
 coding-ethos/bin/coding-ethos-run parent-lint
 ```
@@ -935,13 +936,23 @@ artifact contract.
 projects byte-identical executables into the parent repository's stable common
 Git runtime. `parent-check` hashes both sides and fails if that projection is
 missing, non-executable, symlinked back to a retiring checkout, or stale.
+`parent-runtime-sync` is the supervisor-safe repair path: it projects the
+already-built authoritative executables without rebuilding tools, rewriting
+generated parent artifacts, or refreshing code intelligence.
 
-Parent install and check are artifact workflows and do not perform a full
-repository code-intel refresh. Lint and Git-hook workflows refresh code intel
-when source analysis is actually part of the requested gate, so deploying or
-checking the runtime cannot be delayed by an unrelated whole-repository scan.
-Failed or policy-blocked hooks retain their trace evidence but do not perform a
-whole-repository refresh, because no accepted source transition occurred.
+Builds are explicit maintenance. Diagnostic, validation, lint, commit, push,
+and parent-check targets require an existing runtime and fail with a `make
+build` instruction when it is absent; they never compile or install tools as a
+side effect. Parent install and sync workflows operate through the already
+built runner, so an authority source change must be built deliberately before
+it is projected.
+
+Parent install, check, lint, and Git-hook workflows never perform a
+whole-repository code-intel refresh. Normal hooks append their bounded trace
+evidence, while managed lint and capture paths incrementally index only the
+changed files already selected by the gate. Whole-repository refreshes and
+derived-index rebuilds are explicit maintenance operations; allowed and
+policy-blocked hooks never trigger them as a side effect.
 
 Consumer commits may include generated tool and provider configuration only
 when the staged Git-index bytes exactly match output rendered by the active

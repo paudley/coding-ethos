@@ -4,7 +4,6 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"errors"
 	"flag"
@@ -25,7 +24,6 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/repoignore"
-	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
@@ -74,6 +72,26 @@ func runParentInstall(paths runtimePaths, rest []string) error {
 	steps := syncParentArtifacts(paths, options)
 	printParentWorkflowReport(
 		"parent-install",
+		parentStepStatus(steps),
+		options.Repo,
+		steps,
+	)
+	exitForFailedParentSteps(steps)
+
+	return nil
+}
+
+func runParentRuntimeSync(paths runtimePaths, rest []string) error {
+	options, err := parseParentWorkflowFlags(paths, "parent-runtime-sync", rest)
+	if err != nil {
+		return err
+	}
+
+	steps := []parentWorkflowStep{runParentStep("hook_runtime", func() error {
+		return syncParentHookRuntimeExecutables(paths, options)
+	})}
+	printParentWorkflowReport(
+		"parent-runtime-sync",
 		parentStepStatus(steps),
 		options.Repo,
 		steps,
@@ -240,9 +258,14 @@ func syncParentArtifacts(
 	options parentWorkflowOptions,
 ) []parentWorkflowStep {
 	steps := []parentWorkflowStep{}
+
 	steps = append(steps, runParentStep("go_tools", func() error {
-		return rebuildParentGoTools(paths)
+		return checkParentGoTools(paths)
 	}))
+	if parentStepStatus(steps) != parentStepPass {
+		return steps
+	}
+
 	steps = append(steps, runParentStep("hook_runtime", func() error {
 		return syncParentHookRuntimeExecutables(paths, options)
 	}))
@@ -301,7 +324,7 @@ func checkParentArtifacts(
 ) []parentWorkflowStep {
 	steps := []parentWorkflowStep{}
 	steps = append(steps, runParentStep("go_tools", func() error {
-		return checkParentGoTools(paths, options)
+		return checkParentGoTools(paths)
 	}))
 	steps = append(steps, runParentStep("hook_runtime", func() error {
 		return checkParentHookRuntimeExecutables(paths, options)
@@ -799,89 +822,7 @@ func firstNonEmptyPath(values ...string) string {
 	return ""
 }
 
-func rebuildParentGoTools(paths runtimePaths) error {
-	err := requireParentGoToolsSource(paths)
-	if err != nil {
-		return err
-	}
-
-	err = os.MkdirAll(paths.BinDir, parentExecutableDirMode)
-	if err != nil {
-		return fmt.Errorf("create Go tool bin dir: %w", err)
-	}
-
-	tools, err := parentGoToolCommands(paths)
-	if err != nil {
-		return err
-	}
-
-	for _, tool := range tools {
-		err = buildParentGoTool(paths, tool)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func buildParentGoTool(paths runtimePaths, tool string) error {
-	outputPath := filepath.Join(paths.BinDir, tool)
-
-	tempFile, err := os.CreateTemp(paths.BinDir, "."+tool+"-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary binary for %s: %w", tool, err)
-	}
-
-	tempPath := tempFile.Name()
-
-	err = tempFile.Close()
-	if err != nil {
-		return fmt.Errorf("close temporary binary for %s: %w", tool, err)
-	}
-
-	err = os.Remove(tempPath)
-	if err != nil {
-		return fmt.Errorf("prepare temporary binary for %s: %w", tool, err)
-	}
-
-	defer func() {
-		_ = os.Remove(tempPath)
-	}()
-
-	command := safeexec.CommandContext(
-		context.Background(),
-		"go",
-		"build",
-		"-trimpath",
-		"-buildvcs=false",
-		"-o",
-		tempPath,
-		"./cmd/"+tool,
-	)
-	command.Dir = paths.ToolsSource
-
-	command.Env = append(os.Environ(), "GOWORK=off")
-
-	output, err := command.CombinedOutput()
-	if err != nil {
-		detail := strings.TrimSpace(string(output))
-		if detail != "" {
-			return fmt.Errorf("build %s: %w: %s", tool, err, detail)
-		}
-
-		return fmt.Errorf("build %s: %w", tool, err)
-	}
-
-	err = os.Rename(tempPath, outputPath)
-	if err != nil {
-		return fmt.Errorf("install %s: %w", tool, err)
-	}
-
-	return nil
-}
-
-func checkParentGoTools(paths runtimePaths, options parentWorkflowOptions) error {
+func checkParentGoTools(paths runtimePaths) error {
 	err := requireParentGoToolsSource(paths)
 	if err != nil {
 		return err
@@ -925,9 +866,9 @@ func checkParentGoTools(paths runtimePaths, options parentWorkflowOptions) error
 	}
 
 	return fmt.Errorf(
-		"%w: run %s; tools: %s",
+		"%w: run `make build` in %s before parent workflows; tools: %s",
 		errParentGoToolsStale,
-		parentInstallCommand(options),
+		paths.EthosRoot,
 		strings.Join(stale, " "),
 	)
 }

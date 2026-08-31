@@ -30,6 +30,15 @@ def test_tests_and_diagnostics_do_not_build_or_install_runtime() -> None:
         "check-tool-configs",
         "check-gemini-prompts",
         "check-agent-skills",
+        "check-provider-matrix",
+        "parent-check",
+        "cutover-verify",
+        "pre-commit",
+        "pre-commit-all",
+        "pre-push",
+        "commit-msg",
+        "hook-plan",
+        "validate",
         "go-test",
         "lint",
         "fix",
@@ -59,6 +68,30 @@ def test_tests_and_diagnostics_do_not_build_or_install_runtime() -> None:
     assert "go-tools-smoke" not in next(
         line for line in makefile.splitlines() if line.startswith("check:")
     )
+
+
+def test_normal_runtime_commands_require_prebuilt_artifacts() -> None:
+    makefile, _lines = _makefile_lines()
+
+    for target in (
+        "parent-install",
+        "check-provider-matrix",
+        "parent-check",
+        "parent-lint",
+        "cutover-verify",
+        "pre-commit",
+        "pre-commit-all",
+        "pre-push",
+        "commit-msg",
+        "hook-plan",
+        "validate",
+    ):
+        target_line = next(
+            line for line in makefile.splitlines() if line.startswith(f"{target}:")
+        )
+        assert "ensure-hook-runtime" in target_line
+        assert "build" not in target_line
+        assert "go-tools-install" not in target_line
 
 
 def test_check_blocks_unmanaged_go_module_root_binaries() -> None:

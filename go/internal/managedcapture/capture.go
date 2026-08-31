@@ -1401,6 +1401,10 @@ func captureFormatterChanges(
 
 		content, err := os.ReadFile(file)
 		if err != nil {
+			if os.IsNotExist(err) {
+				changed = append(changed, formatterDiagnosticPath(request, file))
+			}
+
 			continue
 		}
 

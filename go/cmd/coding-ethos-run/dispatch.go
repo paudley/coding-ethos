@@ -105,6 +105,7 @@ func runCommandEntries() []runCommandEntry {
 		{Command: "policy-tool-group", Handler: runPolicyToolGroup},
 		{Command: "policy-git", Handler: runPolicyGitHandler},
 		{Command: "parent-install", Handler: runParentInstall},
+		{Command: "parent-runtime-sync", Handler: runParentRuntimeSync},
 		{Command: "parent-check", Handler: runParentCheck},
 		{Command: "parent-lint", Handler: runParentLint},
 		{Command: "runtime-policy", Handler: runRuntimePolicy},
@@ -162,6 +163,10 @@ func runHelpMessage() feedback.Message {
 					{
 						"runtime-policy sync|check --repo <path>",
 						"Manage only the consumer-scoped hook policy bundle.",
+					},
+					{
+						"parent-runtime-sync --repo <path>",
+						"Project prebuilt hook executables into a consumer Git runtime.",
 					},
 					{"git-hook", "Git hook entrypoint; not for manual lint."},
 				},

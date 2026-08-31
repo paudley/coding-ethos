@@ -167,7 +167,7 @@ func runWithStatus(options Options) (int, error) {
 		return 1, metadataErr
 	}
 
-	maintenanceErr := finishHookMaintenance(options, runDir, status)
+	maintenanceErr := finishHookMaintenance(options, runDir)
 
 	return completedHookStatus(status, err, maintenanceErr)
 }
@@ -199,8 +199,8 @@ func completedHookStatus(status int, runErr, maintenanceErr error) (int, error) 
 	return status, nil
 }
 
-func finishHookMaintenance(options Options, runDir string, status int) error {
-	err := refreshCodeIntelAfterRun(options, runDir, status)
+func finishHookMaintenance(options Options, runDir string) error {
+	err := ingestHookTraceAfterRun(options, runDir)
 	if err != nil {
 		return err
 	}
@@ -214,20 +214,7 @@ func finishHookMaintenance(options Options, runDir string, status int) error {
 	return nil
 }
 
-func refreshCodeIntelAfterRun(options Options, runDir string, status int) error {
-	if shouldRefreshRepository(options.Command, status) {
-		_, err := codeintel.RefreshRepository(
-			context.Background(),
-			options.Root,
-			[]string{"."},
-		)
-		if err != nil {
-			return fmt.Errorf("refresh code-intel after hook run: %w", err)
-		}
-
-		return nil
-	}
-
+func ingestHookTraceAfterRun(options Options, runDir string) error {
 	tracePath := filepath.Join(runDir, "event.json")
 
 	_, err := os.Stat(tracePath)
@@ -247,10 +234,6 @@ func refreshCodeIntelAfterRun(options Options, runDir string, status int) error 
 	return nil
 }
 
-func shouldRefreshRepository(command []string, status int) bool {
-	return status == 0 && shouldForceCodeIntelRefresh(command)
-}
-
 func autoPruneHookRuns(root string) error {
 	err := outputsurface.AutoPruneSurface(context.Background(), root, "hook_runs", false)
 	if err != nil {
@@ -258,39 +241,6 @@ func autoPruneHookRuns(root string) error {
 	}
 
 	return nil
-}
-
-func shouldForceCodeIntelRefresh(command []string) bool {
-	// Parent workflows refresh their explicit --repo target as part of the
-	// workflow itself. Repeating that work here both doubles maintenance and,
-	// before command-root resolution, could index the invocation repository.
-	return commandContains(command, "policy-lint") ||
-		commandContainsSequence(command, "git-hook", "pre-commit") ||
-		commandContainsSequence(command, "git-hook", "pre-push") ||
-		commandContainsSequence(command, "make", "pre-commit") ||
-		commandContainsSequence(command, "make", "pre-commit-all") ||
-		commandContainsSequence(command, "make", "check") ||
-		commandContainsSequence(command, "make", "lint")
-}
-
-func commandContains(command []string, value string) bool {
-	for _, part := range command {
-		if filepath.Base(part) == value || part == value {
-			return true
-		}
-	}
-
-	return false
-}
-
-func commandContainsSequence(command []string, first, second string) bool {
-	for index := 0; index+1 < len(command); index++ {
-		if filepath.Base(command[index]) == first && command[index+1] == second {
-			return true
-		}
-	}
-
-	return false
 }
 
 func runLoggedPayload(

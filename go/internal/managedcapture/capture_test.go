@@ -238,6 +238,65 @@ exit 0
 	}
 }
 
+func TestRunCapturedToolCodeIntelTombstonesFormatterDeletionOnFailure(t *testing.T) {
+	if runtime.GOOS == windowsGOOS {
+		t.Skip("shell fixture uses POSIX sh")
+	}
+
+	ctx := context.Background()
+	repo := t.TempDir()
+	target := filepath.Join(repo, "pkg", "app.py")
+	if err := os.MkdirAll(filepath.Dir(target), executableFixtureMode); err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+	if err := os.WriteFile(target, []byte("VALUE = 1\n"), 0o600); err != nil {
+		t.Fatalf("write python file: %v", err)
+	}
+	if _, err := codeintel.RefreshLintFiles(
+		ctx,
+		repo,
+		[]string{"pkg/app.py"},
+	); err != nil {
+		t.Fatalf("prime code-intel file: %v", err)
+	}
+
+	tool := filepath.Join(repo, "formatter-fixture")
+	writeExecutableFixture(t, tool, `#!/usr/bin/env sh
+rm pkg/app.py
+exit 2
+`)
+
+	exitCode := runCapturedToolWithRequest(captureRequest{
+		Tool:           "ruff-format",
+		Parser:         "ruff",
+		Category:       toolcatalog.CategoryFormat,
+		ToolPath:       tool,
+		Cwd:            repo,
+		TraceRoot:      repo,
+		Args:           []string{"format", "pkg/app.py"},
+		DiagnosticKind: toolcatalog.DiagnosticKindFormatterChangedFiles,
+		FileExtensions: []string{".py"},
+		CodeIntel:      true,
+	}, hookoutput.FormatTOON)
+	if exitCode != 2 {
+		t.Fatalf("exit code = %d, want 2", exitCode)
+	}
+
+	store, err := codeintel.OpenReadOnly(ctx, codeintel.DefaultDBPath(repo))
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	defer store.Close()
+
+	file, found, err := store.GetCodeFile(ctx, "pkg/app.py")
+	if err != nil {
+		t.Fatalf("query deleted code file: %v", err)
+	}
+	if !found || file.DeletedAtUTC == "" {
+		t.Fatalf("deleted file = %#v, found=%v", file, found)
+	}
+}
+
 func TestCopyProcessOutputDrainsStdoutAndStderrConcurrently(t *testing.T) {
 	t.Parallel()
 

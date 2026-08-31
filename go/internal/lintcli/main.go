@@ -600,8 +600,6 @@ func refreshLintCodeIntel(root, tracePath, scope string, files []string) {
 	err := codeintel.IngestLintTraceFile(ctx, root, tracePath)
 	if err != nil {
 		writeLintCLIText("warning: lint trace not ingested into code-intel: " + err.Error())
-
-		return
 	}
 
 	paths := lintCodeIntelPaths(scope, files)
@@ -617,7 +615,10 @@ func refreshLintCodeIntel(root, tracePath, scope string, files []string) {
 
 func lintCodeIntelPaths(scope string, files []string) []string {
 	if scope == lint.ScopeFull {
-		return []string{"."}
+		// Full lint is an ordinary diagnostic path, not authorization for a
+		// whole-repository code-intel walk. Operators can request that work with
+		// the explicit code-intel maintenance commands.
+		return nil
 	}
 
 	if scope != lint.ScopeFiles &&

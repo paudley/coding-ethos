@@ -5,6 +5,8 @@ package hookrunnercli
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 )
 
@@ -116,11 +119,27 @@ func runPrePushHook(cfg Config, input io.Reader, remoteName string) int {
 
 	defer restoreRoot()
 
-	files, err := pushedFiles(input, remoteName)
+	var copiedInput bytes.Buffer
+
+	files, err := pushedFiles(io.TeeReader(input, &copiedInput), remoteName)
 	if err != nil {
 		writef(os.Stderr, "FATAL: %v\n", err)
 
 		return 1
+	}
+
+	codeIntelFiles, codeIntelErr := pushedCodeIntelFiles(
+		bytes.NewReader(copiedInput.Bytes()),
+		remoteName,
+	)
+	if codeIntelErr != nil {
+		writef(
+			os.Stderr,
+			"warning: pushed code-intel paths not resolved: %v\n",
+			codeIntelErr,
+		)
+	} else {
+		defer refreshPrePushCodeIntel(localRepoRoot(), codeIntelFiles)
 	}
 
 	exit := runNamedHookGroups(cfg, []string{
@@ -510,6 +529,24 @@ func hookFilesForPreCommit(allFiles bool) ([]string, error) {
 }
 
 func pushedFiles(input io.Reader, remoteName string) ([]string, error) {
+	return pushedFilesWithDiffOptions(input, remoteName, nil, false)
+}
+
+func pushedCodeIntelFiles(input io.Reader, remoteName string) ([]string, error) {
+	return pushedFilesWithDiffOptions(
+		input,
+		remoteName,
+		[]string{"--no-renames", "--diff-filter=ACDMR"},
+		true,
+	)
+}
+
+func pushedFilesWithDiffOptions(
+	input io.Reader,
+	remoteName string,
+	diffOptions []string,
+	nulTerminated bool,
+) ([]string, error) {
 	scanner := bufio.NewScanner(input)
 	seen := map[string]bool{}
 	files := []string{}
@@ -527,18 +564,18 @@ func pushedFiles(input io.Reader, remoteName string) ([]string, error) {
 
 		if fields[3] == allZeroSHA {
 			base := newBranchDiffBase(remoteName, fields[1])
-			changed, err = gitLinesInRoot(
+			changed, err = gitDiffPathNamesInRoot(
 				localRepoRoot(),
-				"diff",
-				"--name-only",
+				diffOptions,
+				nulTerminated,
 				base,
 				fields[1],
 			)
 		} else {
-			changed, err = gitLinesInRoot(
+			changed, err = gitDiffPathNamesInRoot(
 				localRepoRoot(),
-				"diff",
-				"--name-only",
+				diffOptions,
+				nulTerminated,
 				fields[3]+".."+fields[1],
 			)
 		}
@@ -564,6 +601,13 @@ func pushedFiles(input io.Reader, remoteName string) ([]string, error) {
 		return files, nil
 	}
 
+	return pushedFilesFromLocalHistory(diffOptions, nulTerminated)
+}
+
+func pushedFilesFromLocalHistory(
+	diffOptions []string,
+	nulTerminated bool,
+) ([]string, error) {
 	upstream := gitOutputInRoot(
 		localRepoRoot(),
 		"rev-parse",
@@ -572,10 +616,10 @@ func pushedFiles(input io.Reader, remoteName string) ([]string, error) {
 		"@{upstream}",
 	)
 	if upstream != "" {
-		changed, err := gitLinesInRoot(
+		changed, err := gitDiffPathNamesInRoot(
 			localRepoRoot(),
-			"diff",
-			"--name-only",
+			diffOptions,
+			nulTerminated,
 			upstream+"...HEAD",
 		)
 		if err == nil {
@@ -583,7 +627,73 @@ func pushedFiles(input io.Reader, remoteName string) ([]string, error) {
 		}
 	}
 
-	return gitLinesInRoot(localRepoRoot(), "diff", "--name-only", "HEAD")
+	return gitDiffPathNamesInRoot(
+		localRepoRoot(),
+		diffOptions,
+		nulTerminated,
+		"HEAD",
+	)
+}
+
+func gitDiffPathNamesInRoot(
+	root string,
+	diffOptions []string,
+	nulTerminated bool,
+	revisions ...string,
+) ([]string, error) {
+	args := []string{"diff", "--name-only"}
+	if nulTerminated {
+		args = append(args, "-z")
+	}
+
+	args = append(args, diffOptions...)
+	args = append(args, revisions...)
+
+	if !nulTerminated {
+		return gitLinesInRoot(root, args...)
+	}
+
+	output, err := combinedGitOutputInRoot(root, args...)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"git %s: %w: %s",
+			strings.Join(args, " "),
+			err,
+			strings.TrimSpace(string(output)),
+		)
+	}
+
+	files := []string{}
+	seen := map[string]bool{}
+
+	for rawPath := range bytes.SplitSeq(output, []byte{0}) {
+		if len(rawPath) == 0 {
+			continue
+		}
+
+		path := string(rawPath)
+		if !seen[path] {
+			seen[path] = true
+			files = append(files, path)
+		}
+	}
+
+	return files, nil
+}
+
+func refreshPrePushCodeIntel(root string, files []string) {
+	if len(files) == 0 {
+		return
+	}
+
+	_, err := codeintel.RefreshLintFiles(context.Background(), root, files)
+	if err != nil {
+		writef(
+			os.Stderr,
+			"warning: pushed files not incrementally indexed: %v\n",
+			err,
+		)
+	}
 }
 
 func newBranchDiffBase(remoteName, localSHA string) string {

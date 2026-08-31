@@ -103,6 +103,38 @@ func TestPushedFilesParsesPrePushRefs(t *testing.T) {
 	}
 }
 
+func TestPushedCodeIntelFilesIncludesDeletionRenameSidesAndNewlines(t *testing.T) {
+	root := setupGitHookTestRepo(t)
+	chdirForTest(t, root)
+	mustWriteTestFile(t, "old.py", "OLD = 1\n")
+	mustWriteTestFile(t, "removed.py", "REMOVED = 1\n")
+	mustWriteTestFile(t, "line\nbreak.py", "ODD = 1\n")
+	runGitTestCommand(t, "add", "old.py", "removed.py", "line\nbreak.py")
+	runGitTestCommand(t, "commit", "-m", "test: base")
+	remoteSHA := gitTestOutput(t, "rev-parse", "HEAD")
+
+	runGitTestCommand(t, "mv", "old.py", "new.py")
+	runGitTestCommand(t, "rm", "removed.py")
+	mustWriteTestFile(t, "line\nbreak.py", "ODD = 2\n")
+	runGitTestCommand(t, "add", "line\nbreak.py")
+	runGitTestCommand(t, "commit", "-m", "test: rename and delete")
+	localSHA := gitTestOutput(t, "rev-parse", "HEAD")
+
+	input := strings.NewReader(
+		"refs/heads/main " + localSHA + " refs/heads/main " + remoteSHA + "\n",
+	)
+	files, err := pushedCodeIntelFiles(input, "")
+	if err != nil {
+		t.Fatalf("pushedCodeIntelFiles() returned error: %v", err)
+	}
+
+	for _, want := range []string{"line\nbreak.py", "new.py", "old.py", "removed.py"} {
+		if !slices.Contains(files, want) {
+			t.Fatalf("pushed code-intel files = %#v, missing %q", files, want)
+		}
+	}
+}
+
 func TestPushedFilesHandlesNewBranchAndDeleteRefs(t *testing.T) {
 	root := setupGitHookTestRepo(t)
 	chdirForTest(t, root)

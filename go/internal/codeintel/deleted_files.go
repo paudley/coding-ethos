@@ -20,6 +20,7 @@ import (
 const (
 	codeFileStaleDeleted         = "deleted"
 	codeFileStaleDeletedByIntent = "deleted_by_intent"
+	gitStagedDeleteArgCount      = 8
 )
 
 func (store *Store) MarkMissingCodeFilesDeleted(
@@ -275,9 +276,16 @@ func gitDeletedPaths(ctx context.Context, root string) map[string]bool {
 }
 
 func gitStagedDeletedPaths(ctx context.Context, root string) map[string]bool {
-	command := realgit.Command(
-		ctx,
-		false,
+	return gitStagedDeletedPathsFor(ctx, root, nil)
+}
+
+func gitStagedDeletedPathsFor(
+	ctx context.Context,
+	root string,
+	paths []string,
+) map[string]bool {
+	args := make([]string, 0, gitStagedDeleteArgCount+len(paths))
+	args = append(args,
 		"-C",
 		root,
 		"diff",
@@ -285,7 +293,11 @@ func gitStagedDeletedPaths(ctx context.Context, root string) map[string]bool {
 		"--cached",
 		"--diff-filter=D",
 		"-z",
+		"--",
 	)
+	args = append(args, paths...)
+
+	command := realgit.Command(ctx, false, args...)
 	command.Env = realgit.CleanGitLocalEnv(os.Environ())
 
 	output, err := command.Output()
