@@ -43,6 +43,9 @@ func EvaluateShellBestPractices(
 		"require_common_for_prefixes",
 		[]string{"scripts/"},
 	)
+	if !repositoryHasTrackedCommonShellHelper(context.Cwd) {
+		requireCommon = nil
+	}
 
 	for _, file := range context.Files {
 		if !looksLikeShellFile(file) {
@@ -67,6 +70,25 @@ func EvaluateShellBestPractices(
 	}
 
 	return nil, nil
+}
+
+func repositoryHasTrackedCommonShellHelper(cwd string) bool {
+	if strings.TrimSpace(cwd) == "" {
+		return false
+	}
+
+	output, err := GitCommand(cwd, "ls-files", "--cached").Output()
+	if err != nil {
+		return false
+	}
+
+	for line := range strings.SplitSeq(string(output), "\n") {
+		if filepath.Base(strings.TrimSpace(line)) == "common.sh" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func looksLikeShellFile(path string) bool {

@@ -169,6 +169,81 @@ func TestEvaluateGitStagedAdminFilesRecordsWithAdminApproval(t *testing.T) {
 	}
 }
 
+func TestEvaluateGitStagedAdminFilesRecordsExactGeneratedConfig(t *testing.T) {
+	t.Parallel()
+
+	ethosRoot, repo := syncedGeneratedConfigRepo(t)
+	initializeStagedAdminGitRepo(t, repo)
+	runGit(t, repo, "add", ".pylintrc")
+
+	decisions, err := EvaluateGitStagedAdminFiles(
+		stagedAdminPolicy(),
+		Context{
+			Argv: []string{"git", "commit", "-m", "generated config"},
+			Cwd:  repo,
+			EvaluatorOptions: map[string]any{
+				"ethos_root": ethosRoot,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate staged generated admin file: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != recordDecision {
+		t.Fatalf("decision mismatch: %#v", decisions)
+	}
+	assertStringSliceEvidence(
+		t,
+		decisions[0].Evidence,
+		"verified_generated_files",
+		[]string{".pylintrc"},
+	)
+}
+
+func TestEvaluateGitStagedAdminFilesBlocksDivergentStagedGeneratedConfig(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	ethosRoot, repo := syncedGeneratedConfigRepo(t)
+	initializeStagedAdminGitRepo(t, repo)
+	pylintPath := filepath.Join(repo, ".pylintrc")
+	expected, err := os.ReadFile(pylintPath)
+	if err != nil {
+		t.Fatalf("read generated Pylint config: %v", err)
+	}
+	if err = os.WriteFile(
+		pylintPath,
+		[]byte("[MAIN]\nignore-patterns=.*\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write divergent Pylint config: %v", err)
+	}
+	runGit(t, repo, "add", ".pylintrc")
+	if err = os.WriteFile(pylintPath, expected, 0o600); err != nil {
+		t.Fatalf("restore working-tree Pylint config: %v", err)
+	}
+
+	decisions, err := EvaluateGitStagedAdminFiles(
+		stagedAdminPolicy(),
+		Context{
+			Argv: []string{"git", "commit", "-m", "divergent config"},
+			Cwd:  repo,
+			EvaluatorOptions: map[string]any{
+				"ethos_root": ethosRoot,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate divergent staged generated admin file: %v", err)
+	}
+
+	if len(decisions) != 1 || decisions[0].Decision != blockDecision {
+		t.Fatalf("decision mismatch: %#v", decisions)
+	}
+}
+
 func TestEvaluateGitStagedAdminFilesRecordsAdminFileInheritedFromMergeParent(
 	t *testing.T,
 ) {
@@ -295,9 +370,7 @@ func stagedAdminRepo(t *testing.T) string {
 	t.Helper()
 
 	repo := t.TempDir()
-	runGit(t, repo, "init")
-	runGit(t, repo, "config", "user.email", "test@example.com")
-	runGit(t, repo, "config", "user.name", "Test")
+	initializeStagedAdminGitRepo(t, repo)
 
 	hookPath := filepath.Join(repo, "bin")
 
@@ -318,6 +391,14 @@ func stagedAdminRepo(t *testing.T) string {
 	runGit(t, repo, "add", "bin/coding-ethos-run")
 
 	return repo
+}
+
+func initializeStagedAdminGitRepo(t *testing.T, repo string) {
+	t.Helper()
+
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "config", "user.name", "Test")
 }
 
 func stagedAdminMergeRepo(t *testing.T) string {

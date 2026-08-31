@@ -1867,6 +1867,18 @@ bin/coding-ethos-run policy-git --admin-approved commit -F /tmp/msg
 The flag only changes `git.staged_admin_files` from block to record. It does
 not disable other policy and is invalid outside this repository.
 
+In consumer repositories, an admin-classified file that is also a generated
+tool-config surface may be committed by an agent only when its staged bytes
+exactly match the output rendered from the active Coding Ethos policy. The
+comparison is against the Git index, so restoring only the working-tree copy
+cannot conceal a divergent staged config. Any hand-edited or stale config
+remains admin-blocked.
+
+The optional shell common-helper convention is enforced only when the consumer
+actually tracks a `common.sh` helper. A repository without that convention is
+still checked for shebangs, strict mode, syntax, and unsafe shell constructs,
+but is not told to source a nonexistent file.
+
 Agents must not use `/usr/bin/git` or any other raw Git path for this workflow.
 
 ## Development
