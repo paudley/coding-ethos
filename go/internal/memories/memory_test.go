@@ -192,6 +192,25 @@ func TestImportExistingForRootsKeepsDurableStateOutOfSourceRoot(t *testing.T) {
 	}
 }
 
+func TestImportExistingForRootsBoundsLongClaudeProjectKey(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	sourceRoot := filepath.Join(
+		t.TempDir(),
+		strings.Repeat("authority-", 15),
+		strings.Repeat("sandbox-", 15),
+	)
+	if err := os.MkdirAll(sourceRoot, 0o700); err != nil {
+		t.Fatalf("create long source root: %v", err)
+	}
+
+	stateRoot := t.TempDir()
+	if _, err := memories.ImportExistingForRoots(sourceRoot, stateRoot); err != nil {
+		t.Fatalf("import with long Claude project key: %v", err)
+	}
+}
+
 func TestLoadSettingsMergesRepoOverride(t *testing.T) {
 	t.Parallel()
 
