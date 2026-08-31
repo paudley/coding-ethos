@@ -20,6 +20,7 @@ func TestPrepareHookProcessCacheEnvironmentSetsAndRestoresUVEnvironment(t *testi
 	root := t.TempDir()
 	t.Setenv("UV_CACHE_DIR", "/previous/uv-cache")
 	t.Setenv("UV_PROJECT_ENVIRONMENT", "/previous/uv-project-environment")
+	t.Setenv("UV_FROZEN", "0")
 	restore, err := prepareHookProcessCacheEnvironment(root)
 	if err != nil {
 		t.Fatalf("prepareHookProcessCacheEnvironment: %v", err)
@@ -40,6 +41,9 @@ func TestPrepareHookProcessCacheEnvironmentSetsAndRestoresUVEnvironment(t *testi
 	if info, statErr := os.Stat(wantProjectEnv); statErr != nil || !info.IsDir() {
 		t.Fatalf("UV project environment is not usable: info=%v error=%v", info, statErr)
 	}
+	if got := os.Getenv("UV_FROZEN"); got != "1" {
+		t.Fatalf("UV_FROZEN = %q, want %q", got, "1")
+	}
 
 	restore()
 	if got := os.Getenv("UV_CACHE_DIR"); got != "/previous/uv-cache" {
@@ -49,6 +53,9 @@ func TestPrepareHookProcessCacheEnvironmentSetsAndRestoresUVEnvironment(t *testi
 		"UV_PROJECT_ENVIRONMENT",
 	); got != "/previous/uv-project-environment" {
 		t.Fatalf("restored UV_PROJECT_ENVIRONMENT = %q", got)
+	}
+	if got := os.Getenv("UV_FROZEN"); got != "0" {
+		t.Fatalf("restored UV_FROZEN = %q", got)
 	}
 }
 
@@ -74,6 +81,7 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	t.Setenv("GIT_CONFIG_VALUE_0", "test@example.com")
 	t.Setenv("CODING_ETHOS_REAL_GIT", "/tmp/hook-real-git")
 	t.Setenv("GOCACHE", "/tmp/host-go-cache")
+	t.Setenv("UV_FROZEN", "0")
 	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+"/usr/bin")
 	t.Setenv(consumerRootEnv, repo)
 	t.Setenv(hookGroupChildEnv, hookPlanBoolTrue)
@@ -150,6 +158,10 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 		"UV_PROJECT_ENVIRONMENT="+filepath.Join(repo, ".coding-ethos/cache/uv-project-env"),
 	) {
 		t.Fatalf("externalToolEnv did not set uv project environment: %#v", env)
+	}
+
+	if !slices.Contains(env, "UV_FROZEN=1") || slices.Contains(env, "UV_FROZEN=0") {
+		t.Fatalf("externalToolEnv did not freeze the sealed uv project: %#v", env)
 	}
 
 	for _, item := range env {

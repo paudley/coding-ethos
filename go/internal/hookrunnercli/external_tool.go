@@ -228,6 +228,7 @@ type externalToolCacheEnvironment struct {
 	GolangCILintDir string
 	UVCache         string
 	UVProjectEnv    string
+	UVFrozen        string
 	// CargoTarget is per-repository build output, like GoCache.
 	CargoTarget string
 	// CargoHome and RustupHome are the operator's, not the repository's. Cargo
@@ -321,6 +322,7 @@ func externalToolCacheEnv(root string) (externalToolCacheEnvironment, error) {
 		GolangCILintDir: golangCILintDir,
 		UVCache:         uvCache,
 		UVProjectEnv:    uvProjectEnv,
+		UVFrozen:        "1",
 		CargoTarget:     cargoTarget,
 		CargoHome:       cargoHome,
 		RustupHome:      rustupHome,
@@ -394,6 +396,7 @@ func (environment externalToolCacheEnvironment) items() []string {
 		"GOLANGCI_LINT_CACHE",
 		"UV_CACHE_DIR",
 		"UV_PROJECT_ENVIRONMENT",
+		"UV_FROZEN",
 		"CARGO_TARGET_DIR",
 		"CARGO_HOME",
 		"RUSTUP_HOME",
@@ -421,6 +424,8 @@ func (environment externalToolCacheEnvironment) value(name string) string {
 		return environment.UVCache
 	case "UV_PROJECT_ENVIRONMENT":
 		return environment.UVProjectEnv
+	case "UV_FROZEN":
+		return environment.UVFrozen
 	case "CARGO_TARGET_DIR":
 		return environment.CargoTarget
 	case "CARGO_HOME":

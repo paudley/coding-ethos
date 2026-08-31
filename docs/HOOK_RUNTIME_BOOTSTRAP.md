@@ -220,8 +220,10 @@ Bootstrap needs a few guardrails:
 - Keep response, trace, and other transient repo-local caches under ignored
   `.coding-ethos/` paths, not under the Git common runtime.
 - Hook-launched `uv` commands bind both their download cache and project
-  environment to the consumer-owned `.coding-ethos/cache/` tree. The installed
-  shared runtime remains read-only and never receives a generated `.venv`.
+  environment to the consumer-owned `.coding-ethos/cache/` tree and use the
+  sealed project's committed lockfile in frozen mode. The installed shared
+  runtime remains read-only and never receives a generated `.venv` or a lockfile
+  rewrite.
 - Install common-runtime executables with temporary-file sync plus atomic
   rename, and verify them by content rather than mtime.
 - Keep installed hook entrypoints stable and move versioned behavior into the
