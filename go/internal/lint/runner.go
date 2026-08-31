@@ -72,6 +72,7 @@ func RunWithRegistry(
 	}
 
 	trustedGenerated := normalizedTrustedGeneratedFiles(options, scope)
+
 	decisions := make([]policy.Decision, 0, len(policyIDs))
 	for _, policyID := range policyIDs {
 		policyDef, ok := bundle.Policies[policyID]
