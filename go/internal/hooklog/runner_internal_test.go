@@ -12,6 +12,9 @@ func TestShouldForceCodeIntelRefreshSkipsManagedToolRuns(t *testing.T) {
 		{"coding-ethos-run", "policy-tool", "go-test", "go"},
 		{"coding-ethos-run", "policy-tool", "ruff", "check", "pkg"},
 		{"coding-ethos-run", "policy-tool-group", "type_check"},
+		{"coding-ethos-run", "parent-install", "--repo", "/repo"},
+		{"coding-ethos-run", "parent-check", "--repo", "/repo"},
+		{"coding-ethos-run", "parent-lint", "--repo", "/repo"},
 	} {
 		if shouldForceCodeIntelRefresh(command) {
 			t.Fatalf("shouldForceCodeIntelRefresh(%#v) = true, want false", command)

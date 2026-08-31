@@ -396,6 +396,36 @@ func TestWithCommandRootsUsesCommandSpecificRepositoryFlags(t *testing.T) {
 				"/private/state",
 			},
 		},
+		{
+			name: "parent install",
+			args: []string{
+				"parent-install",
+				"--repo",
+				"/repo",
+				"--state-root",
+				"/private/state",
+			},
+		},
+		{
+			name: "parent check",
+			args: []string{
+				"parent-check",
+				"--repo",
+				"/repo",
+				"--state-root",
+				"/private/state",
+			},
+		},
+		{
+			name: "parent lint",
+			args: []string{
+				"parent-lint",
+				"--repo",
+				"/repo",
+				"--state-root",
+				"/private/state",
+			},
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()

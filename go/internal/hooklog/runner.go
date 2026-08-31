@@ -257,10 +257,10 @@ func autoPruneHookRuns(root string) error {
 }
 
 func shouldForceCodeIntelRefresh(command []string) bool {
-	return commandContains(command, "parent-install") ||
-		commandContains(command, "parent-check") ||
-		commandContains(command, "parent-lint") ||
-		commandContains(command, "policy-lint") ||
+	// Parent workflows refresh their explicit --repo target as part of the
+	// workflow itself. Repeating that work here both doubles maintenance and,
+	// before command-root resolution, could index the invocation repository.
+	return commandContains(command, "policy-lint") ||
 		commandContainsSequence(command, "git-hook", "pre-commit") ||
 		commandContainsSequence(command, "git-hook", "pre-push") ||
 		commandContainsSequence(command, "make", "pre-commit") ||
