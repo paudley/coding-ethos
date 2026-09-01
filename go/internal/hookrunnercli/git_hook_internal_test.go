@@ -396,6 +396,34 @@ hooks:
 	}
 }
 
+func TestGitHooksRejectTimeoutsBeyondCriticalCeiling(t *testing.T) {
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv("CODING_ETHOS_REAL_GIT", "")
+	t.Setenv(consumerRootEnv, tempDir)
+	bundleRoot := writeTestBundleRoot(t, tempDir)
+	t.Setenv(precommitRootEnv, bundleRoot)
+
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		"hooks:\n  tool_timeout_seconds: 601\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	stderr := captureStderr(t, func() {
+		if got := runPreCommitHook(Config{}, nil); got != 1 {
+			t.Fatalf("runPreCommitHook() = %d, want 1", got)
+		}
+	})
+	for _, want := range []string{"must not exceed 600", "critical failure"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
 func TestGitHooksRejectRemovedEnabledGroupsConfigSpellings(t *testing.T) {
 	for _, key := range []string{"enabled-groups", "enabledGroups", "ENABLED_GROUPS"} {
 		t.Run(key, func(t *testing.T) {

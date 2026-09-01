@@ -261,6 +261,16 @@ func loadHookSettings() hookSettings {
 		settings.ToolTimeoutSeconds = defaultHookSettings().ToolTimeoutSeconds
 	}
 
+	if settings.ToolTimeoutSeconds > defaultToolTimeoutSecs {
+		settings.ConfigError = fmt.Sprintf(
+			"hooks.tool_timeout_seconds must not exceed %d; "+
+				"a hook over ten minutes is a critical failure",
+			defaultToolTimeoutSecs,
+		)
+
+		return settings
+	}
+
 	if len(settings.FailSeverityLevels) == 0 {
 		settings.FailSeverityLevels = defaultHookSettings().FailSeverityLevels
 	}
