@@ -672,6 +672,10 @@ func indexSchemaStatements() []string {
 		ON code_chunks(normalized_hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_lsh_bands_lookup
 		ON lsh_bands(band_hash, band_index)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_code_intel_fts_id_unique
+		ON code_intel_fts(fts_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_code_intel_search_terms_unique
+		ON code_intel_search_terms(term, fts_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_code_intel_search_terms_term
 		ON code_intel_search_terms(term, fts_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_code_intel_search_terms_fts_id

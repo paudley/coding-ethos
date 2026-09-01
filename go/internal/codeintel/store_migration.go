@@ -329,7 +329,8 @@ func migrationTablesVerified(tables []StoreMigrationTable) bool {
 
 	for _, table := range tables {
 		if !table.SourceRowsVerified ||
-			table.SourceRows != table.ImportedRows+table.MatchedRows {
+			table.SourceRows != table.ImportedRows+
+				table.MatchedRows+table.DeduplicatedRows {
 			return false
 		}
 	}

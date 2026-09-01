@@ -5,7 +5,6 @@ package policygitcli
 
 import (
 	"bytes"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -26,6 +25,18 @@ var (
 	errAdminApprovedRequired = apperror.StaticError(
 		"admin-start-branch requires --admin-approved",
 	)
+	errWrapperBoolValue = apperror.StaticError(
+		"policy-git boolean option accepts only true or false",
+	)
+	errWrapperOptionEmpty = apperror.StaticError(
+		"policy-git option requires a non-empty value",
+	)
+	errWrapperOptionUnknown = apperror.StaticError(
+		"unknown policy-git option",
+	)
+	errWrapperValueRequired = apperror.StaticError(
+		"policy-git option requires a value",
+	)
 )
 
 func run() error {
@@ -33,32 +44,21 @@ func run() error {
 }
 
 func runWithArgs(args []string) error {
-	flags := flag.NewFlagSet("coding-ethos-git", flag.ExitOnError)
-	bundlePath := flags.String("bundle", "", "Path to policy-bundle.json")
-	realGit := flags.String("real-git", "", "Real git executable")
-	checkOnly := flags.Bool("check-only", false, "Check policy without executing git")
-	jsonOutput := flags.Bool("json", false, "Emit JSON result")
-	adminApproved := flags.Bool(
-		"admin-approved",
-		false,
-		"Allow admin-protected coding-ethos commits when process ancestry is approved",
-	)
-
-	err := flags.Parse(args)
+	parsed, err := parsePolicyGitArgs(args)
 	if err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
 
-	if *bundlePath == "" {
+	if parsed.bundlePath == "" {
 		return errBundleRequired
 	}
 
-	bundle, err := readValidatedBundle(*bundlePath)
+	bundle, err := readValidatedBundle(parsed.bundlePath)
 	if err != nil {
 		return err
 	}
 
-	argv := flags.Args()
+	argv := parsed.gitArgv
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -66,13 +66,13 @@ func runWithArgs(args []string) error {
 	}
 
 	if len(argv) > 0 && argv[0] == "admin-start-branch" {
-		return startAdminBranch(*realGit, cwd, argv[1:], *adminApproved)
+		return startAdminBranch(parsed.realGit, cwd, argv[1:], parsed.adminApproved)
 	}
 
-	restoreRealGit := exposeRealGitForPolicyEvaluation(*realGit)
+	restoreRealGit := exposeRealGitForPolicyEvaluation(parsed.realGit)
 	defer restoreRealGit()
 
-	options, err := gitOptions(argv, cwd, *adminApproved)
+	options, err := gitOptions(argv, cwd, parsed.adminApproved)
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func runWithArgs(args []string) error {
 		return fmt.Errorf("check git policy: %w", err)
 	}
 
-	err = maybePrintJSON(*jsonOutput, result)
+	err = maybePrintJSON(parsed.jsonOutput, result)
 	if err != nil {
 		return err
 	}
@@ -93,13 +93,167 @@ func runWithArgs(args []string) error {
 		return gitwrap.ExitCodeError{Code: blockedExitCode}
 	}
 
-	if *checkOnly {
-		printAllowedCheck(*jsonOutput)
+	if parsed.checkOnly {
+		printAllowedCheck(parsed.jsonOutput)
 
 		return nil
 	}
 
-	return executeGitWithPostChecks(bundle, *realGit, options, *jsonOutput)
+	return executeGitWithPostChecks(bundle, parsed.realGit, options, parsed.jsonOutput)
+}
+
+type policyGitArguments struct {
+	bundlePath    string
+	realGit       string
+	gitArgv       []string
+	checkOnly     bool
+	jsonOutput    bool
+	adminApproved bool
+}
+
+func parsePolicyGitArgs(args []string) (policyGitArguments, error) {
+	parsed := policyGitArguments{}
+
+	for index := 0; index < len(args); {
+		argument := args[index]
+
+		if argument == "--" {
+			parsed.gitArgv = append([]string(nil), args[index+1:]...)
+
+			return parsed, nil
+		}
+
+		if gitGlobalOptionStartsArgv(argument) || !strings.HasPrefix(argument, "-") {
+			parsed.gitArgv = append([]string(nil), args[index:]...)
+
+			return parsed, nil
+		}
+
+		nextIndex, err := parsed.consumeWrapperOption(args, index)
+		if err != nil {
+			return policyGitArguments{}, err
+		}
+
+		index = nextIndex
+	}
+
+	return parsed, nil
+}
+
+func (parsed *policyGitArguments) consumeWrapperOption(
+	args []string,
+	index int,
+) (int, error) {
+	argument := args[index]
+	name, value, hasValue := strings.Cut(argument, "=")
+
+	switch name {
+	case "--bundle", "--real-git":
+		resolved, nextIndex, err := wrapperStringValue(
+			args,
+			index,
+			name,
+			value,
+			hasValue,
+		)
+		if err != nil {
+			return 0, err
+		}
+
+		parsed.setStringOption(name, resolved)
+
+		return nextIndex, nil
+	case "--check-only", "--json", "--admin-approved":
+		boolValue, err := wrapperBoolValue(name, value, hasValue)
+		if err != nil {
+			return 0, err
+		}
+
+		parsed.setBoolOption(name, boolValue)
+
+		return index + 1, nil
+	default:
+		return 0, fmt.Errorf("%w %q", errWrapperOptionUnknown, argument)
+	}
+}
+
+func wrapperStringValue(
+	args []string,
+	index int,
+	name string,
+	value string,
+	hasValue bool,
+) (string, int, error) {
+	if hasValue {
+		if value == "" {
+			return "", 0, fmt.Errorf("%w: %s", errWrapperOptionEmpty, name)
+		}
+
+		return value, index + 1, nil
+	}
+
+	nextIndex := index + 1
+	if nextIndex >= len(args) {
+		return "", 0, fmt.Errorf("%w: %s", errWrapperValueRequired, name)
+	}
+
+	value = args[nextIndex]
+	if value == "" {
+		return "", 0, fmt.Errorf("%w: %s", errWrapperOptionEmpty, name)
+	}
+
+	return value, nextIndex + 1, nil
+}
+
+func (parsed *policyGitArguments) setStringOption(name, value string) {
+	if name == "--bundle" {
+		parsed.bundlePath = value
+
+		return
+	}
+
+	parsed.realGit = value
+}
+
+func (parsed *policyGitArguments) setBoolOption(name string, value bool) {
+	switch name {
+	case "--check-only":
+		parsed.checkOnly = value
+	case "--json":
+		parsed.jsonOutput = value
+	case "--admin-approved":
+		parsed.adminApproved = value
+	}
+}
+
+func wrapperBoolValue(name, value string, hasValue bool) (bool, error) {
+	if !hasValue || value == "true" {
+		return true, nil
+	}
+
+	if value == "false" {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("%w: %s", errWrapperBoolValue, name)
+}
+
+func gitGlobalOptionStartsArgv(argument string) bool {
+	if strings.HasPrefix(argument, "-c=") || strings.HasPrefix(argument, "-C=") {
+		return true
+	}
+
+	name, _, _ := strings.Cut(argument, "=")
+	switch name {
+	case "-c", "-C", "-p", "-P", "--paginate", "--no-pager", "--no-replace-objects",
+		"--bare", "--git-dir", "--work-tree", "--namespace", "--super-prefix",
+		"--exec-path", "--html-path", "--man-path", "--info-path", "--config-env",
+		"--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs",
+		"-v", "--version", "-h", "--help":
+		return true
+	default:
+		return false
+	}
 }
 
 func exposeRealGitForPolicyEvaluation(path string) func() {
@@ -187,6 +341,8 @@ func gitOptions(
 		}
 	}
 
+	argv = withoutInitialRedundantChangeDir(argv)
+
 	stdin, err := stdinForGitArgv(argv)
 	if err != nil {
 		return gitwrap.Options{}, err
@@ -198,6 +354,15 @@ func gitOptions(
 		Cwd:           cwd,
 		Stdin:         stdin,
 	}, nil
+}
+
+func withoutInitialRedundantChangeDir(argv []string) []string {
+	index := 0
+	for index+1 < len(argv) && argv[index] == "-C" && argv[index+1] == "." {
+		index += 2
+	}
+
+	return append([]string(nil), argv[index:]...)
 }
 
 func stdinForGitArgv(argv []string) ([]byte, error) {

@@ -6,6 +6,7 @@ package evaluators_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
@@ -17,6 +18,7 @@ func TestEvaluateShellBestPracticesBlocksMissingStrictMode(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
+	initializeStagedAdminGitRepo(t, dir)
 
 	path := filepath.Join(dir, "script.sh")
 
@@ -31,7 +33,7 @@ func TestEvaluateShellBestPracticesBlocksMissingStrictMode(t *testing.T) {
 
 	decisions, err := EvaluateShellBestPractices(
 		shellBestPracticesPolicy(),
-		Context{Files: []string{path}},
+		Context{Cwd: dir, Files: []string{path}},
 	)
 	if err != nil {
 		t.Fatalf("evaluate shell best practices: %v", err)
@@ -50,6 +52,7 @@ func TestEvaluateShellBestPracticesBlocksInvalidShellSyntaxWithLocation(t *testi
 	t.Parallel()
 
 	dir := t.TempDir()
+	initializeStagedAdminGitRepo(t, dir)
 	path := filepath.Join(dir, "script.sh")
 
 	content := "#!/usr/bin/env bash\nset -euo pipefail\necho 'unterminated\n"
@@ -61,7 +64,7 @@ func TestEvaluateShellBestPracticesBlocksInvalidShellSyntaxWithLocation(t *testi
 
 	decisions, err := EvaluateShellBestPractices(
 		shellBestPracticesPolicy(),
-		Context{Files: []string{path}},
+		Context{Cwd: dir, Files: []string{path}},
 	)
 	if err != nil {
 		t.Fatalf("evaluate shell best practices: %v", err)
@@ -85,6 +88,165 @@ func TestEvaluateShellBestPracticesBlocksInvalidShellSyntaxWithLocation(t *testi
 		syntaxDiagnostic.Line == 0 ||
 		syntaxDiagnostic.Column == 0 {
 		t.Fatalf("missing syntax diagnostic location: %#v", decisions[0].Diagnostics)
+	}
+}
+
+func TestEvaluateShellBestPracticesRejectsMissingRepositoryContext(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "script.sh")
+	content := []byte("#!/usr/bin/env bash\nset -euo pipefail\necho ok\n")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	_, err := EvaluateShellBestPractices(
+		shellBestPracticesPolicy(),
+		Context{Files: []string{path}},
+	)
+	if err == nil {
+		t.Fatal("missing repository context must fail helper validation")
+	}
+	if !strings.Contains(err.Error(), "repository working directory is required") {
+		t.Fatalf("missing repository context error = %q", err)
+	}
+}
+
+func TestEvaluateShellBestPracticesPropagatesGitInspectionFailure(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	scriptsDir := filepath.Join(repo, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o700); err != nil {
+		t.Fatalf("create scripts directory: %v", err)
+	}
+
+	scriptPath := filepath.Join(scriptsDir, "work.sh")
+	content := []byte("#!/usr/bin/env bash\nset -euo pipefail\necho ok\n")
+	if err := os.WriteFile(scriptPath, content, 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(repo, ".git"),
+		[]byte("gitdir: missing\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write invalid Git directory marker: %v", err)
+	}
+
+	_, err := EvaluateShellBestPractices(
+		shellBestPracticesPolicy(),
+		Context{
+			Cwd:   repo,
+			Files: []string{scriptPath},
+			EvaluatorOptions: map[string]any{
+				"require_common_for_prefixes": []any{
+					scriptsDir + string(filepath.Separator),
+				},
+			},
+		},
+	)
+	if err == nil {
+		t.Fatal("git inspection failure must fail helper validation")
+	}
+	if !strings.Contains(err.Error(), "git ls-files") {
+		t.Fatalf("git inspection error = %q", err)
+	}
+}
+
+func TestEvaluateShellBestPracticesIgnoresUnrelatedCommonHelper(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	initializeStagedAdminGitRepo(t, repo)
+	scriptsDir := filepath.Join(repo, "scripts")
+	fixturesDir := filepath.Join(repo, "fixtures")
+	if err := os.MkdirAll(scriptsDir, 0o700); err != nil {
+		t.Fatalf("create scripts directory: %v", err)
+	}
+	if err := os.MkdirAll(fixturesDir, 0o700); err != nil {
+		t.Fatalf("create fixtures directory: %v", err)
+	}
+
+	content := []byte("#!/usr/bin/env bash\nset -euo pipefail\necho ok\n")
+	scriptPath := filepath.Join(scriptsDir, "work.sh")
+	if err := os.WriteFile(scriptPath, content, 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	fixturePath := filepath.Join(fixturesDir, "common.sh")
+	if err := os.WriteFile(fixturePath, content, 0o600); err != nil {
+		t.Fatalf("write unrelated common helper: %v", err)
+	}
+	runGit(t, repo, "add", "fixtures/common.sh")
+
+	decisions, err := EvaluateShellBestPractices(
+		shellBestPracticesPolicy(),
+		Context{
+			Cwd:   repo,
+			Files: []string{scriptPath},
+			EvaluatorOptions: map[string]any{
+				"require_common_for_prefixes": []any{
+					scriptsDir + string(filepath.Separator),
+				},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate with unrelated common helper: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("unrelated common helper must not activate convention: %#v", decisions)
+	}
+}
+
+func TestEvaluateShellBestPracticesRequiresOnlyExistingCommonHelper(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	initializeStagedAdminGitRepo(t, repo)
+	scriptsDir := filepath.Join(repo, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o700); err != nil {
+		t.Fatalf("create scripts directory: %v", err)
+	}
+
+	scriptPath := filepath.Join(scriptsDir, "work.sh")
+	content := []byte("#!/usr/bin/env bash\nset -euo pipefail\necho ok\n")
+	if err := os.WriteFile(scriptPath, content, 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	context := Context{
+		Cwd:   repo,
+		Files: []string{scriptPath},
+		EvaluatorOptions: map[string]any{
+			"require_common_for_prefixes": []any{scriptsDir + string(filepath.Separator)},
+		},
+	}
+	decisions, err := EvaluateShellBestPractices(shellBestPracticesPolicy(), context)
+	if err != nil {
+		t.Fatalf("evaluate without common helper: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("missing common helper must disable convention: %#v", decisions)
+	}
+
+	commonPath := filepath.Join(scriptsDir, "common.sh")
+	if err = os.WriteFile(commonPath, content, 0o600); err != nil {
+		t.Fatalf("write common helper: %v", err)
+	}
+	runGit(t, repo, "add", "scripts/common.sh")
+
+	decisions, err = EvaluateShellBestPractices(shellBestPracticesPolicy(), context)
+	if err != nil {
+		t.Fatalf("evaluate with common helper: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("existing common helper must activate convention: %#v", decisions)
+	}
+	if got := decisions[0].Diagnostics[0].Message; got !=
+		"scripts/ shell files must source the repository common shell helpers" {
+		t.Fatalf("diagnostic message = %q", got)
 	}
 }
 

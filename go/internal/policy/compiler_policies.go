@@ -42,7 +42,7 @@ func compilePolicies(
 ) (map[string]Policy, error) {
 	policies := map[string]Policy{}
 	addConfiguredPythonPolicies(policies, config, principles)
-	addGitPolicies(policies, config, principles)
+	addGitPolicies(policies, config, principles, configSourceRoot)
 	addSyntaxPolicies(policies, config, principles)
 	addShellPolicies(policies, config, principles)
 	addProxyPolicies(policies, config)
@@ -80,8 +80,9 @@ func addGitPolicies(
 	policies map[string]Policy,
 	config map[string]any,
 	principles map[string]Principle,
+	configSourceRoot string,
 ) {
-	for _, policy := range gitPolicies(config, principles) {
+	for _, policy := range gitPolicies(config, principles, configSourceRoot) {
 		policies[policy.ID] = policy
 	}
 
@@ -103,9 +104,13 @@ func addGitPolicies(
 	}
 }
 
-func gitPolicies(config map[string]any, principles map[string]Principle) []Policy {
+func gitPolicies(
+	config map[string]any,
+	principles map[string]Principle,
+	configSourceRoot string,
+) []Policy {
 	return []Policy{
-		gitStagedAdminPolicy(config, principles),
+		gitStagedAdminPolicy(config, principles, configSourceRoot),
 		gitCommitHeadPolicy(principles),
 	}
 }
@@ -113,6 +118,7 @@ func gitPolicies(config map[string]any, principles map[string]Principle) []Polic
 func gitStagedAdminPolicy(
 	config map[string]any,
 	principles map[string]Principle,
+	configSourceRoot string,
 ) Policy {
 	return Policy{
 		ID:              "git.staged_admin_files",
@@ -139,6 +145,7 @@ func gitStagedAdminPolicy(
 			Kind: "git_state",
 			Name: "git.staged_admin_files",
 			Options: map[string]any{
+				"ethos_root": configSourceRoot,
 				"basenames": stringSliceAt(
 					config,
 					[]string{"git", "staged_admin_files", "basenames"},
@@ -415,6 +422,11 @@ func piiScrubberOptions(config map[string]any) map[string]any {
 			config,
 			[]string{"filesystem", "pii_scrubber", "literals"},
 			nil,
+		),
+		"allowed_patterns": stringSliceAt(
+			config,
+			[]string{"filesystem", "pii_scrubber", "allowed_patterns"},
+			[]string{`/home/agent/`},
 		),
 		"exempt_prefixes": stringSliceAt(
 			config,

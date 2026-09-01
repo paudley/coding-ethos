@@ -166,18 +166,20 @@ Gemini `cachedContents` entries when the same batch corpus is reviewed by
 multiple prompts, and can run `standard`, `flex`, or `priority` requests from
 merged `config.yaml` plus `repo_config.yaml`.
 
-The hook runtime is built into the checked-out `coding-ethos` repository:
+The selected `coding-ethos` authority builds the hook runtime:
 
 - `bin/` contains built hook and policy binaries.
 - `build/policy/` contains the compiled policy bundle and source-hash
   metadata.
 
-The old `.git/coding-ethos-hooks/` runtime cache is legacy. The current runtime
-model is documented in `docs/HOOK_RUNTIME_BOOTSTRAP.md`: installed consumer
-hooks are generated runner entrypoint scripts; all repo-discovery, build-repair,
-and dispatch
-behavior lives in compiled Go while binaries and compiled runtime files are
-built and executed from the checked-out `coding-ethos` repository.
+The current runtime model is documented in
+`docs/HOOK_RUNTIME_BOOTSTRAP.md`: installed consumer hooks are generated runner
+entrypoint scripts that dispatch to the stable Git-common
+`.git/coding-ethos-hooks/` projection. `parent-install` atomically refreshes and
+hash-verifies its compiled Go executables from the selected authority, while
+`make build` refreshes the complete policy and toolchain projection. Hook
+execution therefore does not depend on the lifetime or visibility of one
+worktree checkout.
 
 The same wrapper also exposes local policy-runtime entrypoints:
 

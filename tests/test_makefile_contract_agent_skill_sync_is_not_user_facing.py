@@ -25,7 +25,10 @@ def test_agent_skill_sync_is_not_user_facing() -> None:
     assert "\t_sync-parent-hook-runtime \\" not in phony_block
     assert "_sync-agent-skills: ensure-go\n" in makefile
     assert "_sync-consumer-agent-skills: ensure-go\n" in makefile
-    assert "_sync-git-hooks: ensure-go go-tools-install\n" in makefile
+    assert (
+        "_sync-git-hooks: ensure-go go-tools-install _sync-parent-hook-runtime\n"
+        in makefile
+    )
     assert (
         "_sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install\n"
         in makefile

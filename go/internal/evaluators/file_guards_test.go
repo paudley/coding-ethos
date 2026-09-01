@@ -200,6 +200,41 @@ func TestEvaluatePIIScrubberBlocksConfiguredLiteral(t *testing.T) {
 	}
 }
 
+func TestEvaluatePIIScrubberAllowsSyntheticAgentHome(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(t, "sandbox.md", "PATH=/"+"home/agent/bin:/usr/bin\n")
+	decisions, err := EvaluatePIIScrubber(
+		fileGuardPolicy("repo.pii_scrubber"),
+		Context{Files: []string{path}},
+	)
+	if err != nil {
+		t.Fatalf("evaluate PII scrubber: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("synthetic sandbox home should pass, got %#v", decisions)
+	}
+}
+
+func TestEvaluatePIIScrubberStillBlocksRealHomeBesideSyntheticHome(t *testing.T) {
+	t.Parallel()
+
+	path := writeGuardTestFile(
+		t,
+		"sandbox.md",
+		"sandbox: /"+"home/agent/bin host: /"+"home/example/private\n",
+	)
+	decision := evaluateFileGuardPolicy(
+		t,
+		"repo.pii_scrubber",
+		EvaluatePIIScrubber,
+		Context{Files: []string{path}},
+	)
+	if decision.Diagnostics[0].Tool != piiToolName {
+		t.Fatalf("unexpected diagnostic: %#v", decision.Diagnostics)
+	}
+}
+
 func TestEvaluatePIIScrubberSkipsHiddenDirectories(t *testing.T) {
 	t.Parallel()
 

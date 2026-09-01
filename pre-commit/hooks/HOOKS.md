@@ -5,12 +5,14 @@
 
 Go-backed Git hooks for coding-ethos bundles.
 
-Installed consumer repository shims are intentionally thin. They discover the
-consumer repo, locate the checked-out `coding-ethos` bundle, repair missing
-checkout-local runtime artifacts with `make -C <coding-ethos> build`, and
-dispatch to binaries under `coding-ethos/bin/`. Policy selection and strict
-policy freshness checks stay inside the `coding-ethos` checkout; lifecycle
-hooks do not use a consumer `.git/coding-ethos-hooks` runtime cache.
+Installed consumer repository shims are intentionally thin. They dispatch to
+the compiled runner under the repository's stable Git-common
+`.git/coding-ethos-hooks/bin/` projection. The selected `coding-ethos`
+authority builds that projection; `parent-install` atomically refreshes and
+hash-verifies its Go executables, and `make build` refreshes the complete policy
+and toolchain runtime. Policy selection and strict freshness checks remain in
+compiled Coding Ethos code rather than in the shim, and no hook points at a
+worktree-local build path.
 
 The Go runner is the output-control layer for Git hooks. It supports
 `hooks.output_format` values of `auto`, `human`, `json`, and `toon`; `auto`

@@ -45,9 +45,12 @@ profiles:
 
 Explicit `repo_config.yaml` settings override these profile defaults.
 
-`parent-install` syncs generated parent artifacts. `parent-check` verifies those
-artifacts without rewriting them. `parent-lint` syncs the parent artifacts, then
-runs the full parent lint scope through the compiled policy bundle.
+`parent-install` syncs generated parent artifacts and atomically refreshes the
+compiled executables in the parent repository's common
+`.git/coding-ethos-hooks/bin/` runtime. `parent-check` verifies those artifacts
+without rewriting them, including byte identity and executable independence
+from any retiring worktree. `parent-lint` syncs the parent artifacts, then runs
+the full parent lint scope through the compiled policy bundle.
 
 ## Output Contract
 

@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	duckDBStoreMode    = 0o700
-	duckDBLockFileMode = 0o600
-	duckDBStaleLockAge = 30 * time.Minute
+	duckDBStoreMode               = 0o700
+	duckDBLockFileMode            = 0o600
+	duckDBStaleLockAge            = 30 * time.Minute
+	duckDBExtendedStatsQueryCount = 15
 )
 
 // DuckDBStore is the code-intel analytical query store.
@@ -552,14 +553,7 @@ func (store *DuckDBStore) migrate(ctx context.Context) error {
 		return err
 	}
 
-	for _, statement := range duckDBSchemaStatements() {
-		_, err := store.database.ExecContext(ctx, statement)
-		if err != nil {
-			return fmt.Errorf("migrate DuckDB code-intel store: %w", err)
-		}
-	}
-
-	return nil
+	return migrateStore(ctx, store.database)
 }
 
 func (store *DuckDBStore) ping(ctx context.Context) error {
@@ -657,7 +651,8 @@ func duckDBCoreStatsQueries(stats *Stats) []statCountQuery {
 }
 
 func duckDBExtendedStatsQueries(stats *Stats) []statCountQuery {
-	return []statCountQuery{
+	queries := make([]statCountQuery, 0, duckDBExtendedStatsQueryCount)
+	queries = append(queries, []statCountQuery{
 		{
 			name:   "code_chunks",
 			query:  "SELECT COUNT(*) FROM code_chunks",
@@ -713,10 +708,38 @@ func duckDBExtendedStatsQueries(stats *Stats) []statCountQuery {
 			query:  "SELECT COUNT(*) FROM embedding_records",
 			target: &stats.EmbeddingRecords,
 		},
+	}...)
+
+	return append(queries, duckDBSearchStatsQueries(stats)...)
+}
+
+func duckDBSearchStatsQueries(stats *Stats) []statCountQuery {
+	return []statCountQuery{
 		{
 			name:   "code_intel_fts",
 			query:  "SELECT COUNT(*) FROM code_intel_fts",
 			target: &stats.FtsRows,
+		},
+		{
+			name: "duplicate code_intel_fts identities",
+			query: `SELECT
+				(SELECT COUNT(*) FROM code_intel_fts) -
+				(SELECT COUNT(*) FROM (SELECT DISTINCT fts_id FROM code_intel_fts) AS identities)`,
+			target: &stats.FtsDuplicateRows,
+		},
+		{
+			name:   "code_intel_search_terms",
+			query:  "SELECT COUNT(*) FROM code_intel_search_terms",
+			target: &stats.SearchTermRows,
+		},
+		{
+			name: "duplicate code_intel_search_terms identities",
+			query: `SELECT
+				(SELECT COUNT(*) FROM code_intel_search_terms) -
+				(SELECT COUNT(*) FROM (
+					SELECT DISTINCT term, fts_id FROM code_intel_search_terms
+				) AS identities)`,
+			target: &stats.SearchTermDuplicateRows,
 		},
 	}
 }

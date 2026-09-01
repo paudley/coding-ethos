@@ -22,6 +22,10 @@ const (
 	tokenGit           = "git"
 	tokenCommand       = "command"
 	tokenEnv           = "env"
+	tokenExec          = "exec"
+	gitCommitOperation = "commit"
+	pythonExecutable   = "python"
+	testOperation      = "test"
 	wrappedToolArgs    = 2
 	cerunRunnerName    = "cerun"
 	wrapperRunnerName  = "coding-ethos-run"
@@ -494,7 +498,7 @@ func cerunAgentShellSegment(segment []string) bool {
 	}
 
 	switch args[0] {
-	case "git", "python", "lint":
+	case tokenGit, pythonExecutable, "lint":
 		return len(args) > 1
 	case "--", "--rewrite", "--no-rewrite", "--check":
 		return agentShellArgsHaveCommand(args)
@@ -823,7 +827,7 @@ func shellCommandIsEvasiveGitInvocation(parsed shellparse.Command) bool {
 	switch name {
 	case shellToolName, "sh", "zsh", "dash":
 		return shellExecArgumentReferencesGit(parsed)
-	case tokenCommand, tokenEnv, "eval", "alias", "exec":
+	case tokenCommand, tokenEnv, "eval", "alias", tokenExec:
 		return true
 	default:
 		return pythonGitBypassCommand(name, parsed)
@@ -885,7 +889,7 @@ func shellCommandUsesPathOverride(command shellparse.Command) bool {
 		}
 	}
 
-	if shellCommandName(command) == "env" {
+	if shellCommandName(command) == tokenEnv {
 		for _, arg := range command.Argv[1:] {
 			if strings.HasPrefix(arg, "PATH=") {
 				return true

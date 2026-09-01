@@ -43,12 +43,13 @@ var (
 )
 
 type Options struct {
-	Command       string
-	Cwd           string
-	Scope         string
-	Files         []string
-	Argv          []string
-	AdminApproved bool
+	Command               string
+	Cwd                   string
+	Scope                 string
+	Files                 []string
+	Argv                  []string
+	TrustedGeneratedFiles []string
+	AdminApproved         bool
 }
 
 func Run(bundle policy.Bundle, options Options) (Result, error) {
@@ -70,6 +71,8 @@ func RunWithRegistry(
 		return Result{}, err
 	}
 
+	trustedGenerated := normalizedTrustedGeneratedFiles(options, scope)
+
 	decisions := make([]policy.Decision, 0, len(policyIDs))
 	for _, policyID := range policyIDs {
 		policyDef, ok := bundle.Policies[policyID]
@@ -82,7 +85,15 @@ func RunWithRegistry(
 			)
 		}
 
-		evaluated, err := evaluatePolicy(policyDef, scope, options, registry)
+		policyOptions := options
+		if policyAllowsExactGeneratedFiles(policyID) {
+			policyOptions.Files = withoutTrustedGeneratedFiles(
+				options.Files,
+				trustedGenerated,
+			)
+		}
+
+		evaluated, err := evaluatePolicy(policyDef, scope, policyOptions, registry)
 		if err != nil {
 			return Result{}, fmt.Errorf("evaluate policy %q: %w", policyID, err)
 		}
@@ -102,6 +113,51 @@ func RunWithRegistry(
 	}
 
 	return EnrichResultWithSkills(result, bundle.Skills), nil
+}
+
+func policyAllowsExactGeneratedFiles(policyID string) bool {
+	switch policyID {
+	case "agent_workspace.enforcement_point_write",
+		"filesystem.protected_path",
+		"shell.forbidden_strings":
+		return true
+	default:
+		return false
+	}
+}
+
+func withoutTrustedGeneratedFiles(files []string, trusted map[string]bool) []string {
+	filtered := make([]string, 0, len(files))
+	for _, file := range files {
+		if trusted[filepath.ToSlash(filepath.Clean(file))] {
+			continue
+		}
+
+		filtered = append(filtered, file)
+	}
+
+	return filtered
+}
+
+func normalizedTrustedGeneratedFiles(options Options, scope string) map[string]bool {
+	trusted := map[string]bool{}
+	if scope != ScopeStaged {
+		return trusted
+	}
+
+	staged := make(map[string]bool, len(options.Files))
+	for _, file := range options.Files {
+		staged[filepath.ToSlash(filepath.Clean(file))] = true
+	}
+
+	for _, file := range options.TrustedGeneratedFiles {
+		path := filepath.ToSlash(filepath.Clean(file))
+		if staged[path] {
+			trusted[path] = true
+		}
+	}
+
+	return trusted
 }
 
 func enrichDecisionDiagnostics(

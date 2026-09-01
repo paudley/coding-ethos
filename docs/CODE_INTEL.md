@@ -17,7 +17,8 @@ Use explicit storage layers with separate logical responsibilities:
   content-addressed base manifest is shared through the Git common directory;
   each worktree owns its delta manifest, tombstones, and current-generation
   receipt. No shared writable DuckDB is used for these source facts.
-- **DuckDB remains the v1-compatible analytical and telemetry store.** It owns
+- **DuckDB is a schema-v2 analytical and telemetry store with v1 upgrade
+  compatibility.** It owns
   traces, policy decisions, remediations, outcomes, derived AST graph edges,
   file metadata, and full-text search. Existing v1 stores are retained during
   the v2 migration and can be rebuilt explicitly as derived state.
@@ -155,6 +156,16 @@ tables over policy IDs, skill IDs, paths, messages, code chunks, and
 remediation text.
 duckdb-vss is active for derived vector rows, but DuckDB facts remain the
 auditable source of truth.
+
+Writable stores use schema v2. Search identities are enforced by unique
+constraints on `code_intel_fts.fts_id` and on `(term, fts_id)` in
+`code_intel_search_terms`. Upgrading or replaying a v1 store collapses exact
+duplicate rows, fails closed when one identity carries conflicting content,
+and reports row and duplicate counts through store statistics. Migration
+manifests use kind v2, record `deduplicated_rows`, and exclude the schema
+metadata row from migrated-data accounting. File, chunk, and graph-edge
+replays use conflict-aware updates so rebuilding search state does not discard
+retained AST or foreign-key evidence.
 
 Graph facts expose provenance classes wherever repo maps, graph reports, and
 MCP graph surfaces show those facts. `EXTRACTED` marks parser/static-analysis

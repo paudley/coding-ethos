@@ -176,7 +176,7 @@ func semanticGitMutation(operation string) bool {
 		"checkout",
 		"cherry-pick",
 		"clean",
-		"commit",
+		gitCommitOperation,
 		"merge",
 		"mv",
 		"pull",

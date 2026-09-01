@@ -16,6 +16,8 @@ type migrationTableSpec struct {
 	name              string
 	keyColumns        []string
 	logicalPrimaryKey bool
+	deduplicateRows   bool
+	excludeVersionRow bool
 }
 
 type migrationColumn struct {
@@ -30,7 +32,11 @@ type migrationSchema map[string][]migrationColumn
 func migrationTableSpecs() []migrationTableSpec {
 	return []migrationTableSpec{
 		{name: "code_intel_events", keyColumns: []string{"event_id"}},
-		{name: "schema_metadata", keyColumns: []string{"key"}},
+		{
+			name:              "schema_metadata",
+			keyColumns:        []string{"key"},
+			excludeVersionRow: true,
+		},
 		{name: "traces", keyColumns: []string{"trace_id"}},
 		{name: "findings", keyColumns: []string{"finding_id"}},
 		{name: "finding_occurrences", keyColumns: []string{"trace_id", "ordinal"}},
@@ -80,11 +86,13 @@ func migrationTableSpecs() []migrationTableSpec {
 			name:              "code_intel_fts",
 			keyColumns:        []string{"fts_id"},
 			logicalPrimaryKey: true,
+			deduplicateRows:   true,
 		},
 		{
 			name:              "code_intel_search_terms",
 			keyColumns:        []string{"fts_id", "term"},
 			logicalPrimaryKey: true,
+			deduplicateRows:   true,
 		},
 	}
 }
@@ -132,9 +140,9 @@ func validateMigrationSchemaVersion(ctx context.Context, database *sql.DB) error
 		return fmt.Errorf("parse code-intel migration schema version %q: %w", rawVersion, err)
 	}
 
-	if version != schemaVersion {
+	if version < 1 || version > schemaVersion {
 		return fmt.Errorf(
-			"%w: schema version is %d, expected %d",
+			"%w: schema version is %d, supported range is 1 through %d",
 			errStoreMigrationIntegrity,
 			version,
 			schemaVersion,

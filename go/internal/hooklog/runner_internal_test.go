@@ -12,6 +12,9 @@ func TestShouldForceCodeIntelRefreshSkipsManagedToolRuns(t *testing.T) {
 		{"coding-ethos-run", "policy-tool", "go-test", "go"},
 		{"coding-ethos-run", "policy-tool", "ruff", "check", "pkg"},
 		{"coding-ethos-run", "policy-tool-group", "type_check"},
+		{"coding-ethos-run", "parent-install", "--repo", "/repo"},
+		{"coding-ethos-run", "parent-check", "--repo", "/repo"},
+		{"coding-ethos-run", "parent-lint", "--repo", "/repo"},
 	} {
 		if shouldForceCodeIntelRefresh(command) {
 			t.Fatalf("shouldForceCodeIntelRefresh(%#v) = true, want false", command)
@@ -32,5 +35,17 @@ func TestShouldForceCodeIntelRefreshKeepsHookAndRepoGates(t *testing.T) {
 		if !shouldForceCodeIntelRefresh(command) {
 			t.Fatalf("shouldForceCodeIntelRefresh(%#v) = false, want true", command)
 		}
+	}
+}
+
+func TestShouldRefreshRepositorySkipsFailedHook(t *testing.T) {
+	t.Parallel()
+
+	command := []string{"coding-ethos-run", "git-hook", "pre-commit"}
+	if !shouldRefreshRepository(command, 0) {
+		t.Fatal("successful pre-commit should refresh repository code-intel")
+	}
+	if shouldRefreshRepository(command, 2) {
+		t.Fatal("blocked pre-commit must not perform a full repository refresh")
 	}
 }

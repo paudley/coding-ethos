@@ -27,6 +27,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/sharedlock"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
+	"blackcat.ca/coding-ethos/go/internal/toolprotocol"
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 func TestRunnerArgsInferGitHookFromExecutableName(t *testing.T) {
@@ -395,6 +397,36 @@ func TestWithCommandRootsUsesCommandSpecificRepositoryFlags(t *testing.T) {
 				"/private/state",
 			},
 		},
+		{
+			name: "parent install",
+			args: []string{
+				"parent-install",
+				"--repo",
+				"/repo",
+				"--state-root",
+				"/private/state",
+			},
+		},
+		{
+			name: "parent check",
+			args: []string{
+				"parent-check",
+				"--repo",
+				"/repo",
+				"--state-root",
+				"/private/state",
+			},
+		},
+		{
+			name: "parent lint",
+			args: []string{
+				"parent-lint",
+				"--repo",
+				"/repo",
+				"--state-root",
+				"/private/state",
+			},
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
@@ -664,6 +696,46 @@ func TestRuntimePolicyBundleUsesPrivateStateRoot(t *testing.T) {
 	}
 }
 
+func TestParentUsesExternalStateRoot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		options parentWorkflowOptions
+		want    bool
+	}{
+		{name: "implicit repo-local", options: parentWorkflowOptions{Repo: "/repo"}},
+		{
+			name:    "explicit repo-local",
+			options: parentWorkflowOptions{Repo: "/repo", StateRoot: "/repo"},
+		},
+		{
+			name:    "clean-equivalent repo-local",
+			options: parentWorkflowOptions{Repo: "/repo/.", StateRoot: "/repo"},
+		},
+		{
+			name:    "external",
+			options: parentWorkflowOptions{Repo: "/repo", StateRoot: "/private/state"},
+			want:    true,
+		},
+		{
+			name:    "nested external",
+			options: parentWorkflowOptions{Repo: "/repo", StateRoot: "/repo/private-state"},
+			want:    true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := parentUsesExternalStateRoot(test.options); got != test.want {
+				t.Fatalf("parentUsesExternalStateRoot() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestParentStepStatusFailsOnAnyFailedStep(t *testing.T) {
 	t.Parallel()
 
@@ -736,6 +808,79 @@ func TestParentGoToolsCheckPassesWhenBinariesAreCurrent(t *testing.T) {
 	err := checkParentGoTools(paths, parentWorkflowOptions{Repo: paths.Root})
 	if err != nil {
 		t.Fatalf("checkParentGoTools: %v", err)
+	}
+}
+
+func TestParentHookRuntimeSyncConvergesAndCheckDetectsDrift(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	paths.ToolsSource = parentGoToolsSourceFixture(t, paths.EthosRoot)
+	touchParentGoTools(t, paths, time.Now())
+	options := parentWorkflowOptions{Repo: paths.Root}
+
+	err := syncParentHookRuntimeExecutables(paths, options)
+	if err != nil {
+		t.Fatalf("syncParentHookRuntimeExecutables: %v", err)
+	}
+
+	err = checkParentHookRuntimeExecutables(paths, options)
+	if err != nil {
+		t.Fatalf("checkParentHookRuntimeExecutables: %v", err)
+	}
+
+	installed := filepath.Join(
+		parentHookRuntimeBinDir(paths, options),
+		"coding-ethos-run",
+	)
+	writeExecutableFixture(t, installed, "#!/usr/bin/env sh\necho stale\n")
+
+	err = checkParentHookRuntimeExecutables(paths, options)
+	if !errors.Is(err, errParentArtifactDrift) ||
+		!strings.Contains(err.Error(), "coding-ethos-run(content)") ||
+		!strings.Contains(err.Error(), "parent-install") {
+		t.Fatalf("check drift error = %v", err)
+	}
+
+	err = syncParentHookRuntimeExecutables(paths, options)
+	if err != nil {
+		t.Fatalf("repair parent hook runtime: %v", err)
+	}
+
+	err = checkParentHookRuntimeExecutables(paths, options)
+	if err != nil {
+		t.Fatalf("check repaired parent hook runtime: %v", err)
+	}
+}
+
+func TestParentHookRuntimeCheckRejectsCheckoutSymlink(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	paths.ToolsSource = parentGoToolsSourceFixture(t, paths.EthosRoot)
+	touchParentGoTools(t, paths, time.Now())
+	options := parentWorkflowOptions{Repo: paths.Root}
+	runtimeBin := parentHookRuntimeBinDir(paths, options)
+
+	err := os.MkdirAll(runtimeBin, 0o755)
+	if err != nil {
+		t.Fatalf("create hook runtime: %v", err)
+	}
+
+	for _, tool := range parentGoToolFixtureCommands() {
+		destination := filepath.Join(runtimeBin, tool)
+		source := filepath.Join(paths.BinDir, tool)
+
+		err = os.Symlink(source, destination)
+		if err != nil {
+			t.Fatalf("symlink %s: %v", tool, err)
+		}
+	}
+
+	err = checkParentHookRuntimeExecutables(paths, options)
+	if !errors.Is(err, errParentArtifactDrift) ||
+		!strings.Contains(err.Error(), "coding-ethos-run(not_regular)") {
+		t.Fatalf("check symlink error = %v", err)
 	}
 }
 
@@ -2406,6 +2551,35 @@ func TestPolicyGitIgnoresSpoofedAgentShellSandboxEnv(t *testing.T) {
 	}
 }
 
+func TestPolicyGitForwardsWrapperFlagsBeforeGitArgv(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+	writePolicyBundleForTest(t, hookPolicyBundlePath(paths))
+
+	err := run(paths, []string{
+		"policy-git",
+		"--admin-approved",
+		"--check-only",
+		"commit",
+		"-m",
+		"verified",
+	})
+	if err != nil {
+		t.Fatalf("run policy-git with wrapper flags: %v", err)
+	}
+
+	got := strings.Join(calls, "\n")
+	if !strings.Contains(
+		got,
+		"exec:coding-ethos-git --bundle "+hookPolicyBundlePath(paths)+
+			" --real-git "+paths.RealGit+
+			" --admin-approved --check-only commit -m verified",
+	) {
+		t.Fatalf("policy-git did not preserve wrapper flags: %#v", calls)
+	}
+}
+
 func TestPolicyGitIgnoresArbitraryEnvRealGitExecutable(t *testing.T) {
 	paths := runtimeTestPaths(t)
 	var calls []string
@@ -2434,6 +2608,67 @@ func TestPolicyGitIgnoresArbitraryEnvRealGitExecutable(t *testing.T) {
 			" --real-git "+paths.RealGit+" status",
 	) {
 		t.Fatalf("policy-git did not execute managed git: %#v", calls)
+	}
+}
+
+func TestPolicyToolUsesMarkedActionlintShellcheckProtocolWithoutParentPath(
+	t *testing.T,
+) {
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+
+	tool, found := toolcatalog.HookOwnedTool("shellcheck")
+	if !found {
+		t.Fatal("managed shellcheck tool is not registered")
+	}
+
+	shellcheck := tool.ManagedExecutablePath(paths.EthosRoot)
+	if err := os.MkdirAll(filepath.Dir(shellcheck), 0o755); err != nil {
+		t.Fatalf("create managed shellcheck fixture directory: %v", err)
+	}
+	writeExecutableFixture(t, shellcheck, "#!/usr/bin/env sh\nexit 0\n")
+
+	args := []string{
+		"shellcheck",
+		"--norc",
+		"-f", "json",
+		"-x",
+		"--shell", "bash",
+		"-",
+	}
+	err := runPolicyToolForProtocol(
+		paths,
+		args,
+		toolprotocol.ActionlintShellcheckJSONStdinV1,
+	)
+	if err != nil {
+		t.Fatalf("run actionlint shellcheck dependency: %v", err)
+	}
+
+	want := "execpath:" + shellcheck + " " + strings.Join(args[1:], " ")
+	if !slices.Contains(calls, want) {
+		t.Fatalf("managed shellcheck was not executed raw; calls = %#v", calls)
+	}
+}
+
+func TestPolicyToolCapturesShellcheckWithoutActionlintMarker(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+
+	err := runPolicyToolForProtocol(
+		paths,
+		[]string{"shellcheck", "-f", "json", "-"},
+		"",
+	)
+	if err != nil {
+		t.Fatalf("run direct shellcheck: %v", err)
+	}
+
+	joined := strings.Join(calls, "\n")
+	if !strings.Contains(joined, "exec-lint:") || strings.Contains(joined, "execpath:") {
+		t.Fatalf("direct shellcheck bypassed managed capture: %#v", calls)
 	}
 }
 
@@ -3210,6 +3445,40 @@ func TestMakefileRoutesLintTargetsThroughManagedGroups(t *testing.T) {
 		if !strings.Contains(makefile, want) {
 			t.Fatalf("Makefile missing managed group route %q", want)
 		}
+	}
+}
+
+func TestMakefileRoutesParentGitHooksThroughStableCommonRuntime(t *testing.T) {
+	t.Parallel()
+
+	payload, err := os.ReadFile(filepath.Join("..", "..", "..", "Makefile"))
+	if err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+
+	makefile := string(payload)
+	for _, want := range []string{
+		`$(call install_git_hooks,$(LOCAL_HOOKS_DIR),$(GO_HOOK))`,
+		`$(call install_git_hooks,$(HOOKS_DIR),$(PARENT_HOOK_BIN_DIR)/coding-ethos-run)`,
+		`_sync-git-hooks: ensure-go go-tools-install _sync-parent-hook-runtime`,
+		"--dest-dir \"$(PARENT_HOOK_BIN_DIR)\" \\\n" +
+			"\t\t--real-git \"$(GIT)\" \\\n" +
+			"\t\t--runner \"$(PARENT_HOOK_BIN_DIR)/coding-ethos-run\"",
+	} {
+		if !strings.Contains(makefile, want) {
+			t.Fatalf("Makefile missing stable Git hook route %q", want)
+		}
+	}
+
+	if strings.Contains(
+		makefile,
+		`$(call install_git_hooks,$(HOOKS_DIR),$(GO_HOOK))`,
+	) {
+		t.Fatal("Makefile routes parent Git hooks through a worktree-local runner")
+	}
+
+	if strings.Contains(makefile, `--runner "$(GO_HOOK)"`) {
+		t.Fatal("Makefile routes a parent shim through a worktree-local runner")
 	}
 }
 

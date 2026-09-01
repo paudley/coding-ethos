@@ -4,6 +4,8 @@
 package evaluators
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
+	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
 
 func defaultAdminOnlyBasenames() []string {
@@ -51,6 +54,32 @@ func EvaluateGitStagedAdminFiles(
 		return nil, nil
 	}
 
+	verifiedGenerated, blockedFiles, err := verifiedGeneratedAdminFiles(
+		context,
+		blockedFiles,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(blockedFiles) == 0 {
+		decision := policy.NewDecision(recordDecision, policyDef)
+		decision.Severity = recordDecision
+		decision.Message = "Administrative staged files match generated tool policy."
+		decision.Evidence = stagedAdminEvidence(verifiedGenerated, context.Cwd)
+		decision.Evidence["verified_generated_files"] = append(
+			[]string(nil),
+			verifiedGenerated...,
+		)
+		decision.Diagnostics = verifiedGeneratedAdminDiagnostics(
+			policyDef,
+			verifiedGenerated,
+			decision,
+		)
+
+		return []policy.Decision{decision}, nil
+	}
+
 	mergeParent, inheritedFiles, divergentFiles := mergeParentAdminFiles(
 		context.Cwd,
 		blockedFiles,
@@ -84,6 +113,60 @@ func EvaluateGitStagedAdminFiles(
 	decision.Diagnostics = stagedAdminDiagnostics(policyDef, divergentFiles, decision)
 
 	return []policy.Decision{decision}, nil
+}
+
+func verifiedGeneratedAdminFiles(
+	context Context,
+	files []string,
+) ([]string, []string, error) {
+	ethosRoot := stringOption(context.EvaluatorOptions, "ethos_root", "")
+	if ethosRoot == "" || context.Cwd == "" {
+		return nil, append([]string(nil), files...), nil
+	}
+
+	artifacts, err := toolconfigs.StateArtifacts(ethosRoot, context.Cwd, "")
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"render generated admin-file policy: %w",
+			err,
+		)
+	}
+
+	expected := make(map[string]string, len(artifacts))
+	for _, artifact := range artifacts {
+		expected[filepath.ToSlash(filepath.Clean(artifact.Path))] = artifact.ExpectedSHA256
+	}
+
+	verified := make([]string, 0, len(files))
+	blocked := make([]string, 0, len(files))
+
+	for _, file := range files {
+		normalized := filepath.ToSlash(filepath.Clean(file))
+
+		expectedHash, generated := expected[normalized]
+		if !generated {
+			blocked = append(blocked, file)
+
+			continue
+		}
+
+		staged, readErr := GitCommand(context.Cwd, "show", ":"+normalized).Output()
+		if readErr != nil || sha256String(staged) != expectedHash {
+			blocked = append(blocked, file)
+
+			continue
+		}
+
+		verified = append(verified, file)
+	}
+
+	return verified, blocked, nil
+}
+
+func sha256String(content []byte) string {
+	sum := sha256.Sum256(content)
+
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func mergeParentAdminFiles(cwd string, files []string) (string, []string, []string) {
@@ -263,6 +346,27 @@ func inheritedAdminDiagnostics(
 			Severity:     decision.Severity,
 			Message:      "Administrative staged file matches the current merge parent.",
 			Advice:       "Preserve the merge-parent entry unchanged.",
+			PrincipleIDs: append([]string(nil), decision.PrincipleIDs...),
+		})
+	}
+
+	return items
+}
+
+func verifiedGeneratedAdminDiagnostics(
+	policyDef policy.Policy,
+	files []string,
+	decision policy.Decision,
+) []diagnostics.Diagnostic {
+	items := make([]diagnostics.Diagnostic, 0, len(files))
+	for _, file := range files {
+		items = append(items, diagnostics.Diagnostic{
+			Tool:         "git",
+			File:         file,
+			PolicyID:     policyDef.ID,
+			Severity:     decision.Severity,
+			Message:      "Administrative staged file matches generated tool policy.",
+			Advice:       "Keep the generated tool configuration unchanged.",
 			PrincipleIDs: append([]string(nil), decision.PrincipleIDs...),
 		})
 	}

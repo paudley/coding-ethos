@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	storeMigrationManifestKind = "code_intel.store_migration.v1"
+	storeMigrationManifestKind = "code_intel.store_migration.v2"
 	storeMigrationFileMode     = 0o600
 )
 
@@ -28,6 +28,7 @@ type StoreMigrationTable struct {
 	SourceRows         int64  `json:"source_rows"`
 	ImportedRows       int64  `json:"imported_rows"`
 	MatchedRows        int64  `json:"matched_rows"`
+	DeduplicatedRows   int64  `json:"deduplicated_rows,omitempty"`
 	DestinationRows    int64  `json:"destination_rows"`
 	SourceRowsVerified bool   `json:"source_rows_verified"`
 }

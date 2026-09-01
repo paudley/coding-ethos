@@ -67,6 +67,76 @@ func TestGitCommitReadsMessageFromStdin(t *testing.T) {
 	}
 }
 
+func TestParsePolicyGitArgsPreservesGitGlobalOptions(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parsePolicyGitArgs([]string{
+		"--bundle", "/policy/bundle.json",
+		"--real-git=/usr/bin/git",
+		"--check-only",
+		"-c", "core.useBuiltinFSMonitor=false",
+		"init", "--template=/tmp/hooks",
+	})
+	if err != nil {
+		t.Fatalf("parsePolicyGitArgs: %v", err)
+	}
+
+	if parsed.bundlePath != "/policy/bundle.json" || parsed.realGit != "/usr/bin/git" ||
+		!parsed.checkOnly {
+		t.Fatalf("wrapper options = %#v", parsed)
+	}
+	want := "-c core.useBuiltinFSMonitor=false init --template=/tmp/hooks"
+	if got := strings.Join(parsed.gitArgv, " "); got != want {
+		t.Fatalf("git argv = %q, want %q", got, want)
+	}
+}
+
+func TestGitGlobalOptionStartsArgvRecognizesShortMetaOptions(t *testing.T) {
+	t.Parallel()
+
+	for _, option := range []string{"-h", "-v"} {
+		if !gitGlobalOptionStartsArgv(option) {
+			t.Fatalf("gitGlobalOptionStartsArgv(%q) = false, want true", option)
+		}
+	}
+}
+
+func TestParsePolicyGitArgsHonorsExplicitBoundary(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parsePolicyGitArgs([]string{
+		"--bundle=/policy/bundle.json",
+		"--json=false",
+		"--",
+		"--future-git-global", "value", "status",
+	})
+	if err != nil {
+		t.Fatalf("parsePolicyGitArgs: %v", err)
+	}
+	if parsed.jsonOutput {
+		t.Fatal("--json=false was not retained")
+	}
+	if got := strings.Join(
+		parsed.gitArgv,
+		" ",
+	); got != "--future-git-global value status" {
+		t.Fatalf("git argv = %q", got)
+	}
+}
+
+func TestParsePolicyGitArgsRejectsUnknownWrapperOption(t *testing.T) {
+	t.Parallel()
+
+	_, err := parsePolicyGitArgs([]string{
+		"--bundle=/policy/bundle.json",
+		"--typo-wrapper-option",
+		"status",
+	})
+	if err == nil || !strings.Contains(err.Error(), "unknown policy-git option") {
+		t.Fatalf("error = %v, want unknown wrapper option", err)
+	}
+}
+
 func TestGitOptionsForNonStdinCommand(t *testing.T) {
 	t.Parallel()
 
@@ -81,6 +151,48 @@ func TestGitOptionsForNonStdinCommand(t *testing.T) {
 
 	if len(options.Stdin) != 0 {
 		t.Fatalf("stdin should be empty: %q", options.Stdin)
+	}
+}
+
+func TestGitOptionsDropsOnlyInitialRedundantChangeDir(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{
+			name: "redundant current directory",
+			argv: []string{"-C", ".", "diff", "--staged"},
+			want: "diff --staged",
+		},
+		{
+			name: "real directory change remains policy visible",
+			argv: []string{"-C", "../other", "diff", "--staged"},
+			want: "-C ../other diff --staged",
+		},
+		{
+			name: "operation change detection flag is untouched",
+			argv: []string{"diff", "-C", "."},
+			want: "diff -C .",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			options, err := gitOptions(test.argv, t.TempDir(), false)
+			if err != nil {
+				t.Fatalf("gitOptions: %v", err)
+			}
+
+			if got := strings.Join(options.Argv, " "); got != test.want {
+				t.Fatalf("argv = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

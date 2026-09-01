@@ -35,8 +35,12 @@ GOFMT ?= gofmt
 CARGO ?= cargo
 GO_BUILD_FLAGS ?= -trimpath -buildvcs=false
 GO_BUILD_CACHE_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/go-build
+GO_PATH_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/go-path
+GO_MODULE_CACHE_DIR ?= $(GO_PATH_DIR)/pkg/mod
 UV_CACHE_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/uv
 export GOCACHE := $(GO_BUILD_CACHE_DIR)
+export GOPATH := $(GO_PATH_DIR)
+export GOMODCACHE := $(GO_MODULE_CACHE_DIR)
 export UV_CACHE_DIR
 
 empty :=
@@ -71,7 +75,7 @@ fi
 endef
 
 define install_git_hooks
-$(call print_info,hooks: $(1)); "$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-git-hooks --hooks-dir "$(1)" --runner "$(GO_HOOK)"
+$(call print_info,hooks: $(1)); "$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-git-hooks --hooks-dir "$(1)" --runner "$(2)"
 endef
 
 HOOK_CONSUMER_ROOT := $(shell $(resolve_hook_consumer_root))
@@ -648,11 +652,11 @@ go-hook-runner-install: ensure-go ## Build the bundled Go hook runner into the c
 	@cd "$(GO_TOOLS_DIR)" && "$(GO)" build $(GO_BUILD_FLAGS) -o "$(LOCAL_BIN_DIR)/coding-ethos-hook-runner" ./cmd/coding-ethos-hook-runner
 	@$(call print_info,installed: $(LOCAL_BIN_DIR)/coding-ethos-hook-runner)
 
-_sync-git-hooks: ensure-go go-tools-install
+_sync-git-hooks: ensure-go go-tools-install _sync-parent-hook-runtime
 	@$(call print_step,Syncing Git hook entrypoints)
-	@$(call install_git_hooks,$(LOCAL_HOOKS_DIR))
+	@$(call install_git_hooks,$(LOCAL_HOOKS_DIR),$(GO_HOOK))
 	@if [ "$(HOOKS_DIR)" != "$(LOCAL_HOOKS_DIR)" ]; then \
-		$(call install_git_hooks,$(HOOKS_DIR)); \
+		$(call install_git_hooks,$(HOOKS_DIR),$(PARENT_HOOK_BIN_DIR)/coding-ethos-run); \
 	fi
 
 _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
@@ -678,7 +682,7 @@ _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-git-shim \
 		--dest-dir "$(PARENT_HOOK_BIN_DIR)" \
 		--real-git "$(GIT)" \
-		--runner "$(GO_HOOK)"
+		--runner "$(PARENT_HOOK_BIN_DIR)/coding-ethos-run"
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-lint" \
 		--install-shims \
 		--tools-bin-dir "$(PARENT_HOOK_BIN_DIR)" \

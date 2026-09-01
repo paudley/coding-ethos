@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 
@@ -29,6 +30,7 @@ const (
 
 	defaultIndexName = "index.yaml"
 	defaultLockName  = ".lock"
+	maxProjectKeyLen = 240
 	fileMode         = 0o600
 	dirMode          = 0o700
 )
@@ -631,7 +633,29 @@ func claudeProjectKey(root string) string {
 
 	replacer := strings.NewReplacer("/", "-", "_", "-", ".", "-")
 
-	return replacer.Replace(key)
+	return boundedClaudeProjectKey(replacer.Replace(key))
+}
+
+func boundedClaudeProjectKey(key string) string {
+	if len(key) <= maxProjectKeyLen {
+		return key
+	}
+
+	sum := sha256.Sum256([]byte(key))
+	suffix := "-" + hex.EncodeToString(sum[:16])
+	prefixLimit := maxProjectKeyLen - len(suffix)
+	cut := prefixLimit
+
+	for cut > 0 && !utf8.ValidString(key[:cut]) {
+		cut--
+	}
+
+	prefix := strings.TrimRight(key[:cut], "-")
+	if prefix == "" {
+		prefix = "project"
+	}
+
+	return prefix + suffix
 }
 
 func normalizedMemoryPath(root, path string) string {

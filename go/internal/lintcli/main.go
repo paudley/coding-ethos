@@ -15,6 +15,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
+	"blackcat.ca/coding-ethos/go/internal/generatedtrust"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/lint"
 	"blackcat.ca/coding-ethos/go/internal/managedcapture"
@@ -471,11 +472,12 @@ func runLintMode(config lintCLIConfig, bundle policy.Bundle) int {
 	}
 
 	result, err := lint.Run(bundle, lint.Options{
-		Scope:   config.scope.Value(),
-		Files:   files,
-		Argv:    parseArgv(*config.argvRaw),
-		Command: *config.command,
-		Cwd:     *config.cwd,
+		Scope:                 config.scope.Value(),
+		Files:                 files,
+		Argv:                  parseArgv(*config.argvRaw),
+		Command:               *config.command,
+		Cwd:                   *config.cwd,
+		TrustedGeneratedFiles: generatedtrust.ExactStagedFiles(bundle, *config.cwd, files),
 	})
 	if err != nil {
 		exitErr(err)

@@ -18,6 +18,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/generatedtrust"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/hooks"
 	"blackcat.ca/coding-ethos/go/internal/lint"
@@ -432,11 +433,16 @@ func (server Server) checkLint(args json.RawMessage) (any, error) {
 	}
 
 	result, err := lint.Run(server.bundle, lint.Options{
-		Command:       input.Command,
-		Cwd:           input.Cwd,
-		Scope:         input.Scope,
-		Files:         append([]string(nil), input.Files...),
-		Argv:          append([]string(nil), input.Argv...),
+		Command: input.Command,
+		Cwd:     input.Cwd,
+		Scope:   input.Scope,
+		Files:   append([]string(nil), input.Files...),
+		Argv:    append([]string(nil), input.Argv...),
+		TrustedGeneratedFiles: generatedtrust.ExactStagedFiles(
+			server.bundle,
+			input.Cwd,
+			input.Files,
+		),
 		AdminApproved: input.AdminApproved,
 	})
 	if err != nil {

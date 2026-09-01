@@ -1300,7 +1300,7 @@ func inferGoDiagnosticTool(argv []string) string {
 		}
 
 		switch strings.TrimSpace(argv[index+1]) {
-		case "test":
+		case testOperation:
 			return "go-test"
 		case "vet":
 			return "go-vet"

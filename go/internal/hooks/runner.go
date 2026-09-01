@@ -157,6 +157,7 @@ func routeToolUse(ctx InspectionContext) InspectionRoute {
 		parallelToolBatchRouteFor,
 		memoryRouteFor,
 		malformedShellRouteFor,
+		requiredGateExitStatusRouteFor,
 		shellFileToolRouteFor,
 		gitWrapperRouteFor,
 		lintToolRouteFor,
@@ -733,6 +734,9 @@ func hookOutputNormalizer(cwd string) hookTextNormalizer {
 	}
 
 	roots = append(roots, hookTextReplacement{Old: os.TempDir(), New: "<tmp>"})
+	if goTempDir := strings.TrimSpace(os.Getenv("GOTMPDIR")); goTempDir != "" {
+		roots = append(roots, hookTextReplacement{Old: goTempDir, New: "<tmp>"})
+	}
 
 	replacements := []hookTextReplacement{}
 

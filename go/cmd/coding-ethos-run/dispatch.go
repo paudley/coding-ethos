@@ -33,6 +33,8 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
+	"blackcat.ca/coding-ethos/go/internal/toolprotocol"
+	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
 const (
@@ -854,7 +856,10 @@ func runPolicyGitHandler(paths runtimePaths, rest []string) error {
 	runtimeExecTool(
 		paths,
 		"coding-ethos-git",
-		append([]string{"--bundle", bundlePath, "--real-git", realGitPath}, rest...)...)
+		append(
+			[]string{"--bundle", bundlePath, "--real-git", realGitPath},
+			rest...,
+		)...)
 
 	return nil
 }
@@ -1003,11 +1008,41 @@ func runAgentHooksCommand(paths runtimePaths, rest []string) {
 }
 
 func runPolicyTool(paths runtimePaths, rest []string) error {
+	return runPolicyToolForProtocol(
+		paths,
+		rest,
+		os.Getenv(toolprotocol.ActionlintShellcheckEnv),
+	)
+}
+
+func runPolicyToolForProtocol(
+	paths runtimePaths,
+	rest []string,
+	protocolMarker string,
+) error {
 	if len(rest) == 0 {
 		return apperror.StaticError("policy-tool requires a tool name")
 	}
 
 	requirePolicyBundle(paths)
+
+	if toolprotocol.IsActionlintShellcheckJSONStdin(
+		protocolMarker,
+		rest[0],
+		rest[1:],
+	) {
+		tool, found := toolcatalog.HookOwnedTool("shellcheck")
+		if !found {
+			return apperror.StaticError("managed shellcheck tool is not registered")
+		}
+
+		shellcheck := tool.ManagedExecutablePath(paths.EthosRoot)
+		requireRuntimeBinary(shellcheck, "managed shellcheck dependency")
+		paths.executor().execPath(shellcheck, rest[1:]...)
+
+		return nil
+	}
+
 	runtimeExecLint(paths, policyToolLintArgs(paths, rest[0], rest[1:])...)
 
 	return nil

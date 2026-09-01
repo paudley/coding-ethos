@@ -1681,6 +1681,8 @@ filesystem:
     exempt_path_prefixes: [docs/plans/]
   required_ignores:
     paths: [.runtime/]
+  pii_scrubber:
+    allowed_patterns: ['/virtual/agent/']
 shell:
   best_practices:
     require_common_for_prefixes: [bin/]
@@ -1734,6 +1736,13 @@ func assertConfigBackedEvaluatorOptions(t *testing.T, bundle Bundle) {
 		"repo.required_ignores",
 		"required_ignore_paths",
 		".runtime/",
+	)
+	assertFirstOptionString(
+		t,
+		bundle,
+		"repo.pii_scrubber",
+		"allowed_patterns",
+		"/virtual/agent/",
 	)
 	assertFirstOptionString(
 		t,

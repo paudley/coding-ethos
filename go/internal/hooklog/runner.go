@@ -167,7 +167,7 @@ func runWithStatus(options Options) (int, error) {
 		return 1, metadataErr
 	}
 
-	maintenanceErr := finishHookMaintenance(options, runDir)
+	maintenanceErr := finishHookMaintenance(options, runDir, status)
 
 	return completedHookStatus(status, err, maintenanceErr)
 }
@@ -199,8 +199,8 @@ func completedHookStatus(status int, runErr, maintenanceErr error) (int, error) 
 	return status, nil
 }
 
-func finishHookMaintenance(options Options, runDir string) error {
-	err := refreshCodeIntelAfterRun(options, runDir)
+func finishHookMaintenance(options Options, runDir string, status int) error {
+	err := refreshCodeIntelAfterRun(options, runDir, status)
 	if err != nil {
 		return err
 	}
@@ -214,8 +214,8 @@ func finishHookMaintenance(options Options, runDir string) error {
 	return nil
 }
 
-func refreshCodeIntelAfterRun(options Options, runDir string) error {
-	if shouldForceCodeIntelRefresh(options.Command) {
+func refreshCodeIntelAfterRun(options Options, runDir string, status int) error {
+	if shouldRefreshRepository(options.Command, status) {
 		_, err := codeintel.RefreshRepository(
 			context.Background(),
 			options.Root,
@@ -247,6 +247,10 @@ func refreshCodeIntelAfterRun(options Options, runDir string) error {
 	return nil
 }
 
+func shouldRefreshRepository(command []string, status int) bool {
+	return status == 0 && shouldForceCodeIntelRefresh(command)
+}
+
 func autoPruneHookRuns(root string) error {
 	err := outputsurface.AutoPruneSurface(context.Background(), root, "hook_runs", false)
 	if err != nil {
@@ -257,10 +261,10 @@ func autoPruneHookRuns(root string) error {
 }
 
 func shouldForceCodeIntelRefresh(command []string) bool {
-	return commandContains(command, "parent-install") ||
-		commandContains(command, "parent-check") ||
-		commandContains(command, "parent-lint") ||
-		commandContains(command, "policy-lint") ||
+	// Hooklog owns refreshes only for policy-lint, Git hooks, and the selected
+	// Make targets below. Parent-install, parent-check, and parent-lint do not
+	// refresh code intelligence and must not be described as doing so here.
+	return commandContains(command, "policy-lint") ||
 		commandContainsSequence(command, "git-hook", "pre-commit") ||
 		commandContainsSequence(command, "git-hook", "pre-push") ||
 		commandContainsSequence(command, "make", "pre-commit") ||
