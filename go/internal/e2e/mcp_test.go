@@ -20,7 +20,9 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/e2e"
 )
 
-const mcpClientTimeout = 30 * time.Second
+// The client spans the complete multi-request workflow; individual command
+// deadlines remain independently bounded by the shared e2e command timeout.
+const mcpClientTimeout = 2 * time.Minute
 
 type MCPClient struct {
 	cancel context.CancelFunc

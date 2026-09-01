@@ -64,6 +64,7 @@ type captureRequest struct {
 	Parser             string
 	Category           string
 	ToolPath           string
+	UVProject          string
 	Cwd                string
 	TraceRoot          string
 	SandboxBackendPath string
@@ -1409,6 +1410,10 @@ func captureFormatterChanges(
 
 		content, err := os.ReadFile(file)
 		if err != nil {
+			if os.IsNotExist(err) {
+				changed = append(changed, formatterDiagnosticPath(request, file))
+			}
+
 			continue
 		}
 

@@ -52,6 +52,27 @@ type gateShell struct {
 	operators []string
 }
 
+type pipefailSetting uint8
+
+const (
+	pipefailUnchanged pipefailSetting = iota
+	pipefailEnabled
+	pipefailDisabled
+)
+
+func (setting pipefailSetting) apply(current bool) bool {
+	switch setting {
+	case pipefailUnchanged:
+		return current
+	case pipefailEnabled:
+		return true
+	case pipefailDisabled:
+		return false
+	default:
+		return current
+	}
+}
+
 func maskedRequiredGateStatus(
 	command string,
 	inheritedPipefail bool,
@@ -78,9 +99,10 @@ func maskedRequiredGateStatus(
 			return reason, true
 		}
 
-		if isPipefailCommand(gateExecutableArgv(parsed.segments[index])) {
-			pipefail = true
-		}
+		setting := pipefailCommandSetting(
+			gateExecutableArgv(parsed.segments[index]),
+		)
+		pipefail = setting.apply(pipefail)
 	}
 
 	return "", false
@@ -97,7 +119,7 @@ func (parsed gateShell) maskedSegmentStatus(
 	if nestedFound {
 		reason, masked := maskedRequiredGateStatus(
 			nested,
-			pipefail || nestedPipefail,
+			nestedPipefail.apply(pipefail),
 			depth+1,
 		)
 		if masked {
@@ -180,9 +202,19 @@ func parseGateShell(command string) (gateShell, error) {
 	return parsed, nil
 }
 
-func isPipefailCommand(argv []string) bool {
-	return len(argv) >= 3 && argv[0] == "set" &&
-		argv[1] == "-o" && argv[2] == "pipefail"
+func pipefailCommandSetting(argv []string) pipefailSetting {
+	if len(argv) < 3 || argv[0] != "set" || argv[2] != "pipefail" {
+		return pipefailUnchanged
+	}
+
+	switch argv[1] {
+	case "-o":
+		return pipefailEnabled
+	case "+o":
+		return pipefailDisabled
+	default:
+		return pipefailUnchanged
+	}
 }
 
 func sequenceAfter(gateIndex int, operators []string) bool {
@@ -425,17 +457,23 @@ func discardWrapperOperand(argv []string) []string {
 	return argv[1:]
 }
 
-func nestedShellScript(argv []string) (string, bool, bool) {
+func nestedShellScript(argv []string) (string, pipefailSetting, bool) {
 	if len(argv) == 0 || !shellExecutable(argv[0]) {
-		return "", false, false
+		return "", pipefailUnchanged, false
 	}
 
-	pipefail := false
+	pipefail := pipefailUnchanged
 
 	for index := 1; index < len(argv); index++ {
-		if argv[index] == "-o" && index+1 < len(argv) &&
+		if (argv[index] == "-o" || argv[index] == "+o") &&
+			index+1 < len(argv) &&
 			argv[index+1] == "pipefail" {
-			pipefail = true
+			if argv[index] == "-o" {
+				pipefail = pipefailEnabled
+			} else {
+				pipefail = pipefailDisabled
+			}
+
 			index++
 
 			continue

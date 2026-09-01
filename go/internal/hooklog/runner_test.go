@@ -5,8 +5,8 @@ package hooklog_test
 
 import (
 	"bytes"
-	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +15,6 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	. "blackcat.ca/coding-ethos/go/internal/hooklog"
-	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
@@ -181,14 +180,10 @@ func TestRunChecksIgnoresWithoutIndex(t *testing.T) {
 	root := t.TempDir()
 	writeHookLogIgnore(t, root)
 	logPath := filepath.Join(t.TempDir(), "git-args.log")
-	t.Setenv("GIT_TRACE", logPath)
+	t.Setenv("CODE_ETHOS_HOOKLOG_TEST_GIT_ARGS", logPath)
+	git := fakeGit(t)
 
-	git, err := realgit.Resolve(context.Background(), "git")
-	if err != nil {
-		t.Fatalf("resolve real git: %v", err)
-	}
-
-	err = Run(Options{
+	err := Run(Options{
 		Stdin:      strings.NewReader(""),
 		Stdout:     &bytes.Buffer{},
 		Stderr:     &bytes.Buffer{},
@@ -204,7 +199,7 @@ func TestRunChecksIgnoresWithoutIndex(t *testing.T) {
 		t.Fatalf("run hook log: %v", err)
 	}
 
-	assertFileContains(t, logPath, "check-ignore --no-index --quiet")
+	assertFileContains(t, logPath, "check-ignore\n--no-index\n--quiet\n")
 }
 
 func TestRunIngestsHookTraceIntoCodeIntel(t *testing.T) {
@@ -271,60 +266,94 @@ func TestRunIngestsHookTraceIntoCodeIntel(t *testing.T) {
 	}
 }
 
-func TestRunForcesCodeIntelRefreshForPreCommit(t *testing.T) {
-	t.Parallel()
+func TestRunIngestsPreCommitTraceWithoutRepositoryRefresh(t *testing.T) {
 	testlock.ProcessState(t, "hooklog-global-streams")
 
-	root := t.TempDir()
-	writeHookLogIgnore(t, root)
+	for _, testCase := range []struct {
+		name   string
+		status int
+	}{
+		{name: "allowed", status: 0},
+		{name: "blocked", status: 2},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeHookLogIgnore(t, root)
 
-	err := os.WriteFile(
-		filepath.Join(root, "app.js"),
-		[]byte("export function run() { return 1; }\n"),
-		0o600,
-	)
-	if err != nil {
-		t.Fatalf("write source: %v", err)
-	}
+			err := os.WriteFile(
+				filepath.Join(root, "app.js"),
+				[]byte("export function run() { return 1; }\n"),
+				0o600,
+			)
+			if err != nil {
+				t.Fatalf("write source: %v", err)
+			}
 
-	status, err := RunInProcess(Options{
-		Stdin:      strings.NewReader(""),
-		Stdout:     &bytes.Buffer{},
-		Stderr:     &bytes.Buffer{},
-		GitPath:    fakeGit(t),
-		Root:       root,
-		BundleRoot: filepath.Join(root, "pre-commit"),
-		Command:    []string{"coding-ethos-run", "git-hook", "pre-commit"},
-		Now: func() time.Time {
-			return time.Date(2026, 5, 1, 12, 34, 56, 0, time.UTC)
-		},
-	}, func() int {
-		return 0
-	})
-	if err != nil {
-		t.Fatalf("RunInProcess returned error: %v", err)
-	}
+			status, err := RunInProcess(Options{
+				Stdin:      strings.NewReader(""),
+				Stdout:     &bytes.Buffer{},
+				Stderr:     &bytes.Buffer{},
+				GitPath:    fakeGit(t),
+				Root:       root,
+				BundleRoot: filepath.Join(root, "pre-commit"),
+				Command:    []string{"coding-ethos-run", "git-hook", "pre-commit"},
+				Now: func() time.Time {
+					return time.Date(2026, 5, 1, 12, 34, 56, 0, time.UTC)
+				},
+			}, func() int {
+				tracePath := filepath.Join(
+					os.Getenv("CODE_ETHOS_HOOK_RUN_DIR"),
+					"event.json",
+				)
+				payload := fmt.Sprintf(`{
+  "schema_version": 1,
+  "trace_id": "hook-trace-pre-commit",
+  "recorded_at_utc": "2026-05-01T12:34:56Z",
+  "provider": "codex",
+  "event": "PreToolUse",
+  "tool": "Bash",
+  "status": %q
+}`, testCase.name)
 
-	if status != 0 {
-		t.Fatalf("status = %d, want 0", status)
-	}
+				// #nosec G703 -- the hook runner creates this path under t.TempDir.
+				if writeErr := os.WriteFile(tracePath, []byte(payload), 0o600); writeErr != nil {
+					t.Fatalf("write hook trace: %v", writeErr)
+				}
 
-	store, err := codeintel.Open(
-		t.Context(),
-		filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
-	)
-	if err != nil {
-		t.Fatalf("open code-intel store: %v", err)
-	}
-	defer store.Close()
+				return testCase.status
+			})
+			if err != nil {
+				t.Fatalf("RunInProcess returned error: %v", err)
+			}
+			if status != testCase.status {
+				t.Fatalf("status = %d, want %d", status, testCase.status)
+			}
 
-	file, found, err := store.GetCodeFile(t.Context(), "app.js")
-	if err != nil {
-		t.Fatalf("query indexed file: %v", err)
-	}
+			store, err := codeintel.Open(
+				t.Context(),
+				filepath.Join(root, ".coding-ethos", "code-intel.duckdb"),
+			)
+			if err != nil {
+				t.Fatalf("open code-intel store: %v", err)
+			}
+			defer store.Close()
 
-	if !found || file.Language != "javascript" || file.SourceModTimeUTC == "" {
-		t.Fatalf("indexed file = %#v, found=%v", file, found)
+			stats, err := store.Stats(t.Context())
+			if err != nil {
+				t.Fatalf("query code-intel stats: %v", err)
+			}
+			if stats.Traces != 1 || stats.HookEvents != 1 {
+				t.Fatalf("stats = %#v, want one hook trace", stats)
+			}
+
+			file, found, err := store.GetCodeFile(t.Context(), "app.js")
+			if err != nil {
+				t.Fatalf("query indexed file: %v", err)
+			}
+			if found {
+				t.Fatalf("routine hook unexpectedly indexed source file: %#v", file)
+			}
+		})
 	}
 }
 
@@ -566,6 +595,10 @@ func fakeFailingGit(t *testing.T) string {
 
 func fakeGitCheckIgnoreScript() string {
 	return `#!/usr/bin/env bash
+if [ -n "${CODE_ETHOS_HOOKLOG_TEST_GIT_ARGS:-}" ]; then
+  printf '%s\n' "$@" > "$CODE_ETHOS_HOOKLOG_TEST_GIT_ARGS"
+fi
+
 root=""
 target=""
 while [ "$#" -gt 0 ]; do

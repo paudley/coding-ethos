@@ -384,7 +384,7 @@ func TestBuildPlanRejectsAgentShellRealGitBindOutsideRepo(t *testing.T) {
 	}
 }
 
-func TestBuildPlanReusesVerifiedActiveAgentShellSandbox(t *testing.T) {
+func TestBuildPlanDoesNotReuseActiveAgentShellForDescendantRepo(t *testing.T) {
 	requireLinuxSandbox(t)
 
 	root := t.TempDir()
@@ -428,12 +428,177 @@ func TestBuildPlanReusesVerifiedActiveAgentShellSandbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sandbox.BuildPlan() error = %v", err)
 	}
-	if plan.Executable != "/usr/bin/env" ||
-		plan.Evidence.Reason != "reusing active agent-shell sandbox" {
-		t.Fatalf("active agent shell sandbox was not reused: %#v", plan)
+	if plan.Executable != wrapper ||
+		plan.Evidence.Reason == "reusing active agent-shell sandbox" {
+		t.Fatalf("descendant repo reused active agent shell sandbox: %#v", plan)
+	}
+	for _, want := range []string{"--write-path", "--", "/usr/bin/env"} {
+		if !slices.Contains(plan.Args, want) {
+			t.Fatalf("descendant plan skipped native helper argument %q: %#v", want, plan.Args)
+		}
 	}
 	if !plan.Evidence.Enabled || !plan.Evidence.RepoReadOnly {
-		t.Fatalf("active agent shell reuse lost sandbox evidence: %#v", plan.Evidence)
+		t.Fatalf("descendant plan lost sandbox evidence: %#v", plan.Evidence)
+	}
+}
+
+func TestBuildPlanReusesVerifiedActiveAgentShellSandboxForExactRoot(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	root := t.TempDir()
+	wrapper := filepath.Join(root, "bin", "coding-ethos-sandbox")
+	realGitBind := filepath.Join(
+		root,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"run-1",
+		"real-git",
+	)
+	if err := os.MkdirAll(filepath.Dir(realGitBind), 0o700); err != nil {
+		t.Fatalf("create real git bind dir: %v", err)
+	}
+	writeExecutable(t, wrapper)
+	writeExecutable(t, realGitBind)
+
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
+	t.Setenv("CODING_ETHOS_SANDBOX_ROOT", root)
+	t.Setenv("CODING_ETHOS_REAL_GIT", realGitBind)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "ruff",
+		Executable:  "/usr/bin/env",
+		WrapperPath: wrapper,
+		Cwd:         root,
+		RepoRoot:    root,
+		Args:        []string{"true"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile:    "lint-offline",
+			RequiresProcesses: true,
+			WritePaths:        []string{".coding-ethos/cache"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+	if plan.Executable != wrapper ||
+		plan.Evidence.Reason != "reusing active agent-shell sandbox" {
+		t.Fatalf("exact-root active agent shell sandbox was not reused: %#v", plan)
+	}
+	for _, want := range []string{"--write-path", "--", "/usr/bin/env"} {
+		if !slices.Contains(plan.Args, want) {
+			t.Fatalf("active reuse skipped native helper argument %q: %#v", want, plan.Args)
+		}
+	}
+}
+
+func TestBuildPlanDoesNotReuseActiveAgentShellForNewGitBinds(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	root := t.TempDir()
+	repo := filepath.Join(root, sandbox.SandboxTempWritePath, "git-bind-probe")
+	wrapper := filepath.Join(root, "bin", "coding-ethos-sandbox")
+	realGitBind := filepath.Join(repo, ".coding-ethos", "cache", "real-git")
+	targetGit := filepath.Join(repo, ".coding-ethos", "cache", "target-git")
+	activeRealGit := filepath.Join(
+		root,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"run-1",
+		"real-git",
+	)
+	for _, path := range []string{repo, filepath.Dir(realGitBind), filepath.Dir(activeRealGit)} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatalf("create git bind test directory %s: %v", path, err)
+		}
+	}
+	for _, path := range []string{wrapper, realGitBind, targetGit, activeRealGit} {
+		writeExecutable(t, path)
+	}
+
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
+	t.Setenv("CODING_ETHOS_SANDBOX_ROOT", root)
+	t.Setenv("CODING_ETHOS_REAL_GIT", activeRealGit)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "sandbox-git-bind-probe",
+		Executable:  targetGit,
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"probe"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile:  "native-git-bind-probe",
+			GitWrapperPath:  wrapper,
+			RealGitPath:     wrapper,
+			RealGitBindPath: realGitBind,
+			GitTargetPaths:  []string{targetGit},
+			WritePaths:      []string{".coding-ethos/cache"},
+			RequiresGit:     true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+	if plan.Executable != wrapper ||
+		plan.Evidence.Reason == "reusing active agent-shell sandbox" {
+		t.Fatalf("git bind request reused active sandbox: %#v", plan)
+	}
+	for _, want := range []string{"--git-wrapper", "--real-git-path", "--git-target"} {
+		if !slices.Contains(plan.Args, want) {
+			t.Fatalf("git bind plan missing %q: %#v", want, plan.Args)
+		}
+	}
+}
+
+func TestBuildPlanDoesNotReuseActiveAgentShellForNativeProbe(t *testing.T) {
+	requireLinuxSandbox(t)
+
+	root := t.TempDir()
+	repo := filepath.Join(root, sandbox.SandboxTempWritePath, "native-probe")
+	wrapper := filepath.Join(root, "bin", "coding-ethos-sandbox")
+	activeRealGit := filepath.Join(
+		root,
+		".coding-ethos",
+		"cache",
+		"agent-shell",
+		"run-1",
+		"real-git",
+	)
+	for _, path := range []string{repo, filepath.Dir(activeRealGit)} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatalf("create native probe test directory %s: %v", path, err)
+		}
+	}
+	writeExecutable(t, wrapper)
+	writeExecutable(t, activeRealGit)
+
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
+	t.Setenv("CODING_ETHOS_SANDBOX_ROOT", root)
+	t.Setenv("CODING_ETHOS_REAL_GIT", activeRealGit)
+
+	plan, err := sandbox.BuildPlan(sandbox.Request{
+		Tool:        "sandbox-probe",
+		Executable:  "/bin/sh",
+		WrapperPath: wrapper,
+		Cwd:         repo,
+		RepoRoot:    repo,
+		Args:        []string{"-c", "exit 0"},
+		Capabilities: sandbox.Capabilities{
+			SandboxProfile: "native-probe",
+			WritePaths:     []string{".coding-ethos/cache"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sandbox.BuildPlan() error = %v", err)
+	}
+	if plan.Executable != wrapper ||
+		plan.Evidence.Reason == "reusing active agent-shell sandbox" {
+		t.Fatalf("native validator probe reused active sandbox: %#v", plan)
 	}
 }
 

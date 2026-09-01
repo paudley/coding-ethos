@@ -6,8 +6,11 @@ package sandbox
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"blackcat.ca/coding-ethos/go/internal/sandboxexec"
 )
 
 func TestSafeCgroupNameSanitizesToolNames(t *testing.T) {
@@ -33,7 +36,7 @@ func TestWriteNativeProbeExecutableCreatesPrivateExecutable(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "probe")
-	err := writeNativeProbeExecutable(path, []byte("#!/bin/sh\nexit 0\n"))
+	err := writeNativeProbeExecutable(path, nil)
 	if err != nil {
 		t.Fatalf("writeNativeProbeExecutable() error = %v", err)
 	}
@@ -56,7 +59,7 @@ func TestNativeGitBindProbeCreatesExecutableFixtures(t *testing.T) {
 		t.Fatalf("nativeGitBindProbe() error = %v", err)
 	}
 
-	for _, path := range []string{files.policyGit, files.realGit, files.targetGit} {
+	for _, path := range []string{files.realGitBind, files.targetGit} {
 		info, statErr := os.Stat(path)
 		if statErr != nil {
 			t.Fatalf("stat native git probe fixture %s: %v", path, statErr)
@@ -64,17 +67,41 @@ func TestNativeGitBindProbeCreatesExecutableFixtures(t *testing.T) {
 		if info.Mode().Perm() != nativeProbeFileMode {
 			t.Fatalf("probe fixture mode for %s = %s", path, info.Mode().Perm())
 		}
+		if info.Size() != 0 {
+			t.Fatalf("probe fixture %s size = %d, want zero", path, info.Size())
+		}
 	}
 
-	info, statErr := os.Stat(files.realGitBind)
-	if statErr != nil {
-		t.Fatalf("stat real git bind fixture: %v", statErr)
+	command := exec.Command(files.targetGit, sandboxexec.NativeGitBindProbeMode)
+	command.Dir = repoRoot
+	if runErr := command.Run(); runErr == nil {
+		t.Fatal("unbound zero-byte git target unexpectedly executed")
 	}
-	if info.Mode().Perm() != nativeProbeFileMode {
+
+	wrapperMarker := filepath.Join(repoRoot, ".coding-ethos", "cache", "git-wrapper")
+	if _, statErr := os.Stat(wrapperMarker); !os.IsNotExist(statErr) {
+		t.Fatalf("unbound target emitted wrapper marker: %v", statErr)
+	}
+}
+
+func TestPrepareNativeProbeRepoCreatesPrivateWriteRoot(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	if err := prepareNativeProbeRepo(repoRoot); err != nil {
+		t.Fatalf("prepareNativeProbeRepo() error = %v", err)
+	}
+
+	writeRoot := filepath.Join(repoRoot, ".coding-ethos", "cache")
+	info, err := os.Stat(writeRoot)
+	if err != nil {
+		t.Fatalf("stat native probe write root: %v", err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != nativeProbeDirMode {
 		t.Fatalf(
-			"real git bind fixture mode = %s, want %o",
-			info.Mode().Perm(),
-			nativeProbeFileMode,
+			"native probe write root = %s, want private directory %o",
+			info.Mode(),
+			nativeProbeDirMode,
 		)
 	}
 }

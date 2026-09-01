@@ -4,7 +4,6 @@
 package main
 
 import (
-	"context"
 	"crypto/sha256"
 	"errors"
 	"flag"
@@ -25,7 +24,6 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/policy"
 	"blackcat.ca/coding-ethos/go/internal/repoignore"
-	"blackcat.ca/coding-ethos/go/internal/safeexec"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/toolconfigs"
 )
@@ -34,7 +32,9 @@ const (
 	parentCheckoutCodingEthos = "coding-ethos"
 	parentDefaultLintScope    = "full"
 	parentExecutableDirMode   = 0o755
+	parentManagedToolPrefix   = "coding-ethos-"
 	parentPolicyBundleDirMode = 0o755
+	parentCompatibilityHook   = "coding-ethos-git-hook"
 	parentStepFail            = "fail"
 	parentStepPass            = "pass"
 	parentWorkingTreeState    = "working_tree"
@@ -46,6 +46,7 @@ var (
 	errParentPathIsDirectory     = errors.New("path is a directory, want file")
 	errParentPathIsNotDirectory  = errors.New("path is not a directory, want directory")
 	errParentRootNotAbsolute     = errors.New("parent workflow root must be absolute")
+	errParentRuntimeUnsafeShape  = errors.New("parent hook runtime has an unsafe shape")
 	errParentSourceNotExecutable = errors.New(
 		"source executable is not a regular executable",
 	)
@@ -65,6 +66,23 @@ type parentWorkflowStep struct {
 	Detail string
 }
 
+type parentRuntimeExecutable struct {
+	Destination string
+	Label       string
+	Source      string
+}
+
+type parentRuntimeDirectory struct {
+	Expected map[string]struct{}
+	Path     string
+}
+
+type parentRuntimeEntry struct {
+	Name    string
+	Path    string
+	Regular bool
+}
+
 func runParentInstall(paths runtimePaths, rest []string) error {
 	options, err := parseParentWorkflowFlags(paths, "parent-install", rest)
 	if err != nil {
@@ -74,6 +92,26 @@ func runParentInstall(paths runtimePaths, rest []string) error {
 	steps := syncParentArtifacts(paths, options)
 	printParentWorkflowReport(
 		"parent-install",
+		parentStepStatus(steps),
+		options.Repo,
+		steps,
+	)
+	exitForFailedParentSteps(steps)
+
+	return nil
+}
+
+func runParentRuntimeSync(paths runtimePaths, rest []string) error {
+	options, err := parseParentWorkflowFlags(paths, "parent-runtime-sync", rest)
+	if err != nil {
+		return err
+	}
+
+	steps := []parentWorkflowStep{runParentStep("hook_runtime", func() error {
+		return syncParentHookRuntimeExecutables(paths, options)
+	})}
+	printParentWorkflowReport(
+		"parent-runtime-sync",
 		parentStepStatus(steps),
 		options.Repo,
 		steps,
@@ -240,9 +278,14 @@ func syncParentArtifacts(
 	options parentWorkflowOptions,
 ) []parentWorkflowStep {
 	steps := []parentWorkflowStep{}
+
 	steps = append(steps, runParentStep("go_tools", func() error {
-		return rebuildParentGoTools(paths)
+		return checkParentGoTools(paths)
 	}))
+	if parentStepStatus(steps) != parentStepPass {
+		return steps
+	}
+
 	steps = append(steps, runParentStep("hook_runtime", func() error {
 		return syncParentHookRuntimeExecutables(paths, options)
 	}))
@@ -301,7 +344,7 @@ func checkParentArtifacts(
 ) []parentWorkflowStep {
 	steps := []parentWorkflowStep{}
 	steps = append(steps, runParentStep("go_tools", func() error {
-		return checkParentGoTools(paths, options)
+		return checkParentGoTools(paths)
 	}))
 	steps = append(steps, runParentStep("hook_runtime", func() error {
 		return checkParentHookRuntimeExecutables(paths, options)
@@ -428,10 +471,13 @@ func parentGitCommonDir(paths runtimePaths, repo string) string {
 }
 
 func parentHookRuntimeBinDir(paths runtimePaths, options parentWorkflowOptions) string {
+	return filepath.Join(parentHookRuntimeDir(paths, options), "bin")
+}
+
+func parentHookRuntimeDir(paths runtimePaths, options parentWorkflowOptions) string {
 	return filepath.Join(
 		parentGitCommonDir(paths, options.Repo),
 		"coding-ethos-hooks",
-		"bin",
 	)
 }
 
@@ -439,39 +485,206 @@ func syncParentHookRuntimeExecutables(
 	paths runtimePaths,
 	options parentWorkflowOptions,
 ) error {
-	tools, err := parentGoToolCommands(paths)
+	projections, directories, err := parentHookRuntimeProjection(paths, options)
 	if err != nil {
 		return err
 	}
 
-	runtimeBin := parentHookRuntimeBinDir(paths, options)
-
-	err = os.MkdirAll(runtimeBin, parentExecutableDirMode)
+	err = ensureParentHookRuntimeDirectories(directories)
 	if err != nil {
-		return fmt.Errorf("create parent hook runtime bin dir: %w", err)
+		return err
 	}
 
-	for _, tool := range tools {
-		source := filepath.Join(paths.BinDir, tool)
-		destination := filepath.Join(runtimeBin, tool)
+	err = validateParentHookRuntimeProjections(projections)
+	if err != nil {
+		return err
+	}
 
-		err = installParentHookRuntimeExecutable(source, destination)
+	err = pruneUnexpectedParentRuntimeExecutables(directories)
+	if err != nil {
+		return err
+	}
+
+	return installParentHookRuntimeProjections(projections)
+}
+
+func ensureParentHookRuntimeDirectories(directories []parentRuntimeDirectory) error {
+	for _, directory := range directories {
+		err := ensureParentHookRuntimeDirectory(directory.Path)
 		if err != nil {
-			return fmt.Errorf("install parent hook runtime %s: %w", tool, err)
+			return err
 		}
 	}
 
 	return nil
 }
 
-func installParentHookRuntimeExecutable(source, destination string) error {
-	info, err := os.Lstat(source)
-	if err != nil {
-		return fmt.Errorf("stat source executable %s: %w", source, err)
+func validateParentHookRuntimeProjections(projections []parentRuntimeExecutable) error {
+	for _, projection := range projections {
+		_, err := parentRuntimeSourceInfo(projection.Source)
+		if err != nil {
+			return fmt.Errorf("validate parent hook runtime %s: %w", projection.Label, err)
+		}
+
+		err = validateParentHookRuntimeDestination(projection.Destination)
+		if err != nil {
+			return fmt.Errorf("validate parent hook runtime %s: %w", projection.Label, err)
+		}
 	}
 
-	if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
-		return fmt.Errorf("%w: %s", errParentSourceNotExecutable, source)
+	return nil
+}
+
+func pruneUnexpectedParentRuntimeExecutables(
+	directories []parentRuntimeDirectory,
+) error {
+	for _, directory := range directories {
+		entries, err := unexpectedParentRuntimeExecutables(directory)
+		if err != nil {
+			return err
+		}
+
+		for _, entry := range entries {
+			if !entry.Regular {
+				return fmt.Errorf("%w: %s", errParentRuntimeUnsafeShape, entry.Path)
+			}
+		}
+
+		for _, entry := range entries {
+			err = os.Remove(entry.Path)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("prune stale parent runtime %s: %w", entry.Path, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func installParentHookRuntimeProjections(projections []parentRuntimeExecutable) error {
+	for _, projection := range projections {
+		err := installParentHookRuntimeExecutable(
+			projection.Source,
+			projection.Destination,
+		)
+		if err != nil {
+			return fmt.Errorf("install parent hook runtime %s: %w", projection.Label, err)
+		}
+	}
+
+	return nil
+}
+
+func parentHookRuntimeProjection(
+	paths runtimePaths,
+	options parentWorkflowOptions,
+) ([]parentRuntimeExecutable, []parentRuntimeDirectory, error) {
+	tools, err := parentGoToolCommands(paths)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	runtimeDir := parentHookRuntimeDir(paths, options)
+	runtimeBin := filepath.Join(runtimeDir, "bin")
+	binNames := make(map[string]struct{}, len(tools))
+	projections := make([]parentRuntimeExecutable, 0, len(tools)+1)
+
+	for _, tool := range tools {
+		binNames[tool] = struct{}{}
+		projections = append(projections, parentRuntimeExecutable{
+			Destination: filepath.Join(runtimeBin, tool),
+			Label:       tool,
+			Source:      filepath.Join(paths.BinDir, tool),
+		})
+	}
+
+	projections = append(projections, parentRuntimeExecutable{
+		Destination: filepath.Join(runtimeDir, parentCompatibilityHook),
+		Label:       parentCompatibilityHook + "@compat",
+		Source:      filepath.Join(paths.BinDir, parentCompatibilityHook),
+	})
+
+	return projections, []parentRuntimeDirectory{
+		{Path: runtimeDir, Expected: map[string]struct{}{parentCompatibilityHook: {}}},
+		{Path: runtimeBin, Expected: binNames},
+	}, nil
+}
+
+func ensureParentHookRuntimeDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		err = os.MkdirAll(path, parentExecutableDirMode)
+		if err != nil {
+			return fmt.Errorf("create parent hook runtime directory %s: %w", path, err)
+		}
+
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("stat parent hook runtime directory %s: %w", path, err)
+	}
+
+	if !info.IsDir() {
+		return fmt.Errorf("%w: %s", errParentRuntimeUnsafeShape, path)
+	}
+
+	return nil
+}
+
+func unexpectedParentRuntimeExecutables(
+	directory parentRuntimeDirectory,
+) ([]parentRuntimeEntry, error) {
+	entries, err := os.ReadDir(directory.Path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf(
+			"read parent hook runtime directory %s: %w",
+			directory.Path,
+			err,
+		)
+	}
+
+	unexpected := []parentRuntimeEntry{}
+
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), parentManagedToolPrefix) {
+			continue
+		}
+
+		if _, found := directory.Expected[entry.Name()]; found {
+			continue
+		}
+
+		path := filepath.Join(directory.Path, entry.Name())
+
+		info, statErr := os.Lstat(path)
+		if statErr != nil {
+			return nil, fmt.Errorf("stat stale parent runtime %s: %w", path, statErr)
+		}
+
+		unexpected = append(unexpected, parentRuntimeEntry{
+			Name:    entry.Name(),
+			Path:    path,
+			Regular: info.Mode().IsRegular(),
+		})
+	}
+
+	return unexpected, nil
+}
+
+func installParentHookRuntimeExecutable(source, destination string) error {
+	info, err := parentRuntimeSourceInfo(source)
+	if err != nil {
+		return err
+	}
+
+	err = validateParentHookRuntimeDestination(destination)
+	if err != nil {
+		return err
 	}
 
 	input, err := os.Open(source)
@@ -523,29 +736,76 @@ func installParentHookRuntimeExecutable(source, destination string) error {
 	return nil
 }
 
+func parentRuntimeSourceInfo(source string) (fs.FileInfo, error) {
+	info, err := os.Lstat(source)
+	if err != nil {
+		return nil, fmt.Errorf("stat source executable %s: %w", source, err)
+	}
+
+	if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		return nil, fmt.Errorf("%w: %s", errParentSourceNotExecutable, source)
+	}
+
+	return info, nil
+}
+
+func validateParentHookRuntimeDestination(destination string) error {
+	info, err := os.Lstat(destination)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("stat installed executable %s: %w", destination, err)
+	}
+
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: %s", errParentRuntimeUnsafeShape, destination)
+	}
+
+	return nil
+}
+
 func checkParentHookRuntimeExecutables(
 	paths runtimePaths,
 	options parentWorkflowOptions,
 ) error {
-	tools, err := parentGoToolCommands(paths)
+	projections, directories, err := parentHookRuntimeProjection(paths, options)
 	if err != nil {
 		return err
 	}
 
-	runtimeBin := parentHookRuntimeBinDir(paths, options)
 	mismatched := []string{}
 
-	for _, tool := range tools {
-		source := filepath.Join(paths.BinDir, tool)
-		destination := filepath.Join(runtimeBin, tool)
+	for _, projection := range projections {
+		status, compareErr := compareParentHookRuntimeExecutable(
+			projection.Source,
+			projection.Destination,
+		)
 
-		status, err := compareParentHookRuntimeExecutable(source, destination)
+		err = compareErr
 		if err != nil {
-			return fmt.Errorf("check parent hook runtime %s: %w", tool, err)
+			return fmt.Errorf("check parent hook runtime %s: %w", projection.Label, err)
 		}
 
 		if status != "" {
-			mismatched = append(mismatched, tool+"("+status+")")
+			mismatched = append(mismatched, projection.Label+"("+status+")")
+		}
+	}
+
+	for _, directory := range directories {
+		entries, listErr := unexpectedParentRuntimeExecutables(directory)
+		if listErr != nil {
+			return listErr
+		}
+
+		for _, entry := range entries {
+			status := "stale"
+			if !entry.Regular {
+				status = "unsafe_shape"
+			}
+
+			mismatched = append(mismatched, entry.Name+"("+status+")")
 		}
 	}
 
@@ -563,30 +823,22 @@ func checkParentHookRuntimeExecutables(
 }
 
 func compareParentHookRuntimeExecutable(source, destination string) (string, error) {
-	sourceInfo, err := os.Lstat(source)
+	sourceInfo, err := parentRuntimeSourceInfo(source)
 	if err != nil {
-		return "", fmt.Errorf("stat source executable %s: %w", source, err)
+		return "", err
 	}
 
-	if !sourceInfo.Mode().IsRegular() || sourceInfo.Mode()&0o111 == 0 {
-		return "", fmt.Errorf("%w: %s", errParentSourceNotExecutable, source)
-	}
-
-	destinationInfo, err := os.Lstat(destination)
-	if errors.Is(err, os.ErrNotExist) {
-		return "missing", nil
-	}
-
+	destinationInfo, status, err := parentRuntimeDestinationInfo(destination)
 	if err != nil {
-		return "", fmt.Errorf("stat installed executable %s: %w", destination, err)
+		return "", err
 	}
 
-	if !destinationInfo.Mode().IsRegular() {
-		return "not_regular", nil
+	if status != "" {
+		return status, nil
 	}
 
-	if destinationInfo.Mode()&0o111 == 0 {
-		return "not_executable", nil
+	if sourceInfo.Mode().Perm() != destinationInfo.Mode().Perm() {
+		return "mode", nil
 	}
 
 	if sourceInfo.Size() != destinationInfo.Size() {
@@ -608,6 +860,27 @@ func compareParentHookRuntimeExecutable(source, destination string) (string, err
 	}
 
 	return "", nil
+}
+
+func parentRuntimeDestinationInfo(destination string) (fs.FileInfo, string, error) {
+	info, err := os.Lstat(destination)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, "missing", nil
+	}
+
+	if err != nil {
+		return nil, "", fmt.Errorf("stat installed executable %s: %w", destination, err)
+	}
+
+	if !info.Mode().IsRegular() {
+		return nil, "not_regular", nil
+	}
+
+	if info.Mode()&0o111 == 0 {
+		return nil, "not_executable", nil
+	}
+
+	return info, "", nil
 }
 
 func parentFileSHA256(path string) ([sha256.Size]byte, error) {
@@ -799,89 +1072,7 @@ func firstNonEmptyPath(values ...string) string {
 	return ""
 }
 
-func rebuildParentGoTools(paths runtimePaths) error {
-	err := requireParentGoToolsSource(paths)
-	if err != nil {
-		return err
-	}
-
-	err = os.MkdirAll(paths.BinDir, parentExecutableDirMode)
-	if err != nil {
-		return fmt.Errorf("create Go tool bin dir: %w", err)
-	}
-
-	tools, err := parentGoToolCommands(paths)
-	if err != nil {
-		return err
-	}
-
-	for _, tool := range tools {
-		err = buildParentGoTool(paths, tool)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func buildParentGoTool(paths runtimePaths, tool string) error {
-	outputPath := filepath.Join(paths.BinDir, tool)
-
-	tempFile, err := os.CreateTemp(paths.BinDir, "."+tool+"-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary binary for %s: %w", tool, err)
-	}
-
-	tempPath := tempFile.Name()
-
-	err = tempFile.Close()
-	if err != nil {
-		return fmt.Errorf("close temporary binary for %s: %w", tool, err)
-	}
-
-	err = os.Remove(tempPath)
-	if err != nil {
-		return fmt.Errorf("prepare temporary binary for %s: %w", tool, err)
-	}
-
-	defer func() {
-		_ = os.Remove(tempPath)
-	}()
-
-	command := safeexec.CommandContext(
-		context.Background(),
-		"go",
-		"build",
-		"-trimpath",
-		"-buildvcs=false",
-		"-o",
-		tempPath,
-		"./cmd/"+tool,
-	)
-	command.Dir = paths.ToolsSource
-
-	command.Env = append(os.Environ(), "GOWORK=off")
-
-	output, err := command.CombinedOutput()
-	if err != nil {
-		detail := strings.TrimSpace(string(output))
-		if detail != "" {
-			return fmt.Errorf("build %s: %w: %s", tool, err, detail)
-		}
-
-		return fmt.Errorf("build %s: %w", tool, err)
-	}
-
-	err = os.Rename(tempPath, outputPath)
-	if err != nil {
-		return fmt.Errorf("install %s: %w", tool, err)
-	}
-
-	return nil
-}
-
-func checkParentGoTools(paths runtimePaths, options parentWorkflowOptions) error {
+func checkParentGoTools(paths runtimePaths) error {
 	err := requireParentGoToolsSource(paths)
 	if err != nil {
 		return err
@@ -925,9 +1116,9 @@ func checkParentGoTools(paths runtimePaths, options parentWorkflowOptions) error
 	}
 
 	return fmt.Errorf(
-		"%w: run %s; tools: %s",
+		"%w: run `make build` in %s before parent workflows; tools: %s",
 		errParentGoToolsStale,
-		parentInstallCommand(options),
+		paths.EthosRoot,
 		strings.Join(stale, " "),
 	)
 }

@@ -31,6 +31,9 @@ const (
 	artifactStatusPlanned     = "planned"
 	artifactStatusUnchanged   = "unchanged"
 	artifactStatusWouldUpdate = "would_update"
+	artifactPlanNone          = "none"
+	artifactPlanRepair        = "repair"
+	artifactPlanWrite         = "write"
 	sourceStatusCurrent       = "current"
 	sourceStatusMissing       = "missing"
 	sourceStatusStale         = "stale"
@@ -399,19 +402,19 @@ func artifactReports(
 		switch {
 		case err != nil:
 			report.Status = artifactStatusMissing
-			report.Plan = "write"
+			report.Plan = artifactPlanWrite
 		case actual == artifact.ExpectedSHA256:
 			report.ActualSHA256 = actual
 			report.Status = artifactStatusUnchanged
-			report.Plan = "none"
+			report.Plan = artifactPlanNone
 		case dryRun:
 			report.ActualSHA256 = actual
 			report.Status = artifactStatusWouldUpdate
-			report.Plan = "write"
+			report.Plan = artifactPlanWrite
 		default:
 			report.ActualSHA256 = actual
 			report.Status = artifactStatusDrifted
-			report.Plan = "repair"
+			report.Plan = artifactPlanRepair
 		}
 
 		reports = append(reports, report)
@@ -474,7 +477,7 @@ func plannedWriteCount(artifacts []ArtifactReport) int {
 	count := 0
 
 	for _, artifact := range artifacts {
-		if artifact.Plan == "write" || artifact.Plan == "repair" {
+		if artifact.Plan == artifactPlanWrite || artifact.Plan == artifactPlanRepair {
 			count++
 		}
 	}

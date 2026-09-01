@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
@@ -259,6 +260,17 @@ func loadHookSettings() hookSettings {
 
 	if settings.ToolTimeoutSeconds <= 0 {
 		settings.ToolTimeoutSeconds = defaultHookSettings().ToolTimeoutSeconds
+	}
+
+	if settings.ToolTimeoutSeconds > maxToolTimeoutSecs {
+		settings.ConfigError = fmt.Sprintf(
+			"hooks.tool_timeout_seconds must not exceed %d seconds; "+
+				"a hook longer than %s is a critical failure",
+			maxToolTimeoutSecs,
+			time.Duration(maxToolTimeoutSecs)*time.Second,
+		)
+
+		return settings
 	}
 
 	if len(settings.FailSeverityLevels) == 0 {

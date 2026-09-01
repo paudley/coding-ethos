@@ -30,8 +30,8 @@ def test_agent_skill_sync_is_not_user_facing() -> None:
         in makefile
     )
     assert (
-        "_sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install\n"
-        in makefile
+        "_sync-parent-hook-runtime: ensure-go go-tools-install "
+        "go-hook-runner-install policy-bundle-install\n" in makefile
     )
     for target in (
         "_sync-agent-skills",

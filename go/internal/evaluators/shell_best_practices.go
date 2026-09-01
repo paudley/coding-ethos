@@ -46,6 +46,17 @@ func EvaluateShellBestPractices(
 		return nil, nil
 	}
 
+	shellFiles := make([]string, 0, len(context.Files))
+	for _, file := range context.Files {
+		if looksLikeShellFile(file) {
+			shellFiles = append(shellFiles, file)
+		}
+	}
+
+	if len(shellFiles) == 0 {
+		return nil, nil
+	}
+
 	requireCommon := stringSliceOption(
 		context.EvaluatorOptions,
 		"require_common_for_prefixes",
@@ -64,11 +75,7 @@ func EvaluateShellBestPractices(
 		requireCommon = nil
 	}
 
-	for _, file := range context.Files {
-		if !looksLikeShellFile(file) {
-			continue
-		}
-
+	for _, file := range shellFiles {
 		text, binary, err := readShellText(file)
 		if err != nil {
 			return nil, err
@@ -97,8 +104,16 @@ func repositoryHasTrackedCommonShellHelper(
 		return false, errShellHelperWorkingDirectoryRequired
 	}
 
+	repositoryRoot, err := gitWorktreeRoot(cwd)
+	if err != nil {
+		return false, fmt.Errorf(
+			"resolve repository root for common shell helpers: %w",
+			err,
+		)
+	}
+
 	helperPaths, err := configuredCommonShellHelperPaths(
-		cwd,
+		repositoryRoot,
 		requireCommonForPrefixes,
 	)
 	if err != nil {
@@ -114,7 +129,7 @@ func repositoryHasTrackedCommonShellHelper(
 		args = append(args, ":(literal)"+helperPath)
 	}
 
-	output, err := GitCommand(cwd, args...).CombinedOutput()
+	output, err := GitCommand(repositoryRoot, args...).CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf(
 			"inspect tracked common shell helpers with git ls-files: %w: %s",

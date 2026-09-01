@@ -59,8 +59,6 @@ func refreshCapturedToolCodeIntel(root, tracePath string, changedFiles []string)
 		emitManagedCaptureText(
 			"warning: captured lint trace not ingested into code-intel: " + err.Error(),
 		)
-
-		return
 	}
 
 	if len(changedFiles) == 0 {

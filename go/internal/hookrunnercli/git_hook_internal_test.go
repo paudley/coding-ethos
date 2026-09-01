@@ -103,6 +103,38 @@ func TestPushedFilesParsesPrePushRefs(t *testing.T) {
 	}
 }
 
+func TestPushedCodeIntelFilesIncludesDeletionRenameSidesAndNewlines(t *testing.T) {
+	root := setupGitHookTestRepo(t)
+	chdirForTest(t, root)
+	mustWriteTestFile(t, "old.py", "OLD = 1\n")
+	mustWriteTestFile(t, "removed.py", "REMOVED = 1\n")
+	mustWriteTestFile(t, "line\nbreak.py", "ODD = 1\n")
+	runGitTestCommand(t, "add", "old.py", "removed.py", "line\nbreak.py")
+	runGitTestCommand(t, "commit", "-m", "test: base")
+	remoteSHA := gitTestOutput(t, "rev-parse", "HEAD")
+
+	runGitTestCommand(t, "mv", "old.py", "new.py")
+	runGitTestCommand(t, "rm", "removed.py")
+	mustWriteTestFile(t, "line\nbreak.py", "ODD = 2\n")
+	runGitTestCommand(t, "add", "line\nbreak.py")
+	runGitTestCommand(t, "commit", "-m", "test: rename and delete")
+	localSHA := gitTestOutput(t, "rev-parse", "HEAD")
+
+	input := strings.NewReader(
+		"refs/heads/main " + localSHA + " refs/heads/main " + remoteSHA + "\n",
+	)
+	files, err := pushedCodeIntelFiles(input, "")
+	if err != nil {
+		t.Fatalf("pushedCodeIntelFiles() returned error: %v", err)
+	}
+
+	for _, want := range []string{"line\nbreak.py", "new.py", "old.py", "removed.py"} {
+		if !slices.Contains(files, want) {
+			t.Fatalf("pushed code-intel files = %#v, missing %q", files, want)
+		}
+	}
+}
+
 func TestPushedFilesHandlesNewBranchAndDeleteRefs(t *testing.T) {
 	root := setupGitHookTestRepo(t)
 	chdirForTest(t, root)
@@ -358,6 +390,34 @@ hooks:
 		"hooks.enabled_groups has been removed",
 		"hook groups are policy-owned",
 	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestGitHooksRejectTimeoutsBeyondCriticalCeiling(t *testing.T) {
+	tempDir := setupGitHookTestRepo(t)
+	t.Chdir(tempDir)
+	t.Setenv("CODING_ETHOS_REAL_GIT", "")
+	t.Setenv(consumerRootEnv, tempDir)
+	bundleRoot := writeTestBundleRoot(t, tempDir)
+	t.Setenv(precommitRootEnv, bundleRoot)
+
+	overridePath := filepath.Join(tempDir, "repo_config.yaml")
+	mustWriteTestFile(
+		t,
+		overridePath,
+		"hooks:\n  tool_timeout_seconds: 601\n",
+	)
+	t.Setenv(configEnv, overridePath)
+
+	stderr := captureStderr(t, func() {
+		if got := runPreCommitHook(Config{}, nil); got != 1 {
+			t.Fatalf("runPreCommitHook() = %d, want 1", got)
+		}
+	})
+	for _, want := range []string{"must not exceed 600 seconds", "10m0s", "critical failure"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr missing %q:\n%s", want, stderr)
 		}

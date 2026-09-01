@@ -106,6 +106,7 @@ func runCommandEntries() []runCommandEntry {
 		{Command: "policy-tool-group", Handler: runPolicyToolGroup},
 		{Command: "policy-git", Handler: runPolicyGitHandler},
 		{Command: "parent-install", Handler: runParentInstall},
+		{Command: "parent-runtime-sync", Handler: runParentRuntimeSync},
 		{Command: "parent-check", Handler: runParentCheck},
 		{Command: "parent-lint", Handler: runParentLint},
 		{Command: "runtime-policy", Handler: runRuntimePolicy},
@@ -163,6 +164,10 @@ func runHelpMessage() feedback.Message {
 					{
 						"runtime-policy sync|check --repo <path>",
 						"Manage only the consumer-scoped hook policy bundle.",
+					},
+					{
+						"parent-runtime-sync --repo <path>",
+						"Project prebuilt hook executables into a consumer Git runtime.",
 					},
 					{"git-hook", "Git hook entrypoint; not for manual lint."},
 				},
@@ -1008,10 +1013,20 @@ func runAgentHooksCommand(paths runtimePaths, rest []string) {
 }
 
 func runPolicyTool(paths runtimePaths, rest []string) error {
+	parentExecutable := ""
+
+	resolvedParent, err := os.Readlink(
+		filepath.Join("/proc", strconv.Itoa(os.Getppid()), "exe"),
+	)
+	if err == nil {
+		parentExecutable = resolvedParent
+	}
+
 	return runPolicyToolForProtocol(
 		paths,
 		rest,
 		os.Getenv(toolprotocol.ActionlintShellcheckEnv),
+		parentExecutable,
 	)
 }
 
@@ -1019,6 +1034,7 @@ func runPolicyToolForProtocol(
 	paths runtimePaths,
 	rest []string,
 	protocolMarker string,
+	parentExecutable string,
 ) error {
 	if len(rest) == 0 {
 		return apperror.StaticError("policy-tool requires a tool name")
@@ -1031,6 +1047,12 @@ func runPolicyToolForProtocol(
 		rest[0],
 		rest[1:],
 	) {
+		if !managedActionlintParent(paths, parentExecutable) {
+			return apperror.StaticError(
+				"actionlint ShellCheck protocol requires the managed actionlint parent",
+			)
+		}
+
 		tool, found := toolcatalog.HookOwnedTool("shellcheck")
 		if !found {
 			return apperror.StaticError("managed shellcheck tool is not registered")
@@ -1046,6 +1068,29 @@ func runPolicyToolForProtocol(
 	runtimeExecLint(paths, policyToolLintArgs(paths, rest[0], rest[1:])...)
 
 	return nil
+}
+
+func managedActionlintParent(paths runtimePaths, parentExecutable string) bool {
+	tool, found := toolcatalog.HookOwnedTool(toolprotocol.ActionlintTool)
+	if !found || strings.TrimSpace(parentExecutable) == "" {
+		return false
+	}
+
+	expected := tool.ManagedExecutablePath(paths.EthosRoot)
+
+	expectedInfo, err := os.Lstat(expected)
+	if err != nil || !expectedInfo.Mode().IsRegular() ||
+		expectedInfo.Mode()&0o111 == 0 {
+		return false
+	}
+
+	parentInfo, err := os.Stat(parentExecutable)
+	if err != nil || !parentInfo.Mode().IsRegular() ||
+		parentInfo.Mode()&0o111 == 0 {
+		return false
+	}
+
+	return os.SameFile(expectedInfo, parentInfo)
 }
 
 func runMCP(paths runtimePaths, rest []string) {

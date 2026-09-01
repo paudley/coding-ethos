@@ -5,6 +5,8 @@ package managedcapture
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,8 +36,9 @@ type sandboxCacheEnvironment struct {
 	// sandbox without network access, and an installation away from its
 	// default path is invisible to a command that inherits no environment —
 	// cargo is on PATH, runs, and reports no toolchain.
-	CargoHome  string
-	RustupHome string
+	CargoHome            string
+	RustupHome           string
+	UVProjectEnvironment string
 	// Trailing so the single bool pads the struct once rather than splitting
 	// the string fields around it.
 	CleanupTemp bool
@@ -109,20 +112,21 @@ func (environment sandboxCacheEnvironment) items() []string {
 
 func (environment sandboxCacheEnvironment) value(name string) string {
 	return map[string]string{
-		"TMPDIR":              environment.TempDir,
-		"XDG_RUNTIME_DIR":     environment.RuntimeDir,
-		"GOCACHE":             environment.GoCache,
-		"GOPATH":              environment.GoPath,
-		"GOMODCACHE":          environment.GoModCache,
-		"GOLANGCI_LINT_CACHE": environment.GolangCILintDir,
-		"GOROOT":              environment.GoRoot,
-		"CGO_ENABLED":         environment.CGOEnabled,
-		"CC":                  environment.CC,
-		"COMPILER_PATH":       environment.CompilerPath,
-		"AS":                  environment.Assembler,
-		"CARGO_HOME":          environment.CargoHome,
-		"RUSTUP_HOME":         environment.RustupHome,
-		evaluators.RealGitEnv: environment.RealGit,
+		"TMPDIR":                 environment.TempDir,
+		"XDG_RUNTIME_DIR":        environment.RuntimeDir,
+		"GOCACHE":                environment.GoCache,
+		"GOPATH":                 environment.GoPath,
+		"GOMODCACHE":             environment.GoModCache,
+		"GOLANGCI_LINT_CACHE":    environment.GolangCILintDir,
+		"GOROOT":                 environment.GoRoot,
+		"CGO_ENABLED":            environment.CGOEnabled,
+		"CC":                     environment.CC,
+		"COMPILER_PATH":          environment.CompilerPath,
+		"AS":                     environment.Assembler,
+		"CARGO_HOME":             environment.CargoHome,
+		"RUSTUP_HOME":            environment.RustupHome,
+		"UV_PROJECT_ENVIRONMENT": environment.UVProjectEnvironment,
+		evaluators.RealGitEnv:    environment.RealGit,
 	}[name]
 }
 
@@ -141,6 +145,7 @@ func (environment sandboxCacheEnvironment) names() []string {
 		"AS",
 		"CARGO_HOME",
 		"RUSTUP_HOME",
+		"UV_PROJECT_ENVIRONMENT",
 		evaluators.RealGitEnv,
 	}
 }
@@ -200,24 +205,63 @@ func sandboxCacheEnv(
 
 	cargoHome, rustupHome := rustHomes()
 
+	uvProjectEnvironment, err := sandboxUVProjectEnvironment(root, request)
+	if err != nil {
+		return sandboxCacheEnvironment{}, err
+	}
+
 	return sandboxCacheEnvironment{
-		TempDir:         tempDir,
-		RuntimeDir:      runtimeDir,
-		CleanupTemp:     cleanupTemp,
-		GoCache:         goCaches.Cache,
-		GoPath:          goCaches.Path,
-		GoModCache:      goCaches.ModCache,
-		GolangCILintDir: goCaches.GolangCILint,
-		GoRoot:          managedGoRoot(ctx),
-		CGOEnabled:      "1",
-		CC:              cCompiler,
-		CompilerPath:    managedCompilerPath(cCompiler, assembler),
-		Assembler:       assembler,
-		RealGit:         realGit,
-		PathPrefix:      pathPrefix,
-		CargoHome:       cargoHome,
-		RustupHome:      rustupHome,
+		TempDir:              tempDir,
+		RuntimeDir:           runtimeDir,
+		CleanupTemp:          cleanupTemp,
+		GoCache:              goCaches.Cache,
+		GoPath:               goCaches.Path,
+		GoModCache:           goCaches.ModCache,
+		GolangCILintDir:      goCaches.GolangCILint,
+		GoRoot:               managedGoRoot(ctx),
+		CGOEnabled:           "1",
+		CC:                   cCompiler,
+		CompilerPath:         managedCompilerPath(cCompiler, assembler),
+		Assembler:            assembler,
+		RealGit:              realGit,
+		PathPrefix:           pathPrefix,
+		CargoHome:            cargoHome,
+		RustupHome:           rustupHome,
+		UVProjectEnvironment: uvProjectEnvironment,
 	}, nil
+}
+
+func sandboxUVProjectEnvironment(root string, request captureRequest) (string, error) {
+	project := strings.TrimSpace(request.UVProject)
+	if project == "" {
+		return "", nil
+	}
+
+	canonical, err := filepath.Abs(project)
+	if err != nil {
+		return "", fmt.Errorf("resolve uv project path %s: %w", project, err)
+	}
+
+	canonical, err = filepath.EvalSymlinks(canonical)
+	if err != nil {
+		return "", fmt.Errorf("resolve uv project symlinks %s: %w", project, err)
+	}
+
+	digest := sha256.Sum256([]byte(canonical))
+	environment := filepath.Join(
+		root,
+		".coding-ethos",
+		"cache",
+		"uv-project-env",
+		hex.EncodeToString(digest[:]),
+	)
+
+	err = makeSandboxDir(environment, "UV project environment")
+	if err != nil {
+		return "", err
+	}
+
+	return environment, nil
 }
 
 func prepareSandboxGoCachePaths(root string) (sandboxGoCachePaths, error) {

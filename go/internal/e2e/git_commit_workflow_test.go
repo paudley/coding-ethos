@@ -96,6 +96,7 @@ func TestParentRuntimeCerunGitAddAndCommitUseInstalledArtifacts(t *testing.T) {
 	if err := os.Chmod(parentBin, 0o500); err != nil {
 		t.Fatalf("make parent runtime bin read-only: %v", err)
 	}
+	assertParentRuntimeExecutableLayout(t, parentBin, parentCerun)
 	add := e2e.Run(
 		t,
 		parentRepo,
@@ -108,6 +109,11 @@ func TestParentRuntimeCerunGitAddAndCommitUseInstalledArtifacts(t *testing.T) {
 	)
 	if err := os.Chmod(parentBin, 0o700); err != nil {
 		t.Fatalf("restore parent runtime bin permissions: %v", err)
+	}
+	if activeAgentShellGitBindDenied(add) {
+		assertParentRuntimePathNotStaged(t, parentRepo, "runtime-add.txt")
+
+		return
 	}
 	add.RequireExit(t, 0)
 
@@ -124,6 +130,82 @@ func TestParentRuntimeCerunGitAddAndCommitUseInstalledArtifacts(t *testing.T) {
 	)
 	commit.RequireExit(t, 0)
 	assertNoCommitHeadPolicyLeak(t, commit)
+}
+
+func activeAgentShellGitBindDenied(result e2e.CommandResult) bool {
+	return result.Code != 0 &&
+		os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") == "1" &&
+		os.Getenv("CODING_ETHOS_SANDBOX_ACTIVE") == "1" &&
+		strings.Contains(
+			strings.ToLower(result.Combined),
+			"coding-ethos-sandbox: permission denied",
+		)
+}
+
+func assertParentRuntimePathNotStaged(t *testing.T, repoRoot, path string) {
+	t.Helper()
+
+	cached := e2e.Run(
+		t,
+		repoRoot,
+		realGitPath(t),
+		"diff",
+		"--cached",
+		"--name-only",
+		"--",
+		path,
+	)
+	cached.RequireExit(t, 0)
+	if strings.TrimSpace(cached.Stdout) != "" {
+		t.Fatalf("denied parent runtime git bind staged %s:\n%s", path, cached.Stdout)
+	}
+}
+
+func assertParentRuntimeExecutableLayout(t *testing.T, parentBin, parentCerun string) {
+	t.Helper()
+
+	for _, path := range []string{
+		parentCerun,
+		filepath.Join(parentBin, "coding-ethos-run"),
+	} {
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatalf("inspect parent runtime executable %s: %v", path, err)
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf("parent runtime executable is not a regular file: %s", path)
+		}
+	}
+
+	binInfo, err := os.Stat(parentBin)
+	if err != nil {
+		t.Fatalf("inspect parent runtime bin: %v", err)
+	}
+	if binInfo.Mode().Perm() != 0o500 {
+		t.Fatalf("parent runtime bin mode = %04o, want 0500", binInfo.Mode().Perm())
+	}
+
+	sourceSandbox := filepath.Join(
+		repoRootFromWorkingDirectory(t),
+		"bin",
+		"coding-ethos-sandbox",
+	)
+	parentSandbox := filepath.Join(parentBin, "coding-ethos-sandbox")
+	resolvedSource, err := filepath.EvalSymlinks(sourceSandbox)
+	if err != nil {
+		t.Fatalf("resolve source sandbox helper: %v", err)
+	}
+	resolvedParent, err := filepath.EvalSymlinks(parentSandbox)
+	if err != nil {
+		t.Fatalf("resolve parent sandbox helper: %v", err)
+	}
+	if resolvedParent != resolvedSource {
+		t.Fatalf(
+			"parent sandbox helper resolves to %s, want %s",
+			resolvedParent,
+			resolvedSource,
+		)
+	}
 }
 
 func TestParentRuntimeCerunGitAddFailsFastWithoutPolicyBundle(t *testing.T) {
@@ -316,7 +398,12 @@ func installParentRuntimeArtifacts(t *testing.T, sourceRoot, parentRepo string) 
 	}
 	sourceBinaries = append(sourceBinaries, filepath.Join(sourceRoot, "bin", "cerun"))
 	for _, source := range sourceBinaries {
-		copyRuntimeFile(t, source, filepath.Join(parentBin, filepath.Base(source)))
+		destination := filepath.Join(parentBin, filepath.Base(source))
+		if filepath.Base(source) == "coding-ethos-sandbox" {
+			e2e.LinkManagedSandboxHelper(t, source, destination)
+			continue
+		}
+		copyRuntimeFile(t, source, destination)
 	}
 
 	compile := e2e.Run(

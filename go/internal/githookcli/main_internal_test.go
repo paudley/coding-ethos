@@ -71,6 +71,36 @@ func TestHookFilesReturnsStagedPreCommitFiles(t *testing.T) {
 	}
 }
 
+func TestHookCodeIntelFilesIncludesDeletionAndBothRenameSides(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runTestGit(t, repo, "init")
+	runTestGit(t, repo, "config", "user.email", "test@example.com")
+	runTestGit(t, repo, "config", "user.name", "Test User")
+	runTestGit(t, repo, "config", "commit.gpgsign", "false")
+	writeTestGitHookFile(t, repo, "old.py", "VALUE = 1\n")
+	writeTestGitHookFile(t, repo, "removed.py", "REMOVED = 1\n")
+	writeTestGitHookFile(t, repo, "line\nbreak.py", "ODD = 1\n")
+	runTestGit(t, repo, "add", "old.py", "removed.py", "line\nbreak.py")
+	runTestGit(t, repo, "commit", "-m", "initial")
+	runTestGit(t, repo, "mv", "old.py", "new.py")
+	runTestGit(t, repo, "rm", "removed.py")
+	writeTestGitHookFile(t, repo, "line\nbreak.py", "ODD = 2\n")
+	runTestGit(t, repo, "add", "line\nbreak.py")
+
+	files, err := hookCodeIntelFiles(repo, hookPreCommit)
+	if err != nil {
+		t.Fatalf("code-intel hook files: %v", err)
+	}
+
+	for _, want := range []string{"line\nbreak.py", "new.py", "old.py", "removed.py"} {
+		if !slices.Contains(files, want) {
+			t.Fatalf("code-intel files = %#v, missing %q", files, want)
+		}
+	}
+}
+
 func TestDirectRealGitCommitAllowsHumanGitThroughInstalledHooks(t *testing.T) {
 	clearAgentGitHookEnv(t)
 
@@ -154,6 +184,14 @@ func TestDirectAgentGitCommitBlocksThroughInstalledHooks(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("direct Codex git output missing %q:\n%s", want, output)
 		}
+	}
+
+	if _, statErr := os.Stat(
+		filepath.Join(repo.root, ".coding-ethos", "code-intel.duckdb"),
+	); !os.IsNotExist(
+		statErr,
+	) {
+		t.Fatalf("direct wrapper denial created code-intel DB: %v", statErr)
 	}
 }
 

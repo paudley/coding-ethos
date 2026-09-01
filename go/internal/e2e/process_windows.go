@@ -5,8 +5,27 @@
 
 package e2e
 
-import "os/exec"
+import (
+	"errors"
+	"os"
+	"os/exec"
+)
 
 func configureCommandProcessGroup(_ *exec.Cmd) {}
 
-func terminateCommandProcessGroup(_ *exec.Cmd) {}
+func configureCommandCancellation(cmd *exec.Cmd) {
+	cmd.WaitDelay = commandWaitDelay
+}
+
+func terminateCommandProcessGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return os.ErrProcessDone
+	}
+
+	err := cmd.Process.Kill()
+	if errors.Is(err, os.ErrProcessDone) {
+		return os.ErrProcessDone
+	}
+
+	return err
+}

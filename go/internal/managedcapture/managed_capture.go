@@ -74,8 +74,9 @@ type Options struct {
 }
 
 type managedToolCommand struct {
-	Path   string
-	Prefix []string
+	Path      string
+	UVProject string
+	Prefix    []string
 }
 
 func Run(options Options) int {
@@ -195,6 +196,7 @@ func managedCaptureRequest(
 		Parser:     firstCaptureNonEmpty(tool.Parser, options.Tool),
 		Category:   tool.Category,
 		ToolPath:   command.Path,
+		UVProject:  command.UVProject,
 		ToolPrefix: command.Prefix,
 		Cwd:        captureCwd,
 		TraceRoot:  options.ConsumerRoot,
@@ -858,15 +860,18 @@ func managedToolCommandFor(tool toolcatalog.Tool, ethosRoot string) managedToolC
 		return managedToolCommand{}
 	}
 
+	project := filepath.Join(ethosRoot, "pre-commit", "hooks")
+
 	return managedToolCommand{
 		Path: uvBin,
 		Prefix: []string{
 			"run",
 			"--quiet",
 			"--project",
-			filepath.Join(ethosRoot, "pre-commit", "hooks"),
+			project,
 			runtime.Command[0],
 		},
+		UVProject: project,
 	}
 }
 

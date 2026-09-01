@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 )
 
 // MaintenanceSummary reports repo-local code-intel refresh work.
@@ -18,8 +20,10 @@ type MaintenanceSummary struct {
 	DiffPatterns DiffEditPatternSummary `json:"diff_patterns"`
 }
 
-// RefreshRepository opens the repo-local code-intel store, ingests retained
-// traces, and refreshes AST facts for the requested paths.
+// RefreshRepository explicitly opens the repo-local code-intel store, ingests
+// retained traces, and refreshes AST facts for the requested paths. Normal
+// hook execution must use the event and changed-file ingestion paths instead;
+// a whole-repository refresh is an operator-requested maintenance action.
 func RefreshRepository(
 	ctx context.Context,
 	root string,
@@ -58,15 +62,23 @@ func RefreshRepository(
 	}, nil
 }
 
-// RefreshLintFiles refreshes code-intel AST facts for lint-scoped paths.
+// RefreshLintFiles incrementally refreshes code-intel AST facts for explicit
+// lint-scoped files and tombstones explicit files that have been deleted. It
+// rejects directories and out-of-repository paths so ordinary hook execution
+// cannot turn this API into a whole-repository walk.
 func RefreshLintFiles(
 	ctx context.Context,
 	root string,
 	paths []string,
 ) (CodeIndexSummary, error) {
-	paths = existingLintIndexPaths(root, paths)
-	if len(paths) == 0 {
+	selected := selectLintIndexPaths(root, paths)
+	if len(selected.requested) == 0 {
 		return CodeIndexSummary{}, nil
+	}
+
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return CodeIndexSummary{}, fmt.Errorf("resolve lint index root: %w", err)
 	}
 
 	store, err := Open(ctx, DefaultDBPath(ResolveStateRoot(root)))
@@ -75,24 +87,203 @@ func RefreshLintFiles(
 	}
 	defer store.Close()
 
-	summary, err := NewASTIndexer(store).IndexPaths(ctx, root, paths)
+	existingFiles, err := explicitCodeFilesByPath(ctx, store, selected.requested)
 	if err != nil {
-		return CodeIndexSummary{}, fmt.Errorf("refresh code-intel lint files: %w", err)
+		return CodeIndexSummary{}, err
 	}
 
-	_, err = store.RefreshDiffEditPatterns(ctx, root)
+	summary, ignored, err := indexExplicitLintFiles(
+		ctx,
+		store,
+		root,
+		selected.existing,
+		existingFiles,
+	)
 	if err != nil {
 		return CodeIndexSummary{}, fmt.Errorf(
-			"refresh code-intel diff edit patterns: %w",
+			"refresh code-intel lint files: %w",
 			err,
 		)
 	}
 
+	deleted := activeExplicitCodeFiles(existingFiles, selected.deleted)
+	if len(deleted) > 0 {
+		err = store.markDeletedCodeFiles(
+			ctx,
+			root,
+			deleted,
+			gitStagedDeletedPathsFor(ctx, root, deleted),
+		)
+		if err != nil {
+			return CodeIndexSummary{}, fmt.Errorf(
+				"tombstone deleted code-intel lint files: %w",
+				err,
+			)
+		}
+	}
+
+	err = markExplicitCodeFilesInactive(ctx, store, ignored, "ignored")
+	if err != nil {
+		return CodeIndexSummary{}, fmt.Errorf(
+			"tombstone ignored code-intel lint files: %w",
+			err,
+		)
+	}
+
+	summary.Deleted = append(summary.Deleted, deleted...)
+	summary.Deleted = append(summary.Deleted, ignored...)
+	slices.Sort(summary.Deleted)
+	summary.Deleted = slices.Compact(summary.Deleted)
+
 	return summary, nil
 }
 
-func existingLintIndexPaths(root string, paths []string) []string {
-	selected := []string{}
+func explicitCodeFilesByPath(
+	ctx context.Context,
+	store *Store,
+	paths []string,
+) (map[string]CodeFile, error) {
+	files := make(map[string]CodeFile, len(paths))
+
+	for _, path := range paths {
+		file, found, err := store.GetCodeFile(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+
+		if found {
+			files[path] = file
+		}
+	}
+
+	return files, nil
+}
+
+func indexExplicitLintFiles(
+	ctx context.Context,
+	store *Store,
+	root string,
+	paths []string,
+	existingFiles map[string]CodeFile,
+) (CodeIndexSummary, []string, error) {
+	options, err := LoadIndexOptions(root)
+	if err != nil {
+		return CodeIndexSummary{}, nil, err
+	}
+
+	ignoreMatcher := gitIgnoreMatcher{
+		root:   root,
+		active: gitWorkTreeAvailable(ctx, root),
+	}
+	indexer := NewASTIndexer(store)
+	summary := CodeIndexSummary{}
+	ignored := []string{}
+
+	for _, path := range paths {
+		absolutePath := filepath.Join(root, filepath.FromSlash(path))
+
+		info, statErr := os.Lstat(absolutePath)
+		if statErr != nil {
+			if os.IsNotExist(statErr) {
+				continue
+			}
+
+			return CodeIndexSummary{}, nil, fmt.Errorf(
+				"stat lint index file %q: %w",
+				path,
+				statErr,
+			)
+		}
+
+		if !info.Mode().IsRegular() {
+			continue
+		}
+
+		if ignoreMatcher.ignoredFile(ctx, absolutePath) ||
+			pathHasSkippedDir(path) ||
+			excludedByConfig(path, options.ExcludePatterns) {
+			if existing, found := existingFiles[path]; found &&
+				existing.DeletedAtUTC == "" {
+				ignored = append(ignored, path)
+			}
+
+			continue
+		}
+
+		err = indexer.indexFile(
+			ctx,
+			root,
+			absolutePath,
+			info,
+			gitIgnoreMatcher{},
+			existingFiles,
+			options,
+			&summary,
+		)
+		if err != nil {
+			return CodeIndexSummary{}, nil, err
+		}
+	}
+
+	return summary, ignored, nil
+}
+
+func activeExplicitCodeFiles(
+	existingFiles map[string]CodeFile,
+	paths []string,
+) []string {
+	active := make([]string, 0, len(paths))
+
+	for _, path := range paths {
+		if existing, found := existingFiles[path]; found && existing.DeletedAtUTC == "" {
+			active = append(active, path)
+		}
+	}
+
+	return active
+}
+
+func markExplicitCodeFilesInactive(
+	ctx context.Context,
+	store *Store,
+	paths []string,
+	reason string,
+) error {
+	if len(paths) == 0 {
+		return nil
+	}
+
+	inactiveAt := time.Now().UTC().Format(time.RFC3339)
+
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin explicit code file refresh: %w", err)
+	}
+	defer rollbackUnlessCommitted(transaction)
+
+	for _, path := range paths {
+		err = markCodeFileInactive(ctx, transaction, path, inactiveAt, reason)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = transaction.Commit()
+	if err != nil {
+		return fmt.Errorf("commit explicit code file refresh: %w", err)
+	}
+
+	return nil
+}
+
+type lintIndexPathSelection struct {
+	requested []string
+	existing  []string
+	deleted   []string
+}
+
+func selectLintIndexPaths(root string, paths []string) lintIndexPathSelection {
+	selected := lintIndexPathSelection{}
 	seen := map[string]struct{}{}
 
 	rootAbs, err := filepath.Abs(root)
@@ -120,19 +311,32 @@ func existingLintIndexPaths(root string, paths []string) []string {
 			continue
 		}
 
-		info, err := os.Stat(statPath)
-		if err != nil || !info.Mode().IsRegular() {
+		if _, ok := seen[relative]; ok {
 			continue
 		}
 
-		if _, ok := seen[statPath]; ok {
+		info, statErr := os.Lstat(statPath)
+		if statErr != nil && !os.IsNotExist(statErr) {
 			continue
 		}
 
-		seen[statPath] = struct{}{}
+		if statErr == nil && !info.Mode().IsRegular() {
+			continue
+		}
 
-		selected = append(selected, relative)
+		seen[relative] = struct{}{}
+		selected.requested = append(selected.requested, relative)
+
+		if statErr == nil {
+			selected.existing = append(selected.existing, relative)
+		} else {
+			selected.deleted = append(selected.deleted, relative)
+		}
 	}
+
+	slices.Sort(selected.requested)
+	slices.Sort(selected.existing)
+	slices.Sort(selected.deleted)
 
 	return selected
 }

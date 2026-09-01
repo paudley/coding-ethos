@@ -12,12 +12,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/processstatus"
 	"blackcat.ca/coding-ethos/go/internal/safeexec"
+	"blackcat.ca/coding-ethos/go/internal/sandboxexec"
 )
 
 const (
@@ -25,18 +27,20 @@ const (
 
 	BackendNative = "native"
 
-	cgroupLineParts       = 3
-	toolFallbackName      = "tool"
-	nativeSandboxBinary   = "coding-ethos-sandbox"
-	nativeProbeTimeout    = 10
-	nativeProbeDirMode    = 0o700
-	nativeProbeFileMode   = 0o700
-	nativeProbeWriteMode  = 0o600
-	SandboxTempWritePath  = ".coding-ethos/cache/sandbox-tmp"
-	SandboxGoCachePath    = ".coding-ethos/cache/go-build"
-	SandboxGoPath         = ".coding-ethos/cache/go-path"
-	SandboxGoModCachePath = SandboxGoPath + "/pkg/mod"
-	SandboxGolangCIPath   = ".coding-ethos/cache/golangci-lint"
+	cgroupLineParts             = 3
+	toolFallbackName            = "tool"
+	nativeSandboxBinary         = "coding-ethos-sandbox"
+	nativeProbeTimeout          = 10
+	nativeProbeDirMode          = 0o700
+	nativeProbeFileMode         = 0o700
+	nativeProbeWriteMode        = 0o600
+	nativeProbeSandboxProfile   = "native-probe"
+	activeAgentShellReuseReason = "reusing active agent-shell sandbox"
+	SandboxTempWritePath        = ".coding-ethos/cache/sandbox-tmp"
+	SandboxGoCachePath          = ".coding-ethos/cache/go-build"
+	SandboxGoPath               = ".coding-ethos/cache/go-path"
+	SandboxGoModCachePath       = SandboxGoPath + "/pkg/mod"
+	SandboxGolangCIPath         = ".coding-ethos/cache/golangci-lint"
 )
 
 var (
@@ -206,15 +210,13 @@ func BuildPlan(request Request) (Plan, error) {
 	evidence.Enabled = true
 	evidence.NamespaceEnforced = !request.Capabilities.RequiresProcesses
 
-	if activeAgentShellSandboxCovers(request) {
-		evidence.BackendPath = strings.TrimSpace(os.Getenv("CODING_ETHOS_REAL_GIT"))
-		evidence.Reason = "reusing active agent-shell sandbox"
-
-		return unsandboxedPlan(request, evidence), nil
-	}
-
 	if strings.TrimSpace(request.Capabilities.SeccompProfilePath) != "" {
 		return deniedSeccompPlan(evidence, errNativeSeccompUnsupported)
+	}
+
+	if verifiedActiveAgentShellSandboxCovers(request) &&
+		activeAgentShellSandboxReusable(request) {
+		evidence.Reason = activeAgentShellReuseReason
 	}
 
 	wrapper, wrapperErr := nativeWrapperPath(request)
@@ -236,7 +238,15 @@ func sandboxRequired(request Request) bool {
 		strings.TrimSpace(request.Capabilities.SandboxProfile) != ""
 }
 
-func activeAgentShellSandboxCovers(request Request) bool {
+func activeAgentShellSandboxReusable(request Request) bool {
+	return request.Capabilities.SandboxProfile != nativeProbeSandboxProfile &&
+		!gitBindingRequested(
+			request.Capabilities,
+			normalizedGitTargetPaths(request.Capabilities.GitTargetPaths),
+		)
+}
+
+func verifiedActiveAgentShellSandboxCovers(request Request) bool {
 	if os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") != "1" ||
 		os.Getenv("CODING_ETHOS_SANDBOX_ACTIVE") != "1" {
 		return false
@@ -249,7 +259,8 @@ func activeAgentShellSandboxCovers(request Request) bool {
 		return false
 	}
 
-	if !isWithinPath(request.RepoRoot, root) ||
+	repoRoot := filepath.Clean(strings.TrimSpace(request.RepoRoot))
+	if repoRoot == "." || repoRoot != root ||
 		!isWithinPath(request.Cwd, root) ||
 		!isWithinPath(realGit, root) {
 		return false
@@ -348,12 +359,22 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 		)
 	}
 
+	activeEvidence, active, activeErr := validateActiveAgentShellNativeRuntime(wrapper)
+	if active {
+		return activeEvidence, activeErr
+	}
+
 	repoRoot, err := os.MkdirTemp("", "coding-ethos-sandbox-probe-")
 	if err != nil {
 		return Evidence{}, fmt.Errorf("create native sandbox probe repo: %w", err)
 	}
 
 	defer func() { _ = os.RemoveAll(repoRoot) }()
+
+	err = prepareNativeProbeRepo(repoRoot)
+	if err != nil {
+		return Evidence{}, err
+	}
 
 	plan, err := BuildPlan(Request{
 		Tool:        "sandbox-probe",
@@ -363,7 +384,7 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 		RepoRoot:    repoRoot,
 		Args:        nativeProbeArgs(),
 		Capabilities: Capabilities{
-			SandboxProfile: "native-probe",
+			SandboxProfile: nativeProbeSandboxProfile,
 			WritePaths:     []string{".coding-ethos/cache"},
 		},
 	})
@@ -373,7 +394,7 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 
 	evidence, err := runNativeRuntimeProbe(repoRoot, plan)
 	if err != nil {
-		return evidence, err
+		return evidence, fmt.Errorf("run native filesystem probe: %w", err)
 	}
 
 	evidence, err = validateNativeProbeSideEffects(repoRoot, evidence)
@@ -381,7 +402,153 @@ func ValidateNativeRuntimeWithHelper(wrapperPath string) (Evidence, error) {
 		return evidence, err
 	}
 
-	return validateNativeGitBindProbe(repoRoot, wrapper, evidence)
+	evidence, err = validateNativeGitBindProbe(repoRoot, wrapper, evidence)
+	if err != nil {
+		return evidence, fmt.Errorf("run native git bind probe: %w", err)
+	}
+
+	return evidence, nil
+}
+
+func validateActiveAgentShellNativeRuntime(wrapper string) (Evidence, bool, error) {
+	if !activeAgentShellNativeRuntime() {
+		return Evidence{}, false, nil
+	}
+
+	evidence := nativeRuntimeEvidence()
+	evidence.BackendPath = wrapper
+	evidence.Enabled = true
+	evidence.NamespaceEnforced = true
+
+	root, validRoot := activeAgentShellSandboxRoot()
+	if !validRoot {
+		return deniedActiveAgentShellEvidence(
+			evidence,
+			"active agent-shell sandbox evidence is incomplete",
+		)
+	}
+
+	protectedRoot, reason := activeAgentShellProtectedRoot(root)
+	if reason != "" {
+		return deniedActiveAgentShellEvidence(
+			evidence,
+			reason,
+		)
+	}
+
+	reason = activeAgentShellCacheProbe(protectedRoot)
+	if reason != "" {
+		return deniedActiveAgentShellEvidence(
+			evidence,
+			reason,
+		)
+	}
+
+	reason = activeAgentShellProtectedRootProbe(protectedRoot)
+	if reason != "" {
+		return deniedActiveAgentShellEvidence(
+			evidence,
+			reason,
+		)
+	}
+
+	evidence.Reason = "validated active agent-shell native sandbox"
+
+	return evidence, true, nil
+}
+
+func activeAgentShellNativeRuntime() bool {
+	return os.Getenv("CODING_ETHOS_AGENT_SHELL_SANDBOX") == "1" &&
+		os.Getenv("CODING_ETHOS_SANDBOX_ACTIVE") == "1"
+}
+
+func activeAgentShellSandboxRoot() (string, bool) {
+	root := filepath.Clean(strings.TrimSpace(os.Getenv("CODING_ETHOS_SANDBOX_ROOT")))
+	valid := root != "." && filepath.IsAbs(root) &&
+		verifiedActiveAgentShellSandboxCovers(Request{RepoRoot: root, Cwd: root})
+
+	return root, valid
+}
+
+func activeAgentShellProtectedRoot(root string) (string, string) {
+	mountInfo, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return "", fmt.Sprintf("read active agent-shell mount info: %v", err)
+	}
+
+	protectedRoot := filepath.Join(root, ".coding-ethos")
+	if !sandboxexec.ReadOnlyMountInfoForPath(string(mountInfo), protectedRoot) {
+		return "", "active agent-shell .coding-ethos root is not an exact read-only mount"
+	}
+
+	return protectedRoot, ""
+}
+
+func activeAgentShellCacheProbe(protectedRoot string) string {
+	cacheRoot := filepath.Join(protectedRoot, "cache")
+
+	probe, err := os.CreateTemp(cacheRoot, "native-runtime-active-probe-")
+	if err != nil {
+		return fmt.Sprintf("create active agent-shell cache probe: %v", err)
+	}
+
+	probePath := probe.Name()
+	closeErr := probe.Close()
+
+	removeErr := os.Remove(probePath)
+	if closeErr != nil || removeErr != nil {
+		return fmt.Sprintf(
+			"clean active agent-shell cache probe: close=%v remove=%v",
+			closeErr,
+			removeErr,
+		)
+	}
+
+	return ""
+}
+
+func activeAgentShellProtectedRootProbe(protectedRoot string) string {
+	blockedPath := filepath.Join(protectedRoot, "native-runtime-active-probe-blocked")
+
+	blocked, blockedErr := os.OpenFile(
+		blockedPath,
+		os.O_CREATE|os.O_EXCL|os.O_WRONLY,
+		nativeProbeWriteMode,
+	)
+	if blockedErr == nil {
+		_ = blocked.Close()
+		_ = os.Remove(blockedPath)
+
+		return "active agent-shell protected root accepted an undeclared write"
+	}
+
+	if !errors.Is(blockedErr, os.ErrPermission) &&
+		!errors.Is(blockedErr, syscall.EROFS) {
+		return fmt.Sprintf("probe active agent-shell protected root: %v", blockedErr)
+	}
+
+	return ""
+}
+
+func deniedActiveAgentShellEvidence(
+	evidence Evidence,
+	reason string,
+) (Evidence, bool, error) {
+	evidence.Denied = true
+	evidence.Reason = reason
+
+	return evidence, true, fmt.Errorf("%w: %s", ErrBackendUnavailable, reason)
+}
+
+func prepareNativeProbeRepo(repoRoot string) error {
+	writeRoot := filepath.Join(repoRoot, ".coding-ethos", "cache")
+
+	err := os.MkdirAll(writeRoot, nativeProbeDirMode)
+	if err != nil {
+		return fmt.Errorf("create native sandbox probe write path: %w", err)
+	}
+
+	return nil
 }
 
 func sandboxProbeExitCode(err error) int {
@@ -494,11 +661,11 @@ func validateNativeGitBindProbe(
 		WrapperPath: wrapper,
 		Cwd:         repoRoot,
 		RepoRoot:    repoRoot,
-		Args:        []string{"status"},
+		Args:        []string{sandboxexec.NativeGitBindProbeMode},
 		Capabilities: Capabilities{
 			SandboxProfile:  "native-git-bind-probe",
-			GitWrapperPath:  probe.policyGit,
-			RealGitPath:     probe.realGit,
+			GitWrapperPath:  wrapper,
+			RealGitPath:     wrapper,
 			RealGitBindPath: probe.realGitBind,
 			GitTargetPaths:  []string{probe.targetGit},
 			WritePaths:      []string{".coding-ethos/cache"},
@@ -518,8 +685,6 @@ func validateNativeGitBindProbe(
 }
 
 type nativeGitBindProbeFiles struct {
-	policyGit   string
-	realGit     string
 	realGitBind string
 	targetGit   string
 }
@@ -533,59 +698,15 @@ func nativeGitBindProbe(repoRoot string) (nativeGitBindProbeFiles, error) {
 	}
 
 	files := nativeGitBindProbeFiles{
-		policyGit:   filepath.Join(cacheRoot, "policy-git-probe"),
-		realGit:     filepath.Join(cacheRoot, "real-git-probe"),
 		realGitBind: filepath.Join(cacheRoot, "real-git-bind-probe"),
 		targetGit:   filepath.Join(cacheRoot, "target-git-probe"),
 	}
 
-	policyScript := `#!/bin/sh
-set -eu
-readonly_bind=0
-while IFS= read -r line; do
-	set -- $line
-	if [ "${5:-}" = "$0" ]; then
-		case ",${6:-}," in
-			*,ro,*) readonly_bind=1 ;;
-		esac
-	fi
-done < /proc/self/mountinfo
-if [ "$readonly_bind" != 1 ]; then
-	printf not-read-only > .coding-ethos/cache/git-bind-not-read-only
-	exit 96
-fi
-printf wrapper > .coding-ethos/cache/git-wrapper
-exit 0
-`
-	targetScript := "#!/bin/sh\nprintf target > .coding-ethos/cache/git-target\nexit 97\n"
-	realGitScript := "#!/bin/sh\nexit 0\n"
-
-	for path, content := range map[string]string{
-		files.policyGit: policyScript,
-		files.realGit:   realGitScript,
-		files.targetGit: targetScript,
-	} {
-		err = writeNativeProbeExecutable(path, []byte(content))
+	for _, path := range []string{files.realGitBind, files.targetGit} {
+		err = writeNativeProbeExecutable(path, nil)
 		if err != nil {
 			return nativeGitBindProbeFiles{}, fmt.Errorf("write %s: %w", path, err)
 		}
-	}
-
-	realGitBind, err := os.OpenFile(
-		files.realGitBind,
-		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
-		nativeProbeFileMode,
-	)
-	if err != nil {
-		return nativeGitBindProbeFiles{}, fmt.Errorf("create real git bind target: %w", err)
-	}
-
-	closeErr := realGitBind.Close()
-	if closeErr != nil {
-		return nativeGitBindProbeFiles{}, fmt.Errorf(
-			"close real git bind target: %w",
-			closeErr,
-		)
 	}
 
 	return files, nil
