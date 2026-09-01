@@ -1844,6 +1844,8 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("agent-shell native sandbox is Linux-only")
 	}
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "")
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "")
 
 	home := t.TempDir()
 	runtimeDir := t.TempDir()
@@ -1901,6 +1903,7 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	t.Setenv(envAgentAPIProxyURL, "http://127.0.0.1:18080")
 
 	paths := runtimeTestPaths(t)
+	paths.StateRoot = t.TempDir()
 	paths.GitDir = filepath.Join(
 		filepath.Dir(paths.GitCommonDir),
 		"worktrees",
@@ -1985,6 +1988,7 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	for _, want := range []string{
 		paths.GitDir,
 		paths.GitCommonDir,
+		filepath.Join(paths.StateRoot, ".coding-ethos"),
 		filepath.Join(home, ".gnupg"),
 		resolvedGPGHome,
 		resolvedPrivateKeys,
@@ -2006,6 +2010,65 @@ func TestAgentShellSandboxPlanRoutesThroughNativeWrapper(t *testing.T) {
 	for _, want := range []string{"--", "/usr/bin/env", "bash", "-lc", "git status"} {
 		if !slices.Contains(plan.Args, want) {
 			t.Fatalf("plan args missing %q: %#v", want, plan.Args)
+		}
+	}
+}
+
+func TestAgentShellWritePathsAdmitsOnlyDistinctPrivateStateArtifacts(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	stateRoot := t.TempDir()
+
+	got, err := agentShellWritePaths(root, stateRoot)
+	if err != nil {
+		t.Fatalf("agentShellWritePaths() error = %v", err)
+	}
+
+	want := filepath.Join(stateRoot, ".coding-ethos")
+	if !slices.Contains(got, want) {
+		t.Fatalf("write paths missing private state artifacts %q: %#v", want, got)
+	}
+	info, err := os.Lstat(want)
+	if err != nil {
+		t.Fatalf("inspect private state artifacts: %v", err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("private state artifacts mode = %v, want directory 0700", info.Mode())
+	}
+	if slices.Contains(got, stateRoot) {
+		t.Fatalf("write paths grant broad state root %q: %#v", stateRoot, got)
+	}
+}
+
+func TestAgentShellWritePathsKeepsSameRootPolicyTreeProtected(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	got, err := agentShellWritePaths(root, root)
+	if err != nil {
+		t.Fatalf("agentShellWritePaths() error = %v", err)
+	}
+
+	protected := filepath.Join(root, ".coding-ethos")
+	if slices.Contains(got, protected) {
+		t.Fatalf("write paths grant protected policy tree %q: %#v", protected, got)
+	}
+}
+
+func TestAgentShellExternalStateWritePathRejectsUnsafeRoots(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	symlinkTarget := t.TempDir()
+	symlinkStateRoot := filepath.Join(t.TempDir(), "state-link")
+	if err := os.Symlink(symlinkTarget, symlinkStateRoot); err != nil {
+		t.Fatalf("create state-root symlink: %v", err)
+	}
+
+	for _, stateRoot := range []string{"relative/state", string(filepath.Separator), symlinkStateRoot} {
+		if _, err := agentShellExternalStateWritePath(root, stateRoot); err == nil {
+			t.Fatalf("agentShellExternalStateWritePath(%q) succeeded", stateRoot)
 		}
 	}
 }
