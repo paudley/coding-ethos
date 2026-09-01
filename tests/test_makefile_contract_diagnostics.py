@@ -93,6 +93,12 @@ def test_normal_runtime_commands_require_prebuilt_artifacts() -> None:
         assert "build" not in target_line
         assert "go-tools-install" not in target_line
 
+    runtime_guard = _target_block(makefile, "ensure-hook-runtime")
+    for tool in ("coding-ethos-agent-hooks", "coding-ethos-policy"):
+        assert tool in runtime_guard
+    assert "Managed tool is missing" in runtime_guard
+    assert "make build" in runtime_guard
+
 
 def test_check_blocks_unmanaged_go_module_root_binaries() -> None:
     makefile, _lines = _makefile_lines()

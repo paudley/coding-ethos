@@ -2048,6 +2048,46 @@ func TestAgentShellWritePathsAdmitsOnlyDistinctPrivateStateArtifacts(t *testing.
 	}
 }
 
+func TestAgentShellExternalStateArtifactsOnlyTightenExistingPermissions(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name string
+		mode os.FileMode
+		want os.FileMode
+	}{
+		{name: "already private", mode: 0o700, want: 0o700},
+		{name: "stricter owner mode", mode: 0o500, want: 0o500},
+		{name: "group readable", mode: 0o750, want: 0o700},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			stateRoot := t.TempDir()
+			artifactRoot := filepath.Join(stateRoot, ".coding-ethos")
+			if err := os.Mkdir(artifactRoot, testCase.mode); err != nil {
+				t.Fatalf("create external state artifacts: %v", err)
+			}
+
+			got, err := ensureAgentShellExternalStateArtifacts(stateRoot)
+			if err != nil {
+				t.Fatalf("ensureAgentShellExternalStateArtifacts() error = %v", err)
+			}
+			if got != artifactRoot {
+				t.Fatalf("artifact root = %q, want %q", got, artifactRoot)
+			}
+
+			info, err := os.Lstat(artifactRoot)
+			if err != nil {
+				t.Fatalf("inspect external state artifacts: %v", err)
+			}
+			if info.Mode().Perm() != testCase.want {
+				t.Fatalf("external state mode = %v, want %v", info.Mode().Perm(), testCase.want)
+			}
+		})
+	}
+}
+
 func TestAgentShellWritePathsKeepsSameRootPolicyTreeProtected(t *testing.T) {
 	t.Parallel()
 

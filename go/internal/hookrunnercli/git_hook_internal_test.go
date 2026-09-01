@@ -417,7 +417,7 @@ func TestGitHooksRejectTimeoutsBeyondCriticalCeiling(t *testing.T) {
 			t.Fatalf("runPreCommitHook() = %d, want 1", got)
 		}
 	})
-	for _, want := range []string{"must not exceed 600", "critical failure"} {
+	for _, want := range []string{"must not exceed 600 seconds", "10m0s", "critical failure"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr missing %q:\n%s", want, stderr)
 		}

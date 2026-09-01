@@ -383,13 +383,15 @@ func ensureAgentShellExternalStateArtifacts(stateRoot string) (string, error) {
 		return "", fmt.Errorf("%w: %s", errAgentShellExternalStateArtifactShape, artifactRoot)
 	}
 
-	err = os.Chmod(artifactRoot, agentShellCacheDirMode)
-	if err != nil {
-		return "", fmt.Errorf(
-			"make agent-shell external state directory private %s: %w",
-			artifactRoot,
-			err,
-		)
+	if artifactInfo.Mode().Perm()&^agentShellCacheDirMode != 0 {
+		err = os.Chmod(artifactRoot, agentShellCacheDirMode)
+		if err != nil {
+			return "", fmt.Errorf(
+				"make agent-shell external state directory private %s: %w",
+				artifactRoot,
+				err,
+			)
+		}
 	}
 
 	return artifactRoot, nil

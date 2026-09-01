@@ -364,6 +364,13 @@ ensure-hook-runtime: ## Verify managed hook runtime artifacts already exist with
 		printf '$(COLOR_WARN)Run `make build` explicitly before tests or diagnostics.$(COLOR_RESET)\n' >&2; \
 		exit 2; \
 	}
+	@for tool in coding-ethos-agent-hooks coding-ethos-policy; do \
+		test -x "$(GO_TOOLS_BIN_DIR)/$$tool" || { \
+			printf '$(COLOR_WARN)Managed tool is missing: $(GO_TOOLS_BIN_DIR)/%s.$(COLOR_RESET)\n' "$$tool" >&2; \
+			printf '$(COLOR_WARN)Run `make build` explicitly before tests or diagnostics.$(COLOR_RESET)\n' >&2; \
+			exit 2; \
+		}; \
+	done
 	@test -s "$(POLICY_DIR)/policy-bundle.json" || { \
 		printf '$(COLOR_WARN)Compiled policy bundle is missing: $(POLICY_DIR)/policy-bundle.json.$(COLOR_RESET)\n' >&2; \
 		printf '$(COLOR_WARN)Run `make build` explicitly before tests or diagnostics.$(COLOR_RESET)\n' >&2; \

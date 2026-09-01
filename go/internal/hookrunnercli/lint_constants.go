@@ -7,6 +7,7 @@ const (
 	compactDividerWidth     = 60
 	defaultPythonVersion    = "3.13"
 	defaultToolTimeoutSecs  = 600
+	maxToolTimeoutSecs      = 600
 	executePermissionMask   = 0o111
 	extBash                 = ".bash"
 	extPy                   = ".py"
