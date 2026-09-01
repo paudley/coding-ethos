@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -40,6 +41,9 @@ const (
 var (
 	errManagedLintRuntimeUnavailable = apperror.StaticError(
 		"managed lint runtime is not configured",
+	)
+	errManagedLintExecutionRootUnavailable = apperror.StaticError(
+		"managed lint requested cwd has no owning Git repository",
 	)
 	errCodeIntelRootUnavailable = apperror.StaticError(
 		"code-intel root is not configured",
@@ -478,12 +482,19 @@ func (server Server) checkManagedLint(input lintCheckInput) (any, error) {
 
 	var stdout bytes.Buffer
 
+	executionRoot, invocationCwd, contextErr := server.managedLintExecutionContext(
+		input.Cwd,
+	)
+	if contextErr != nil {
+		return nil, contextErr
+	}
+
 	exitCode := managedcapture.Run(managedcapture.Options{
 		PolicyContext: managedLintPolicyContext(server.bundle),
 		Tool:          tool,
 		EthosRoot:     server.runtime.EthosRoot,
-		ConsumerRoot:  server.runtime.ConsumerRoot,
-		InvocationCwd: firstNonEmpty(input.Cwd, server.runtime.InvocationCwd),
+		ConsumerRoot:  executionRoot,
+		InvocationCwd: invocationCwd,
 		OutputFormat:  hookoutput.FormatJSON,
 		Output:        &stdout,
 		Args:          managedLintToolArgs(input),
@@ -503,7 +514,192 @@ func (server Server) checkManagedLint(input lintCheckInput) (any, error) {
 		)
 	}
 
-	return managedLintOutput(tool, exitCode, result), nil
+	return managedLintOutput(
+		tool,
+		exitCode,
+		result,
+		executionRoot,
+		invocationCwd,
+	), nil
+}
+
+func (server Server) managedLintExecutionContext(
+	requestedCwd string,
+) (string, string, error) {
+	requestedCwd = strings.TrimSpace(requestedCwd)
+	executionRoot := managedLintAbsolutePath(server.runtime.ConsumerRoot)
+
+	if requestedCwd == "" {
+		invocationCwd := managedLintAbsolutePath(firstNonEmpty(
+			server.runtime.InvocationCwd,
+			server.runtime.ConsumerRoot,
+		))
+
+		return executionRoot, invocationCwd, nil
+	}
+
+	invocationCwd, err := managedLintCanonicalDirectory(requestedCwd)
+	if err != nil {
+		return "", "", err
+	}
+
+	configuredRoot, err := managedLintCanonicalDirectory(
+		server.runtime.ConsumerRoot,
+	)
+	if err != nil {
+		return "", "", err
+	}
+
+	if managedLintPathWithin(configuredRoot, invocationCwd) {
+		return configuredRoot, invocationCwd, nil
+	}
+
+	repositoryRoot, found := managedLintRepositoryRoot(invocationCwd)
+	if !found {
+		return "", "", fmt.Errorf(
+			"resolve managed lint execution root for %q: %w",
+			invocationCwd,
+			errManagedLintExecutionRootUnavailable,
+		)
+	}
+
+	return repositoryRoot, invocationCwd, nil
+}
+
+func managedLintAbsolutePath(path string) string {
+	absolute, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return filepath.Clean(path)
+	}
+
+	return filepath.Clean(absolute)
+}
+
+func managedLintCanonicalDirectory(path string) (string, error) {
+	absolute := managedLintAbsolutePath(path)
+
+	canonical, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", fmt.Errorf("resolve managed lint cwd %q: %w", path, err)
+	}
+
+	info, err := os.Stat(canonical)
+	if err != nil {
+		return "", fmt.Errorf("inspect managed lint cwd %q: %w", path, err)
+	}
+
+	if !info.IsDir() {
+		return "", fmt.Errorf(
+			"resolve managed lint cwd %q: %w",
+			path,
+			errManagedLintExecutionRootUnavailable,
+		)
+	}
+
+	return filepath.Clean(canonical), nil
+}
+
+func managedLintPathWithin(root, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+
+	return relative == "." ||
+		(relative != ".." &&
+			!strings.HasPrefix(relative, ".."+string(filepath.Separator)))
+}
+
+func managedLintRepositoryRoot(cwd string) (string, bool) {
+	directory := managedLintAbsolutePath(cwd)
+
+	for {
+		markerPresent, markerValid := managedLintGitMarker(directory)
+		if markerValid {
+			return directory, true
+		}
+
+		if markerPresent {
+			return "", false
+		}
+
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			return "", false
+		}
+
+		directory = parent
+	}
+}
+
+func managedLintGitMarker(repositoryRoot string) (bool, bool) {
+	marker := filepath.Join(repositoryRoot, ".git")
+
+	info, err := os.Lstat(marker)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, false
+	}
+
+	if err != nil {
+		return true, false
+	}
+
+	if info.IsDir() {
+		return true, true
+	}
+
+	if !info.Mode().IsRegular() {
+		return true, false
+	}
+
+	return true, managedLintGitFileMarkerValid(repositoryRoot, marker)
+}
+
+func managedLintGitFileMarkerValid(repositoryRoot, marker string) bool {
+	contents, err := os.ReadFile(marker)
+	if err != nil {
+		return false
+	}
+
+	gitDirectory, found := strings.CutPrefix(
+		strings.TrimSpace(string(contents)),
+		"gitdir:",
+	)
+
+	gitDirectory = strings.TrimSpace(gitDirectory)
+	if !found || gitDirectory == "" {
+		return false
+	}
+
+	if strings.ContainsAny(gitDirectory, "\r\n") {
+		return false
+	}
+
+	if !filepath.IsAbs(gitDirectory) {
+		gitDirectory = filepath.Join(repositoryRoot, gitDirectory)
+	}
+
+	return managedLintGitDirectoryExists(gitDirectory)
+}
+
+func managedLintGitDirectoryExists(gitDirectory string) bool {
+	gitDirectory = filepath.Clean(gitDirectory)
+	parent, basename := filepath.Dir(gitDirectory), filepath.Base(gitDirectory)
+
+	if basename == "." || basename == string(filepath.Separator) {
+		return false
+	}
+
+	root, err := os.OpenRoot(parent)
+	if err != nil {
+		return false
+	}
+
+	defer func() { _ = root.Close() }()
+
+	gitInfo, err := root.Stat(basename)
+
+	return err == nil && gitInfo.IsDir()
 }
 
 func managedLintToolArgs(input lintCheckInput) []string {
@@ -535,18 +731,22 @@ func managedLintOutput(
 	tool string,
 	exitCode int,
 	result lint.Result,
+	executionRoot string,
+	invocationCwd string,
 ) map[string]any {
 	return map[string]any{
-		"engine":      "managed_lint_capture",
-		"tool":        tool,
-		"exit_code":   exitCode,
-		"status":      result.Status,
-		"blocked":     result.Blocked(),
-		"files":       result.Files,
-		"findings":    result.Findings,
-		"diagnostics": result.Diagnostics,
-		"skill_hints": result.SkillHints,
-		"capture":     result.Capture,
+		"engine":         "managed_lint_capture",
+		"tool":           tool,
+		"exit_code":      exitCode,
+		"status":         result.Status,
+		"blocked":        result.Blocked(),
+		"files":          result.Files,
+		"findings":       result.Findings,
+		"diagnostics":    result.Diagnostics,
+		"skill_hints":    result.SkillHints,
+		"capture":        result.Capture,
+		"execution_root": executionRoot,
+		"cwd":            invocationCwd,
 	}
 }
 

@@ -24,6 +24,7 @@ import (
 
 const (
 	commandTimeout           = 30 * time.Second
+	commandWaitDelay         = time.Second
 	e2eDirMode               = 0o700
 	e2eFileMode              = 0o600
 	optionalVenvRuntimeEntry = ".venv"
@@ -206,7 +207,7 @@ func copyMutableRuntimeBin(t *testing.T, sourceRoot, runtimeRoot string) {
 
 		target := filepath.Join(binRoot, filepath.Base(source))
 		if filepath.Base(source) == "coding-ethos-sandbox" {
-			linkManagedSandboxHelper(t, source, target)
+			LinkManagedSandboxHelper(t, source, target)
 
 			continue
 		}
@@ -296,7 +297,7 @@ func buildInstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 		buildInstrumentedCommand(t, ethosRoot, runtimeRoot, command)
 	}
 
-	linkManagedSandboxHelper(
+	LinkManagedSandboxHelper(
 		t,
 		filepath.Join(ethosRoot, "bin", "coding-ethos-sandbox"),
 		filepath.Join(runtimeRoot, "bin", "coding-ethos-sandbox"),
@@ -305,11 +306,11 @@ func buildInstrumentedEthosRoot(t *testing.T, ethosRoot string) string {
 	return runtimeRoot
 }
 
-// linkManagedSandboxHelper preserves the exact repository-managed executable
+// LinkManagedSandboxHelper preserves the exact repository-managed executable
 // path that host AppArmor policy authorizes for Linux namespace creation.
 // Instrumenting or copying the helper changes that path and makes an otherwise
 // valid nested sandbox fail closed before it can apply its policy.
-func linkManagedSandboxHelper(t *testing.T, source, destination string) {
+func LinkManagedSandboxHelper(t *testing.T, source, destination string) {
 	t.Helper()
 
 	resolved, err := filepath.EvalSymlinks(source)
@@ -617,6 +618,7 @@ func runCommand(
 	cmd.Env = commandEnvironmentWith(t, overrides)
 	cmd.Stdin = strings.NewReader(input)
 	configureCommandProcessGroup(cmd)
+	configureCommandCancellation(cmd)
 
 	var (
 		stdout bytes.Buffer
@@ -633,7 +635,15 @@ func runCommand(
 		var exitErr *exec.ExitError
 		switch {
 		case ctx.Err() != nil:
-			terminateCommandProcessGroup(cmd)
+			terminationErr := terminateCommandProcessGroup(cmd)
+			if terminationErr != nil && !errors.Is(terminationErr, os.ErrProcessDone) {
+				t.Fatalf(
+					"terminate timed-out command %q: %v",
+					strings.Join(args, " "),
+					terminationErr,
+				)
+			}
+
 			t.Fatalf("command timed out: %s", strings.Join(args, " "))
 		case errors.As(err, &exitErr):
 			code = exitErr.ExitCode()

@@ -64,6 +64,7 @@ type captureRequest struct {
 	Parser             string
 	Category           string
 	ToolPath           string
+	UVProject          string
 	Cwd                string
 	TraceRoot          string
 	SandboxBackendPath string

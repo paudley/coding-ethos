@@ -104,8 +104,16 @@ func repositoryHasTrackedCommonShellHelper(
 		return false, errShellHelperWorkingDirectoryRequired
 	}
 
+	repositoryRoot, err := gitWorktreeRoot(cwd)
+	if err != nil {
+		return false, fmt.Errorf(
+			"resolve repository root for common shell helpers: %w",
+			err,
+		)
+	}
+
 	helperPaths, err := configuredCommonShellHelperPaths(
-		cwd,
+		repositoryRoot,
 		requireCommonForPrefixes,
 	)
 	if err != nil {
@@ -121,7 +129,7 @@ func repositoryHasTrackedCommonShellHelper(
 		args = append(args, ":(literal)"+helperPath)
 	}
 
-	output, err := GitCommand(cwd, args...).CombinedOutput()
+	output, err := GitCommand(repositoryRoot, args...).CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf(
 			"inspect tracked common shell helpers with git ls-files: %w: %s",

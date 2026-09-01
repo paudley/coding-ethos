@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/cel-go/cel"
+
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
@@ -74,14 +76,18 @@ func EvaluateCELExpression(
 
 	activation := celActivation(context, source)
 
-	output, _, err := program.Eval(activation)
+	matched, err := evaluateCELBool(program, activation)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate CEL expression: %w", err)
 	}
 
-	matched, ok := output.Value().(bool)
-	if !ok || !matched {
+	if !matched {
 		return nil, nil
+	}
+
+	diffLineWitness, err := isolatedDiffLineWitness(program, activation)
+	if err != nil {
+		return nil, fmt.Errorf("locate matched CEL diff line: %w", err)
 	}
 
 	decisionMode := strings.TrimSpace(policyDef.DefaultSeverity)
@@ -118,6 +124,7 @@ func EvaluateCELExpression(
 		decisionMode,
 		source,
 		activation,
+		diffLineWitness,
 	)}
 
 	return []policy.Decision{decision}, nil
@@ -129,6 +136,7 @@ func celDiagnostic(
 	decisionMode string,
 	source string,
 	activation map[string]any,
+	diffLineWitness celDiffLineWitness,
 ) diagnostics.Diagnostic {
 	diagnostic := diagnostics.Diagnostic{
 		Tool:         "policy",
@@ -151,45 +159,194 @@ func celDiagnostic(
 		return diagnostic
 	}
 
-	if len(context.Files) == 1 {
-		diagnostic.File = context.Files[0]
-	}
-
-	if policyDef.ID == filesystemLineLimitsPolicy {
+	switch policyDef.ID {
+	case filesystemLineLimitsPolicy:
 		applyLineLimitFileDiagnostic(
 			&diagnostic,
 			activation,
 			context.EvaluatorOptions,
 		)
-
-		return diagnostic
-	}
-
-	if policyDef.ID == hookChangedFileScopePolicy {
+	case hookChangedFileScopePolicy:
 		applyHookCommandDiagnostic(&diagnostic, activation)
-
-		return diagnostic
-	}
-
-	if policyDef.ID == similarCodeDetectedPolicy {
+	case similarCodeDetectedPolicy:
 		applySimilarityDiagnostic(&diagnostic, activation)
-
-		return diagnostic
-	}
-
-	if policyDef.ID == pythonSuppressionWritePolicy {
+	case pythonSuppressionWritePolicy:
 		applyPythonSuppressionDiagnostic(
 			&diagnostic,
 			activation,
 			context.EvaluatorOptions,
 		)
-
-		return diagnostic
+	default:
+		if strings.Contains(source, "changed_symbols") ||
+			strings.Contains(source, "proposed_symbol_changes") {
+			applyGrowingSymbolDiagnostic(&diagnostic, activation)
+		}
 	}
 
-	applyGrowingSymbolDiagnostic(&diagnostic, activation)
+	if diagnostic.File == "" && diffLineWitness.found {
+		diagnostic.File = diffLineWitness.line.File
+		diagnostic.Line = int(diffLineWitness.line.Line)
+		diagnostic.Detail = diffLineWitness.line.Text
+		diagnostic.Metadata["diff_change_source"] = diffLineWitness.changeSource
+	}
+
+	if diagnostic.File == "" && len(context.Files) == 1 {
+		diagnostic.File = context.Files[0]
+	}
 
 	return diagnostic
+}
+
+type celDiffLineWitness struct {
+	changeSource string
+	line         celexpr.DiffLineInput
+	found        bool
+}
+
+func evaluateCELBool(program cel.Program, activation map[string]any) (bool, error) {
+	output, _, err := program.Eval(activation)
+	if err != nil {
+		return false, fmt.Errorf("evaluate CEL program: %w", err)
+	}
+
+	matched, ok := output.Value().(bool)
+
+	return ok && matched, nil
+}
+
+func isolatedDiffLineWitness(
+	program cel.Program,
+	activation map[string]any,
+) (celDiffLineWitness, error) {
+	diff, ok := activation["diff"].(celexpr.DiffInput)
+	if !ok || len(diff.AddedLines)+len(diff.RemovedLines) == 0 {
+		return celDiffLineWitness{}, nil
+	}
+
+	emptyDiff := emptyDiffLineView(diff)
+	emptyActivation := maps.Clone(activation)
+	emptyActivation["diff"] = emptyDiff
+
+	matched, err := evaluateCELBool(program, emptyActivation)
+	if err != nil {
+		return celDiffLineWitness{}, err
+	}
+
+	if matched {
+		return celDiffLineWitness{}, nil
+	}
+
+	candidates := make(
+		[]celDiffLineWitness,
+		0,
+		len(diff.AddedLines)+len(diff.RemovedLines),
+	)
+	for _, line := range diff.AddedLines {
+		candidates = append(candidates, celDiffLineWitness{
+			changeSource: "added",
+			line:         line,
+			found:        true,
+		})
+	}
+
+	for _, line := range diff.RemovedLines {
+		candidates = append(candidates, celDiffLineWitness{
+			changeSource: "removed",
+			line:         line,
+			found:        true,
+		})
+	}
+
+	var witness celDiffLineWitness
+
+	for index := range candidates {
+		candidate := candidates[index]
+		candidateActivation := maps.Clone(activation)
+		candidateActivation["diff"] = oneDiffLineView(
+			emptyDiff,
+			diff,
+			candidate.line,
+			candidate.changeSource == "added",
+		)
+
+		matched, err = evaluateCELBool(program, candidateActivation)
+		if err != nil {
+			return celDiffLineWitness{}, err
+		}
+
+		if !matched {
+			continue
+		}
+
+		if witness.found {
+			return celDiffLineWitness{}, nil
+		}
+
+		witness = candidate
+	}
+
+	return witness, nil
+}
+
+func emptyDiffLineView(diff celexpr.DiffInput) celexpr.DiffInput {
+	empty := diff
+	empty.AddedLines = []celexpr.DiffLineInput{}
+	empty.RemovedLines = []celexpr.DiffLineInput{}
+	empty.Hunks = make([]celexpr.DiffHunkInput, len(diff.Hunks))
+
+	for index, hunk := range diff.Hunks {
+		empty.Hunks[index] = hunk
+		empty.Hunks[index].AddedLines = []celexpr.DiffLineInput{}
+		empty.Hunks[index].RemovedLines = []celexpr.DiffLineInput{}
+	}
+
+	return empty
+}
+
+func oneDiffLineView(
+	empty celexpr.DiffInput,
+	original celexpr.DiffInput,
+	line celexpr.DiffLineInput,
+	added bool,
+) celexpr.DiffInput {
+	view := emptyDiffLineView(empty)
+	if added {
+		view.AddedLines = []celexpr.DiffLineInput{line}
+	} else {
+		view.RemovedLines = []celexpr.DiffLineInput{line}
+	}
+
+	for hunkIndex, hunk := range original.Hunks {
+		lines := hunk.RemovedLines
+		if added {
+			lines = hunk.AddedLines
+		}
+
+		for _, hunkLine := range lines {
+			if !sameDiffLine(line, hunkLine) {
+				continue
+			}
+
+			if added {
+				view.Hunks[hunkIndex].AddedLines = []celexpr.DiffLineInput{line}
+			} else {
+				view.Hunks[hunkIndex].RemovedLines = []celexpr.DiffLineInput{line}
+			}
+
+			return view
+		}
+	}
+
+	return view
+}
+
+func sameDiffLine(left, right celexpr.DiffLineInput) bool {
+	return left.File == right.File &&
+		left.Text == right.Text &&
+		left.Line == right.Line &&
+		left.NewLine == right.NewLine &&
+		left.OldLine == right.OldLine &&
+		left.IsBlank == right.IsBlank
 }
 
 func applyPythonSuppressionDiagnostic(

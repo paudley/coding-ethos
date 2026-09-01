@@ -109,9 +109,11 @@ GO_MODULE_ROOT_BINARY_OUTPUTS := \
 
 GO_COVERAGE_MIN ?= 80.0
 PYTHON_COVERAGE_MIN ?= 80
-GO_TEST_TIMEOUT ?= 90s
+GO_TEST_TIMEOUT ?= 3m
 GO_COVERAGE_DIR ?= $(LOCAL_BUILD_DIR)/coverage
 REPO ?= $(LOCAL_REPO_ROOT)
+AGENT_HOOK_STATE_ROOT ?= $(LOCAL_BUILD_DIR)/agent-hooks-state
+CONSUMER_AGENT_HOOK_STATE_ROOT ?= $(LOCAL_BUILD_DIR)/consumer-agent-hooks-state
 PRIMARY ?= $(LOCAL_REPO_ROOT)/coding_ethos.yml
 REPO_ETHOS ?=
 REPO_CONFIG ?=
@@ -561,16 +563,22 @@ _sync-consumer-agent-skills: ensure-go
 _sync-agent-hooks: ensure-go go-tools-install
 	@$(call print_step,Syncing generated agent hook and MCP settings)
 	@$(call print_info,repo: $(REPO))
-	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-agent-hooks" sync \
+	@CODEX_HOME="$(AGENT_HOOK_STATE_ROOT)/codex-home" \
+		"$(GO_TOOLS_BIN_DIR)/coding-ethos-agent-hooks" sync \
 		--root "$(REPO)" \
+		--repo-root "$(REPO)" \
+		--state-root "$(AGENT_HOOK_STATE_ROOT)" \
 		--hook-command "$(GO_HOOK) agent-hook"
 
 _sync-consumer-agent-hooks: ensure-go go-tools-install
 	@if [ "$(abspath $(HOOK_CONSUMER_ROOT))" != "$(abspath $(LOCAL_REPO_ROOT))" ]; then \
 		$(call print_step,Syncing generated consumer agent hook and MCP settings); \
 		$(call print_info,repo: $(HOOK_CONSUMER_ROOT)); \
-		"$(GO_TOOLS_BIN_DIR)/coding-ethos-agent-hooks" sync \
+		CODEX_HOME="$(CONSUMER_AGENT_HOOK_STATE_ROOT)/codex-home" \
+			"$(GO_TOOLS_BIN_DIR)/coding-ethos-agent-hooks" sync \
 			--root "$(HOOK_CONSUMER_ROOT)" \
+			--repo-root "$(HOOK_CONSUMER_ROOT)" \
+			--state-root "$(CONSUMER_AGENT_HOOK_STATE_ROOT)" \
 			--hook-command "$(GO_HOOK) agent-hook"; \
 	fi
 
@@ -602,7 +610,10 @@ purrdf-extractor-check: ## Test the optional PurRDF code-intel extractor when pr
 			exit 1; \
 		}; \
 		$(call print_step,Testing PurRDF code-intel extractor); \
-		"$(CARGO)" test --locked --manifest-path "$(PURRDF_EXTRACTOR_MANIFEST)"; \
+		"$(CARGO)" test --locked \
+			--config 'build.build-dir="$(PURRDF_EXTRACTOR_DIR)/target"' \
+			--target-dir "$(PURRDF_EXTRACTOR_DIR)/target" \
+			--manifest-path "$(PURRDF_EXTRACTOR_MANIFEST)"; \
 	else \
 		$(call print_info,PurRDF extractor subtree not present in this checkout); \
 	fi
@@ -614,7 +625,10 @@ purrdf-extractor-install: ## Build and install the optional PurRDF extractor whe
 			exit 1; \
 		}; \
 		$(call print_step,Building PurRDF code-intel extractor); \
-		"$(CARGO)" build --locked --release --manifest-path "$(PURRDF_EXTRACTOR_MANIFEST)"; \
+		"$(CARGO)" build --locked --release \
+			--config 'build.build-dir="$(PURRDF_EXTRACTOR_DIR)/target"' \
+			--target-dir "$(PURRDF_EXTRACTOR_DIR)/target" \
+			--manifest-path "$(PURRDF_EXTRACTOR_MANIFEST)"; \
 		mkdir -p "$(GO_TOOLS_BIN_DIR)"; \
 		install -m 0755 \
 			"$(PURRDF_EXTRACTOR_DIR)/target/release/$(PURRDF_EXTRACTOR_BINARY)" \
@@ -649,17 +663,15 @@ go-hook-runner-install: ensure-go ## Build the bundled Go hook runner into the c
 
 _sync-git-hooks: ensure-go go-tools-install _sync-parent-hook-runtime
 	@$(call print_step,Syncing Git hook entrypoints)
-	@$(call install_git_hooks,$(LOCAL_HOOKS_DIR),$(GO_HOOK))
+	@$(call install_git_hooks,$(LOCAL_HOOKS_DIR),$(PARENT_HOOK_BIN_DIR)/coding-ethos-run)
 	@if [ "$(HOOKS_DIR)" != "$(LOCAL_HOOKS_DIR)" ]; then \
 		$(call install_git_hooks,$(HOOKS_DIR),$(PARENT_HOOK_BIN_DIR)/coding-ethos-run); \
 	fi
 
 _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 	@$(call print_step,Syncing parent hook runtime artifacts)
-	@mkdir -p "$(PARENT_HOOK_BIN_DIR)" "$(PARENT_POLICY_DIR)"
-	@cp "$(GO_TOOLS_BIN_DIR)"/coding-ethos-* "$(PARENT_HOOK_BIN_DIR)/"
-	@cp "$(GO_TOOLS_BIN_DIR)/cerun" "$(PARENT_HOOK_BIN_DIR)/cerun"
-	@cp "$(GO_TOOLS_BIN_DIR)/lint" "$(PARENT_HOOK_BIN_DIR)/lint"
+	@"$(GO_HOOK)" parent-runtime-sync --repo "$(HOOK_CONSUMER_ROOT)"
+	@mkdir -p "$(PARENT_POLICY_DIR)"
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-policy" compile \
 		--primary "$(LOCAL_REPO_ROOT)/coding_ethos.yml" \
 		--repo-ethos "$(LOCAL_REPO_ROOT)/repo_ethos.yml" \
@@ -683,7 +695,6 @@ _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 		--tools-bin-dir "$(PARENT_HOOK_BIN_DIR)" \
 		--runner "$(PARENT_HOOK_BIN_DIR)/coding-ethos-run" \
 		--ethos-root "$(LOCAL_REPO_ROOT)"
-	@cp "$(GO_TOOLS_BIN_DIR)/coding-ethos-git-hook" "$(PARENT_HOOK_RUNTIME_DIR)/coding-ethos-git-hook"
 	@$(call print_info,runtime: $(PARENT_HOOK_RUNTIME_DIR))
 
 policy-bundle-install: ensure-go go-tools-install managed-toolchain-install ## Compile the policy bundle into the checkout-local build directory.

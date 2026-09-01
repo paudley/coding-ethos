@@ -968,11 +968,19 @@ parent artifacts remain normal consumer surfaces; repo-local state retains the
 runtime-ignore repair.
 
 Git hooks installed for a parent repository route through its stable common
-Git runtime at `.git/coding-ethos-hooks/bin/coding-ethos-run`. They never point
-at a worktree-local build path, so one worktree cannot strand every sibling's
+Git runtime at
+`<git-common-dir>/coding-ethos-hooks/bin/coding-ethos-run`. They never point at
+a worktree-local build path, so one worktree cannot strand every sibling's
 hooks when its own checkout is retired or hidden by a lane sandbox. Running the
 supported parent workflow refreshes and verifies that shared executable
 projection as part of the same install/check contract.
+
+The compiled `parent-runtime-sync` command exclusively installs shared Go
+executables, including the root compatibility Git hook, with same-directory
+temporary files and atomic rename. It preserves unrelated files, prunes
+obsolete regular `coding-ethos-*` executables, and rejects managed entries that
+are directories, symlinks, or special files. `parent-check` verifies exact
+mode, SHA-256 content, regular-file shape, and the complete managed inventory.
 
 Parent repos can opt into profile defaults in `repo_config.yaml`:
 
@@ -1462,16 +1470,17 @@ must write `merged.md`; otherwise the command fails.
 
 The bundled enforcement package lives under [pre-commit/](pre-commit/). It uses
 repo-local Git hook entrypoints that resolve directly to the compiled
-`bin/coding-ethos-run` runner.
+`<git-common-dir>/coding-ethos-hooks/bin/coding-ethos-run` runner.
 
 ### Git Hooks
 
 Installed Git hook entrypoints are small executable scripts that call
-`bin/coding-ethos-run git-hook <hook>` or
-`bin/coding-ethos-run lfs-hook <hook>` with the original Git arguments. The
-runner repairs missing checkout-local runtime artifacts with `make build` and
-dispatches to the built hook binary.
-Policy selection and validation remain inside the `coding-ethos` checkout.
+`<git-common-dir>/coding-ethos-hooks/bin/coding-ethos-run git-hook <hook>` or
+the corresponding `lfs-hook` command with the original Git arguments. Missing
+or stale runtime artifacts fail closed with an explicit `make build`
+instruction; hooks never build or repair runtime state implicitly. Policy
+selection and validation remain inside the compiled runtime projected from the
+selected `coding-ethos` authority.
 
 Run Git hooks:
 

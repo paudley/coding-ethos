@@ -6,9 +6,11 @@ package codeintel
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -536,7 +538,7 @@ func migrateStore(ctx context.Context, database *sql.DB) error {
 		}
 	}
 
-	err := deduplicateSearchIdentity(ctx, database)
+	err := migrateSearchIdentity(ctx, database)
 	if err != nil {
 		return err
 	}
@@ -564,6 +566,65 @@ func migrateStore(ctx context.Context, database *sql.DB) error {
 	}
 
 	return nil
+}
+
+// migrateSearchIdentity limits the whole-table v1 identity repair to actual
+// pre-v2 upgrades. Routine v2 opens rely on the unique indexes; an operator
+// performing explicit recovery calls deduplicateSearchIdentity directly.
+func migrateSearchIdentity(ctx context.Context, database *sql.DB) error {
+	version, found, err := storedCodeIntelSchemaVersion(ctx, database)
+	if err != nil {
+		return err
+	}
+
+	if !found || version == schemaVersion {
+		return nil
+	}
+
+	if version > schemaVersion {
+		return fmt.Errorf(
+			"migrate code intelligence store: schema version %d "+
+				"exceeds supported version %d: %w",
+			version,
+			schemaVersion,
+			errStoreMigrationIntegrity,
+		)
+	}
+
+	return deduplicateSearchIdentity(ctx, database)
+}
+
+func storedCodeIntelSchemaVersion(
+	ctx context.Context,
+	database *sql.DB,
+) (int, bool, error) {
+	var rawVersion string
+
+	err := database.QueryRowContext(
+		ctx,
+		"SELECT value FROM schema_metadata WHERE key = 'schema_version'",
+	).Scan(&rawVersion)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+
+	if err != nil {
+		return 0, false, fmt.Errorf(
+			"read code intelligence schema version: %w",
+			err,
+		)
+	}
+
+	version, err := strconv.Atoi(strings.TrimSpace(rawVersion))
+	if err != nil {
+		return 0, false, fmt.Errorf(
+			"parse code intelligence schema version %q: %w",
+			rawVersion,
+			err,
+		)
+	}
+
+	return version, true, nil
 }
 
 type statCountQuery struct {

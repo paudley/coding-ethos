@@ -29,6 +29,7 @@ const (
 	configEnv          = "CODE_ETHOS_PRECOMMIT_CONFIG"
 	precommitRootEnv   = "CODE_ETHOS_PRECOMMIT_ROOT"
 	consumerRootEnv    = "CODE_ETHOS_CONSUMER_ROOT"
+	stateRootEnv       = "CODE_ETHOS_STATE_ROOT"
 	localRootEnv       = "CODE_ETHOS_LOCAL_ROOT"
 	privateKeyPattern  = `-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----`
 	textChunkSize      = 8192

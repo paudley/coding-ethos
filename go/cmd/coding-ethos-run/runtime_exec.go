@@ -24,6 +24,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/codeintelcli"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
+	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/githookcli"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookcli"
@@ -280,10 +281,9 @@ func agentShellSandboxPlan(
 
 // agentShellWritePaths assembles the full agent-shell writable set: the
 // worktree paths, the managed write directories, an optional supervisor-owned
-// private state tree, and the tool-config drift manifest. The manifest lives
-// directly under the read-only .coding-ethos pin and is rewritten by config
-// generation; without its override, sync-tool-configs fails with EROFS inside
-// the agent shell.
+// private state tree, and the exact generated files rewritten under the
+// read-only .coding-ethos pin. Without these file overrides, canonical build
+// generation fails with EROFS inside the agent shell.
 func agentShellWritePaths(root, stateRoot string) ([]string, error) {
 	agentWritePaths, err := agentShellWorktreeWritePaths(root)
 	if err != nil {
@@ -315,8 +315,12 @@ func agentShellWritePaths(root, stateRoot string) ([]string, error) {
 
 	// Repo-relative on purpose: the sandbox helper only creates missing
 	// write-path files for relative declarations, and repos that have never
-	// generated configs do not have the manifest yet.
-	return append(agentWritePaths, toolconfigs.HashManifestPath), nil
+	// generated configs do not have these artifacts yet.
+	return append(
+		agentWritePaths,
+		toolconfigs.HashManifestPath,
+		geminiprompts.PromptPackPath,
+	), nil
 }
 
 // agentShellExternalStateWritePath admits only the generated .coding-ethos

@@ -1013,10 +1013,20 @@ func runAgentHooksCommand(paths runtimePaths, rest []string) {
 }
 
 func runPolicyTool(paths runtimePaths, rest []string) error {
+	parentExecutable := ""
+
+	resolvedParent, err := os.Readlink(
+		filepath.Join("/proc", strconv.Itoa(os.Getppid()), "exe"),
+	)
+	if err == nil {
+		parentExecutable = resolvedParent
+	}
+
 	return runPolicyToolForProtocol(
 		paths,
 		rest,
 		os.Getenv(toolprotocol.ActionlintShellcheckEnv),
+		parentExecutable,
 	)
 }
 
@@ -1024,6 +1034,7 @@ func runPolicyToolForProtocol(
 	paths runtimePaths,
 	rest []string,
 	protocolMarker string,
+	parentExecutable string,
 ) error {
 	if len(rest) == 0 {
 		return apperror.StaticError("policy-tool requires a tool name")
@@ -1036,6 +1047,12 @@ func runPolicyToolForProtocol(
 		rest[0],
 		rest[1:],
 	) {
+		if !managedActionlintParent(paths, parentExecutable) {
+			return apperror.StaticError(
+				"actionlint ShellCheck protocol requires the managed actionlint parent",
+			)
+		}
+
 		tool, found := toolcatalog.HookOwnedTool("shellcheck")
 		if !found {
 			return apperror.StaticError("managed shellcheck tool is not registered")
@@ -1051,6 +1068,29 @@ func runPolicyToolForProtocol(
 	runtimeExecLint(paths, policyToolLintArgs(paths, rest[0], rest[1:])...)
 
 	return nil
+}
+
+func managedActionlintParent(paths runtimePaths, parentExecutable string) bool {
+	tool, found := toolcatalog.HookOwnedTool(toolprotocol.ActionlintTool)
+	if !found || strings.TrimSpace(parentExecutable) == "" {
+		return false
+	}
+
+	expected := tool.ManagedExecutablePath(paths.EthosRoot)
+
+	expectedInfo, err := os.Lstat(expected)
+	if err != nil || !expectedInfo.Mode().IsRegular() ||
+		expectedInfo.Mode()&0o111 == 0 {
+		return false
+	}
+
+	parentInfo, err := os.Stat(parentExecutable)
+	if err != nil || !parentInfo.Mode().IsRegular() ||
+		parentInfo.Mode()&0o111 == 0 {
+		return false
+	}
+
+	return os.SameFile(expectedInfo, parentInfo)
 }
 
 func runMCP(paths runtimePaths, rest []string) {

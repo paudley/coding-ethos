@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -101,6 +102,55 @@ func TestGitGlobalOptionStartsArgvRecognizesShortMetaOptions(t *testing.T) {
 	}
 }
 
+func TestParsePolicyGitArgsPreservesSupportedGitGlobalOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		argv []string
+	}{
+		{name: "no optional locks", argv: []string{"--no-optional-locks", "status"}},
+		{name: "no lazy fetch", argv: []string{"--no-lazy-fetch", "status"}},
+		{name: "no advice", argv: []string{"--no-advice", "status"}},
+		{name: "attribute source", argv: []string{"--attr-source=HEAD", "status"}},
+		{name: "command groups", argv: []string{"--list-cmds=main,others"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			args := append([]string{"--bundle=/policy/bundle.json"}, test.argv...)
+			parsed, err := parsePolicyGitArgs(args)
+			if err != nil {
+				t.Fatalf("parsePolicyGitArgs: %v", err)
+			}
+
+			if !slices.Equal(parsed.gitArgv, test.argv) {
+				t.Fatalf("git argv = %#v, want %#v", parsed.gitArgv, test.argv)
+			}
+		})
+	}
+}
+
+func TestGitGlobalOptionStartsArgvRejectsInvalidNewOptionForms(t *testing.T) {
+	t.Parallel()
+
+	for _, option := range []string{
+		"--no-optional-locks=true",
+		"--no-lazy-fetch=false",
+		"--no-advice=true",
+		"--attr-source",
+		"--attr-source=",
+		"--list-cmds",
+		"--list-cmds=",
+	} {
+		if gitGlobalOptionStartsArgv(option) {
+			t.Fatalf("gitGlobalOptionStartsArgv(%q) = true, want false", option)
+		}
+	}
+}
+
 func TestParsePolicyGitArgsHonorsExplicitBoundary(t *testing.T) {
 	t.Parallel()
 
@@ -134,6 +184,43 @@ func TestParsePolicyGitArgsRejectsUnknownWrapperOption(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "unknown policy-git option") {
 		t.Fatalf("error = %v, want unknown wrapper option", err)
+	}
+}
+
+func TestParsePolicyGitArgsRejectsInvalidWrapperValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		args []string
+		want error
+	}{
+		{
+			name: "required value",
+			args: []string{"--bundle"},
+			want: errWrapperValueRequired,
+		},
+		{
+			name: "empty value",
+			args: []string{"--bundle="},
+			want: errWrapperOptionEmpty,
+		},
+		{
+			name: "invalid boolean",
+			args: []string{"--json=maybe"},
+			want: errWrapperBoolValue,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := parsePolicyGitArgs(test.args)
+			if !errors.Is(err, test.want) {
+				t.Fatalf("parsePolicyGitArgs(%#v) error = %v, want %v", test.args, err, test.want)
+			}
+		})
 	}
 }
 

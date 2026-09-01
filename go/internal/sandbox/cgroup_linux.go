@@ -145,6 +145,9 @@ func SysProcAttr(cgroup *Cgroup, evidence Evidence) *syscall.SysProcAttr {
 	}
 
 	attributes.Setpgid = true
+	if evidence.Reason == activeAgentShellReuseReason {
+		return attributes
+	}
 
 	needsFilesystemNamespace := !evidence.RequiresProcesses ||
 		len(evidence.ReadOnlyPaths) > 0

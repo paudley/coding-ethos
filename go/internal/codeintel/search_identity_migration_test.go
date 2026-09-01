@@ -48,6 +48,22 @@ func TestOpenMigratesExactDuplicateSearchIdentities(t *testing.T) {
 		t.Fatalf("unexpected upgraded identity stats: %#v", stats)
 	}
 
+	var message, searchText string
+	if err = store.Database().QueryRowContext(
+		ctx,
+		`SELECT message, search_text FROM code_intel_fts
+		WHERE fts_id = 'legacy:one'`,
+	).Scan(&message, &searchText); err != nil {
+		t.Fatalf("read preserved v1 search identity: %v", err)
+	}
+	if message != "same" || searchText != "same text" {
+		t.Fatalf(
+			"preserved v1 search identity = (%q, %q)",
+			message,
+			searchText,
+		)
+	}
+
 	_, err = store.Database().ExecContext(
 		ctx,
 		`INSERT INTO code_intel_fts(fts_id, kind, record_id, search_text)
@@ -108,6 +124,82 @@ func TestOpenRejectsConflictingDuplicateSearchIdentity(t *testing.T) {
 	}
 	if rows != 2 {
 		t.Fatalf("conflicting migration retained %d rows, want 2", rows)
+	}
+}
+
+func TestRoutineV2SearchIdentityMigrationSkipsRecoveryScan(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, DefaultDBPath(t.TempDir()))
+	if err != nil {
+		t.Fatalf("open v2 search identity store: %v", err)
+	}
+	defer store.Close()
+
+	dropFTSIdentityIndex(t, ctx, store.Database())
+
+	_, err = store.Database().ExecContext(
+		ctx,
+		`INSERT INTO code_intel_fts(
+			fts_id, kind, record_id, message, search_text
+		) VALUES
+			('v2:conflict', 'finding', 'one', 'first', 'same text'),
+			('v2:conflict', 'finding', 'one', 'second', 'same text')`,
+	)
+	if err != nil {
+		t.Fatalf("insert v2 recovery sentinel: %v", err)
+	}
+
+	if err = migrateSearchIdentity(ctx, store.Database()); err != nil {
+		t.Fatalf("routine v2 migration entered recovery scan: %v", err)
+	}
+
+	var rows int
+	if err = store.Database().QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM code_intel_fts WHERE fts_id = 'v2:conflict'",
+	).Scan(&rows); err != nil {
+		t.Fatalf("count retained v2 recovery sentinel: %v", err)
+	}
+	if rows != 2 {
+		t.Fatalf("routine v2 migration rewrote %d sentinel rows, want 2", rows)
+	}
+}
+
+func TestExplicitSearchIdentityRecoveryRepairsV2Replay(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, DefaultDBPath(t.TempDir()))
+	if err != nil {
+		t.Fatalf("open v2 recovery store: %v", err)
+	}
+	defer store.Close()
+
+	dropFTSIdentityIndex(t, ctx, store.Database())
+
+	_, err = store.Database().ExecContext(
+		ctx,
+		`INSERT INTO code_intel_fts(
+			fts_id, kind, record_id, message, search_text
+		) VALUES
+			('v2:replay', 'finding', 'one', 'same', 'same text'),
+			('v2:replay', 'finding', 'one', 'same', 'same text')`,
+	)
+	if err != nil {
+		t.Fatalf("insert v2 replay: %v", err)
+	}
+
+	if err = deduplicateSearchIdentity(ctx, store.Database()); err != nil {
+		t.Fatalf("run explicit v2 search identity recovery: %v", err)
+	}
+
+	var rows int
+	if err = store.Database().QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM code_intel_fts WHERE fts_id = 'v2:replay'",
+	).Scan(&rows); err != nil {
+		t.Fatalf("count explicitly recovered v2 replay: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("explicit v2 recovery retained %d replay rows, want 1", rows)
 	}
 }
 
@@ -245,4 +337,13 @@ func openLegacySearchIdentityFixture(
 	}
 
 	return path, database
+}
+
+func dropFTSIdentityIndex(t *testing.T, ctx context.Context, database *sql.DB) {
+	t.Helper()
+
+	_, err := database.ExecContext(ctx, "DROP INDEX idx_code_intel_fts_id_unique")
+	if err != nil {
+		t.Fatalf("drop FTS identity index: %v", err)
+	}
 }

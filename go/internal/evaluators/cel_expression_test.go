@@ -404,6 +404,82 @@ func TestEvaluateCELExpressionBlocksAgentBrandingInStagedMarkdown(t *testing.T) 
 	}
 }
 
+func TestEvaluateCELExpressionDiffRuleLocatesMatchedLine(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+
+	unrelatedFile := filepath.Join(repo, "a_unrelated.go")
+	matchedFile := filepath.Join(repo, "z_matched.go")
+
+	if err := os.WriteFile(
+		unrelatedFile,
+		[]byte("package sample\n\nfunc unrelated() {}\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write unrelated source: %v", err)
+	}
+	if err := os.WriteFile(
+		matchedFile,
+		[]byte("package sample\n\nfunc target() {}\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write matched source: %v", err)
+	}
+	runCELGit(t, repo, "add", "a_unrelated.go", "z_matched.go")
+	runCELGit(t, repo, "commit", "-m", "initial")
+
+	if err := os.WriteFile(
+		unrelatedFile,
+		[]byte("package sample\n\nfunc unrelated() {\n\tprintln(\"grows\")\n}\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("grow unrelated source: %v", err)
+	}
+	if err := os.WriteFile(
+		matchedFile,
+		[]byte("package sample\n\nfunc target() {\n\t"+
+			"fmt."+"Fprintf(nil, \"blocked\")\n}\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write matched diff line: %v", err)
+	}
+	runCELGit(t, repo, "add", "a_unrelated.go", "z_matched.go")
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "feedback.route"
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:         repo,
+			Files:       []string{"a_unrelated.go", "z_matched.go"},
+			StagedFiles: []string{"a_unrelated.go", "z_matched.go"},
+			Scope:       "staged",
+			EvaluatorOptions: map[string]any{
+				"when": `diff.added_lines.exists(line,
+					line.file == "z_matched.go" &&
+					line.text.contains("fmt." + "Fprintf")
+				)`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+	if diagnostic := decisions[0].Diagnostics[0]; diagnostic.File != "z_matched.go" ||
+		diagnostic.Line != 4 {
+		t.Fatalf("diagnostic = %#v, want z_matched.go:4", diagnostic)
+	}
+}
+
 func TestEvaluateCELExpressionBlocksAgentBrandingInCommitMessage(t *testing.T) {
 	t.Parallel()
 

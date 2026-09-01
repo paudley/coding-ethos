@@ -12,13 +12,16 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
+	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookoutput"
 	"blackcat.ca/coding-ethos/go/internal/policy"
@@ -936,6 +939,218 @@ func TestParentHookRuntimeCheckRejectsCheckoutSymlink(t *testing.T) {
 	}
 }
 
+func TestParentHookRuntimeSyncPrunesOnlyStaleManagedExecutables(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	paths.ToolsSource = parentGoToolsSourceFixture(t, paths.EthosRoot)
+	touchParentGoTools(t, paths, time.Now())
+	options := parentWorkflowOptions{Repo: paths.Root}
+
+	if err := syncParentHookRuntimeExecutables(paths, options); err != nil {
+		t.Fatalf("initial runtime sync: %v", err)
+	}
+
+	runtimeBin := parentHookRuntimeBinDir(paths, options)
+	stale := filepath.Join(runtimeBin, "coding-ethos-retired")
+	unrelated := filepath.Join(runtimeBin, "operator-helper")
+	writeExecutableFixture(t, stale, "retired\n")
+	writeExecutableFixture(t, unrelated, "preserve\n")
+
+	err := checkParentHookRuntimeExecutables(paths, options)
+	if !errors.Is(err, errParentArtifactDrift) ||
+		!strings.Contains(err.Error(), "coding-ethos-retired(stale)") {
+		t.Fatalf("stale runtime check error = %v", err)
+	}
+
+	if err = syncParentHookRuntimeExecutables(paths, options); err != nil {
+		t.Fatalf("prune stale runtime: %v", err)
+	}
+
+	if _, err = os.Lstat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale managed executable still exists: %v", err)
+	}
+	if _, err = os.Lstat(unrelated); err != nil {
+		t.Fatalf("unrelated runtime file was not preserved: %v", err)
+	}
+}
+
+func TestParentHookRuntimeSyncRejectsUnsafeManagedShape(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	paths.ToolsSource = parentGoToolsSourceFixture(t, paths.EthosRoot)
+	touchParentGoTools(t, paths, time.Now())
+	options := parentWorkflowOptions{Repo: paths.Root}
+
+	if err := syncParentHookRuntimeExecutables(paths, options); err != nil {
+		t.Fatalf("initial runtime sync: %v", err)
+	}
+
+	target := filepath.Join(t.TempDir(), "outside")
+	writeExecutableFixture(t, target, "outside\n")
+	unsafe := filepath.Join(
+		parentHookRuntimeBinDir(paths, options),
+		"coding-ethos-retired",
+	)
+	if err := os.Symlink(target, unsafe); err != nil {
+		t.Fatalf("create stale managed symlink: %v", err)
+	}
+
+	err := syncParentHookRuntimeExecutables(paths, options)
+	if !errors.Is(err, errParentRuntimeUnsafeShape) {
+		t.Fatalf("unsafe runtime sync error = %v", err)
+	}
+	if _, err = os.Lstat(unsafe); err != nil {
+		t.Fatalf("unsafe managed entry was unexpectedly removed: %v", err)
+	}
+}
+
+func TestParentHookRuntimeCheckVerifiesModeAndCompatibilityHook(t *testing.T) {
+	t.Parallel()
+
+	paths := runtimeTestPaths(t)
+	paths.ToolsSource = parentGoToolsSourceFixture(t, paths.EthosRoot)
+	touchParentGoTools(t, paths, time.Now())
+	options := parentWorkflowOptions{Repo: paths.Root}
+
+	if err := syncParentHookRuntimeExecutables(paths, options); err != nil {
+		t.Fatalf("runtime sync: %v", err)
+	}
+
+	compatibility := filepath.Join(
+		parentHookRuntimeDir(paths, options),
+		parentCompatibilityHook,
+	)
+	status, err := compareParentHookRuntimeExecutable(
+		filepath.Join(paths.BinDir, parentCompatibilityHook),
+		compatibility,
+	)
+	if err != nil || status != "" {
+		t.Fatalf("compatibility hook status = %q, error = %v", status, err)
+	}
+
+	installed := filepath.Join(
+		parentHookRuntimeBinDir(paths, options),
+		"coding-ethos-run",
+	)
+	if err = os.Chmod(installed, 0o755); err != nil {
+		t.Fatalf("change installed mode: %v", err)
+	}
+
+	err = checkParentHookRuntimeExecutables(paths, options)
+	if !errors.Is(err, errParentArtifactDrift) ||
+		!strings.Contains(err.Error(), "coding-ethos-run(mode)") {
+		t.Fatalf("mode drift error = %v", err)
+	}
+}
+
+func TestParentHookRuntimeExecutableInstallIsAtomicUnderConcurrency(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	destination := filepath.Join(directory, "coding-ethos-run")
+	sources := make([]string, 8)
+	wantContent := map[string]struct{}{}
+
+	for index := range sources {
+		source := filepath.Join(directory, "source-"+strconv.Itoa(index))
+		content := "payload-" + strconv.Itoa(index) + "\n"
+		writeExecutableFixture(t, source, content)
+		sources[index] = source
+		wantContent[content] = struct{}{}
+	}
+
+	var wait sync.WaitGroup
+	errorsCh := make(chan error, len(sources))
+	for _, source := range sources {
+		wait.Add(1)
+
+		go func() {
+			defer wait.Done()
+
+			errorsCh <- installParentHookRuntimeExecutable(source, destination)
+		}()
+	}
+
+	wait.Wait()
+	close(errorsCh)
+
+	for err := range errorsCh {
+		if err != nil {
+			t.Fatalf("concurrent executable install: %v", err)
+		}
+	}
+
+	payload, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("read concurrent install result: %v", err)
+	}
+	if _, found := wantContent[string(payload)]; !found {
+		t.Fatalf("installed partial or unknown content %q", payload)
+	}
+
+	temporary, err := filepath.Glob(filepath.Join(directory, ".coding-ethos-run-*.tmp"))
+	if err != nil {
+		t.Fatalf("find temporary executables: %v", err)
+	}
+	if len(temporary) != 0 {
+		t.Fatalf("temporary executables were not cleaned up: %#v", temporary)
+	}
+}
+
+func TestParentHookRuntimeSyncUsesLinkedWorktreeCommonDirectory(t *testing.T) {
+	t.Parallel()
+
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatalf("find git: %v", err)
+	}
+
+	primary := t.TempDir()
+	runRunnerTestGit(t, primary, "init", "--initial-branch", "main")
+	tracked := filepath.Join(primary, "tracked.txt")
+	if err = os.WriteFile(tracked, []byte("tracked\n"), 0o600); err != nil {
+		t.Fatalf("write tracked fixture: %v", err)
+	}
+	runRunnerTestGit(t, primary, "add", "tracked.txt")
+	runRunnerTestGit(
+		t,
+		primary,
+		"-c", "user.name=Test",
+		"-c", "user.email=test@example.invalid",
+		"commit", "-m", "fixture",
+	)
+
+	linked := filepath.Join(t.TempDir(), "linked")
+	runRunnerTestGit(t, primary, "worktree", "add", "--detach", linked)
+
+	paths := runtimeTestPaths(t)
+	paths.RealGit = gitPath
+	paths.ToolsSource = parentGoToolsSourceFixture(t, paths.EthosRoot)
+	touchParentGoTools(t, paths, time.Now())
+	options := parentWorkflowOptions{Repo: linked}
+
+	if err = syncParentHookRuntimeExecutables(paths, options); err != nil {
+		t.Fatalf("sync linked-worktree runtime: %v", err)
+	}
+
+	commonDir, err := gitOutput(
+		gitPath,
+		linked,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	)
+	if err != nil {
+		t.Fatalf("resolve linked-worktree common dir: %v", err)
+	}
+	want := filepath.Join(commonDir, "coding-ethos-hooks", "bin", "coding-ethos-run")
+	if _, err = os.Lstat(want); err != nil {
+		t.Fatalf("stable linked-worktree runtime missing at %s: %v", want, err)
+	}
+}
+
 func TestSyncParentPolicyBundleUsesParentRepoConfig(t *testing.T) {
 	t.Parallel()
 
@@ -1356,6 +1571,7 @@ func TestRuntimePathResolutionFallbacks(t *testing.T) {
 //nolint:paralleltest // Serializes process-global runtime environment state.
 func TestRuntimePathResolutionUsesGitWhenAvailable(t *testing.T) {
 	testlock.ProcessState(t, "coding-ethos-run-env")
+	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", "")
 
 	repo := filepath.Join(t.TempDir(), "repo")
 	hooks := filepath.Join(repo, ".git", "hooks")
@@ -1374,6 +1590,7 @@ func TestRuntimePathResolutionUsesGitWhenAvailable(t *testing.T) {
 //nolint:paralleltest // Serializes process-global runtime environment state.
 func TestRuntimePathResolutionKeepsSubmoduleCheckoutLocal(t *testing.T) {
 	testlock.ProcessState(t, "coding-ethos-run-env")
+	t.Setenv("CODE_ETHOS_CONSUMER_ROOT", "")
 
 	parent := filepath.Join(t.TempDir(), "parent")
 	repo := filepath.Join(parent, "coding-ethos")
@@ -2097,9 +2314,22 @@ func TestAgentShellWritePathsKeepsSameRootPolicyTreeProtected(t *testing.T) {
 		t.Fatalf("agentShellWritePaths() error = %v", err)
 	}
 
-	protected := filepath.Join(root, ".coding-ethos")
-	if slices.Contains(got, protected) {
-		t.Fatalf("write paths grant protected policy tree %q: %#v", protected, got)
+	if !slices.Contains(got, geminiprompts.PromptPackPath) {
+		t.Fatalf(
+			"write paths missing exact Gemini prompt pack %q: %#v",
+			geminiprompts.PromptPackPath,
+			got,
+		)
+	}
+
+	for _, protected := range []string{
+		filepath.Join(root, ".coding-ethos"),
+		".coding-ethos",
+		".coding-ethos/gemini",
+	} {
+		if slices.Contains(got, protected) {
+			t.Fatalf("write paths grant protected policy path %q: %#v", protected, got)
+		}
 	}
 }
 
@@ -2413,6 +2643,8 @@ func TestAgentShellSandboxPlanFailsClosedWithoutNativeHelper(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("agent-shell native sandbox is Linux-only")
 	}
+	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "")
+	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "")
 
 	paths := runtimeTestPaths(t)
 
@@ -2699,7 +2931,7 @@ func TestPolicyGitIgnoresArbitraryEnvRealGitExecutable(t *testing.T) {
 	}
 }
 
-func TestPolicyToolUsesMarkedActionlintShellcheckProtocolWithoutParentPath(
+func TestPolicyToolUsesAuthenticatedActionlintShellcheckProtocol(
 	t *testing.T,
 ) {
 	paths := runtimeTestPaths(t)
@@ -2717,6 +2949,16 @@ func TestPolicyToolUsesMarkedActionlintShellcheckProtocolWithoutParentPath(
 	}
 	writeExecutableFixture(t, shellcheck, "#!/usr/bin/env sh\nexit 0\n")
 
+	actionlintTool, found := toolcatalog.HookOwnedTool(toolprotocol.ActionlintTool)
+	if !found {
+		t.Fatal("managed actionlint tool is not registered")
+	}
+	actionlint := actionlintTool.ManagedExecutablePath(paths.EthosRoot)
+	if err := os.MkdirAll(filepath.Dir(actionlint), 0o755); err != nil {
+		t.Fatalf("create managed actionlint fixture directory: %v", err)
+	}
+	writeExecutableFixture(t, actionlint, "#!/usr/bin/env sh\nexit 0\n")
+
 	args := []string{
 		"shellcheck",
 		"--norc",
@@ -2729,6 +2971,7 @@ func TestPolicyToolUsesMarkedActionlintShellcheckProtocolWithoutParentPath(
 		paths,
 		args,
 		toolprotocol.ActionlintShellcheckJSONStdinV1,
+		actionlint,
 	)
 	if err != nil {
 		t.Fatalf("run actionlint shellcheck dependency: %v", err)
@@ -2740,6 +2983,38 @@ func TestPolicyToolUsesMarkedActionlintShellcheckProtocolWithoutParentPath(
 	}
 }
 
+func TestPolicyToolRejectsSpoofedActionlintShellcheckProtocol(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+
+	actionlintTool, found := toolcatalog.HookOwnedTool(toolprotocol.ActionlintTool)
+	if !found {
+		t.Fatal("managed actionlint tool is not registered")
+	}
+	actionlint := actionlintTool.ManagedExecutablePath(paths.EthosRoot)
+	if err := os.MkdirAll(filepath.Dir(actionlint), 0o755); err != nil {
+		t.Fatalf("create managed actionlint fixture directory: %v", err)
+	}
+	writeExecutableFixture(t, actionlint, "#!/usr/bin/env sh\nexit 0\n")
+
+	attacker := filepath.Join(t.TempDir(), "actionlint")
+	writeExecutableFixture(t, attacker, "#!/usr/bin/env sh\nexit 0\n")
+
+	err := runPolicyToolForProtocol(
+		paths,
+		[]string{"shellcheck", "-f", "json", "-"},
+		toolprotocol.ActionlintShellcheckJSONStdinV1,
+		attacker,
+	)
+	if err == nil || !strings.Contains(err.Error(), "managed actionlint parent") {
+		t.Fatalf("spoofed actionlint protocol error = %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("spoofed actionlint protocol executed a tool: %#v", calls)
+	}
+}
+
 func TestPolicyToolCapturesShellcheckWithoutActionlintMarker(t *testing.T) {
 	paths := runtimeTestPaths(t)
 	var calls []string
@@ -2748,6 +3023,7 @@ func TestPolicyToolCapturesShellcheckWithoutActionlintMarker(t *testing.T) {
 	err := runPolicyToolForProtocol(
 		paths,
 		[]string{"shellcheck", "-f", "json", "-"},
+		"",
 		"",
 	)
 	if err != nil {
@@ -3546,9 +3822,10 @@ func TestMakefileRoutesParentGitHooksThroughStableCommonRuntime(t *testing.T) {
 
 	makefile := string(payload)
 	for _, want := range []string{
-		`$(call install_git_hooks,$(LOCAL_HOOKS_DIR),$(GO_HOOK))`,
+		`$(call install_git_hooks,$(LOCAL_HOOKS_DIR),$(PARENT_HOOK_BIN_DIR)/coding-ethos-run)`,
 		`$(call install_git_hooks,$(HOOKS_DIR),$(PARENT_HOOK_BIN_DIR)/coding-ethos-run)`,
 		`_sync-git-hooks: ensure-go go-tools-install _sync-parent-hook-runtime`,
+		`"$(GO_HOOK)" parent-runtime-sync --repo "$(HOOK_CONSUMER_ROOT)"`,
 		"--dest-dir \"$(PARENT_HOOK_BIN_DIR)\" \\\n" +
 			"\t\t--real-git \"$(GIT)\" \\\n" +
 			"\t\t--runner \"$(PARENT_HOOK_BIN_DIR)/coding-ethos-run\"",
@@ -3560,13 +3837,24 @@ func TestMakefileRoutesParentGitHooksThroughStableCommonRuntime(t *testing.T) {
 
 	if strings.Contains(
 		makefile,
-		`$(call install_git_hooks,$(HOOKS_DIR),$(GO_HOOK))`,
+		`$(call install_git_hooks,$(LOCAL_HOOKS_DIR),$(GO_HOOK))`,
 	) {
-		t.Fatal("Makefile routes parent Git hooks through a worktree-local runner")
+		t.Fatal("Makefile routes shared local Git hooks through a worktree-local runner")
 	}
 
 	if strings.Contains(makefile, `--runner "$(GO_HOOK)"`) {
 		t.Fatal("Makefile routes a parent shim through a worktree-local runner")
+	}
+
+	for _, forbidden := range []string{
+		`cp "$(GO_TOOLS_BIN_DIR)"/coding-ethos-*`,
+		`cp "$(GO_TOOLS_BIN_DIR)/cerun"`,
+		`cp "$(GO_TOOLS_BIN_DIR)/lint"`,
+		`cp "$(GO_TOOLS_BIN_DIR)/coding-ethos-git-hook"`,
+	} {
+		if strings.Contains(makefile, forbidden) {
+			t.Fatalf("Makefile bypasses atomic runtime sync with %q", forbidden)
+		}
 	}
 }
 
@@ -4087,6 +4375,7 @@ func touchParentGoTools(t *testing.T, paths runtimePaths, modTime time.Time) {
 
 func parentGoToolFixtureCommands() []string {
 	return []string{
+		"coding-ethos-git-hook",
 		"coding-ethos-lint",
 		"coding-ethos-policy",
 		"coding-ethos-run",

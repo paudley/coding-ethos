@@ -173,7 +173,7 @@ func TestEvaluateShellBestPracticesPropagatesGitInspectionFailure(t *testing.T) 
 	if err == nil {
 		t.Fatal("git inspection failure must fail helper validation")
 	}
-	if !strings.Contains(err.Error(), "git ls-files") {
+	if !strings.Contains(err.Error(), "git worktree root") {
 		t.Fatalf("git inspection error = %q", err)
 	}
 }
@@ -266,6 +266,57 @@ func TestEvaluateShellBestPracticesRequiresOnlyExistingCommonHelper(t *testing.T
 	}
 	if len(decisions) != 1 {
 		t.Fatalf("existing common helper must activate convention: %#v", decisions)
+	}
+	if got := decisions[0].Diagnostics[0].Message; got !=
+		"scripts/ shell files must source the repository common shell helpers" {
+		t.Fatalf("diagnostic message = %q", got)
+	}
+}
+
+func TestEvaluateShellBestPracticesResolvesCommonHelperFromNestedCWD(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	initializeStagedAdminGitRepo(t, repo)
+	scriptsDir := filepath.Join(repo, "scripts")
+	nestedDir := filepath.Join(repo, "work", "nested")
+	for _, directory := range []string{scriptsDir, nestedDir} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatalf("create fixture directory %s: %v", directory, err)
+		}
+	}
+
+	content := []byte("#!/usr/bin/env bash\nset -euo pipefail\necho ok\n")
+	commonPath := filepath.Join(scriptsDir, "common.sh")
+	if err := os.WriteFile(commonPath, content, 0o600); err != nil {
+		t.Fatalf("write common helper: %v", err)
+	}
+	runGit(t, repo, "add", "scripts/common.sh")
+
+	scriptPath := filepath.Join(scriptsDir, "work.sh")
+	if err := os.WriteFile(scriptPath, content, 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	decisions, err := EvaluateShellBestPractices(
+		shellBestPracticesPolicy(),
+		Context{
+			Cwd:   nestedDir,
+			Files: []string{scriptPath},
+			EvaluatorOptions: map[string]any{
+				"require_common_for_prefixes": []any{
+					scriptsDir + string(filepath.Separator),
+				},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate common helper from nested working directory: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("nested working directory decisions = %#v", decisions)
 	}
 	if got := decisions[0].Diagnostics[0].Message; got !=
 		"scripts/ shell files must source the repository common shell helpers" {
