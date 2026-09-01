@@ -668,7 +668,7 @@ _sync-git-hooks: ensure-go go-tools-install _sync-parent-hook-runtime
 		$(call install_git_hooks,$(HOOKS_DIR),$(PARENT_HOOK_BIN_DIR)/coding-ethos-run); \
 	fi
 
-_sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
+_sync-parent-hook-runtime: ensure-go go-tools-install go-hook-runner-install policy-bundle-install
 	@$(call print_step,Syncing parent hook runtime artifacts)
 	@"$(GO_HOOK)" parent-runtime-sync --repo "$(HOOK_CONSUMER_ROOT)"
 	@mkdir -p "$(PARENT_POLICY_DIR)"

@@ -164,9 +164,15 @@ def test_agent_hook_sync_uses_explicit_writable_state_roots() -> None:
 def test_parent_hook_runtime_executables_use_atomic_compiled_sync() -> None:
     makefile, _lines = _makefile_lines()
 
+    runtime_sync_target = next(
+        line
+        for line in makefile.splitlines()
+        if line.startswith("_sync-parent-hook-runtime:")
+    )
     runtime_sync = _target_block(makefile, "_sync-parent-hook-runtime")
     git_hook_sync = _target_block(makefile, "_sync-git-hooks")
 
+    assert "go-hook-runner-install" in runtime_sync_target
     assert (
         '"$(GO_HOOK)" parent-runtime-sync --repo "$(HOOK_CONSUMER_ROOT)"'
         in runtime_sync
