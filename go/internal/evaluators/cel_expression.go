@@ -159,29 +159,13 @@ func celDiagnostic(
 		return diagnostic
 	}
 
-	switch policyDef.ID {
-	case filesystemLineLimitsPolicy:
-		applyLineLimitFileDiagnostic(
-			&diagnostic,
-			activation,
-			context.EvaluatorOptions,
-		)
-	case hookChangedFileScopePolicy:
-		applyHookCommandDiagnostic(&diagnostic, activation)
-	case similarCodeDetectedPolicy:
-		applySimilarityDiagnostic(&diagnostic, activation)
-	case pythonSuppressionWritePolicy:
-		applyPythonSuppressionDiagnostic(
-			&diagnostic,
-			activation,
-			context.EvaluatorOptions,
-		)
-	default:
-		if strings.Contains(source, "changed_symbols") ||
-			strings.Contains(source, "proposed_symbol_changes") {
-			applyGrowingSymbolDiagnostic(&diagnostic, activation)
-		}
-	}
+	applyCELSpecializedDiagnostic(
+		&diagnostic,
+		context,
+		policyDef,
+		source,
+		activation,
+	)
 
 	if diagnostic.File == "" && diffLineWitness.found {
 		diagnostic.File = diffLineWitness.line.File
@@ -195,6 +179,38 @@ func celDiagnostic(
 	}
 
 	return diagnostic
+}
+
+func applyCELSpecializedDiagnostic(
+	diagnostic *diagnostics.Diagnostic,
+	context Context,
+	policyDef policy.Policy,
+	source string,
+	activation map[string]any,
+) {
+	switch policyDef.ID {
+	case filesystemLineLimitsPolicy:
+		applyLineLimitFileDiagnostic(
+			diagnostic,
+			activation,
+			context.EvaluatorOptions,
+		)
+	case hookChangedFileScopePolicy:
+		applyHookCommandDiagnostic(diagnostic, activation)
+	case similarCodeDetectedPolicy:
+		applySimilarityDiagnostic(diagnostic, activation)
+	case pythonSuppressionWritePolicy:
+		applyPythonSuppressionDiagnostic(
+			diagnostic,
+			activation,
+			context.EvaluatorOptions,
+		)
+	default:
+		if strings.Contains(source, "changed_symbols") ||
+			strings.Contains(source, "proposed_symbol_changes") {
+			applyGrowingSymbolDiagnostic(diagnostic, activation)
+		}
+	}
 }
 
 type celDiffLineWitness struct {
