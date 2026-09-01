@@ -46,6 +46,17 @@ func EvaluateShellBestPractices(
 		return nil, nil
 	}
 
+	shellFiles := make([]string, 0, len(context.Files))
+	for _, file := range context.Files {
+		if looksLikeShellFile(file) {
+			shellFiles = append(shellFiles, file)
+		}
+	}
+
+	if len(shellFiles) == 0 {
+		return nil, nil
+	}
+
 	requireCommon := stringSliceOption(
 		context.EvaluatorOptions,
 		"require_common_for_prefixes",
@@ -64,11 +75,7 @@ func EvaluateShellBestPractices(
 		requireCommon = nil
 	}
 
-	for _, file := range context.Files {
-		if !looksLikeShellFile(file) {
-			continue
-		}
-
+	for _, file := range shellFiles {
 		text, binary, err := readShellText(file)
 		if err != nil {
 			return nil, err

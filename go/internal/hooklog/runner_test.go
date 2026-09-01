@@ -5,7 +5,6 @@ package hooklog_test
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -16,7 +15,6 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	. "blackcat.ca/coding-ethos/go/internal/hooklog"
-	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
@@ -182,14 +180,10 @@ func TestRunChecksIgnoresWithoutIndex(t *testing.T) {
 	root := t.TempDir()
 	writeHookLogIgnore(t, root)
 	logPath := filepath.Join(t.TempDir(), "git-args.log")
-	t.Setenv("GIT_TRACE", logPath)
+	t.Setenv("CODE_ETHOS_HOOKLOG_TEST_GIT_ARGS", logPath)
+	git := fakeGit(t)
 
-	git, err := realgit.Resolve(context.Background(), "git")
-	if err != nil {
-		t.Fatalf("resolve real git: %v", err)
-	}
-
-	err = Run(Options{
+	err := Run(Options{
 		Stdin:      strings.NewReader(""),
 		Stdout:     &bytes.Buffer{},
 		Stderr:     &bytes.Buffer{},
@@ -205,7 +199,7 @@ func TestRunChecksIgnoresWithoutIndex(t *testing.T) {
 		t.Fatalf("run hook log: %v", err)
 	}
 
-	assertFileContains(t, logPath, "check-ignore --no-index --quiet")
+	assertFileContains(t, logPath, "check-ignore\n--no-index\n--quiet\n")
 }
 
 func TestRunIngestsHookTraceIntoCodeIntel(t *testing.T) {
@@ -601,6 +595,10 @@ func fakeFailingGit(t *testing.T) string {
 
 func fakeGitCheckIgnoreScript() string {
 	return `#!/usr/bin/env bash
+if [ -n "${CODE_ETHOS_HOOKLOG_TEST_GIT_ARGS:-}" ]; then
+  printf '%s\n' "$@" > "$CODE_ETHOS_HOOKLOG_TEST_GIT_ARGS"
+fi
+
 root=""
 target=""
 while [ "$#" -gt 0 ]; do

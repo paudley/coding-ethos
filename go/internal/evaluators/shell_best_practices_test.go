@@ -113,6 +113,29 @@ func TestEvaluateShellBestPracticesRejectsMissingRepositoryContext(t *testing.T)
 	}
 }
 
+func TestEvaluateShellBestPracticesSkipsRepositoryInspectionForNonShellFiles(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("write non-shell source: %v", err)
+	}
+
+	decisions, err := EvaluateShellBestPractices(
+		shellBestPracticesPolicy(),
+		Context{Cwd: dir, Files: []string{path}},
+	)
+	if err != nil {
+		t.Fatalf("non-shell source triggered repository inspection: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("non-shell source decisions = %#v", decisions)
+	}
+}
+
 func TestEvaluateShellBestPracticesPropagatesGitInspectionFailure(t *testing.T) {
 	t.Parallel()
 
