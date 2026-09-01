@@ -41,6 +41,13 @@ type sandboxCacheEnvironment struct {
 	CleanupTemp bool
 }
 
+type sandboxGoCachePaths struct {
+	Cache        string
+	Path         string
+	ModCache     string
+	GolangCILint string
+}
+
 // rustHomes reports where Cargo and Rustup live, preferring the environment so
 // an installation moved off its default path is still found.
 func rustHomes() (string, string) {
@@ -183,29 +190,7 @@ func sandboxCacheEnv(
 		return sandboxCacheEnvironment{}, err
 	}
 
-	goCache := filepath.Join(root, sandbox.SandboxGoCachePath)
-
-	err = makeSandboxDir(goCache, "Go cache")
-	if err != nil {
-		return sandboxCacheEnvironment{}, err
-	}
-
-	goPath := filepath.Join(root, sandbox.SandboxGoPath)
-	goModCache := filepath.Join(root, sandbox.SandboxGoModCachePath)
-
-	err = makeSandboxDir(goPath, "Go path")
-	if err != nil {
-		return sandboxCacheEnvironment{}, err
-	}
-
-	err = makeSandboxDir(goModCache, "Go module cache")
-	if err != nil {
-		return sandboxCacheEnvironment{}, err
-	}
-
-	golangCILintDir := filepath.Join(root, sandbox.SandboxGolangCIPath)
-
-	err = makeSandboxDir(golangCILintDir, "golangci-lint cache")
+	goCaches, err := prepareSandboxGoCachePaths(root)
 	if err != nil {
 		return sandboxCacheEnvironment{}, err
 	}
@@ -219,10 +204,10 @@ func sandboxCacheEnv(
 		TempDir:         tempDir,
 		RuntimeDir:      runtimeDir,
 		CleanupTemp:     cleanupTemp,
-		GoCache:         goCache,
-		GoPath:          goPath,
-		GoModCache:      goModCache,
-		GolangCILintDir: golangCILintDir,
+		GoCache:         goCaches.Cache,
+		GoPath:          goCaches.Path,
+		GoModCache:      goCaches.ModCache,
+		GolangCILintDir: goCaches.GolangCILint,
 		GoRoot:          managedGoRoot(ctx),
 		CGOEnabled:      "1",
 		CC:              cCompiler,
@@ -233,6 +218,32 @@ func sandboxCacheEnv(
 		CargoHome:       cargoHome,
 		RustupHome:      rustupHome,
 	}, nil
+}
+
+func prepareSandboxGoCachePaths(root string) (sandboxGoCachePaths, error) {
+	paths := sandboxGoCachePaths{
+		Cache:        filepath.Join(root, sandbox.SandboxGoCachePath),
+		Path:         filepath.Join(root, sandbox.SandboxGoPath),
+		ModCache:     filepath.Join(root, sandbox.SandboxGoModCachePath),
+		GolangCILint: filepath.Join(root, sandbox.SandboxGolangCIPath),
+	}
+
+	for _, dir := range []struct {
+		path string
+		what string
+	}{
+		{paths.Cache, "Go cache"},
+		{paths.Path, "Go path"},
+		{paths.ModCache, "Go module cache"},
+		{paths.GolangCILint, "golangci-lint cache"},
+	} {
+		err := makeSandboxDir(dir.path, dir.what)
+		if err != nil {
+			return sandboxGoCachePaths{}, err
+		}
+	}
+
+	return paths, nil
 }
 
 func resolvedManagedSubprocessGit(ctx context.Context) (string, error) {
