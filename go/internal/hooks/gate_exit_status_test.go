@@ -13,10 +13,12 @@ func TestRequiredGateExitStatusBlocksMaskedFailures(t *testing.T) {
 		"make check | tail -100",
 		"make check || true",
 		"bash -c 'make check; echo done'",
+		"bash --norc -c 'make check || true'",
 		"git -c core.useBuiltinFSMonitor=false commit -m verified | tee commit.log",
 		"cargo --locked test | tee cargo.log",
 		"go -C ./go test ./... | tee go.log",
 		"python3 -m pytest | tee pytest.log",
+		"python3.13 -m pytest | tee pytest.log",
 		"env -u CI make check | tee make.log",
 		"nice make check | tee make.log",
 		"timeout 30s make check | tee make.log",
@@ -25,6 +27,7 @@ func TestRequiredGateExitStatusBlocksMaskedFailures(t *testing.T) {
 		"make go-e2e-test | tee go-e2e.log",
 		"make lint | tee lint.log",
 		"make purrdf-extractor-check | tee purrdf.log",
+		"make check | tail -100 && set -o pipefail",
 	} {
 		route := requiredGateExitStatusRouteFor(Event{
 			HookEventName: eventPreToolUse,
@@ -36,6 +39,23 @@ func TestRequiredGateExitStatusBlocksMaskedFailures(t *testing.T) {
 		if !route.Block || route.BlockPolicyID != gateExitStatusPolicyID {
 			t.Fatalf("command %q route = %#v, want required-gate block", command, route)
 		}
+	}
+}
+
+func TestRequiredGateExitStatusFailsClosedBeyondShellDepth(t *testing.T) {
+	t.Parallel()
+
+	reason, masked := maskedRequiredGateStatus(
+		"make check",
+		false,
+		maxGateShellDepth+1,
+	)
+	if !masked || reason != gateNestingReason {
+		t.Fatalf(
+			"over-nested inspection = (%q, %t), want fail-closed nesting block",
+			reason,
+			masked,
+		)
 	}
 }
 

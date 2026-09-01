@@ -33,6 +33,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/shellparse"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
+	"blackcat.ca/coding-ethos/go/internal/toolprotocol"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -1012,13 +1013,17 @@ func runAgentHooksCommand(paths runtimePaths, rest []string) {
 }
 
 func runPolicyTool(paths runtimePaths, rest []string) error {
-	return runPolicyToolForParent(paths, rest, parentExecutablePath())
+	return runPolicyToolForProtocol(
+		paths,
+		rest,
+		os.Getenv(toolprotocol.ActionlintShellcheckEnv),
+	)
 }
 
-func runPolicyToolForParent(
+func runPolicyToolForProtocol(
 	paths runtimePaths,
 	rest []string,
-	parentExecutable string,
+	protocolMarker string,
 ) error {
 	if len(rest) == 0 {
 		return apperror.StaticError("policy-tool requires a tool name")
@@ -1026,7 +1031,11 @@ func runPolicyToolForParent(
 
 	requirePolicyBundle(paths)
 
-	if actionlintShellcheckDependency(parentExecutable, rest[0], rest[1:]) {
+	if toolprotocol.IsActionlintShellcheckJSONStdin(
+		protocolMarker,
+		rest[0],
+		rest[1:],
+	) {
 		tool, found := toolcatalog.HookOwnedTool("shellcheck")
 		if !found {
 			return apperror.StaticError("managed shellcheck tool is not registered")
@@ -1042,46 +1051,6 @@ func runPolicyToolForParent(
 	runtimeExecLint(paths, policyToolLintArgs(paths, rest[0], rest[1:])...)
 
 	return nil
-}
-
-func parentExecutablePath() string {
-	if runtime.GOOS != linuxGOOS {
-		return ""
-	}
-
-	path, err := os.Readlink("/proc/" + strconv.Itoa(os.Getppid()) + "/exe")
-	if err != nil {
-		return ""
-	}
-
-	return path
-}
-
-func actionlintShellcheckDependency(
-	parentExecutable string,
-	tool string,
-	args []string,
-) bool {
-	if filepath.Base(parentExecutable) != "actionlint" ||
-		tool != "shellcheck" ||
-		len(args) == 0 ||
-		args[len(args)-1] != "-" {
-		return false
-	}
-
-	for index, arg := range args {
-		if (arg == "-f" || arg == "--format") &&
-			index+1 < len(args) &&
-			args[index+1] == "json" {
-			return true
-		}
-
-		if arg == "-f=json" || arg == "--format=json" {
-			return true
-		}
-	}
-
-	return false
 }
 
 func runMCP(paths runtimePaths, rest []string) {

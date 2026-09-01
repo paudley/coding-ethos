@@ -310,6 +310,32 @@ func TestRunAllowsExactStagedGeneratedToolConfig(t *testing.T) {
 	}
 }
 
+func TestExactStagedGeneratedToolConfigRejectsUnchangedIndexEntry(t *testing.T) {
+	t.Parallel()
+
+	ethosRoot := repoRootForLintTest(t)
+	repo := initializedLintGitRepo(t)
+
+	_, err := toolconfigs.Sync(ethosRoot, repo, "")
+	if err != nil {
+		t.Fatalf("sync generated tool configs: %v", err)
+	}
+	runLintGit(t, repo, "add", ".bandit.yml")
+	runLintGit(t, repo, "commit", "-m", "test: establish generated baseline")
+
+	otherPath := filepath.Join(repo, "other.txt")
+	if err = os.WriteFile(otherPath, []byte("staged change\n"), 0o600); err != nil {
+		t.Fatalf("write staged change: %v", err)
+	}
+	runLintGit(t, repo, "add", "other.txt")
+
+	bundle := compiledRepoLintBundle(t)
+	trusted := generatedtrust.ExactStagedFiles(bundle, repo, []string{".bandit.yml"})
+	if len(trusted) != 0 {
+		t.Fatalf("unchanged generated index entry was trusted: %#v", trusted)
+	}
+}
+
 func TestRunBlocksDivergentStagedGeneratedToolConfig(t *testing.T) {
 	t.Parallel()
 
@@ -385,6 +411,7 @@ func initializedLintGitRepo(t *testing.T) string {
 	runLintGit(t, repo, "init")
 	runLintGit(t, repo, "config", "user.email", "test@example.com")
 	runLintGit(t, repo, "config", "user.name", "Test")
+	runLintGit(t, repo, "config", "commit.gpgsign", "false")
 
 	return repo
 }

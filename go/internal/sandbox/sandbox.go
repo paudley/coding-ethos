@@ -25,16 +25,18 @@ const (
 
 	BackendNative = "native"
 
-	cgroupLineParts      = 3
-	toolFallbackName     = "tool"
-	nativeSandboxBinary  = "coding-ethos-sandbox"
-	nativeProbeTimeout   = 10
-	nativeProbeDirMode   = 0o700
-	nativeProbeFileMode  = 0o700
-	nativeProbeWriteMode = 0o600
-	SandboxTempWritePath = ".coding-ethos/cache/sandbox-tmp"
-	SandboxGoCachePath   = ".coding-ethos/cache/go-build"
-	SandboxGolangCIPath  = ".coding-ethos/cache/golangci-lint"
+	cgroupLineParts       = 3
+	toolFallbackName      = "tool"
+	nativeSandboxBinary   = "coding-ethos-sandbox"
+	nativeProbeTimeout    = 10
+	nativeProbeDirMode    = 0o700
+	nativeProbeFileMode   = 0o700
+	nativeProbeWriteMode  = 0o600
+	SandboxTempWritePath  = ".coding-ethos/cache/sandbox-tmp"
+	SandboxGoCachePath    = ".coding-ethos/cache/go-build"
+	SandboxGoPath         = ".coding-ethos/cache/go-path"
+	SandboxGoModCachePath = SandboxGoPath + "/pkg/mod"
+	SandboxGolangCIPath   = ".coding-ethos/cache/golangci-lint"
 )
 
 var (
@@ -673,6 +675,7 @@ func (request Request) evidence() Evidence {
 	)
 	writePaths = append(writePaths, SandboxTempWritePath)
 	writePaths = append(writePaths, SandboxGoCachePath)
+	writePaths = append(writePaths, SandboxGoPath)
 	writePaths = append(writePaths, SandboxGolangCIPath)
 	writePaths = append(writePaths, nativeSystemWritePaths()...)
 	readPaths := append([]string(nil), request.Capabilities.ReadPaths...)

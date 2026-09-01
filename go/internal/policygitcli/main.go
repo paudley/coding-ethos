@@ -249,7 +249,7 @@ func gitGlobalOptionStartsArgv(argument string) bool {
 		"--bare", "--git-dir", "--work-tree", "--namespace", "--super-prefix",
 		"--exec-path", "--html-path", "--man-path", "--info-path", "--config-env",
 		"--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs",
-		"--version", "--help":
+		"-v", "--version", "-h", "--help":
 		return true
 	default:
 		return false

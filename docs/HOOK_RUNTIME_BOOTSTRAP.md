@@ -219,11 +219,20 @@ Bootstrap needs a few guardrails:
 - Keep authority build outputs under ignored `bin/` and `build/` directories.
 - Keep response, trace, and other transient repo-local caches under ignored
   `.coding-ethos/` paths, not under the Git common runtime.
-- Hook-launched `uv` commands bind both their download cache and project
-  environment to the consumer-owned `.coding-ethos/cache/` tree and use the
-  sealed project's committed lockfile in frozen mode. The installed shared
-  runtime remains read-only and never receives a generated `.venv` or a lockfile
-  rewrite.
+- Hook and managed-capture Go commands use the consumer-owned
+  `.coding-ethos/cache/go-path/` as `GOPATH` and its `pkg/mod/` child as
+  `GOMODCACHE`. This keeps downloaded modules and Go's `pkg/sumdb` checksum
+  database writable inside the admitted repository cache instead of inheriting
+  an operator-owned host path.
+- Hook-launched `uv` commands share the consumer-owned
+  `.coding-ethos/cache/uv/` download cache. Each active project, resolved from
+  an explicit `--project` path or the command working directory, receives a
+  distinct environment under `.coding-ethos/cache/uv-project-env/`.
+  `UV_PROJECT_ENVIRONMENT` and `UV_FROZEN` are scoped to that child invocation,
+  not exported across the hook process. Frozen mode is enabled only when the
+  command requests `--frozen` or the active project's `uv.lock` exists in
+  `HEAD`; unsealed projects remain writable. The installed shared runtime
+  remains read-only and never receives a generated `.venv` or lockfile rewrite.
 - Install common-runtime executables with temporary-file sync plus atomic
   rename, and verify them by content rather than mtime.
 - Keep installed hook entrypoints stable and move versioned behavior into the

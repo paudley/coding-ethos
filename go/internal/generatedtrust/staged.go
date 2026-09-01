@@ -6,6 +6,7 @@
 package generatedtrust
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"path/filepath"
@@ -34,12 +35,18 @@ func ExactStagedFiles(bundle policy.Bundle, cwd string, files []string) []string
 	}
 
 	artifacts := generatedArtifacts(ethosRoot, cwd)
-	staged := normalizedPathSet(files)
+	requested := normalizedPathSet(files)
+
+	staged := stagedChangedPathSet(cwd)
+	if staged == nil {
+		return nil
+	}
+
 	trusted := map[string]bool{}
 
 	for _, artifact := range artifacts {
 		path := filepath.ToSlash(filepath.Clean(artifact.Path))
-		if !staged[path] || artifact.ExpectedSHA256 == "" {
+		if !requested[path] || !staged[path] || artifact.ExpectedSHA256 == "" {
 			continue
 		}
 
@@ -57,6 +64,34 @@ func ExactStagedFiles(bundle policy.Bundle, cwd string, files []string) []string
 	sort.Strings(result)
 
 	return result
+}
+
+func stagedChangedPathSet(cwd string) map[string]bool {
+	content, err := evaluators.GitCommand(
+		cwd,
+		"diff",
+		"--cached",
+		"--name-only",
+		"--diff-filter=ACMR",
+		"-z",
+		"--",
+	).Output()
+	if err != nil {
+		return nil
+	}
+
+	paths := map[string]bool{}
+
+	for rawPath := range bytes.SplitSeq(content, []byte{0}) {
+		path := string(rawPath)
+		if path == "" {
+			continue
+		}
+
+		paths[filepath.ToSlash(filepath.Clean(path))] = true
+	}
+
+	return paths
 }
 
 func generatedArtifacts(ethosRoot, repoRoot string) []syncstate.Artifact {

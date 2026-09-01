@@ -91,6 +91,16 @@ func TestParsePolicyGitArgsPreservesGitGlobalOptions(t *testing.T) {
 	}
 }
 
+func TestGitGlobalOptionStartsArgvRecognizesShortMetaOptions(t *testing.T) {
+	t.Parallel()
+
+	for _, option := range []string{"-h", "-v"} {
+		if !gitGlobalOptionStartsArgv(option) {
+			t.Fatalf("gitGlobalOptionStartsArgv(%q) = false, want true", option)
+		}
+	}
+}
+
 func TestParsePolicyGitArgsHonorsExplicitBoundary(t *testing.T) {
 	t.Parallel()
 

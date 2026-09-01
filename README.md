@@ -956,8 +956,10 @@ policy-blocked hooks never trigger them as a side effect.
 
 Consumer commits may include generated tool and provider configuration only
 when the staged Git-index bytes exactly match output rendered by the active
-Coding Ethos authority. That narrow trust record exempts the generated surface
-from path-write guards while every content policy still runs; restoring a clean
+Coding Ethos authority and the path is present in the staged diff. That narrow
+trust record exempts the generated surface from path-write guards and the
+forbidden-string scan that would otherwise reject the authority's own generated
+runtime commands; every other content policy still runs. Restoring a clean
 working-tree copy cannot conceal divergent staged bytes.
 
 When `parent-install` or `parent-lint` receives an external `--state-root`, it

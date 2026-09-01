@@ -5,6 +5,7 @@ package hooklog_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	. "blackcat.ca/coding-ethos/go/internal/hooklog"
+	"blackcat.ca/coding-ethos/go/internal/realgit"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
 )
 
@@ -175,14 +177,19 @@ func TestRunWritesDebugLogAndStderrWhenEnabled(t *testing.T) {
 }
 
 func TestRunChecksIgnoresWithoutIndex(t *testing.T) {
-	t.Parallel()
+	testlock.ProcessState(t, "hooklog-git-trace")
 
 	root := t.TempDir()
 	writeHookLogIgnore(t, root)
-	logPath := filepath.Join(root, "git-args.log")
-	git := fakeGitWithLog(t, logPath)
+	logPath := filepath.Join(t.TempDir(), "git-args.log")
+	t.Setenv("GIT_TRACE", logPath)
 
-	err := Run(Options{
+	git, err := realgit.Resolve(context.Background(), "git")
+	if err != nil {
+		t.Fatalf("resolve real git: %v", err)
+	}
+
+	err = Run(Options{
 		Stdin:      strings.NewReader(""),
 		Stdout:     &bytes.Buffer{},
 		Stderr:     &bytes.Buffer{},
@@ -559,7 +566,7 @@ func fakeGit(t *testing.T) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "git")
 
-	script := fakeGitCheckIgnoreScript("")
+	script := fakeGitCheckIgnoreScript()
 
 	writeExecutableTestFile(t, path, script)
 
@@ -592,31 +599,9 @@ func fakeFailingGit(t *testing.T) string {
 	return path
 }
 
-func fakeGitWithLog(t *testing.T, logPath string) string {
-	t.Helper()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "git")
-
-	script := fakeGitCheckIgnoreScript(logPath)
-
-	writeExecutableTestFile(t, path, script)
-
-	return path
-}
-
-func shellQuoteForTest(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
-}
-
-func fakeGitCheckIgnoreScript(logPath string) string {
-	logLine := ""
-	if logPath != "" {
-		logLine = "printf '%s\\n' \"$*\" >> " + shellQuoteForTest(logPath) + "\n"
-	}
-
+func fakeGitCheckIgnoreScript() string {
 	return `#!/usr/bin/env bash
-` + logLine + `root=""
+root=""
 target=""
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "-C" ]; then

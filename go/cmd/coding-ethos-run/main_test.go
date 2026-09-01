@@ -27,6 +27,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/sharedlock"
 	"blackcat.ca/coding-ethos/go/internal/shellquote"
 	"blackcat.ca/coding-ethos/go/internal/testlock"
+	"blackcat.ca/coding-ethos/go/internal/toolprotocol"
 	"blackcat.ca/coding-ethos/go/toolcatalog"
 )
 
@@ -2588,7 +2589,9 @@ func TestPolicyGitIgnoresArbitraryEnvRealGitExecutable(t *testing.T) {
 	}
 }
 
-func TestPolicyToolExecutesActionlintShellcheckDependencyRaw(t *testing.T) {
+func TestPolicyToolUsesMarkedActionlintShellcheckProtocolWithoutParentPath(
+	t *testing.T,
+) {
 	paths := runtimeTestPaths(t)
 	var calls []string
 	paths.Executor = stubRuntimeOps{calls: &calls}
@@ -2612,7 +2615,11 @@ func TestPolicyToolExecutesActionlintShellcheckDependencyRaw(t *testing.T) {
 		"--shell", "bash",
 		"-",
 	}
-	err := runPolicyToolForParent(paths, args, "/managed/bin/actionlint")
+	err := runPolicyToolForProtocol(
+		paths,
+		args,
+		toolprotocol.ActionlintShellcheckJSONStdinV1,
+	)
 	if err != nil {
 		t.Fatalf("run actionlint shellcheck dependency: %v", err)
 	}
@@ -2623,15 +2630,15 @@ func TestPolicyToolExecutesActionlintShellcheckDependencyRaw(t *testing.T) {
 	}
 }
 
-func TestPolicyToolCapturesShellcheckOutsideActionlint(t *testing.T) {
+func TestPolicyToolCapturesShellcheckWithoutActionlintMarker(t *testing.T) {
 	paths := runtimeTestPaths(t)
 	var calls []string
 	paths.Executor = stubRuntimeOps{calls: &calls}
 
-	err := runPolicyToolForParent(
+	err := runPolicyToolForProtocol(
 		paths,
 		[]string{"shellcheck", "-f", "json", "-"},
-		"/usr/bin/bash",
+		"",
 	)
 	if err != nil {
 		t.Fatalf("run direct shellcheck: %v", err)
@@ -2640,63 +2647,6 @@ func TestPolicyToolCapturesShellcheckOutsideActionlint(t *testing.T) {
 	joined := strings.Join(calls, "\n")
 	if !strings.Contains(joined, "exec-lint:") || strings.Contains(joined, "execpath:") {
 		t.Fatalf("direct shellcheck bypassed managed capture: %#v", calls)
-	}
-}
-
-func TestActionlintShellcheckDependencyRequiresJSONStdinContract(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		parent string
-		tool   string
-		args   []string
-		want   bool
-	}{
-		{
-			name:   "actionlint json stdin",
-			parent: "/managed/bin/actionlint",
-			tool:   "shellcheck",
-			args:   []string{"--norc", "-f", "json", "-"},
-			want:   true,
-		},
-		{
-			name:   "long json format",
-			parent: "/managed/bin/actionlint",
-			tool:   "shellcheck",
-			args:   []string{"--format=json", "-"},
-			want:   true,
-		},
-		{
-			name:   "wrong parent",
-			parent: "/usr/bin/bash",
-			tool:   "shellcheck",
-			args:   []string{"-f", "json", "-"},
-		},
-		{
-			name:   "not stdin",
-			parent: "/managed/bin/actionlint",
-			tool:   "shellcheck",
-			args:   []string{"-f", "json", "script.sh"},
-		},
-		{
-			name:   "not json",
-			parent: "/managed/bin/actionlint",
-			tool:   "shellcheck",
-			args:   []string{"-f", "gcc", "-"},
-		},
-	}
-
-	for _, test := range tests {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := actionlintShellcheckDependency(test.parent, test.tool, test.args)
-			if got != test.want {
-				t.Fatalf("actionlintShellcheckDependency() = %v, want %v", got, test.want)
-			}
-		})
 	}
 }
 
@@ -3489,6 +3439,9 @@ func TestMakefileRoutesParentGitHooksThroughStableCommonRuntime(t *testing.T) {
 		`$(call install_git_hooks,$(LOCAL_HOOKS_DIR),$(GO_HOOK))`,
 		`$(call install_git_hooks,$(HOOKS_DIR),$(PARENT_HOOK_BIN_DIR)/coding-ethos-run)`,
 		`_sync-git-hooks: ensure-go go-tools-install _sync-parent-hook-runtime`,
+		"--dest-dir \"$(PARENT_HOOK_BIN_DIR)\" \\\n" +
+			"\t\t--real-git \"$(GIT)\" \\\n" +
+			"\t\t--runner \"$(PARENT_HOOK_BIN_DIR)/coding-ethos-run\"",
 	} {
 		if !strings.Contains(makefile, want) {
 			t.Fatalf("Makefile missing stable Git hook route %q", want)
@@ -3500,6 +3453,10 @@ func TestMakefileRoutesParentGitHooksThroughStableCommonRuntime(t *testing.T) {
 		`$(call install_git_hooks,$(HOOKS_DIR),$(GO_HOOK))`,
 	) {
 		t.Fatal("Makefile routes parent Git hooks through a worktree-local runner")
+	}
+
+	if strings.Contains(makefile, `--runner "$(GO_HOOK)"`) {
+		t.Fatal("Makefile routes a parent shim through a worktree-local runner")
 	}
 }
 

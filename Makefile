@@ -35,8 +35,12 @@ GOFMT ?= gofmt
 CARGO ?= cargo
 GO_BUILD_FLAGS ?= -trimpath -buildvcs=false
 GO_BUILD_CACHE_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/go-build
+GO_PATH_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/go-path
+GO_MODULE_CACHE_DIR ?= $(GO_PATH_DIR)/pkg/mod
 UV_CACHE_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/uv
 export GOCACHE := $(GO_BUILD_CACHE_DIR)
+export GOPATH := $(GO_PATH_DIR)
+export GOMODCACHE := $(GO_MODULE_CACHE_DIR)
 export UV_CACHE_DIR
 
 empty :=
@@ -666,7 +670,7 @@ _sync-parent-hook-runtime: ensure-go go-tools-install policy-bundle-install
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-toolchain" install-git-shim \
 		--dest-dir "$(PARENT_HOOK_BIN_DIR)" \
 		--real-git "$(GIT)" \
-		--runner "$(GO_HOOK)"
+		--runner "$(PARENT_HOOK_BIN_DIR)/coding-ethos-run"
 	@"$(GO_TOOLS_BIN_DIR)/coding-ethos-lint" \
 		--install-shims \
 		--tools-bin-dir "$(PARENT_HOOK_BIN_DIR)" \
