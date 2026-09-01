@@ -294,6 +294,10 @@ func shouldLogRuntimeCommand(args []string) bool {
 		return false
 	}
 
+	if slices.Contains([]string{"--help", "-h", "--version"}, args[0]) {
+		return false
+	}
+
 	if args[0] == "cutover" || args[0] == "lfs-hook" {
 		return false
 	}

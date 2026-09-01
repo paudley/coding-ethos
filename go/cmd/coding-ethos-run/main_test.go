@@ -453,8 +453,15 @@ func TestWithCommandRootsUsesCommandSpecificRepositoryFlags(t *testing.T) {
 func TestCapabilitiesDiscoveryDoesNotWriteRuntimeLog(t *testing.T) {
 	t.Parallel()
 
-	if shouldLogRuntimeCommand([]string{"agent-hooks", "capabilities"}) {
-		t.Fatal("capabilities discovery should be read-only")
+	for _, args := range [][]string{
+		{"agent-hooks", "capabilities"},
+		{"--help"},
+		{"-h"},
+		{"--version"},
+	} {
+		if shouldLogRuntimeCommand(args) {
+			t.Fatalf("read-only discovery %q should not write a runtime log", args)
+		}
 	}
 	if !shouldLogRuntimeCommand([]string{"agent-hooks", "doctor"}) {
 		t.Fatal("doctor should retain runtime logging")
