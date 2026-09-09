@@ -273,6 +273,49 @@ func TestEvaluateShellBestPracticesRequiresOnlyExistingCommonHelper(t *testing.T
 	}
 }
 
+// Post-edit lint passes the absolute paths of every changed file, including
+// files the edit deleted. A deleted path must be skipped outright: it must not
+// fail path normalization, and it must not be reported as an empty file that
+// violates every shell convention.
+func TestEvaluateShellBestPracticesSkipsDeletedAbsoluteShellPaths(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	initializeStagedAdminGitRepo(t, repo)
+	scriptsDir := filepath.Join(repo, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o700); err != nil {
+		t.Fatalf("create scripts directory: %v", err)
+	}
+
+	content := []byte("#!/usr/bin/env bash\nset -euo pipefail\necho ok\n")
+	commonPath := filepath.Join(scriptsDir, "common.sh")
+	if err := os.WriteFile(commonPath, content, 0o600); err != nil {
+		t.Fatalf("write common helper: %v", err)
+	}
+	runGit(t, repo, "add", "scripts/common.sh")
+
+	deletedPath := filepath.Join(scriptsDir, "removed.sh")
+
+	decisions, err := EvaluateShellBestPractices(
+		shellBestPracticesPolicy(),
+		Context{
+			Cwd:   repo,
+			Files: []string{deletedPath},
+			EvaluatorOptions: map[string]any{
+				"require_common_for_prefixes": []any{
+					scriptsDir + string(filepath.Separator),
+				},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("deleted shell path failed evaluation: %v", err)
+	}
+	if len(decisions) != 0 {
+		t.Fatalf("deleted shell path produced decisions: %#v", decisions)
+	}
+}
+
 func TestEvaluateShellBestPracticesResolvesCommonHelperFromNestedCWD(
 	t *testing.T,
 ) {

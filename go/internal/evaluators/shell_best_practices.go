@@ -57,12 +57,12 @@ func EvaluateShellBestPractices(
 	}
 
 	for _, file := range shellFiles {
-		text, binary, err := readShellText(file)
+		text, skip, err := readShellText(file)
 		if err != nil {
 			return nil, err
 		}
 
-		if binary {
+		if skip {
 			continue
 		}
 
@@ -293,11 +293,15 @@ func looksLikeShellFile(path string) bool {
 	}
 }
 
+// readShellText returns the file's text and a skip flag. Skip is true when the
+// file must not be evaluated at all: a binary file, or a path deleted by the
+// edit under review. A deleted path must be skipped rather than reported as an
+// empty file that violates every shell convention.
 func readShellText(path string) (string, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", false, nil
+			return "", true, nil
 		}
 
 		return "", false, fmt.Errorf("read shell file %s: %w", path, err)
