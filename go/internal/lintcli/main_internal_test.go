@@ -392,6 +392,66 @@ func TestRunCLICodeIntelIngestsTraceAndIndexesFiles(t *testing.T) {
 	}
 }
 
+func TestLintCodeIntelPathsNeverExpandsFullScope(t *testing.T) {
+	t.Parallel()
+
+	if paths := lintCodeIntelPaths(
+		lint.ScopeFull,
+		[]string{"pkg/app.py"},
+	); len(
+		paths,
+	) != 0 {
+		t.Fatalf("full-scope code-intel paths = %#v, want none", paths)
+	}
+
+	paths := lintCodeIntelPaths(lint.ScopeFiles, []string{"pkg/app.py"})
+	if len(paths) != 1 || paths[0] != "pkg/app.py" {
+		t.Fatalf("explicit code-intel paths = %#v", paths)
+	}
+}
+
+func TestRefreshLintCodeIntelIndexesFilesWhenTraceIngestFails(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	target := filepath.Join(repo, samplePythonFile)
+
+	err := os.MkdirAll(filepath.Dir(target), lintTestExecutableMode)
+	if err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+
+	err = os.WriteFile(target, []byte("VALUE = 1\n"), lintTestWriteMode)
+	if err != nil {
+		t.Fatalf("write python file: %v", err)
+	}
+
+	refreshLintCodeIntel(
+		repo,
+		filepath.Join(repo, "missing-trace.json"),
+		lint.ScopeFiles,
+		[]string{samplePythonFile},
+	)
+
+	store, err := codeintel.OpenReadOnly(
+		context.Background(),
+		codeintel.DefaultDBPath(repo),
+	)
+	if err != nil {
+		t.Fatalf("open code-intel store: %v", err)
+	}
+	defer store.Close()
+
+	stats, err := store.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("code-intel stats: %v", err)
+	}
+
+	if stats.Traces != 0 || stats.Files != 1 {
+		t.Fatalf("code-intel stats = %#v, want zero traces and one file", stats)
+	}
+}
+
 func TestRunCLIExplainMode(t *testing.T) {
 	t.Parallel()
 

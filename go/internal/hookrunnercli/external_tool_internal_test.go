@@ -115,6 +115,7 @@ func TestExternalToolEnvRemovesGitHookLocalEnvironment(t *testing.T) {
 	t.Setenv("CODING_ETHOS_AGENT_SHELL_SANDBOX", "1")
 	t.Setenv("CODING_ETHOS_SANDBOX_ACTIVE", "1")
 	t.Setenv("CODING_ETHOS_SANDBOX_ROOT", repo)
+	t.Setenv(stateRootEnv, repo)
 
 	env, err := externalToolEnv(externalToolRequest{
 		Dir:     repo,
@@ -241,6 +242,7 @@ func TestExternalToolEnvIsolatesActiveUVProjects(t *testing.T) {
 
 	t.Chdir(repo)
 	t.Setenv(consumerRootEnv, repo)
+	t.Setenv(stateRootEnv, repo)
 
 	firstEnv, err := externalToolEnv(externalToolRequest{
 		Dir:     firstProject,
@@ -289,6 +291,49 @@ func TestExternalToolEnvIsolatesActiveUVProjects(t *testing.T) {
 	}
 }
 
+func TestExternalToolEnvUsesStateRootOutsideConsumerCheckout(t *testing.T) {
+	consumerRoot := t.TempDir()
+	stateRoot := t.TempDir()
+	hookRoot := t.TempDir()
+	hookProject := filepath.Join(hookRoot, "pre-commit", "hooks")
+	mustWriteTestFile(
+		t,
+		filepath.Join(hookProject, "pyproject.toml"),
+		"[project]\nname = 'fixture'\n",
+	)
+
+	t.Chdir(hookRoot)
+	t.Setenv(consumerRootEnv, consumerRoot)
+	t.Setenv(stateRootEnv, stateRoot+string(os.PathSeparator)+".")
+
+	env, err := externalToolEnv(externalToolRequest{
+		Dir: hookProject,
+		Command: []string{
+			"uv", "run", "--project", hookProject, "pyupgrade",
+		},
+	})
+	if err != nil {
+		t.Fatalf("externalToolEnv: %v", err)
+	}
+
+	projectEnv := externalToolTestRequiredEnvValue(
+		t,
+		env,
+		"UV_PROJECT_ENVIRONMENT",
+	)
+	wantRoot := filepath.Join(stateRoot, ".coding-ethos", "cache", "uv-project-env")
+	if !strings.HasPrefix(projectEnv, wantRoot+string(os.PathSeparator)) {
+		t.Fatalf("UV project environment %q is outside state root %q", projectEnv, wantRoot)
+	}
+	if strings.HasPrefix(projectEnv, hookProject+string(os.PathSeparator)) {
+		t.Fatalf(
+			"UV project environment %q is inside hook project %q",
+			projectEnv,
+			hookProject,
+		)
+	}
+}
+
 func TestExternalToolEnvFreezesOnlySealedOrExplicitUVProjects(t *testing.T) {
 	repo := t.TempDir()
 	sealedProject := filepath.Join(repo, "sealed")
@@ -330,6 +375,7 @@ func TestExternalToolEnvFreezesOnlySealedOrExplicitUVProjects(t *testing.T) {
 
 	t.Chdir(repo)
 	t.Setenv(consumerRootEnv, repo)
+	t.Setenv(stateRootEnv, repo)
 
 	sealedEnv, err := externalToolEnv(externalToolRequest{
 		Dir:     sealedProject,

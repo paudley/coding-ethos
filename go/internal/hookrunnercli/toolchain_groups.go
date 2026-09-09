@@ -800,6 +800,7 @@ func runManagedPolicyTool(name string, args []string) int {
 		InvocationCwd: repoRoot(),
 		OutputFormat:  selectedHookOutputFormat(),
 		Args:          args,
+		CodeIntel:     true,
 	})
 }
 

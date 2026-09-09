@@ -268,7 +268,7 @@ func (paths runtimePaths) withCommandRoots(args []string) runtimePaths {
 		repoRoot = flagValue(args[1:], "--root", paths.Root)
 	case "runtime-policy":
 		repoRoot = flagValue(args[1:], "--repo", paths.Root)
-	case "parent-install", "parent-check", "parent-lint":
+	case "parent-install", "parent-runtime-sync", "parent-check", "parent-lint":
 		repoRoot = flagValue(args[1:], "--repo", paths.Root)
 	default:
 		return paths
@@ -291,6 +291,10 @@ func (paths runtimePaths) withCommandRoots(args []string) runtimePaths {
 
 func shouldLogRuntimeCommand(args []string) bool {
 	if len(args) == 0 {
+		return false
+	}
+
+	if slices.Contains([]string{"--help", "-h", "--version"}, args[0]) {
 		return false
 	}
 

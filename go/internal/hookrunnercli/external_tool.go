@@ -185,7 +185,7 @@ func externalToolEnv(request externalToolRequest) ([]string, error) {
 	env := make([]string, 0, len(os.Environ())+len(request.Env))
 	hasPath := false
 
-	root := repoRoot()
+	root := externalToolStateRoot()
 
 	cacheEnv, err := externalToolCacheEnv(root)
 	if err != nil {
@@ -230,6 +230,14 @@ func externalToolEnv(request externalToolRequest) ([]string, error) {
 	env = append(env, uvEnv...)
 
 	return append(env, request.Env...), nil
+}
+
+func externalToolStateRoot() string {
+	if root := strings.TrimSpace(os.Getenv(stateRootEnv)); root != "" {
+		return filepath.Clean(root)
+	}
+
+	return repoRoot()
 }
 
 type externalToolCacheEnvironment struct {

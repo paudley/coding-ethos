@@ -35,13 +35,18 @@ var (
 	errGitTargetRequired  = errors.New("at least one git target is required")
 	errExecutableAbsolute = errors.New("executable path must be absolute")
 	errExecutableInvalid  = errors.New("executable path is not executable")
+	errNativeGitBindProbe = errors.New(
+		"native git bind probe executable is not an exact read-only mount",
+	)
 )
 
 const (
-	privateDirMode      = 0o700
-	writableFileMode    = 0o600
-	mountInfoFieldCount = 6
-	landlockWriteAccess = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
+	privateDirMode                  = 0o700
+	writableFileMode                = 0o600
+	mountInfoFieldCount             = 6
+	nativeGitBindProbeMarker        = ".coding-ethos/cache/git-wrapper"
+	nativeGitBindProbeFailureMarker = ".coding-ethos/cache/git-bind-not-read-only"
+	landlockWriteAccess             = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
 		unix.LANDLOCK_ACCESS_FS_REMOVE_DIR |
 		unix.LANDLOCK_ACCESS_FS_REMOVE_FILE |
 		unix.LANDLOCK_ACCESS_FS_MAKE_CHAR |
@@ -56,6 +61,69 @@ const (
 	landlockFileWriteAccess = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
 		unix.LANDLOCK_ACCESS_FS_TRUNCATE
 )
+
+func runNativeGitBindProbe() error {
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolve native git bind probe root: %w", err)
+	}
+
+	target, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		return fmt.Errorf("resolve native git bind probe executable: %w", err)
+	}
+
+	mountInfo, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return fmt.Errorf("read native git bind probe mount info: %w", err)
+	}
+
+	return validateNativeGitBindProbeMount(repoRoot, target, string(mountInfo))
+}
+
+func validateNativeGitBindProbeMount(repoRoot, target, mountInfo string) error {
+	if !readOnlyMountInfoForPath(mountInfo, target) {
+		err := writeNativeGitBindFailureMarker(repoRoot)
+		if err != nil {
+			return err
+		}
+
+		return errNativeGitBindProbe
+	}
+
+	err := writeNativeGitBindSuccessMarker(repoRoot)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func writeNativeGitBindFailureMarker(repoRoot string) error {
+	err := os.WriteFile(
+		filepath.Join(repoRoot, nativeGitBindProbeFailureMarker),
+		[]byte("not-read-only\n"),
+		writableFileMode,
+	)
+	if err != nil {
+		return fmt.Errorf("write native git bind failure marker: %w", err)
+	}
+
+	return nil
+}
+
+func writeNativeGitBindSuccessMarker(repoRoot string) error {
+	err := os.WriteFile(
+		filepath.Join(repoRoot, nativeGitBindProbeMarker),
+		[]byte("wrapper\n"),
+		writableFileMode,
+	)
+	if err != nil {
+		return fmt.Errorf("write native git bind success marker: %w", err)
+	}
+
+	return nil
+}
 
 func applyFilesystemPolicy(options options) error {
 	err := applyGitBindMounts(options)
@@ -309,6 +377,12 @@ func readOnlyMountInfoForPath(content, path string) bool {
 	}
 
 	return false
+}
+
+// ReadOnlyMountInfoForPath reports whether path is an exact read-only Linux
+// mountpoint in the supplied mountinfo content.
+func ReadOnlyMountInfoForPath(content, path string) bool {
+	return readOnlyMountInfoForPath(content, path)
 }
 
 func applyGitBindMounts(options options) error {

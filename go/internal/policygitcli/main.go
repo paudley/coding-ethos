@@ -239,6 +239,17 @@ func wrapperBoolValue(name, value string, hasValue bool) (bool, error) {
 }
 
 func gitGlobalOptionStartsArgv(argument string) bool {
+	switch argument {
+	case "--no-optional-locks", "--no-lazy-fetch", "--no-advice":
+		return true
+	}
+
+	for _, prefix := range []string{"--attr-source=", "--list-cmds="} {
+		if strings.HasPrefix(argument, prefix) && len(argument) > len(prefix) {
+			return true
+		}
+	}
+
 	if strings.HasPrefix(argument, "-c=") || strings.HasPrefix(argument, "-C=") {
 		return true
 	}

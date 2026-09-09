@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/cel-go/cel"
+
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
 	"blackcat.ca/coding-ethos/go/internal/celexpr"
@@ -23,6 +25,8 @@ type (
 
 const (
 	bashExtension                   = ".bash"
+	changeSourceProposed            = "proposed"
+	changeSourceStaged              = "staged"
 	defaultGoHardLineLimit          = 2000
 	defaultPythonHardLineLimit      = 1000
 	defaultShellHardLineLimit       = 500
@@ -39,6 +43,9 @@ const (
 	shellExtension                  = ".sh"
 	scriptsPrefix                   = "scripts/"
 )
+
+// maxIsolatedDiffLineWitnessCandidates bounds best-effort diagnostic enrichment.
+const maxIsolatedDiffLineWitnessCandidates = 256
 
 var celQuotedGlobPattern = regexp.MustCompile(
 	`"([a-z]+(?:_\*)?)"`,
@@ -74,14 +81,18 @@ func EvaluateCELExpression(
 
 	activation := celActivation(context, source)
 
-	output, _, err := program.Eval(activation)
+	matched, err := evaluateCELBool(program, activation)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate CEL expression: %w", err)
 	}
 
-	matched, ok := output.Value().(bool)
-	if !ok || !matched {
+	if !matched {
 		return nil, nil
+	}
+
+	diffLineWitness, witnessErr := isolatedDiffLineWitness(program, activation)
+	if witnessErr != nil {
+		diffLineWitness = celDiffLineWitness{}
 	}
 
 	decisionMode := strings.TrimSpace(policyDef.DefaultSeverity)
@@ -118,6 +129,7 @@ func EvaluateCELExpression(
 		decisionMode,
 		source,
 		activation,
+		diffLineWitness,
 	)}
 
 	return []policy.Decision{decision}, nil
@@ -129,6 +141,7 @@ func celDiagnostic(
 	decisionMode string,
 	source string,
 	activation map[string]any,
+	diffLineWitness celDiffLineWitness,
 ) diagnostics.Diagnostic {
 	diagnostic := diagnostics.Diagnostic{
 		Tool:         "policy",
@@ -151,45 +164,216 @@ func celDiagnostic(
 		return diagnostic
 	}
 
-	if len(context.Files) == 1 {
+	applyCELSpecializedDiagnostic(
+		&diagnostic,
+		context,
+		policyDef,
+		source,
+		activation,
+	)
+
+	if diagnostic.File == "" && diffLineWitness.found {
+		diagnostic.File = diffLineWitness.line.File
+		diagnostic.Line = int(diffLineWitness.line.Line)
+		diagnostic.Detail = diffLineWitness.line.Text
+		diagnostic.Metadata["diff_change_source"] = diffLineWitness.changeSource
+	}
+
+	if diagnostic.File == "" && len(context.Files) == 1 {
 		diagnostic.File = context.Files[0]
 	}
 
-	if policyDef.ID == filesystemLineLimitsPolicy {
-		applyLineLimitFileDiagnostic(
-			&diagnostic,
-			activation,
-			context.EvaluatorOptions,
-		)
-
-		return diagnostic
-	}
-
-	if policyDef.ID == hookChangedFileScopePolicy {
-		applyHookCommandDiagnostic(&diagnostic, activation)
-
-		return diagnostic
-	}
-
-	if policyDef.ID == similarCodeDetectedPolicy {
-		applySimilarityDiagnostic(&diagnostic, activation)
-
-		return diagnostic
-	}
-
-	if policyDef.ID == pythonSuppressionWritePolicy {
-		applyPythonSuppressionDiagnostic(
-			&diagnostic,
-			activation,
-			context.EvaluatorOptions,
-		)
-
-		return diagnostic
-	}
-
-	applyGrowingSymbolDiagnostic(&diagnostic, activation)
-
 	return diagnostic
+}
+
+func applyCELSpecializedDiagnostic(
+	diagnostic *diagnostics.Diagnostic,
+	context Context,
+	policyDef policy.Policy,
+	source string,
+	activation map[string]any,
+) {
+	switch policyDef.ID {
+	case filesystemLineLimitsPolicy:
+		applyLineLimitFileDiagnostic(
+			diagnostic,
+			activation,
+			context.EvaluatorOptions,
+		)
+	case hookChangedFileScopePolicy:
+		applyHookCommandDiagnostic(diagnostic, activation)
+	case similarCodeDetectedPolicy:
+		applySimilarityDiagnostic(diagnostic, activation)
+	case pythonSuppressionWritePolicy:
+		applyPythonSuppressionDiagnostic(
+			diagnostic,
+			activation,
+			context.EvaluatorOptions,
+		)
+	default:
+		if strings.Contains(source, "changed_symbols") ||
+			strings.Contains(source, "proposed_symbol_changes") {
+			applyGrowingSymbolDiagnostic(diagnostic, activation)
+		}
+	}
+}
+
+type celDiffLineWitness struct {
+	changeSource string
+	line         celexpr.DiffLineInput
+	found        bool
+}
+
+func evaluateCELBool(program cel.Program, activation map[string]any) (bool, error) {
+	output, _, err := program.Eval(activation)
+	if err != nil {
+		return false, fmt.Errorf("evaluate CEL program: %w", err)
+	}
+
+	matched, ok := output.Value().(bool)
+
+	return ok && matched, nil
+}
+
+func isolatedDiffLineWitness(
+	program cel.Program,
+	activation map[string]any,
+) (celDiffLineWitness, error) {
+	diff, ok := activation["diff"].(celexpr.DiffInput)
+	if !ok {
+		return celDiffLineWitness{}, nil
+	}
+
+	candidateCount := len(diff.AddedLines) + len(diff.RemovedLines)
+	if candidateCount == 0 ||
+		candidateCount > maxIsolatedDiffLineWitnessCandidates {
+		return celDiffLineWitness{}, nil
+	}
+
+	emptyDiff := emptyDiffLineView(diff)
+	emptyActivation := maps.Clone(activation)
+	emptyActivation["diff"] = emptyDiff
+
+	matched, err := evaluateCELBool(program, emptyActivation)
+	if err != nil {
+		return celDiffLineWitness{}, err
+	}
+
+	if matched {
+		return celDiffLineWitness{}, nil
+	}
+
+	candidates := make(
+		[]celDiffLineWitness,
+		0,
+		candidateCount,
+	)
+	for _, line := range diff.AddedLines {
+		candidates = append(candidates, celDiffLineWitness{
+			changeSource: "added",
+			line:         line,
+			found:        true,
+		})
+	}
+
+	for _, line := range diff.RemovedLines {
+		candidates = append(candidates, celDiffLineWitness{
+			changeSource: "removed",
+			line:         line,
+			found:        true,
+		})
+	}
+
+	var witness celDiffLineWitness
+
+	for index := range candidates {
+		candidate := candidates[index]
+		candidateActivation := maps.Clone(activation)
+		candidateActivation["diff"] = oneDiffLineView(
+			emptyDiff,
+			diff,
+			candidate.line,
+			candidate.changeSource == "added",
+		)
+
+		matched, err = evaluateCELBool(program, candidateActivation)
+		if err != nil {
+			return celDiffLineWitness{}, err
+		}
+
+		if !matched {
+			continue
+		}
+
+		if witness.found {
+			return celDiffLineWitness{}, nil
+		}
+
+		witness = candidate
+	}
+
+	return witness, nil
+}
+
+func emptyDiffLineView(diff celexpr.DiffInput) celexpr.DiffInput {
+	empty := diff
+	empty.AddedLines = []celexpr.DiffLineInput{}
+	empty.RemovedLines = []celexpr.DiffLineInput{}
+	empty.Hunks = make([]celexpr.DiffHunkInput, len(diff.Hunks))
+
+	for index, hunk := range diff.Hunks {
+		empty.Hunks[index] = hunk
+		empty.Hunks[index].AddedLines = []celexpr.DiffLineInput{}
+		empty.Hunks[index].RemovedLines = []celexpr.DiffLineInput{}
+	}
+
+	return empty
+}
+
+func oneDiffLineView(
+	empty celexpr.DiffInput,
+	original celexpr.DiffInput,
+	line celexpr.DiffLineInput,
+	added bool,
+) celexpr.DiffInput {
+	view := emptyDiffLineView(empty)
+	if added {
+		view.AddedLines = []celexpr.DiffLineInput{line}
+	} else {
+		view.RemovedLines = []celexpr.DiffLineInput{line}
+	}
+
+	for hunkIndex, hunk := range original.Hunks {
+		lines := hunk.RemovedLines
+		if added {
+			lines = hunk.AddedLines
+		}
+
+		for _, hunkLine := range lines {
+			if !sameDiffLine(line, hunkLine) {
+				continue
+			}
+
+			if added {
+				view.Hunks[hunkIndex].AddedLines = []celexpr.DiffLineInput{line}
+			} else {
+				view.Hunks[hunkIndex].RemovedLines = []celexpr.DiffLineInput{line}
+			}
+
+			return view
+		}
+	}
+
+	return view
+}
+
+func sameDiffLine(left, right celexpr.DiffLineInput) bool {
+	return left.File == right.File &&
+		left.Text == right.Text &&
+		left.Line == right.Line &&
+		left.NewLine == right.NewLine &&
+		left.OldLine == right.OldLine &&
+		left.IsBlank == right.IsBlank
 }
 
 func applyPythonSuppressionDiagnostic(
@@ -329,7 +513,7 @@ func applyGrowingSymbolDiagnostic(
 		diagnostic.File = symbol.File
 		diagnostic.Line = int(symbol.ProposedStartLine)
 		diagnostic.Metadata["ast_action"] = symbol.Action
-		diagnostic.Metadata["ast_change_source"] = "proposed"
+		diagnostic.Metadata["ast_change_source"] = changeSourceProposed
 		diagnostic.Metadata["ast_language"] = symbol.Language
 		diagnostic.Metadata["ast_line_delta"] = symbol.LineDelta
 		diagnostic.Metadata["ast_nonblank_line_delta"] = symbol.NonBlankLineDelta
@@ -349,7 +533,7 @@ func applyGrowingSymbolDiagnostic(
 		diagnostic.File = symbol.File
 		diagnostic.Line = int(symbol.CurrentStartLine)
 		diagnostic.Metadata["ast_action"] = symbol.Action
-		diagnostic.Metadata["ast_change_source"] = "staged"
+		diagnostic.Metadata["ast_change_source"] = changeSourceStaged
 		diagnostic.Metadata["ast_language"] = symbol.Language
 		diagnostic.Metadata["ast_line_delta"] = symbol.LineDelta
 		diagnostic.Metadata["ast_nonblank_line_delta"] = symbol.NonBlankLineDelta
@@ -389,7 +573,7 @@ func applyLineLimitFileDiagnostic(
 
 	if file, ok := firstLineLimitProposedFile(activation, thresholds); ok {
 		diagnostic.File = file.File
-		diagnostic.Metadata["line_limit_change_source"] = "proposed"
+		diagnostic.Metadata["line_limit_change_source"] = changeSourceProposed
 		diagnostic.Metadata["current_line_count"] = file.CurrentLineCount
 		diagnostic.Metadata["current_nonblank_line_count"] = file.CurrentNonBlankLineCount
 		diagnostic.Metadata["proposed_line_count"] = file.ProposedLineCount
@@ -400,7 +584,7 @@ func applyLineLimitFileDiagnostic(
 
 	if file, ok := firstLineLimitChangedFile(activation, thresholds); ok {
 		diagnostic.File = file.File
-		diagnostic.Metadata["line_limit_change_source"] = "staged"
+		diagnostic.Metadata["line_limit_change_source"] = changeSourceStaged
 		diagnostic.Metadata["current_line_count"] = file.LineCount
 		diagnostic.Metadata["current_nonblank_line_count"] = file.NonBlankLineCount
 		diagnostic.Metadata["original_line_count"] = file.OriginalLineCount

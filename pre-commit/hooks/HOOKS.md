@@ -7,12 +7,21 @@ Go-backed Git hooks for coding-ethos bundles.
 
 Installed consumer repository shims are intentionally thin. They dispatch to
 the compiled runner under the repository's stable Git-common
-`.git/coding-ethos-hooks/bin/` projection. The selected `coding-ethos`
+`<git-common-dir>/coding-ethos-hooks/bin/` projection. The selected `coding-ethos`
 authority builds that projection; `parent-install` atomically refreshes and
 hash-verifies its Go executables, and `make build` refreshes the complete policy
 and toolchain runtime. Policy selection and strict freshness checks remain in
 compiled Coding Ethos code rather than in the shim, and no hook points at a
 worktree-local build path.
+
+The compiled `parent-runtime-sync` command is the sole installer for shared Go
+executables, including the root compatibility Git hook. It preserves unrelated
+files, prunes obsolete regular `coding-ethos-*` files, rejects managed entries
+with unsafe filesystem shapes, and publishes mode-preserving copies through a
+same-directory temporary file plus atomic rename. Both the selected checkout's
+resolved hook directory and consumer hook directories dispatch to this stable
+common runner. Runtime absence or drift is repaired explicitly with
+`make build`, never during hook execution.
 
 The Go runner is the output-control layer for Git hooks. It supports
 `hooks.output_format` values of `auto`, `human`, `json`, and `toon`; `auto`

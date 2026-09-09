@@ -4,6 +4,7 @@
 package githookcli
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 
 	"blackcat.ca/coding-ethos/go/diagnostics"
 	"blackcat.ca/coding-ethos/go/internal/apperror"
+	"blackcat.ca/coding-ethos/go/internal/codeintel"
 	"blackcat.ca/coding-ethos/go/internal/evaluators"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
 	"blackcat.ca/coding-ethos/go/internal/generatedtrust"
@@ -42,6 +44,8 @@ const (
 	hookMessageFileIndex = 1
 	hookSourceIndex      = 2
 	hookCommitIndex      = 3
+	gitDiffArgsCapacity  = 4
+	gitDiffNULCapacity   = 5
 )
 
 var (
@@ -484,6 +488,15 @@ func runStagedHook(bundle policy.Bundle, cwd, hookName string) (int, bool) {
 
 	code := policyResultExitCode(cwd, result)
 
+	codeIntelFiles, codeIntelErr := hookCodeIntelFiles(cwd, hookName)
+	if codeIntelErr != nil {
+		writeGitHookText(
+			"warning: staged code-intel paths not resolved: " + codeIntelErr.Error(),
+		)
+	} else {
+		refreshGitHookCodeIntel(cwd, codeIntelFiles)
+	}
+
 	return code, code != 0
 }
 
@@ -537,13 +550,29 @@ func hookFiles(cwd, hookName string) ([]string, error) {
 		return nil, nil
 	}
 
+	return gitDiffFileNames(cwd, "--diff-filter=ACMR")
+}
+
+func hookCodeIntelFiles(cwd, hookName string) ([]string, error) {
+	if hookName != hookPreCommit {
+		return nil, nil
+	}
+
+	// Disable rename detection so the old path is reported as deleted and the
+	// new path as added. Incremental code-intel can then tombstone and index the
+	// two sides without a whole-repository scan.
+	return gitDiffFileNamesNUL(cwd, "--no-renames", "--diff-filter=ACDMR")
+}
+
+func gitDiffFileNames(cwd string, options ...string) ([]string, error) {
+	args := make([]string, 0, gitDiffArgsCapacity+len(options))
+	args = append(args, "diff", "--cached", "--name-only")
+	args = append(args, options...)
+	args = append(args, "--")
+
 	command := evaluators.GitCommand(
 		cwd,
-		"diff",
-		"--cached",
-		"--name-only",
-		"--diff-filter=ACMR",
-		"--",
+		args...,
 	)
 
 	output, err := command.Output()
@@ -561,6 +590,48 @@ func hookFiles(cwd, hookName string) ([]string, error) {
 	}
 
 	return files, nil
+}
+
+func gitDiffFileNamesNUL(cwd string, options ...string) ([]string, error) {
+	args := make([]string, 0, gitDiffNULCapacity+len(options))
+	args = append(args, "diff", "--cached", "--name-only", "-z")
+	args = append(args, options...)
+	args = append(args, "--")
+
+	output, err := evaluators.GitCommand(cwd, args...).Output()
+	if err != nil {
+		return nil, fmt.Errorf("list staged code-intel files: %w", err)
+	}
+
+	files := []string{}
+	seen := map[string]bool{}
+
+	for rawPath := range bytes.SplitSeq(output, []byte{0}) {
+		if len(rawPath) == 0 {
+			continue
+		}
+
+		path := string(rawPath)
+		if !seen[path] {
+			seen[path] = true
+			files = append(files, path)
+		}
+	}
+
+	return files, nil
+}
+
+func refreshGitHookCodeIntel(cwd string, files []string) {
+	if len(files) == 0 {
+		return
+	}
+
+	_, err := codeintel.RefreshLintFiles(context.Background(), cwd, files)
+	if err != nil {
+		writeGitHookText(
+			"warning: staged files not incrementally indexed: " + err.Error(),
+		)
+	}
 }
 
 func readBundle(path string) (policy.Bundle, error) {
@@ -596,6 +667,13 @@ func logLintResult(cwd string, result lint.Result) {
 	inlineErrB := hookoutput.WriteLintSARIFSidecar(tracePath, result)
 	if inlineErrB != nil {
 		writeGitHookText("warning: lint SARIF sidecar not written: " + inlineErrB.Error())
+	}
+
+	inlineErrC := codeintel.IngestLintTraceFile(context.Background(), cwd, tracePath)
+	if inlineErrC != nil {
+		writeGitHookText(
+			"warning: lint trace not ingested into code-intel: " + inlineErrC.Error(),
+		)
 	}
 
 	err := outputsurface.AutoPruneSurface(

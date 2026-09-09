@@ -409,6 +409,11 @@ func initializedLintGitRepo(t *testing.T) string {
 
 	repo := t.TempDir()
 	runLintGit(t, repo, "init")
+	hooksPath := filepath.Join(repo, ".git", "test-hooks")
+	if err := os.Mkdir(hooksPath, 0o700); err != nil {
+		t.Fatalf("create isolated Git hooks directory: %v", err)
+	}
+	runLintGit(t, repo, "config", "core.hooksPath", hooksPath)
 	runLintGit(t, repo, "config", "user.email", "test@example.com")
 	runLintGit(t, repo, "config", "user.name", "Test")
 	runLintGit(t, repo, "config", "commit.gpgsign", "false")

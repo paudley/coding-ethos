@@ -815,6 +815,286 @@ func TestServerLintCheckRunsManagedToolCapture(t *testing.T) {
 	}
 }
 
+func TestServerManagedLintUsesRequestedRepositoryDirectory(t *testing.T) {
+	t.Parallel()
+
+	assertServerManagedLintUsesRequestedRoot(t, "directory")
+}
+
+func TestServerManagedLintUsesRequestedLinkedWorktree(t *testing.T) {
+	t.Parallel()
+
+	assertServerManagedLintUsesRequestedRoot(t, "worktree-file")
+}
+
+func TestServerManagedLintUsesRequestedRelativeLinkedWorktree(t *testing.T) {
+	t.Parallel()
+
+	assertServerManagedLintUsesRequestedRoot(t, "relative-worktree-file")
+}
+
+func TestServerManagedLintRejectsUnresolvedRequestedCwd(t *testing.T) {
+	t.Parallel()
+
+	serverRoot := t.TempDir()
+	missingCwd := filepath.Join(t.TempDir(), "missing")
+
+	output := runServerWithRuntime(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":82,
+		"method":"tools/call",
+		"params":{
+			"name":"managed_lint",
+			"arguments":{"tool":"ruff","cwd":%q}
+		}
+	}`, missingCwd)), mcp.Runtime{
+		BundlePath:    filepath.Join(serverRoot, "policy-bundle.json"),
+		EthosRoot:     serverRoot,
+		ConsumerRoot:  serverRoot,
+		InvocationCwd: serverRoot,
+	})
+	response := decodeResponse(t, output)
+
+	if response["error"] == nil ||
+		!strings.Contains(output, "resolve managed lint cwd") {
+		t.Fatalf("unresolved requested cwd did not fail closed:\n%s", output)
+	}
+}
+
+func TestServerManagedLintRejectsMalformedLinkedWorktreeMarker(t *testing.T) {
+	t.Parallel()
+
+	assertServerManagedLintRejectsGitMarker(t, "not-a-gitdir\n")
+}
+
+func TestServerManagedLintRejectsMissingLinkedWorktreeTarget(t *testing.T) {
+	t.Parallel()
+
+	missingGitDirectory := filepath.Join(t.TempDir(), "missing-gitdir")
+	assertServerManagedLintRejectsGitMarker(
+		t,
+		"gitdir: "+missingGitDirectory+"\n",
+	)
+}
+
+func assertServerManagedLintRejectsGitMarker(t *testing.T, contents string) {
+	t.Helper()
+
+	serverRoot := t.TempDir()
+	requestedRoot := filepath.Join(t.TempDir(), "requested-worktree")
+	requestedCwd := filepath.Join(requestedRoot, "nested")
+
+	err := os.MkdirAll(requestedCwd, 0o700)
+	if err != nil {
+		t.Fatalf("create requested worktree: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(requestedRoot, ".git"),
+		[]byte(contents),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write linked worktree git file: %v", err)
+	}
+
+	output := runServerWithRuntime(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":83,
+		"method":"tools/call",
+		"params":{
+			"name":"managed_lint",
+			"arguments":{"tool":"ruff","cwd":%q}
+		}
+	}`, requestedCwd)), mcp.Runtime{
+		BundlePath:    filepath.Join(serverRoot, "policy-bundle.json"),
+		EthosRoot:     serverRoot,
+		ConsumerRoot:  serverRoot,
+		InvocationCwd: serverRoot,
+	})
+	response := decodeResponse(t, output)
+
+	if response["error"] == nil ||
+		!strings.Contains(output, "no owning Git repository") {
+		t.Fatalf("invalid linked worktree marker did not fail closed:\n%s", output)
+	}
+}
+
+func assertServerManagedLintUsesRequestedRoot(t *testing.T, markerKind string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("managed lint fixture uses POSIX sh")
+	}
+
+	serverRoot := t.TempDir()
+	writeManagedLintRuntimeFixture(t, serverRoot)
+
+	requestedRoot := filepath.Join(t.TempDir(), "requested-worktree")
+	requestedCwd := filepath.Join(requestedRoot, "nested")
+
+	err := os.MkdirAll(requestedCwd, 0o700)
+	if err != nil {
+		t.Fatalf("create requested worktree: %v", err)
+	}
+
+	writeManagedLintGitMarker(t, requestedRoot, markerKind)
+
+	_, err = toolconfigs.Sync(serverRoot, requestedRoot, "")
+	if err != nil {
+		t.Fatalf("sync requested worktree tool configs: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(requestedRoot, "requested-worktree.marker"),
+		[]byte("requested\n"),
+		0o600,
+	)
+	if err != nil {
+		t.Fatalf("write requested worktree marker: %v", err)
+	}
+
+	pwdPath := filepath.Join(
+		requestedRoot,
+		".coding-ethos",
+		"cache",
+		"managed-lint-pwd",
+	)
+	err = os.MkdirAll(filepath.Dir(pwdPath), 0o700)
+	if err != nil {
+		t.Fatalf("create managed lint PWD evidence directory: %v", err)
+	}
+
+	writeExecutable(
+		t,
+		filepath.Join(serverRoot, ".venv", "bin", "ruff"),
+		managedLintRequestedRootRuffFixture(),
+	)
+
+	output := runServerWithRuntime(t, compactJSON(t, fmt.Sprintf(`{
+		"jsonrpc":"2.0",
+		"id":81,
+		"method":"tools/call",
+		"params":{
+			"name":"managed_lint",
+			"arguments":{"tool":"ruff","cwd":%q}
+		}
+	}`, requestedCwd)), mcp.Runtime{
+		BundlePath:    filepath.Join(serverRoot, "policy-bundle.json"),
+		EthosRoot:     serverRoot,
+		ConsumerRoot:  serverRoot,
+		InvocationCwd: serverRoot,
+	})
+	response := decodeResponse(t, output)
+	content := structuredContent(t, response)
+
+	if content["execution_root"] != requestedRoot || content["cwd"] != requestedCwd {
+		t.Fatalf("managed lint execution evidence = %#v", content)
+	}
+
+	if strings.Contains(output, "runtime.sandbox_denial") &&
+		strings.Contains(output, "coding-ethos-sandbox") &&
+		strings.Contains(strings.ToLower(output), "permission denied") {
+		t.Skip("nested managed-lint fixture execution is denied by this sandbox")
+	}
+
+	if strings.Contains(output, "runtime.sandbox_denial") {
+		t.Fatalf("managed lint sandbox unexpectedly denied:\n%s", output)
+	}
+
+	actualCwd, err := os.ReadFile(pwdPath)
+	if err != nil {
+		t.Fatalf("read managed lint PWD evidence: %v", err)
+	}
+	if strings.TrimSpace(string(actualCwd)) != requestedRoot {
+		t.Fatalf(
+			"managed lint PWD = %q, want %q",
+			strings.TrimSpace(string(actualCwd)),
+			requestedRoot,
+		)
+	}
+
+	if !strings.Contains(output, `"file":"src/requested-worktree.py"`) ||
+		strings.Contains(output, `"file":"src/server-root.py"`) {
+		t.Fatalf("managed lint did not execute from requested worktree:\n%s", output)
+	}
+}
+
+func writeManagedLintGitMarker(t *testing.T, root, markerKind string) {
+	t.Helper()
+
+	marker := filepath.Join(root, ".git")
+
+	switch markerKind {
+	case "directory":
+		err := os.MkdirAll(marker, 0o700)
+		if err != nil {
+			t.Fatalf("create repository git directory: %v", err)
+		}
+	case "worktree-file":
+		gitDirectory := filepath.Join(t.TempDir(), "gitdir")
+		err := os.MkdirAll(gitDirectory, 0o700)
+		if err != nil {
+			t.Fatalf("create linked worktree git directory: %v", err)
+		}
+
+		err = os.WriteFile(
+			marker,
+			[]byte("gitdir: "+gitDirectory+"\n"),
+			0o600,
+		)
+		if err != nil {
+			t.Fatalf("write linked worktree git file: %v", err)
+		}
+	case "relative-worktree-file":
+		gitDirectory := filepath.Join(root, ".git-worktree")
+		err := os.MkdirAll(gitDirectory, 0o700)
+		if err != nil {
+			t.Fatalf("create relative linked worktree git directory: %v", err)
+		}
+
+		err = os.WriteFile(
+			marker,
+			[]byte("gitdir: .git-worktree\n"),
+			0o600,
+		)
+		if err != nil {
+			t.Fatalf("write relative linked worktree git file: %v", err)
+		}
+	default:
+		t.Fatalf("unsupported managed lint git marker kind %q", markerKind)
+	}
+}
+
+func managedLintRequestedRootRuffFixture() string {
+	return `#!/usr/bin/env sh
+pwd > .coding-ethos/cache/managed-lint-pwd
+if [ -f requested-worktree.marker ]; then
+  cat <<'JSON'
+[
+  {
+    "filename": "src/requested-worktree.py",
+    "code": "F401",
+    "message": "requested worktree",
+    "location": {"row": 1, "column": 1}
+  }
+]
+JSON
+else
+  cat <<'JSON'
+[
+  {
+    "filename": "src/server-root.py",
+    "code": "F401",
+    "message": "server root",
+    "location": {"row": 1, "column": 1}
+  }
+]
+JSON
+fi
+exit 1
+`
+}
+
 func writeManagedLintRuntimeFixture(t *testing.T, root string) {
 	t.Helper()
 

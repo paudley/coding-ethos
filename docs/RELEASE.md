@@ -49,6 +49,14 @@ The normal upgrade path is:
 4. Run the project gate, normally `make check`.
 5. Review the release notes for any release-specific migration steps.
 
+### Hook timeout ceiling migration
+
+Before upgrading a consumer that sets `hooks.tool_timeout_seconds`, reduce any
+value from 601 through 900 to 600 seconds or less. Those former values now
+produce a FATAL configuration error and intentionally block pre-commit and
+pre-push: a hook running longer than ten minutes is a critical failure, not a
+normal operating mode.
+
 ## Pre-Release Checklist
 
 - [ ] Prepare release metadata on a release branch or use the documented

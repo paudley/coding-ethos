@@ -172,7 +172,7 @@ func ExampleBundle() Bundle {
 		Sources:      exampleSources(),
 		Advice:       exampleAdvice(),
 		Principles:   principles,
-		Policies:     examplePolicies(),
+		Policies:     examplePolicies(principles),
 		Skills:       exampleSkills(),
 		Dispatch:     exampleDispatch(),
 		EvidenceMaps: defaultEvidenceMaps(principles),
@@ -264,7 +264,7 @@ func examplePrinciples() map[string]Principle {
 	}
 }
 
-func examplePolicies() map[string]Policy {
+func examplePolicies(principles map[string]Principle) map[string]Policy {
 	return map[string]Policy{
 		"python.conditional_imports":      exampleConditionalImportPolicy(),
 		"python.functional_idioms":        exampleFunctionalIdiomPolicy(),
@@ -277,7 +277,7 @@ func examplePolicies() map[string]Policy {
 		"filesystem.protected_path":       exampleProtectedPathPolicy(),
 		"proxy.search_replace_edit":       ProxySearchReplaceEditPolicy(),
 		"shell.malformed_command":         exampleShellMalformedCommandPolicy(),
-		"shell.required_gate_exit_status": exampleShellRequiredGateExitStatusPolicy(),
+		"shell.required_gate_exit_status": requiredGateExitStatusRoutePolicy(principles),
 		"shell.forbidden_strings":         exampleShellForbiddenStringsPolicy(),
 	}
 }
@@ -1080,32 +1080,6 @@ func exampleShellMalformedCommandPolicy() Policy {
 			Kind: "shell",
 			Name: "shell.malformed_command",
 		}},
-	}
-}
-
-func exampleShellRequiredGateExitStatusPolicy() Policy {
-	return Policy{
-		ID:       "shell.required_gate_exit_status",
-		Category: "shell",
-		Source: SourceRef{
-			File: "config.yaml",
-			Path: "shell.required_gate_exit_status",
-		},
-		PrincipleIDs: []string{
-			"validation-at-the-gate",
-			"evidence-based-engineering-and-decision-quality",
-		},
-		DefaultSeverity: "block",
-		SupportedModes:  []string{"block", "record"},
-		Message: "Required repository gates must return their own " +
-			"exact terminal status.",
-		Suggestion: "Run the gate directly, enable pipefail for pipelines, or capture " +
-			"and return the gate's exact status.",
-		DefenseLayers: hookRouteDefenseLayers(),
-		AppliesTo:     AppliesTo{Tools: []string{"Bash"}},
-		Evaluators: []Evaluator{
-			{Kind: "external", Name: "shell.required_gate_exit_status"},
-		},
 	}
 }
 

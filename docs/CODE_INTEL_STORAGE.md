@@ -43,6 +43,10 @@ rebuildable analytical surface.
 
 - `code-intel sync` creates or reuses an exact v2 source generation without
   deleting or rewriting the v1 store.
+- Normal hook, lint, commit, and push paths never rebuild or refresh the whole
+  repository. They append bounded event evidence and incrementally index only
+  files already selected by managed capture. Whole-repository work requires an
+  explicit code-intel maintenance command.
 - Eligible RDF or SPARQL requires an identity-validated pinned PurRDF helper;
   missing or mismatched helpers fail sync instead of degrading silently.
 - `code-intel status` compares the recorded source snapshot to the current

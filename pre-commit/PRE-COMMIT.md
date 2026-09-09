@@ -25,7 +25,7 @@ make cutover-verify
 In a consuming repo, run the same target from `coding-ethos/`.
 
 When `coding-ethos/` is a submodule, the root `Makefile` resolves the parent
-repo automatically and installs hooks into the parent repo's `.git/hooks`.
+repo automatically and installs hooks into Git's resolved hooks directory.
 
 Before the hook entrypoints are installed, `make install-hooks` also generates the
 consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`, `.pylintrc`,
@@ -33,11 +33,12 @@ consumer repo's `pyrightconfig.json`, `mypy.ini`, `ruff.toml`, `.pylintrc`,
 `.coding-ethos/gemini/prompt-pack.json` from the shared bundle inputs plus any
 consuming-repo overrides.
 
-`make install-hooks` installs `.git/hooks/pre-commit`, `pre-push`, and
-`commit-msg` as small executable scripts that call
-`bin/coding-ethos-run git-hook <hook>` with the original Git arguments. The
-runner repairs missing checkout-local runtime artifacts with `make build` and
-dispatches to the built hook binary under `coding-ethos/bin/`.
+`make install-hooks` installs `pre-commit`, `pre-push`, and `commit-msg` in
+Git's resolved hooks directory as small executable scripts that call
+`<git-common-dir>/coding-ethos-hooks/bin/coding-ethos-run git-hook <hook>` with
+the original Git arguments. Missing or stale runtime artifacts fail closed
+with an explicit `make build` instruction; hook execution never builds or
+repairs them implicitly.
 
 `make cutover-install` installs the Git hook entrypoints, syncs Claude, Codex, and
 Gemini repo-local agent hook settings, and then verifies the full cutover
@@ -175,11 +176,18 @@ The selected `coding-ethos` authority builds the hook runtime:
 The current runtime model is documented in
 `docs/HOOK_RUNTIME_BOOTSTRAP.md`: installed consumer hooks are generated runner
 entrypoint scripts that dispatch to the stable Git-common
-`.git/coding-ethos-hooks/` projection. `parent-install` atomically refreshes and
-hash-verifies its compiled Go executables from the selected authority, while
+`<git-common-dir>/coding-ethos-hooks/` projection. `parent-install` atomically
+refreshes and hash-verifies its compiled Go executables from the selected authority, while
 `make build` refreshes the complete policy and toolchain projection. Hook
 execution therefore does not depend on the lifetime or visibility of one
 worktree checkout.
+
+The compiled `parent-runtime-sync` command exclusively maintains the shared Go
+executable inventory, including the root compatibility Git hook. It prunes
+obsolete regular `coding-ethos-*` files, preserves unrelated files, rejects
+managed symlinks/directories/special files, and installs same-directory
+temporary files by mode-preserving atomic rename. Both local and consumer hook
+entrypoints use the stable common runner.
 
 The same wrapper also exposes local policy-runtime entrypoints:
 

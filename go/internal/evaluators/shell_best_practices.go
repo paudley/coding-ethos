@@ -46,39 +46,36 @@ func EvaluateShellBestPractices(
 		return nil, nil
 	}
 
-	requireCommon := stringSliceOption(
-		context.EvaluatorOptions,
-		"require_common_for_prefixes",
-		[]string{"scripts/"},
-	)
+	shellFiles := shellFilesFrom(context.Files)
+	if len(shellFiles) == 0 {
+		return nil, nil
+	}
 
-	hasCommonHelper, err := repositoryHasTrackedCommonShellHelper(
-		context.Cwd,
-		requireCommon,
-	)
+	repositoryRoot, requireCommon, err := resolveCommonShellHelperPrefixes(context)
 	if err != nil {
 		return nil, err
 	}
 
-	if !hasCommonHelper {
-		requireCommon = nil
-	}
-
-	for _, file := range context.Files {
-		if !looksLikeShellFile(file) {
-			continue
-		}
-
-		text, binary, err := readShellText(file)
+	for _, file := range shellFiles {
+		text, skip, err := readShellText(file)
 		if err != nil {
 			return nil, err
 		}
 
-		if binary {
+		if skip {
 			continue
 		}
 
-		violations := shellBestPracticeViolations(file, text, requireCommon)
+		comparisonPath, err := commonShellHelperComparisonPath(repositoryRoot, file)
+		if err != nil {
+			return nil, err
+		}
+
+		violations := shellBestPracticeViolations(
+			comparisonPath,
+			text,
+			requireCommon,
+		)
 		if len(violations) > 0 {
 			return []policy.Decision{
 				shellBestPracticesDecision(policyDef, file, violations),
@@ -89,22 +86,68 @@ func EvaluateShellBestPractices(
 	return nil, nil
 }
 
-func repositoryHasTrackedCommonShellHelper(
-	cwd string,
-	requireCommonForPrefixes []string,
-) (bool, error) {
-	if strings.TrimSpace(cwd) == "" {
-		return false, errShellHelperWorkingDirectoryRequired
+func shellFilesFrom(files []string) []string {
+	shellFiles := make([]string, 0, len(files))
+	for _, file := range files {
+		if looksLikeShellFile(file) {
+			shellFiles = append(shellFiles, file)
+		}
 	}
+
+	return shellFiles
+}
+
+// resolveCommonShellHelperPrefixes resolves the repository root and the
+// directory prefixes that must source a tracked common shell helper. The
+// returned prefixes are empty when the repository tracks no such helper.
+func resolveCommonShellHelperPrefixes(
+	context Context,
+) (string, []string, error) {
+	if strings.TrimSpace(context.Cwd) == "" {
+		return "", nil, errShellHelperWorkingDirectoryRequired
+	}
+
+	repositoryRoot, err := gitWorktreeRoot(context.Cwd)
+	if err != nil {
+		return "", nil, fmt.Errorf(
+			"resolve repository root for common shell helpers: %w",
+			err,
+		)
+	}
+
+	requireCommon := stringSliceOption(
+		context.EvaluatorOptions,
+		"require_common_for_prefixes",
+		[]string{"scripts/"},
+	)
 
 	helperPaths, err := configuredCommonShellHelperPaths(
-		cwd,
-		requireCommonForPrefixes,
+		repositoryRoot,
+		requireCommon,
 	)
 	if err != nil {
-		return false, err
+		return "", nil, err
 	}
 
+	hasCommonHelper, err := repositoryHasTrackedCommonShellHelper(
+		repositoryRoot,
+		helperPaths,
+	)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if !hasCommonHelper {
+		return repositoryRoot, nil, nil
+	}
+
+	return repositoryRoot, commonShellHelperPrefixes(helperPaths), nil
+}
+
+func repositoryHasTrackedCommonShellHelper(
+	repositoryRoot string,
+	helperPaths []string,
+) (bool, error) {
 	if len(helperPaths) == 0 {
 		return false, nil
 	}
@@ -114,7 +157,7 @@ func repositoryHasTrackedCommonShellHelper(
 		args = append(args, ":(literal)"+helperPath)
 	}
 
-	output, err := GitCommand(cwd, args...).CombinedOutput()
+	output, err := GitCommand(repositoryRoot, args...).CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf(
 			"inspect tracked common shell helpers with git ls-files: %w: %s",
@@ -135,13 +178,61 @@ func repositoryHasTrackedCommonShellHelper(
 	return false, nil
 }
 
+func commonShellHelperPrefixes(helperPaths []string) []string {
+	prefixes := make([]string, 0, len(helperPaths))
+	for _, helperPath := range helperPaths {
+		prefix := filepath.ToSlash(filepath.Dir(helperPath))
+		if prefix != "." {
+			prefix += "/"
+		}
+
+		prefixes = append(prefixes, prefix)
+	}
+
+	return prefixes
+}
+
+func commonShellHelperComparisonPath(repositoryRoot, path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return filepath.ToSlash(filepath.Clean(path)), nil
+	}
+
+	normalizedRoot, err := filepath.EvalSymlinks(repositoryRoot)
+	if err != nil {
+		return "", fmt.Errorf("normalize common shell helper repository root: %w", err)
+	}
+
+	normalizedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("normalize shell file path %q: %w", path, err)
+	}
+
+	relativePath, err := filepath.Rel(normalizedRoot, normalizedPath)
+	if err != nil {
+		return "", fmt.Errorf(
+			"resolve shell file path %q from repository root: %w",
+			path,
+			err,
+		)
+	}
+
+	return filepath.ToSlash(relativePath), nil
+}
+
 func configuredCommonShellHelperPaths(
-	cwd string,
+	repositoryRoot string,
 	prefixes []string,
 ) ([]string, error) {
-	repositoryRoot, err := filepath.Abs(cwd)
+	normalizedRepositoryRoot, err := filepath.Abs(repositoryRoot)
 	if err != nil {
-		return nil, fmt.Errorf("resolve repository working directory: %w", err)
+		return nil, fmt.Errorf("resolve common shell helper repository root: %w", err)
+	}
+
+	normalizedRepositoryRoot, err = filepath.EvalSymlinks(
+		normalizedRepositoryRoot,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("normalize common shell helper repository root: %w", err)
 	}
 
 	helperPaths := make([]string, 0, len(prefixes))
@@ -153,7 +244,16 @@ func configuredCommonShellHelperPaths(
 
 		cleaned := filepath.Clean(trimmed)
 		if filepath.IsAbs(cleaned) {
-			cleaned, err = filepath.Rel(repositoryRoot, cleaned)
+			cleaned, err = filepath.EvalSymlinks(cleaned)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"normalize common shell helper prefix %q: %w",
+					prefix,
+					err,
+				)
+			}
+
+			cleaned, err = filepath.Rel(normalizedRepositoryRoot, cleaned)
 			if err != nil {
 				return nil, fmt.Errorf(
 					"resolve common shell helper prefix %q: %w",
@@ -193,11 +293,15 @@ func looksLikeShellFile(path string) bool {
 	}
 }
 
+// readShellText returns the file's text and a skip flag. Skip is true when the
+// file must not be evaluated at all: a binary file, or a path deleted by the
+// edit under review. A deleted path must be skipped rather than reported as an
+// empty file that violates every shell convention.
 func readShellText(path string) (string, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", false, nil
+			return "", true, nil
 		}
 
 		return "", false, fmt.Errorf("read shell file %s: %w", path, err)

@@ -57,7 +57,7 @@ hooks:
   output_format: auto
   success_output: silent
   parallel_groups: true
-  tool_timeout_seconds: 900
+  tool_timeout_seconds: 600
 
 similarity:
   enabled: true

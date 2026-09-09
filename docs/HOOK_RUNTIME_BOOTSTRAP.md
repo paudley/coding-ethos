@@ -18,8 +18,9 @@ Its job is limited to:
 Policy evaluation, policy freshness, generated prompt packs, runtime command
 selection, managed capture, diagnostics parsing, and hook behavior belong to
 the compiled Coding Ethos runtime. The checked-out Coding Ethos authority is
-the source and build authority; `.git/coding-ethos-hooks` is an installed,
-byte-verified projection for durable sibling-worktree execution.
+the source and build authority;
+`<git-common-dir>/coding-ethos-hooks` is an installed, byte-verified projection
+for durable sibling-worktree execution.
 
 ## Rationale
 
@@ -56,7 +57,7 @@ are ignored by Git. The installed hook runtime lives under the consumer
 repository's Git common directory:
 
 ```text
-coding-ethos/
+<authority-checkout>/
   bin/
     coding-ethos-git-hook
     coding-ethos-policy
@@ -76,6 +77,7 @@ coding-ethos/
 
 <git-common-dir>/coding-ethos-hooks/
   bin/{coding-ethos-*,cerun,git,lint}
+  coding-ethos-git-hook
   policy/{policy-bundle.json,policy-metadata.json}
   pre-commit/
   build/{policy,toolchain}/
@@ -110,8 +112,15 @@ dispatching to the Go hook runtime. The Go hook runtime also resolves binary
 tool commands to checkout-local managed paths when possible, so `shfmt`,
 `shellcheck`, `actionlint`, `hadolint`, `dotenv-linter`, and `golangci-lint` do not silently fall
 back to host binaries. Missing required managed tools or a missing installed
-manifest are runtime artifact failures and should self-repair through the same
-bootstrap path as missing policy binaries.
+manifest are runtime artifact failures. Runtime commands fail closed and name
+the explicit `make build` repair; they do not mutate the installation as a
+side effect.
+
+Actionlint's raw JSON-on-stdin ShellCheck dependency protocol has two required
+inputs: the managed protocol marker and executable identity proving that the
+immediate parent is the registered managed Actionlint binary. The marker alone
+is not provenance and is rejected when inherited or supplied by another
+process.
 
 The managed toolchain has two installer surfaces:
 
@@ -188,8 +197,12 @@ Examples that require repair:
 
 - missing hook binary
 - non-executable hook binary
+- executable with a mode different from the selected authority artifact
 - symlinked common-runtime executable
 - executable whose SHA-256 differs from the authority build
+- stale regular `coding-ethos-*` executable left by an older authority
+- unexpected directory, symlink, or special file in the managed executable
+  namespace
 - missing compiled policy bundle
 - unreadable compiled policy bundle
 - missing managed toolchain manifest
@@ -206,6 +219,33 @@ Examples that should not block lifecycle hooks:
 Strict freshness validation belongs in explicit maintainer/CI commands such as
 `make validate`, `make cutover-verify`, and CI. Freshness is based on the
 source hashes recorded in `build/policy/policy-metadata.json`, not mtimes.
+
+## Executable Projection Maintenance Contract
+
+The compiled Go `parent-runtime-sync` command is the only installer for the
+shared Go executable projection. Its inventory is every buildable command
+under `go/cmd/`, plus the root-level compatibility
+`coding-ethos-git-hook`. The Makefile delegates to that command and does not
+copy those executables itself.
+
+Within the shared runtime, the `coding-ethos-*` filename prefix is reserved for
+managed executables. Sync removes obsolete regular files in that namespace,
+preserves unrelated filenames, and fails without removing an obsolete entry
+whose shape is a directory, symlink, or special file. Expected destinations
+must also be regular files or absent.
+
+Each executable is written to a uniquely named temporary file in its
+destination directory, assigned the authority artifact's mode, flushed, and
+activated with an atomic rename. Temporary files are removed on every return.
+Concurrent syncs therefore converge on one complete authority artifact rather
+than exposing a partial copy. `parent-check` verifies regular-file type, exact
+mode, SHA-256 content, compatibility-hook presence, and absence of stale
+managed entries.
+
+Both the authority checkout's resolved hook directory and any consumer hook
+directory are shared Git state. Installed entrypoints always name
+`<git-common-dir>/coding-ethos-hooks/bin/coding-ethos-run`; no hook installation
+may embed the selected worktree's `bin/coding-ethos-run` path.
 
 ## Safety Requirements
 

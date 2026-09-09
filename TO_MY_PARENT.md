@@ -12,6 +12,7 @@ Prefer the Go runner as the stable interface:
 
 ```sh
 coding-ethos/bin/coding-ethos-run parent-install
+coding-ethos/bin/coding-ethos-run parent-runtime-sync
 coding-ethos/bin/coding-ethos-run parent-check
 coding-ethos/bin/coding-ethos-run parent-lint
 ```
@@ -47,10 +48,18 @@ Explicit `repo_config.yaml` settings override these profile defaults.
 
 `parent-install` syncs generated parent artifacts and atomically refreshes the
 compiled executables in the parent repository's common
-`.git/coding-ethos-hooks/bin/` runtime. `parent-check` verifies those artifacts
-without rewriting them, including byte identity and executable independence
-from any retiring worktree. `parent-lint` syncs the parent artifacts, then runs
-the full parent lint scope through the compiled policy bundle.
+`.git/coding-ethos-hooks/bin/` runtime. `parent-runtime-sync` only projects the
+already-built authoritative executables into that runtime; it does not rebuild
+tools, rewrite generated parent artifacts, or refresh code intelligence. It is
+the narrow interface for supervisors repairing a stale shared runtime.
+`parent-check` verifies those artifacts without rewriting them, including byte
+identity and executable independence from any retiring worktree. `parent-lint`
+syncs the parent artifacts, then runs the full parent lint scope through the
+compiled policy bundle.
+
+These commands execute the already-built authority. They do not silently run
+`make build`; after changing or updating authority source, build it explicitly
+before installing, checking, linting, or projecting it.
 
 ## Output Contract
 

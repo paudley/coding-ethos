@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	lineLimitAdvice = "Do not make cosmetic or documentation-only edits just to " +
+	celDiffLineWitnessCandidateLimit = 256
+	lineLimitAdvice                  = "Do not make cosmetic or documentation-only edits just to " +
 		"satisfy the limit; apply SOLID refactoring and split the file into " +
 		"focused modules before committing."
 	lineLimitFile    = "app.py"
@@ -402,6 +403,215 @@ func TestEvaluateCELExpressionBlocksAgentBrandingInStagedMarkdown(t *testing.T) 
 	if len(decisions) != 1 {
 		t.Fatalf("decisions = %#v, want one block", decisions)
 	}
+}
+
+func TestEvaluateCELExpressionDiffRuleLocatesMatchedLine(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+
+	unrelatedFile := filepath.Join(repo, "a_unrelated.go")
+	matchedFile := filepath.Join(repo, "z_matched.go")
+
+	if err := os.WriteFile(
+		unrelatedFile,
+		[]byte("package sample\n\nfunc unrelated() {}\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write unrelated source: %v", err)
+	}
+	if err := os.WriteFile(
+		matchedFile,
+		[]byte("package sample\n\nfunc target() {}\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write matched source: %v", err)
+	}
+	runCELGit(t, repo, "add", "a_unrelated.go", "z_matched.go")
+	runCELGit(t, repo, "commit", "-m", "initial")
+
+	if err := os.WriteFile(
+		unrelatedFile,
+		[]byte("package sample\n\nfunc unrelated() {\n\tprintln(\"grows\")\n}\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("grow unrelated source: %v", err)
+	}
+	if err := os.WriteFile(
+		matchedFile,
+		[]byte("package sample\n\nfunc target() {\n\t"+
+			"fmt."+"Fprintf(nil, \"blocked\")\n}\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write matched diff line: %v", err)
+	}
+	runCELGit(t, repo, "add", "a_unrelated.go", "z_matched.go")
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "feedback.route"
+
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:         repo,
+			Files:       []string{"a_unrelated.go", "z_matched.go"},
+			StagedFiles: []string{"a_unrelated.go", "z_matched.go"},
+			Scope:       "staged",
+			EvaluatorOptions: map[string]any{
+				"when": `diff.added_lines.exists(line,
+					line.file == "z_matched.go" &&
+					line.text.contains("fmt." + "Fprintf")
+				)`,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL expression: %v", err)
+	}
+
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+	if diagnostic := decisions[0].Diagnostics[0]; diagnostic.File != "z_matched.go" ||
+		diagnostic.Line != 4 {
+		t.Fatalf("diagnostic = %#v, want z_matched.go:4", diagnostic)
+	}
+}
+
+func TestEvaluateCELExpressionDiffRuleDiscardsAmbiguousWitness(t *testing.T) {
+	t.Parallel()
+
+	diagnostic := evaluateCELDiffLinePolicy(
+		t,
+		"ambiguous.go",
+		[]string{"blocked first", "blocked second"},
+		`diff.added_lines.exists(line, line.text.contains("blocked"))`,
+	)
+
+	if diagnostic.File != "ambiguous.go" || diagnostic.Line != 0 {
+		t.Fatalf("diagnostic = %#v, want ambiguous.go fallback without line", diagnostic)
+	}
+	if _, found := diagnostic.Metadata["diff_change_source"]; found {
+		t.Fatalf("ambiguous diagnostic has diff witness metadata: %#v", diagnostic)
+	}
+}
+
+func TestEvaluateCELExpressionDiffRuleKeepsDecisionWhenWitnessFails(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	diagnostic := evaluateCELDiffLinePolicy(
+		t,
+		"indexed.go",
+		[]string{"blocked"},
+		`diff.added_lines[0].text.contains("blocked")`,
+	)
+
+	if diagnostic.File != "indexed.go" || diagnostic.Line != 0 {
+		t.Fatalf("diagnostic = %#v, want indexed.go fallback without line", diagnostic)
+	}
+	if _, found := diagnostic.Metadata["diff_change_source"]; found {
+		t.Fatalf("failed witness has diff witness metadata: %#v", diagnostic)
+	}
+}
+
+func TestEvaluateCELExpressionDiffRuleBoundsWitnessCandidates(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name        string
+		count       int
+		witnessLine int
+	}{
+		{
+			name:        "at limit",
+			count:       celDiffLineWitnessCandidateLimit,
+			witnessLine: celDiffLineWitnessCandidateLimit,
+		},
+		{
+			name:  "above limit",
+			count: celDiffLineWitnessCandidateLimit + 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			lines := make([]string, test.count)
+			for index := range lines {
+				lines[index] = "ordinary"
+			}
+			lines[len(lines)-1] = "blocked"
+
+			diagnostic := evaluateCELDiffLinePolicy(
+				t,
+				"bounded.go",
+				lines,
+				`diff.added_lines.exists(line, line.text == "blocked")`,
+			)
+
+			if diagnostic.File != "bounded.go" || diagnostic.Line != test.witnessLine {
+				t.Fatalf(
+					"diagnostic = %#v, want bounded.go:%d",
+					diagnostic,
+					test.witnessLine,
+				)
+			}
+			_, found := diagnostic.Metadata["diff_change_source"]
+			if found != (test.witnessLine > 0) {
+				t.Fatalf("diagnostic witness metadata = %#v", diagnostic.Metadata)
+			}
+		})
+	}
+}
+
+func evaluateCELDiffLinePolicy(
+	t *testing.T,
+	file string,
+	addedLines []string,
+	when string,
+) diagnostics.Diagnostic {
+	t.Helper()
+
+	repo := t.TempDir()
+	runCELGit(t, repo, "init")
+	runCELGit(t, repo, "config", "user.email", "test@example.com")
+	runCELGit(t, repo, "config", "user.name", "Test User")
+
+	path := filepath.Join(repo, file)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("write baseline source: %v", err)
+	}
+	runCELGit(t, repo, "add", file)
+	runCELGit(t, repo, "commit", "-m", "initial")
+
+	content := strings.Join(addedLines, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write changed source: %v", err)
+	}
+	runCELGit(t, repo, "add", file)
+
+	policyDef := celExpressionPolicy()
+	policyDef.ID = "feedback.route"
+	decisions, err := EvaluateCELExpression(
+		policyDef,
+		Context{
+			Cwd:              repo,
+			Files:            []string{file},
+			StagedFiles:      []string{file},
+			Scope:            "staged",
+			EvaluatorOptions: map[string]any{"when": when},
+		},
+	)
+	if err != nil {
+		t.Fatalf("evaluate CEL diff-line policy: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("decisions = %#v, want one block", decisions)
+	}
+
+	return decisions[0].Diagnostics[0]
 }
 
 func TestEvaluateCELExpressionBlocksAgentBrandingInCommitMessage(t *testing.T) {

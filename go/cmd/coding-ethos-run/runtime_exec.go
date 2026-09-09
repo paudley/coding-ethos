@@ -24,6 +24,7 @@ import (
 	"blackcat.ca/coding-ethos/go/internal/codeintelcli"
 	"blackcat.ca/coding-ethos/go/internal/debuglog"
 	"blackcat.ca/coding-ethos/go/internal/feedback"
+	"blackcat.ca/coding-ethos/go/internal/geminiprompts"
 	"blackcat.ca/coding-ethos/go/internal/githookcli"
 	"blackcat.ca/coding-ethos/go/internal/gitwrap"
 	"blackcat.ca/coding-ethos/go/internal/hookcli"
@@ -73,6 +74,15 @@ var (
 	)
 	errSharedLockDirectoryShape = apperror.StaticError(
 		"shared lock directory must be a non-symlink mode-1777 direct child of /var/tmp",
+	)
+	errAgentShellExternalStateRootPath = apperror.StaticError(
+		"agent-shell external state root must be a specific absolute path",
+	)
+	errAgentShellExternalStateRootShape = apperror.StaticError(
+		"agent-shell external state root must be a real directory",
+	)
+	errAgentShellExternalStateArtifactShape = apperror.StaticError(
+		"agent-shell external state directory must be a real directory",
 	)
 )
 
@@ -208,7 +218,10 @@ func agentShellSandboxPlan(
 		return sandbox.Plan{}, nil, cleanup, err
 	}
 
-	agentWritePaths, err := agentShellWritePaths(paths.Root)
+	agentWritePaths, err := agentShellWritePaths(
+		paths.Root,
+		paths.effectiveStateRoot(),
+	)
 	if err != nil {
 		cleanup()
 
@@ -267,11 +280,11 @@ func agentShellSandboxPlan(
 }
 
 // agentShellWritePaths assembles the full agent-shell writable set: the
-// worktree paths, the managed write directories, and the tool-config drift
-// manifest. The manifest lives directly under the read-only .coding-ethos pin
-// and is rewritten by config generation; without its override,
-// sync-tool-configs fails with EROFS inside the agent shell.
-func agentShellWritePaths(root string) ([]string, error) {
+// worktree paths, the managed write directories, an optional supervisor-owned
+// private state tree, and the exact generated files rewritten under the
+// read-only .coding-ethos pin. Without these file overrides, canonical build
+// generation fails with EROFS inside the agent shell.
+func agentShellWritePaths(root, stateRoot string) ([]string, error) {
 	agentWritePaths, err := agentShellWorktreeWritePaths(root)
 	if err != nil {
 		return nil, err
@@ -291,10 +304,101 @@ func agentShellWritePaths(root string) ([]string, error) {
 
 	agentWritePaths = append(agentWritePaths, sharedLockDirectories...)
 
+	externalStatePath, err := agentShellExternalStateWritePath(root, stateRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	if externalStatePath != "" {
+		agentWritePaths = append(agentWritePaths, externalStatePath)
+	}
+
 	// Repo-relative on purpose: the sandbox helper only creates missing
 	// write-path files for relative declarations, and repos that have never
-	// generated configs do not have the manifest yet.
-	return append(agentWritePaths, toolconfigs.HashManifestPath), nil
+	// generated configs do not have these artifacts yet.
+	return append(
+		agentWritePaths,
+		toolconfigs.HashManifestPath,
+		geminiprompts.PromptPackPath,
+	), nil
+}
+
+// agentShellExternalStateWritePath admits only the generated .coding-ethos
+// subtree beneath a distinct supervisor-owned state root. The consumer
+// worktree's tracked .coding-ethos tree remains pinned read-only, while hook
+// receipts, event logs, and code-intel state can be written outside it.
+func agentShellExternalStateWritePath(root, stateRoot string) (string, error) {
+	cleanStateRoot := filepath.Clean(strings.TrimSpace(stateRoot))
+	if cleanStateRoot == "." || sameCleanPath(root, cleanStateRoot) {
+		return "", nil
+	}
+
+	err := validateAgentShellExternalStateRoot(cleanStateRoot)
+	if err != nil {
+		return "", err
+	}
+
+	return ensureAgentShellExternalStateArtifacts(cleanStateRoot)
+}
+
+func validateAgentShellExternalStateRoot(stateRoot string) error {
+	if !filepath.IsAbs(stateRoot) || stateRoot == string(filepath.Separator) {
+		return fmt.Errorf("%w: %s", errAgentShellExternalStateRootPath, stateRoot)
+	}
+
+	stateRootInfo, err := os.Lstat(stateRoot)
+	if err != nil {
+		return fmt.Errorf(
+			"inspect agent-shell external state root %s: %w",
+			stateRoot,
+			err,
+		)
+	}
+
+	if stateRootInfo.Mode()&os.ModeSymlink != 0 || !stateRootInfo.IsDir() {
+		return fmt.Errorf("%w: %s", errAgentShellExternalStateRootShape, stateRoot)
+	}
+
+	return nil
+}
+
+func ensureAgentShellExternalStateArtifacts(stateRoot string) (string, error) {
+	artifactRoot := filepath.Join(stateRoot, ".coding-ethos")
+
+	err := os.Mkdir(artifactRoot, agentShellCacheDirMode)
+	if err != nil && !os.IsExist(err) {
+		return "", fmt.Errorf(
+			"create agent-shell external state directory %s: %w",
+			artifactRoot,
+			err,
+		)
+	}
+
+	artifactInfo, err := os.Lstat(artifactRoot)
+	if err != nil {
+		return "", fmt.Errorf(
+			"inspect agent-shell external state directory %s: %w",
+			artifactRoot,
+			err,
+		)
+	}
+
+	if artifactInfo.Mode()&os.ModeSymlink != 0 || !artifactInfo.IsDir() {
+		return "", fmt.Errorf("%w: %s", errAgentShellExternalStateArtifactShape, artifactRoot)
+	}
+
+	if artifactInfo.Mode().Perm()&^agentShellCacheDirMode != 0 {
+		err = os.Chmod(artifactRoot, agentShellCacheDirMode)
+		if err != nil {
+			return "", fmt.Errorf(
+				"make agent-shell external state directory private %s: %w",
+				artifactRoot,
+				err,
+			)
+		}
+	}
+
+	return artifactRoot, nil
 }
 
 // agentShellSharedLockDirectories carries only outer-supervisor-admitted host

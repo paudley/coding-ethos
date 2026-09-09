@@ -90,6 +90,34 @@ func TestProcessEnabledSandboxWithReadOnlyPinsRetainsFilesystemNamespaces(
 	}
 }
 
+func TestReusedActiveAgentShellDoesNotCreateNestedNamespaces(t *testing.T) {
+	t.Parallel()
+
+	attributes := SysProcAttr(nil, Evidence{
+		Enabled:           true,
+		NamespaceEnforced: true,
+		Reason:            activeAgentShellReuseReason,
+	})
+	if attributes == nil {
+		t.Fatal("SysProcAttr() = nil")
+	}
+	if !attributes.Setpgid {
+		t.Fatal("reused active sandbox lost process-group isolation")
+	}
+	if attributes.Cloneflags != 0 {
+		t.Fatalf(
+			"reused active sandbox created nested namespaces: %#x",
+			attributes.Cloneflags,
+		)
+	}
+	if len(attributes.UidMappings) != 0 || len(attributes.GidMappings) != 0 {
+		t.Fatalf("reused active sandbox changed identity: %#v", attributes)
+	}
+	if len(attributes.AmbientCaps) != 0 {
+		t.Fatalf("reused active sandbox gained capabilities: %#v", attributes.AmbientCaps)
+	}
+}
+
 func TestProcessEnabledSandboxWithoutReadOnlyPinsPreservesHostNamespaces(t *testing.T) {
 	t.Parallel()
 

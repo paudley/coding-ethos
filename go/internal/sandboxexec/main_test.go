@@ -76,6 +76,85 @@ func TestRunReturnsFailureForInvalidInvocation(t *testing.T) {
 	}
 }
 
+func TestNativeGitBindProbeInvocationRequiresExactNoArgumentMode(t *testing.T) {
+	t.Parallel()
+
+	if !nativeGitBindProbeInvocation([]string{NativeGitBindProbeMode}) {
+		t.Fatal("exact native git bind probe mode was not recognized")
+	}
+	for _, args := range [][]string{
+		nil,
+		{},
+		{NativeGitBindProbeMode, "extra"},
+		{"other"},
+	} {
+		if nativeGitBindProbeInvocation(args) {
+			t.Fatalf("non-exact native git bind probe invocation accepted: %#v", args)
+		}
+	}
+}
+
+func TestValidateNativeGitBindProbeMountWritesOnlyFixedSuccessMarker(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	cacheRoot := filepath.Join(repoRoot, ".coding-ethos", "cache")
+	if err := os.MkdirAll(cacheRoot, privateDirMode); err != nil {
+		t.Fatalf("create probe cache: %v", err)
+	}
+	target := filepath.Join(cacheRoot, "target-git-probe")
+	mountInfo := "1 2 0:1 / " + target + " ro,relatime - tmpfs tmpfs rw\n"
+
+	if err := validateNativeGitBindProbeMount(repoRoot, target, mountInfo); err != nil {
+		t.Fatalf("validateNativeGitBindProbeMount() error = %v", err)
+	}
+
+	marker := filepath.Join(repoRoot, nativeGitBindProbeMarker)
+	content, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("read fixed native git bind marker: %v", err)
+	}
+	if strings.TrimSpace(string(content)) != "wrapper" {
+		t.Fatalf("native git bind marker = %q", content)
+	}
+	if _, err = os.Stat(
+		filepath.Join(repoRoot, nativeGitBindProbeFailureMarker),
+	); !os.IsNotExist(
+		err,
+	) {
+		t.Fatalf("read-only bind emitted failure marker: %v", err)
+	}
+}
+
+func TestValidateNativeGitBindProbeMountRejectsWritableSelfBind(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	cacheRoot := filepath.Join(repoRoot, ".coding-ethos", "cache")
+	if err := os.MkdirAll(cacheRoot, privateDirMode); err != nil {
+		t.Fatalf("create probe cache: %v", err)
+	}
+	target := filepath.Join(cacheRoot, "target-git-probe")
+	mountInfo := "1 2 0:1 / " + target + " rw,relatime - tmpfs tmpfs rw\n"
+
+	err := validateNativeGitBindProbeMount(repoRoot, target, mountInfo)
+	if !errors.Is(err, errNativeGitBindProbe) {
+		t.Fatalf("validateNativeGitBindProbeMount() error = %v, want read-only failure", err)
+	}
+	if _, err = os.Stat(
+		filepath.Join(repoRoot, nativeGitBindProbeMarker),
+	); !os.IsNotExist(
+		err,
+	) {
+		t.Fatalf("writable bind emitted success marker: %v", err)
+	}
+	if _, err = os.Stat(
+		filepath.Join(repoRoot, nativeGitBindProbeFailureMarker),
+	); err != nil {
+		t.Fatalf("writable bind did not emit fixed failure marker: %v", err)
+	}
+}
+
 func TestExecSandboxedCommandReportsStartFailure(t *testing.T) {
 	t.Parallel()
 

@@ -26,6 +26,8 @@ const (
 	sandboxExecFailureExitCode = 126
 	sandboxExecCommandName     = "coding-ethos-sandbox"
 	sandboxExecErrorPrefix     = "coding-ethos-sandbox:"
+	// NativeGitBindProbeMode runs the compiled helper's fixed-path bind probe.
+	NativeGitBindProbeMode = "--internal-native-git-bind-probe"
 )
 
 type repeatedPaths []string
@@ -80,6 +82,10 @@ func Run(args []string) int {
 }
 
 func run(args []string) error {
+	if nativeGitBindProbeInvocation(args) {
+		return runNativeGitBindProbe()
+	}
+
 	config, err := parseOptions(args)
 	if err != nil {
 		return err
@@ -96,6 +102,10 @@ func run(args []string) error {
 	}
 
 	return execSandboxedCommand(config)
+}
+
+func nativeGitBindProbeInvocation(args []string) bool {
+	return len(args) == 1 && args[0] == NativeGitBindProbeMode
 }
 
 func parseOptions(args []string) (options, error) {
