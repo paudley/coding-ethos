@@ -79,6 +79,19 @@ func TestRequiredGateExitStatusTracksPipefailInExecutionOrder(t *testing.T) {
 			inherited: true,
 		},
 		{
+			name:    "conditional enable before gate",
+			command: "set -o pipefail && make check | tail -1",
+		},
+		{
+			name:    "conditional enable after false branch",
+			command: "false || set -o pipefail; make check | tail -1",
+		},
+		{
+			name:      "background segment does not change shell state",
+			command:   "set +o pipefail & make check | tail -1",
+			inherited: true,
+		},
+		{
 			name:      "disable then enable",
 			command:   "set +o pipefail; set -o pipefail; make check | tail -1",
 			inherited: true,

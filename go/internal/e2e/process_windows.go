@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 
 	"golang.org/x/sys/windows"
@@ -42,7 +43,7 @@ func terminateCommandProcessGroup(cmd *exec.Cmd) error {
 
 	command := exec.CommandContext(
 		terminationContext,
-		"taskkill.exe",
+		windowsTaskkillPath(),
 		"/PID", strconv.Itoa(cmd.Process.Pid),
 		"/T",
 		"/F",
@@ -56,6 +57,18 @@ func terminateCommandProcessGroup(cmd *exec.Cmd) error {
 	}
 
 	return fmt.Errorf("terminate command process tree %d: %w", cmd.Process.Pid, err)
+}
+
+// windowsTaskkillPath resolves taskkill.exe from SystemRoot rather than PATH.
+// A PATH without System32 would otherwise fail cancellation and leave the
+// process tree running.
+func windowsTaskkillPath() string {
+	systemRoot := os.Getenv("SystemRoot")
+	if systemRoot == "" {
+		systemRoot = `C:\Windows`
+	}
+
+	return filepath.Join(systemRoot, "System32", "taskkill.exe")
 }
 
 func windowsProcessExited(pid int) bool {
