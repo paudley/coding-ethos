@@ -133,3 +133,55 @@ func TestSandboxCacheEnvIsolatesUVProjectUnderConsumerCache(t *testing.T) {
 
 	t.Fatalf("captured process omitted UV project environment")
 }
+
+// A consumer repo can name a uv project directory that has not been installed
+// yet. Resolution must fall back to the lexical path instead of denying the
+// capture, which is what made managed capture fail from a consumer root.
+func TestSandboxUVProjectEnvironmentAcceptsMissingProjectDirectory(t *testing.T) {
+	consumerRoot := t.TempDir()
+	missingProject := filepath.Join(t.TempDir(), "pre-commit", "hooks")
+
+	environment, err := sandboxUVProjectEnvironment(consumerRoot, captureRequest{
+		UVProject: missingProject,
+	})
+	if err != nil {
+		t.Fatalf("sandboxUVProjectEnvironment for missing project: %v", err)
+	}
+
+	digest := sha256.Sum256([]byte(filepath.Clean(missingProject)))
+	want := filepath.Join(
+		consumerRoot,
+		".coding-ethos",
+		"cache",
+		"uv-project-env",
+		hex.EncodeToString(digest[:]),
+	)
+	if environment != want {
+		t.Fatalf("UV project environment = %q, want %q", environment, want)
+	}
+
+	if info, statErr := os.Stat(want); statErr != nil || !info.IsDir() {
+		t.Fatalf("UV project environment is not usable: info=%v error=%v", info, statErr)
+	}
+}
+
+// An empty uv project means the tool is not uv-backed, so no environment is
+// derived and no directory is created.
+func TestSandboxUVProjectEnvironmentSkipsToolsWithoutUVProject(t *testing.T) {
+	consumerRoot := t.TempDir()
+
+	environment, err := sandboxUVProjectEnvironment(consumerRoot, captureRequest{
+		UVProject: "   ",
+	})
+	if err != nil {
+		t.Fatalf("sandboxUVProjectEnvironment without a project: %v", err)
+	}
+	if environment != "" {
+		t.Fatalf("UV project environment = %q, want empty", environment)
+	}
+
+	cacheRoot := filepath.Join(consumerRoot, ".coding-ethos", "cache", "uv-project-env")
+	if _, statErr := os.Stat(cacheRoot); !os.IsNotExist(statErr) {
+		t.Fatalf("uv project cache root created without a project: %v", statErr)
+	}
+}

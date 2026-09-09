@@ -242,8 +242,16 @@ func sandboxUVProjectEnvironment(root string, request captureRequest) (string, e
 		return "", fmt.Errorf("resolve uv project path %s: %w", project, err)
 	}
 
-	canonical, err = filepath.EvalSymlinks(canonical)
-	if err != nil {
+	// A consumer repo may name a uv project that does not exist yet. Fall back
+	// to the lexical path so the sandbox still derives a stable environment
+	// instead of denying the capture outright.
+	resolved, err := filepath.EvalSymlinks(canonical)
+	switch {
+	case err == nil:
+		canonical = resolved
+	case os.IsNotExist(err):
+		canonical = filepath.Clean(canonical)
+	default:
 		return "", fmt.Errorf("resolve uv project symlinks %s: %w", project, err)
 	}
 

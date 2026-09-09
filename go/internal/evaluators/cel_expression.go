@@ -25,6 +25,8 @@ type (
 
 const (
 	bashExtension                   = ".bash"
+	changeSourceProposed            = "proposed"
+	changeSourceStaged              = "staged"
 	defaultGoHardLineLimit          = 2000
 	defaultPythonHardLineLimit      = 1000
 	defaultShellHardLineLimit       = 500
@@ -511,7 +513,7 @@ func applyGrowingSymbolDiagnostic(
 		diagnostic.File = symbol.File
 		diagnostic.Line = int(symbol.ProposedStartLine)
 		diagnostic.Metadata["ast_action"] = symbol.Action
-		diagnostic.Metadata["ast_change_source"] = "proposed"
+		diagnostic.Metadata["ast_change_source"] = changeSourceProposed
 		diagnostic.Metadata["ast_language"] = symbol.Language
 		diagnostic.Metadata["ast_line_delta"] = symbol.LineDelta
 		diagnostic.Metadata["ast_nonblank_line_delta"] = symbol.NonBlankLineDelta
@@ -531,7 +533,7 @@ func applyGrowingSymbolDiagnostic(
 		diagnostic.File = symbol.File
 		diagnostic.Line = int(symbol.CurrentStartLine)
 		diagnostic.Metadata["ast_action"] = symbol.Action
-		diagnostic.Metadata["ast_change_source"] = "staged"
+		diagnostic.Metadata["ast_change_source"] = changeSourceStaged
 		diagnostic.Metadata["ast_language"] = symbol.Language
 		diagnostic.Metadata["ast_line_delta"] = symbol.LineDelta
 		diagnostic.Metadata["ast_nonblank_line_delta"] = symbol.NonBlankLineDelta
@@ -571,7 +573,7 @@ func applyLineLimitFileDiagnostic(
 
 	if file, ok := firstLineLimitProposedFile(activation, thresholds); ok {
 		diagnostic.File = file.File
-		diagnostic.Metadata["line_limit_change_source"] = "proposed"
+		diagnostic.Metadata["line_limit_change_source"] = changeSourceProposed
 		diagnostic.Metadata["current_line_count"] = file.CurrentLineCount
 		diagnostic.Metadata["current_nonblank_line_count"] = file.CurrentNonBlankLineCount
 		diagnostic.Metadata["proposed_line_count"] = file.ProposedLineCount
@@ -582,7 +584,7 @@ func applyLineLimitFileDiagnostic(
 
 	if file, ok := firstLineLimitChangedFile(activation, thresholds); ok {
 		diagnostic.File = file.File
-		diagnostic.Metadata["line_limit_change_source"] = "staged"
+		diagnostic.Metadata["line_limit_change_source"] = changeSourceStaged
 		diagnostic.Metadata["current_line_count"] = file.LineCount
 		diagnostic.Metadata["current_nonblank_line_count"] = file.NonBlankLineCount
 		diagnostic.Metadata["original_line_count"] = file.OriginalLineCount
