@@ -32,7 +32,7 @@ UV ?= uv
 PYTHON ?= python
 GO ?= go
 GOFMT ?= gofmt
-GO_TOOLCHAIN ?= go1.26.5
+GO_TOOLCHAIN ?= go1.26.8
 CARGO ?= cargo
 GO_BUILD_FLAGS ?= -trimpath -buildvcs=false
 GO_BUILD_CACHE_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/go-build
