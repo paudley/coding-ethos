@@ -214,6 +214,7 @@ principles:
               diff.added_lines.exists(line,
                 has_prefix(line.file, "go/internal/") &&
                 has_suffix(line.file, ".go") &&
+                !has_suffix(line.file, "_test.go") &&
                 !has_prefix(line.file, "go/internal/feedback/") &&
                 (
                   line.text.contains("fmt.Fprint") ||

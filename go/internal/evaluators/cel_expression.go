@@ -42,6 +42,9 @@ const (
 	scriptsPrefix                   = "scripts/"
 )
 
+// maxIsolatedDiffLineWitnessCandidates bounds best-effort diagnostic enrichment.
+const maxIsolatedDiffLineWitnessCandidates = 256
+
 var celQuotedGlobPattern = regexp.MustCompile(
 	`"([a-z]+(?:_\*)?)"`,
 )
@@ -85,9 +88,9 @@ func EvaluateCELExpression(
 		return nil, nil
 	}
 
-	diffLineWitness, err := isolatedDiffLineWitness(program, activation)
-	if err != nil {
-		return nil, fmt.Errorf("locate matched CEL diff line: %w", err)
+	diffLineWitness, witnessErr := isolatedDiffLineWitness(program, activation)
+	if witnessErr != nil {
+		diffLineWitness = celDiffLineWitness{}
 	}
 
 	decisionMode := strings.TrimSpace(policyDef.DefaultSeverity)
@@ -235,7 +238,13 @@ func isolatedDiffLineWitness(
 	activation map[string]any,
 ) (celDiffLineWitness, error) {
 	diff, ok := activation["diff"].(celexpr.DiffInput)
-	if !ok || len(diff.AddedLines)+len(diff.RemovedLines) == 0 {
+	if !ok {
+		return celDiffLineWitness{}, nil
+	}
+
+	candidateCount := len(diff.AddedLines) + len(diff.RemovedLines)
+	if candidateCount == 0 ||
+		candidateCount > maxIsolatedDiffLineWitnessCandidates {
 		return celDiffLineWitness{}, nil
 	}
 
@@ -255,7 +264,7 @@ func isolatedDiffLineWitness(
 	candidates := make(
 		[]celDiffLineWitness,
 		0,
-		len(diff.AddedLines)+len(diff.RemovedLines),
+		candidateCount,
 	)
 	for _, line := range diff.AddedLines {
 		candidates = append(candidates, celDiffLineWitness{

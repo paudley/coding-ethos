@@ -214,7 +214,7 @@ func BuildPlan(request Request) (Plan, error) {
 		return deniedSeccompPlan(evidence, errNativeSeccompUnsupported)
 	}
 
-	if verifiedActiveAgentShellSandboxCovers(request) &&
+	if authenticatedActiveAgentShellSandboxCovers(request) &&
 		activeAgentShellSandboxReusable(request) {
 		evidence.Reason = activeAgentShellReuseReason
 	}
@@ -244,6 +244,16 @@ func activeAgentShellSandboxReusable(request Request) bool {
 			request.Capabilities,
 			normalizedGitTargetPaths(request.Capabilities.GitTargetPaths),
 		)
+}
+
+func authenticatedActiveAgentShellSandboxCovers(request Request) bool {
+	if !verifiedActiveAgentShellSandboxCovers(request) {
+		return false
+	}
+
+	_, active, err := validateActiveAgentShellNativeRuntime(request.WrapperPath)
+
+	return active && err == nil
 }
 
 func verifiedActiveAgentShellSandboxCovers(request Request) bool {
@@ -283,13 +293,13 @@ func deniedSandboxPlan(evidence Evidence, cause error) (Plan, error) {
 	evidence.Denied = true
 	evidence.Reason = backendEvidenceReason(cause)
 
-	return Plan{
-			Evidence: evidence,
-		}, fmt.Errorf(
-			"%w: %w",
-			ErrBackendUnavailable,
-			cause,
-		)
+	plan := Plan{Evidence: evidence}
+
+	return plan, fmt.Errorf(
+		"%w: %w",
+		ErrBackendUnavailable,
+		cause,
+	)
 }
 
 func backendEvidenceReason(cause error) string {
@@ -300,13 +310,13 @@ func deniedSeccompPlan(evidence Evidence, cause error) (Plan, error) {
 	evidence.Denied = true
 	evidence.Reason = cause.Error()
 
-	return Plan{
-			Evidence: evidence,
-		}, fmt.Errorf(
-			"%w: %w",
-			ErrBackendUnavailable,
-			cause,
-		)
+	plan := Plan{Evidence: evidence}
+
+	return plan, fmt.Errorf(
+		"%w: %w",
+		ErrBackendUnavailable,
+		cause,
+	)
 }
 
 func (plan Plan) Close() error {

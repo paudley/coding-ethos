@@ -71,6 +71,7 @@ def test_tests_and_diagnostics_do_not_build_or_install_runtime() -> None:
 
 
 def test_go_e2e_package_timeout_has_bounded_full_gate_budget() -> None:
+    """Keep package-level Go E2E timeouts bounded for full-gate load."""
     makefile, _lines = _makefile_lines()
 
     assert "GO_TEST_TIMEOUT ?= 3m" in makefile
@@ -79,6 +80,7 @@ def test_go_e2e_package_timeout_has_bounded_full_gate_budget() -> None:
 
 
 def test_normal_runtime_commands_require_prebuilt_artifacts() -> None:
+    """Require normal runtime targets to consume prebuilt artifacts."""
     makefile, _lines = _makefile_lines()
 
     for target in (
@@ -130,6 +132,7 @@ def test_check_blocks_unmanaged_go_module_root_binaries() -> None:
 
 
 def test_purrdf_extractor_uses_repository_target_directory() -> None:
+    """Keep PurRDF extractor artifacts in its repository target directory."""
     makefile, _lines = _makefile_lines()
 
     for target in ("purrdf-extractor-check", "purrdf-extractor-install"):
@@ -142,6 +145,7 @@ def test_purrdf_extractor_uses_repository_target_directory() -> None:
 
 
 def test_agent_hook_sync_uses_explicit_writable_state_roots() -> None:
+    """Give agent-hook sync explicit checkout-local writable state roots."""
     makefile, _lines = _makefile_lines()
 
     assert "AGENT_HOOK_STATE_ROOT ?= $(LOCAL_BUILD_DIR)/agent-hooks-state" in makefile
@@ -162,6 +166,7 @@ def test_agent_hook_sync_uses_explicit_writable_state_roots() -> None:
 
 
 def test_parent_hook_runtime_executables_use_atomic_compiled_sync() -> None:
+    """Project parent hook executables through the atomic compiled sync path."""
     makefile, _lines = _makefile_lines()
 
     runtime_sync_target = next(

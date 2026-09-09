@@ -495,7 +495,7 @@ func syncParentHookRuntimeExecutables(
 		return err
 	}
 
-	err = validateParentHookRuntimeProjections(projections)
+	err = validateParentHookRuntimeProjectionSources(projections)
 	if err != nil {
 		return err
 	}
@@ -519,14 +519,11 @@ func ensureParentHookRuntimeDirectories(directories []parentRuntimeDirectory) er
 	return nil
 }
 
-func validateParentHookRuntimeProjections(projections []parentRuntimeExecutable) error {
+func validateParentHookRuntimeProjectionSources(
+	projections []parentRuntimeExecutable,
+) error {
 	for _, projection := range projections {
 		_, err := parentRuntimeSourceInfo(projection.Source)
-		if err != nil {
-			return fmt.Errorf("validate parent hook runtime %s: %w", projection.Label, err)
-		}
-
-		err = validateParentHookRuntimeDestination(projection.Destination)
 		if err != nil {
 			return fmt.Errorf("validate parent hook runtime %s: %w", projection.Label, err)
 		}
@@ -682,11 +679,6 @@ func installParentHookRuntimeExecutable(source, destination string) error {
 		return err
 	}
 
-	err = validateParentHookRuntimeDestination(destination)
-	if err != nil {
-		return err
-	}
-
 	input, err := os.Open(source)
 	if err != nil {
 		return fmt.Errorf("open source executable %s: %w", source, err)
@@ -728,6 +720,11 @@ func installParentHookRuntimeExecutable(source, destination string) error {
 		return fmt.Errorf("close temporary hook runtime executable: %w", err)
 	}
 
+	err = prepareParentHookRuntimeDestination(destination)
+	if err != nil {
+		return err
+	}
+
 	err = os.Rename(temporaryPath, destination)
 	if err != nil {
 		return fmt.Errorf("activate hook runtime executable %s: %w", destination, err)
@@ -749,7 +746,7 @@ func parentRuntimeSourceInfo(source string) (fs.FileInfo, error) {
 	return info, nil
 }
 
-func validateParentHookRuntimeDestination(destination string) error {
+func prepareParentHookRuntimeDestination(destination string) error {
 	info, err := os.Lstat(destination)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -759,8 +756,17 @@ func validateParentHookRuntimeDestination(destination string) error {
 		return fmt.Errorf("stat installed executable %s: %w", destination, err)
 	}
 
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%w: %s", errParentRuntimeUnsafeShape, destination)
+	if !info.IsDir() {
+		return nil
+	}
+
+	err = os.Remove(destination)
+	if err != nil {
+		return fmt.Errorf(
+			"remove expected parent hook runtime directory %s: %w",
+			destination,
+			err,
+		)
 	}
 
 	return nil

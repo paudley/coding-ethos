@@ -932,10 +932,11 @@ install/check emit only status plus artifact-step rows, while parent lint emits
 the normal coding-ethos TOON lint report. See `TO_MY_PARENT.md` for the parent
 artifact contract.
 
-`parent-install` rebuilds the checkout-authoritative Go tools and atomically
-projects byte-identical executables into the parent repository's stable common
-Git runtime. `parent-check` hashes both sides and fails if that projection is
-missing, non-executable, symlinked back to a retiring checkout, or stale.
+`make build` rebuilds the checkout-authoritative Go tools. `parent-install`
+atomically projects those already-built, byte-identical executables into the
+parent repository's stable common Git runtime. `parent-check` hashes both
+sides and fails if that projection is missing, non-executable, symlinked back
+to a retiring checkout, or stale.
 `parent-runtime-sync` is the supervisor-safe repair path: it projects the
 already-built authoritative executables without rebuilding tools, rewriting
 generated parent artifacts, or refreshing code intelligence.

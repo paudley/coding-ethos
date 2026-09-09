@@ -327,6 +327,55 @@ func TestMigrateStoreRejectsUnexpectedSchemaVersion(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsFutureSchemaBeforeDDLWrites(t *testing.T) {
+	ctx := context.Background()
+	path := DefaultDBPath(t.TempDir())
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("open future-schema fixture: %v", err)
+	}
+
+	_, err = store.Database().ExecContext(
+		ctx,
+		`INSERT INTO code_intel_fts(
+			fts_id, kind, record_id, trace_id, search_text
+		) VALUES ('', 'finding', 'future-record', 'future-trace', 'future schema')`,
+	)
+	if err != nil {
+		t.Fatalf("insert future-schema write sentinel: %v", err)
+	}
+	_, err = store.Database().ExecContext(
+		ctx,
+		"UPDATE schema_metadata SET value = '999' WHERE key = 'schema_version'",
+	)
+	if err != nil {
+		t.Fatalf("mark fixture as future schema: %v", err)
+	}
+	closeMigrationTestStore(t, store)
+
+	_, err = Open(ctx, path)
+	if err == nil || !strings.Contains(err.Error(), "schema version 999") {
+		t.Fatalf("expected future schema rejection, got %v", err)
+	}
+
+	database, err := sql.Open("duckdb", path+"?access_mode=READ_ONLY")
+	if err != nil {
+		t.Fatalf("open rejected future schema read-only: %v", err)
+	}
+	defer database.Close()
+
+	var ftsID string
+	if err = database.QueryRowContext(
+		ctx,
+		"SELECT fts_id FROM code_intel_fts WHERE record_id = 'future-record'",
+	).Scan(&ftsID); err != nil {
+		t.Fatalf("read future-schema write sentinel: %v", err)
+	}
+	if ftsID != "" {
+		t.Fatalf("future-schema rejection mutated fts_id to %q", ftsID)
+	}
+}
+
 func TestMigrateStoreRejectsExistingManifestBeforeOpeningDestination(t *testing.T) {
 	ctx := context.Background()
 	repositoryRoot := t.TempDir()

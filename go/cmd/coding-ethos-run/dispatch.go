@@ -1013,19 +1013,41 @@ func runAgentHooksCommand(paths runtimePaths, rest []string) {
 }
 
 func runPolicyTool(paths runtimePaths, rest []string) error {
-	parentExecutable := ""
-
-	resolvedParent, err := os.Readlink(
-		filepath.Join("/proc", strconv.Itoa(os.Getppid()), "exe"),
+	return runPolicyToolWithParentResolver(
+		paths,
+		rest,
+		policyToolParentExecutable,
 	)
-	if err == nil {
-		parentExecutable = resolvedParent
+}
+
+func runPolicyToolWithParentResolver(
+	paths runtimePaths,
+	rest []string,
+	resolveParent func() (string, error),
+) error {
+	protocolMarker := os.Getenv(toolprotocol.ActionlintShellcheckEnv)
+	if len(rest) == 0 || !toolprotocol.IsActionlintShellcheckJSONStdin(
+		protocolMarker,
+		rest[0],
+		rest[1:],
+	) {
+		return runPolicyToolForProtocol(paths, rest, protocolMarker, "")
+	}
+
+	parentExecutable, err := resolveParent()
+	if err != nil {
+		requirePolicyBundle(paths)
+
+		return fmt.Errorf(
+			"authenticate actionlint ShellCheck protocol parent: %w",
+			err,
+		)
 	}
 
 	return runPolicyToolForProtocol(
 		paths,
 		rest,
-		os.Getenv(toolprotocol.ActionlintShellcheckEnv),
+		protocolMarker,
 		parentExecutable,
 	)
 }

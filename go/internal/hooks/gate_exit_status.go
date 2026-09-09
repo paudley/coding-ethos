@@ -102,10 +102,24 @@ func maskedRequiredGateStatus(
 		setting := pipefailCommandSetting(
 			gateExecutableArgv(parsed.segments[index]),
 		)
-		pipefail = setting.apply(pipefail)
+		if parsed.segmentControlsShellState(index) {
+			pipefail = setting.apply(pipefail)
+		}
 	}
 
 	return "", false
+}
+
+func (parsed gateShell) segmentControlsShellState(index int) bool {
+	if index < len(parsed.operators) {
+		switch parsed.operators[index] {
+		case "|", "|&", "&":
+			return false
+		}
+	}
+
+	return index == 0 ||
+		(parsed.operators[index-1] != "|" && parsed.operators[index-1] != "|&")
 }
 
 func (parsed gateShell) maskedSegmentStatus(

@@ -142,8 +142,8 @@ func TestRoutineV2SearchIdentityMigrationSkipsRecoveryScan(t *testing.T) {
 		`INSERT INTO code_intel_fts(
 			fts_id, kind, record_id, message, search_text
 		) VALUES
-			('v2:conflict', 'finding', 'one', 'first', 'same text'),
-			('v2:conflict', 'finding', 'one', 'second', 'same text')`,
+			('v2:replay', 'finding', 'one', 'same', 'same text'),
+			('v2:replay', 'finding', 'one', 'same', 'same text')`,
 	)
 	if err != nil {
 		t.Fatalf("insert v2 recovery sentinel: %v", err)
@@ -156,7 +156,7 @@ func TestRoutineV2SearchIdentityMigrationSkipsRecoveryScan(t *testing.T) {
 	var rows int
 	if err = store.Database().QueryRowContext(
 		ctx,
-		"SELECT COUNT(*) FROM code_intel_fts WHERE fts_id = 'v2:conflict'",
+		"SELECT COUNT(*) FROM code_intel_fts WHERE fts_id = 'v2:replay'",
 	).Scan(&rows); err != nil {
 		t.Fatalf("count retained v2 recovery sentinel: %v", err)
 	}

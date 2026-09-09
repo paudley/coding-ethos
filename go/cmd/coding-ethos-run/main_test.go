@@ -908,7 +908,7 @@ func TestParentHookRuntimeSyncConvergesAndCheckDetectsDrift(t *testing.T) {
 	}
 }
 
-func TestParentHookRuntimeCheckRejectsCheckoutSymlink(t *testing.T) {
+func TestParentHookRuntimeSyncRepairsExpectedDestinationSymlinks(t *testing.T) {
 	t.Parallel()
 
 	paths := runtimeTestPaths(t)
@@ -936,6 +936,27 @@ func TestParentHookRuntimeCheckRejectsCheckoutSymlink(t *testing.T) {
 	if !errors.Is(err, errParentArtifactDrift) ||
 		!strings.Contains(err.Error(), "coding-ethos-run(not_regular)") {
 		t.Fatalf("check symlink error = %v", err)
+	}
+
+	err = syncParentHookRuntimeExecutables(paths, options)
+	if err != nil {
+		t.Fatalf("repair expected runtime symlinks: %v", err)
+	}
+
+	err = checkParentHookRuntimeExecutables(paths, options)
+	if err != nil {
+		t.Fatalf("check repaired expected runtime symlinks: %v", err)
+	}
+
+	for _, tool := range parentGoToolFixtureCommands() {
+		destination := filepath.Join(runtimeBin, tool)
+		info, infoErr := os.Lstat(destination)
+		if infoErr != nil {
+			t.Fatalf("stat repaired %s: %v", tool, infoErr)
+		}
+		if !info.Mode().IsRegular() {
+			t.Fatalf("repaired %s is not a regular file: %v", tool, info.Mode())
+		}
 	}
 }
 
@@ -3012,6 +3033,64 @@ func TestPolicyToolRejectsSpoofedActionlintShellcheckProtocol(t *testing.T) {
 	}
 	if len(calls) != 0 {
 		t.Fatalf("spoofed actionlint protocol executed a tool: %#v", calls)
+	}
+}
+
+func TestPolicyToolRejectsProtocolWhenParentIdentityCannotBeResolved(
+	t *testing.T,
+) {
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+	t.Setenv(
+		toolprotocol.ActionlintShellcheckEnv,
+		toolprotocol.ActionlintShellcheckJSONStdinV1,
+	)
+
+	err := runPolicyToolWithParentResolver(
+		paths,
+		[]string{"shellcheck", "-f", "json", "-"},
+		func() (string, error) {
+			return "", apperror.StaticError("parent identity unavailable")
+		},
+	)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"authenticate actionlint ShellCheck protocol parent: parent identity unavailable",
+	) {
+		t.Fatalf("unresolved parent identity error = %v", err)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("unresolved parent identity executed a tool: %#v", calls)
+	}
+}
+
+func TestPolicyToolDoesNotResolveParentWithoutActionlintProtocol(t *testing.T) {
+	paths := runtimeTestPaths(t)
+	var calls []string
+	paths.Executor = stubRuntimeOps{calls: &calls}
+	t.Setenv(toolprotocol.ActionlintShellcheckEnv, "")
+	called := false
+
+	err := runPolicyToolWithParentResolver(
+		paths,
+		[]string{"shellcheck", "-f", "json", "-"},
+		func() (string, error) {
+			called = true
+
+			return "", apperror.StaticError("parent identity unavailable")
+		},
+	)
+	if err != nil {
+		t.Fatalf("run direct shellcheck: %v", err)
+	}
+	if called {
+		t.Fatal("direct shellcheck resolved an irrelevant parent identity")
+	}
+
+	joined := strings.Join(calls, "\n")
+	if !strings.Contains(joined, "exec-lint:") || strings.Contains(joined, "execpath:") {
+		t.Fatalf("direct shellcheck bypassed managed capture: %#v", calls)
 	}
 }
 

@@ -442,7 +442,7 @@ func TestBuildPlanDoesNotReuseActiveAgentShellForDescendantRepo(t *testing.T) {
 	}
 }
 
-func TestBuildPlanReusesVerifiedActiveAgentShellSandboxForExactRoot(t *testing.T) {
+func TestBuildPlanDoesNotReuseSpoofedExactRootAgentShellSandbox(t *testing.T) {
 	requireLinuxSandbox(t)
 
 	root := t.TempDir()
@@ -483,12 +483,16 @@ func TestBuildPlanReusesVerifiedActiveAgentShellSandboxForExactRoot(t *testing.T
 		t.Fatalf("sandbox.BuildPlan() error = %v", err)
 	}
 	if plan.Executable != wrapper ||
-		plan.Evidence.Reason != "reusing active agent-shell sandbox" {
-		t.Fatalf("exact-root active agent shell sandbox was not reused: %#v", plan)
+		plan.Evidence.Reason == "reusing active agent-shell sandbox" {
+		t.Fatalf("spoofed exact-root agent shell sandbox was reused: %#v", plan)
 	}
 	for _, want := range []string{"--write-path", "--", "/usr/bin/env"} {
 		if !slices.Contains(plan.Args, want) {
-			t.Fatalf("active reuse skipped native helper argument %q: %#v", want, plan.Args)
+			t.Fatalf(
+				"spoofed exact-root plan skipped native helper argument %q: %#v",
+				want,
+				plan.Args,
+			)
 		}
 	}
 }

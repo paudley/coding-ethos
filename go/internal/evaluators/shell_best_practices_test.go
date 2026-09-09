@@ -300,27 +300,132 @@ func TestEvaluateShellBestPracticesResolvesCommonHelperFromNestedCWD(
 		t.Fatalf("write script: %v", err)
 	}
 
-	decisions, err := EvaluateShellBestPractices(
-		shellBestPracticesPolicy(),
-		Context{
-			Cwd:   nestedDir,
-			Files: []string{scriptPath},
-			EvaluatorOptions: map[string]any{
+	for _, test := range []struct {
+		name    string
+		options map[string]any
+	}{
+		{
+			name: "absolute prefix",
+			options: map[string]any{
 				"require_common_for_prefixes": []any{
 					scriptsDir + string(filepath.Separator),
 				},
 			},
 		},
+		{name: "default relative prefix"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			decisions, err := EvaluateShellBestPractices(
+				shellBestPracticesPolicy(),
+				Context{
+					Cwd:              nestedDir,
+					Files:            []string{scriptPath},
+					EvaluatorOptions: test.options,
+				},
+			)
+			if err != nil {
+				t.Fatalf(
+					"evaluate common helper from nested working directory: %v",
+					err,
+				)
+			}
+			if len(decisions) != 1 {
+				t.Fatalf("nested working directory decisions = %#v", decisions)
+			}
+			if got := decisions[0].Diagnostics[0].Message; got !=
+				"scripts/ shell files must source the repository common shell helpers" {
+				t.Fatalf("diagnostic message = %q", got)
+			}
+		})
+	}
+}
+
+func TestEvaluateShellBestPracticesNormalizesSymlinkedAbsolutePrefix(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	fixtureRoot := t.TempDir()
+	repo := filepath.Join(fixtureRoot, "repo")
+	if err := os.Mkdir(repo, 0o700); err != nil {
+		t.Fatalf("create repository: %v", err)
+	}
+	initializeStagedAdminGitRepo(t, repo)
+
+	scriptsDir := filepath.Join(repo, "scripts")
+	nestedDir := filepath.Join(repo, "work", "nested")
+	for _, directory := range []string{scriptsDir, nestedDir} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatalf("create fixture directory %s: %v", directory, err)
+		}
+	}
+
+	content := []byte("#!/usr/bin/env bash\nset -euo pipefail\necho ok\n")
+	commonPath := filepath.Join(scriptsDir, "common.sh")
+	if err := os.WriteFile(commonPath, content, 0o600); err != nil {
+		t.Fatalf("write common helper: %v", err)
+	}
+	runGit(t, repo, "add", "scripts/common.sh")
+
+	scriptPath := filepath.Join(scriptsDir, "work.sh")
+	if err := os.WriteFile(scriptPath, content, 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	repoAlias := filepath.Join(fixtureRoot, "repo-alias")
+	if err := os.Symlink(repo, repoAlias); err != nil {
+		t.Skipf("create repository symlink: %v", err)
+	}
+
+	decisions, err := EvaluateShellBestPractices(
+		shellBestPracticesPolicy(),
+		Context{
+			Cwd:   filepath.Join(repoAlias, "work", "nested"),
+			Files: []string{scriptPath},
+			EvaluatorOptions: map[string]any{
+				"require_common_for_prefixes": []any{
+					filepath.Join(repoAlias, "scripts") + string(filepath.Separator),
+				},
+			},
+		},
 	)
 	if err != nil {
-		t.Fatalf("evaluate common helper from nested working directory: %v", err)
+		t.Fatalf("evaluate symlinked common helper prefix: %v", err)
 	}
 	if len(decisions) != 1 {
-		t.Fatalf("nested working directory decisions = %#v", decisions)
+		t.Fatalf("symlinked absolute prefix decisions = %#v", decisions)
 	}
-	if got := decisions[0].Diagnostics[0].Message; got !=
-		"scripts/ shell files must source the repository common shell helpers" {
-		t.Fatalf("diagnostic message = %q", got)
+}
+
+func TestEvaluateShellBestPracticesRejectsAbsolutePrefixOutsideRepository(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	initializeStagedAdminGitRepo(t, repo)
+	scriptPath := filepath.Join(repo, "work.sh")
+	content := []byte("#!/usr/bin/env bash\nset -euo pipefail\necho ok\n")
+	if err := os.WriteFile(scriptPath, content, 0o600); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	outsidePrefix := t.TempDir() + string(filepath.Separator)
+	_, err := EvaluateShellBestPractices(
+		shellBestPracticesPolicy(),
+		Context{
+			Cwd:   repo,
+			Files: []string{scriptPath},
+			EvaluatorOptions: map[string]any{
+				"require_common_for_prefixes": []any{outsidePrefix},
+			},
+		},
+	)
+	if err == nil {
+		t.Fatal("absolute prefix outside repository must fail validation")
+	}
+	if !strings.Contains(err.Error(), "outside the repository") {
+		t.Fatalf("outside repository error = %q", err)
 	}
 }
 

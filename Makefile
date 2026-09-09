@@ -32,6 +32,7 @@ UV ?= uv
 PYTHON ?= python
 GO ?= go
 GOFMT ?= gofmt
+GO_TOOLCHAIN ?= go1.26.5
 CARGO ?= cargo
 GO_BUILD_FLAGS ?= -trimpath -buildvcs=false
 GO_BUILD_CACHE_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/go-build
@@ -41,6 +42,7 @@ UV_CACHE_DIR ?= $(LOCAL_REPO_ROOT)/.coding-ethos/cache/uv
 export GOCACHE := $(GO_BUILD_CACHE_DIR)
 export GOPATH := $(GO_PATH_DIR)
 export GOMODCACHE := $(GO_MODULE_CACHE_DIR)
+export GOTOOLCHAIN := $(GO_TOOLCHAIN)
 export UV_CACHE_DIR
 
 empty :=

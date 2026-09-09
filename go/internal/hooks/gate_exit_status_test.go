@@ -74,6 +74,11 @@ func TestRequiredGateExitStatusTracksPipefailInExecutionOrder(t *testing.T) {
 			masked:    true,
 		},
 		{
+			name:      "pipeline-local disable preserves inherited state",
+			command:   "set +o pipefail | make check | tail -1",
+			inherited: true,
+		},
+		{
 			name:      "disable then enable",
 			command:   "set +o pipefail; set -o pipefail; make check | tail -1",
 			inherited: true,
